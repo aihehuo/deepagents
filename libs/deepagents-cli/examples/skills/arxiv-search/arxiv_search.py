@@ -50,7 +50,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    query_arxiv(args.query, max_papers=args.max_papers)
+    result = query_arxiv(args.query, max_papers=args.max_papers)
+    print(result)
 
 
 if __name__ == "__main__":

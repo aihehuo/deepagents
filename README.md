@@ -4,6 +4,52 @@ Agents can increasingly tackle long-horizon tasks, [with agent task length doubl
 
 <img src=".github/images/deepagents_banner.png" alt="deep agent" width="100%"/>
 
+## 🏗️ Repository Overview
+
+**DeepAgents** is an open-source agent framework from LangChain that implements production-grade patterns used by popular agents like Claude Code and Manus. It's designed to help AI agents tackle long-horizon tasks efficiently with proper tooling, safety mechanisms, and scalability.
+
+### **Core Components:**
+
+1. **`deepagents`** (core library): A Python library for creating agent harnesses with:
+   - **Planning tools** (`write_todos`, `read_todos`) for task management
+   - **Filesystem operations** (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`)
+   - **Sub-agent delegation** (`task` tool) for isolated task execution
+   - **Human-in-the-loop** workflows for tool approval
+   - **Persistent memory** across conversations
+   - **Customizable middleware** system
+
+2. **`deepagents-cli`**: A command-line interface that provides an interactive coding assistant similar to Claude Code, with:
+   - Built-in tools for file operations, shell commands, web search
+   - Skills system for domain-specific capabilities
+   - Project-aware memory and configuration
+   - Human-in-the-loop approval for potentially destructive operations
+
+3. **`harbor`**: Evaluation framework for testing DeepAgent harnesses using Terminal Bench 2.0 benchmarks
+
+### **Key Design Principles:**
+
+- **Planning before execution**: Agents create structured task lists before diving into complex work
+- **Computer access**: Full filesystem and shell capabilities for real-world task execution
+- **Sub-agent delegation**: Isolated context windows for parallel work and specialized tasks
+- **Human oversight**: Approval required for sensitive operations (file writes, shell commands, etc.)
+- **Memory persistence**: Cross-session knowledge retention for continuous learning
+- **Modular architecture**: Pluggable backends, middleware, and tools for customization
+
+### **Architecture:**
+
+The framework uses **LangGraph** under the hood and provides:
+- Default middleware for common agent patterns (todo lists, filesystem, subagents, summarization)
+- Pluggable backends (ephemeral state, real filesystem, persistent storage via LangGraph Store)
+- Customizable prompts and tools that complement (not duplicate) built-in instructions
+- Support for various LLM providers (default: Claude Sonnet)
+
+### **Use Cases:**
+- Building reliable coding assistants and AI pair programmers
+- Research agents for complex information gathering and synthesis
+- Task automation for multi-step workflows requiring computer access
+- Agent benchmarking and evaluation using standardized test suites
+- Educational tool for understanding production-grade agent patterns
+
 ## 📚 Resources
 
 - **[Documentation](https://docs.langchain.com/oss/python/deepagents/overview)** - Full overview and API reference

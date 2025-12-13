@@ -160,6 +160,11 @@ def parse_args() -> argparse.Namespace:
         "Provider is auto-detected from model name.",
     )
     parser.add_argument(
+        "--business-cofounder",
+        action="store_true",
+        help="Enable the Business Co-Founder preset (loads business idea middleware + example skills).",
+    )
+    parser.add_argument(
         "--auto-approve",
         action="store_true",
         help="Auto-approve tool usage without prompting (disables human-in-the-loop)",
@@ -191,6 +196,7 @@ async def run_textual_cli_async(
     thread_id: str | None = None,
     is_resumed: bool = False,
     initial_prompt: str | None = None,
+    business_cofounder: bool = False,
 ) -> None:
     """Run the Textual CLI interface (async version).
 
@@ -203,6 +209,7 @@ async def run_textual_cli_async(
         thread_id: Thread ID to use (new or resumed)
         is_resumed: Whether this is a resumed session
         initial_prompt: Optional prompt to auto-submit when session starts
+        business_cofounder: Enable Business Co-Founder preset (stable thread, disk checkpoint)
     """
     from deepagents_cli.app import run_textual_app
 
@@ -245,6 +252,7 @@ async def run_textual_cli_async(
                 sandbox_type=sandbox_type if sandbox_type != "none" else None,
                 auto_approve=auto_approve,
                 checkpointer=checkpointer,
+                preset="business_cofounder" if business_cofounder else None,
             )
 
             # Run Textual app
@@ -257,6 +265,9 @@ async def run_textual_cli_async(
                 thread_id=thread_id,
                 initial_prompt=initial_prompt,
             )
+        except KeyboardInterrupt:
+            console.print("\n\n[yellow]Interrupted[/yellow]")
+            sys.exit(0)
         except Exception as e:
             error_text = Text("❌ Failed to create agent: ", style="red")
             error_text.append(str(e))
@@ -310,6 +321,9 @@ def cli_main() -> None:
             # Interactive mode - handle thread resume
             thread_id = None
             is_resumed = False
+            # Business Co-Founder preset: use stable thread_id (agent name) for conversation resume
+            if args.business_cofounder:
+                thread_id = args.agent
 
             if args.resume_thread == "__MOST_RECENT__":
                 # -r (no ID): Get most recent thread
@@ -356,7 +370,7 @@ def cli_main() -> None:
             # Run Textual CLI
             asyncio.run(
                 run_textual_cli_async(
-                    assistant_id=args.agent,
+                    args.agent,
                     auto_approve=args.auto_approve,
                     sandbox_type=args.sandbox,
                     sandbox_id=args.sandbox_id,
@@ -364,6 +378,7 @@ def cli_main() -> None:
                     thread_id=thread_id,
                     is_resumed=is_resumed,
                     initial_prompt=getattr(args, "initial_prompt", None),
+                    business_cofounder=args.business_cofounder,
                 )
             )
     except KeyboardInterrupt:

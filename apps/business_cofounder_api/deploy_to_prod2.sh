@@ -49,6 +49,7 @@ CONTAINER_DATA_DIR="/root/.deepagents/business_cofounder_api"
 
 if [ -z "$ALIYUN_DOCKER_PASSWORD" ]; then
   echo "Error: ALIYUN_DOCKER_PASSWORD is not set"
+  echo "Set it in ${DEPLOY_ENV_FILE} or export it in your shell."
   exit 1
 fi
 

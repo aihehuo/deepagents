@@ -1,0 +1,8 @@
+fastapi>=0.110
+# Avoid uvicorn "standard" extras (uvloop/httptools) in production:
+# we've observed exit=139 (segfault) on some hosts, typically from native deps.
+uvicorn>=0.27
+h11>=0.14
+langdetect>=1.0.9
+
+

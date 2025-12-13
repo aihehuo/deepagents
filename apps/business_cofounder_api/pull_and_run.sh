@@ -45,10 +45,10 @@ PORT="${PORT:-8002}"
 DATA_DIR="${DATA_DIR:-${SCRIPT_DIR}/.tmp_home/.deepagents/business_cofounder_api}"
 CONTAINER_DATA_DIR="/root/.deepagents/business_cofounder_api"
 
-# Check if ALIYUN_DOCKER_PASSWORD is set
+# Check if ALIYUN_DOCKER_PASSWORD is set (can be sourced from .deploy.env)
 if [ -z "$ALIYUN_DOCKER_PASSWORD" ]; then
-  echo "❌ Error: ALIYUN_DOCKER_PASSWORD environment variable is not set"
-  echo "Please set it with: export ALIYUN_DOCKER_PASSWORD='your-password'"
+  echo "Error: ALIYUN_DOCKER_PASSWORD is not set"
+  echo "Set it in ${DEPLOY_ENV_FILE} or export it in your shell."
   exit 1
 fi
 

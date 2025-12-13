@@ -337,12 +337,18 @@ settings = Settings.from_environment()
 class SessionState:
     """Holds mutable session state (auto-approve mode, etc)."""
 
-    def __init__(self, auto_approve: bool = False, no_splash: bool = False) -> None:
+    def __init__(
+        self,
+        auto_approve: bool = False,
+        no_splash: bool = False,
+        *,
+        thread_id: str | None = None,
+    ) -> None:
         self.auto_approve = auto_approve
         self.no_splash = no_splash
         self.exit_hint_until: float | None = None
         self.exit_hint_handle = None
-        self.thread_id = str(uuid.uuid4())
+        self.thread_id = thread_id or str(uuid.uuid4())
 
     def toggle_auto_approve(self) -> bool:
         """Toggle auto-approve and return new state."""

@@ -103,6 +103,11 @@ def parse_args():
         help="Agent identifier for separate memory stores (default: agent).",
     )
     parser.add_argument(
+        "--business-cofounder",
+        action="store_true",
+        help="Enable the Business Co-Founder preset (loads business idea middleware + example skills).",
+    )
+    parser.add_argument(
         "--auto-approve",
         action="store_true",
         help="Auto-approve tool usage without prompting (disables human-in-the-loop)",
@@ -275,6 +280,8 @@ async def _run_agent_session(
     sandbox_backend=None,
     sandbox_type: str | None = None,
     setup_script_path: str | None = None,
+    *,
+    business_cofounder: bool = False,
 ) -> None:
     """Helper to create agent and run CLI session.
 
@@ -300,6 +307,7 @@ async def _run_agent_session(
         sandbox=sandbox_backend,
         sandbox_type=sandbox_type,
         auto_approve=session_state.auto_approve,
+        preset="business_cofounder" if business_cofounder else None,
     )
 
     # Calculate baseline token count for accurate token tracking
@@ -328,6 +336,8 @@ async def main(
     sandbox_type: str = "none",
     sandbox_id: str | None = None,
     setup_script_path: str | None = None,
+    *,
+    business_cofounder: bool = False,
 ) -> None:
     """Main entry point with conditional sandbox support.
 
@@ -358,6 +368,7 @@ async def main(
                     sandbox_backend,
                     sandbox_type=sandbox_type,
                     setup_script_path=setup_script_path,
+                    business_cofounder=business_cofounder,
                 )
         except (ImportError, ValueError, RuntimeError, NotImplementedError) as e:
             # Sandbox creation failed - fail hard (no silent fallback)
@@ -376,7 +387,13 @@ async def main(
     # Branch 2: User wants local mode (none or default)
     else:
         try:
-            await _run_agent_session(model, assistant_id, session_state, sandbox_backend=None)
+            await _run_agent_session(
+                model,
+                assistant_id,
+                session_state,
+                sandbox_backend=None,
+                business_cofounder=business_cofounder,
+            )
         except KeyboardInterrupt:
             console.print("\n\n[yellow]Interrupted[/yellow]")
             sys.exit(0)
@@ -409,7 +426,14 @@ def cli_main() -> None:
             execute_skills_command(args)
         else:
             # Create session state from args
-            session_state = SessionState(auto_approve=args.auto_approve, no_splash=args.no_splash)
+            # If we're using the Business Co-Founder preset, treat the agent as a single
+            # ongoing conversation and keep a stable thread_id across restarts.
+            stable_thread_id = args.agent if args.business_cofounder else None
+            session_state = SessionState(
+                auto_approve=args.auto_approve,
+                no_splash=args.no_splash,
+                thread_id=stable_thread_id,
+            )
 
             # API key validation happens in create_model()
             asyncio.run(
@@ -419,6 +443,7 @@ def cli_main() -> None:
                     args.sandbox,
                     args.sandbox_id,
                     args.sandbox_setup,
+                    business_cofounder=args.business_cofounder,
                 )
             )
     except KeyboardInterrupt:

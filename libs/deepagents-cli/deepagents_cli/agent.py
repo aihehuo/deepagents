@@ -1,8 +1,13 @@
 """Agent management and creation for the CLI."""
 
 import os
+import pickle
 import shutil
+import sys
+import warnings
+from collections import defaultdict
 from pathlib import Path
+from typing import Literal
 
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend
@@ -24,6 +29,174 @@ from deepagents_cli.config import COLORS, config, console, get_default_coding_in
 from deepagents_cli.integrations.sandbox_factory import get_default_working_dir
 from deepagents_cli.shell import ShellMiddleware
 from deepagents_cli.skills import SkillsMiddleware
+
+
+def _bootstrap_example_skills(*, dest_skills_dir: Path) -> None:
+    """Copy example skills into the per-agent skills directory (if missing).
+
+    We do not overwrite existing skills in dest_skills_dir.
+    """
+    # deepagents_cli/agent.py -> deepagents-cli root -> examples/skills
+    examples_skills_dir = Path(__file__).resolve().parent.parent / "examples" / "skills"
+    if not examples_skills_dir.exists():
+        return
+
+    dest_skills_dir.mkdir(parents=True, exist_ok=True)
+
+    for skill_dir in sorted(examples_skills_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        if not (skill_dir / "SKILL.md").exists():
+            continue
+
+        dest = dest_skills_dir / skill_dir.name
+        if dest.exists():
+            continue
+        shutil.copytree(skill_dir, dest)
+
+
+def _add_business_cofounder_middleware(*, agent_middleware: list) -> None:
+    """Append business-idea middleware for the Business Co-Founder preset."""
+    def _maybe_prefer_repo_deepagents() -> None:
+        """If running from the monorepo, prefer `libs/deepagents` on sys.path.
+
+        This avoids importing an older installed `deepagents` package that doesn't
+        include the business-idea middleware modules.
+        """
+        candidates: list[Path] = []
+
+        here = Path(__file__).resolve()
+        candidates.append(here)
+        candidates.extend(list(here.parents))
+
+        cwd = Path.cwd().resolve()
+        candidates.append(cwd)
+        candidates.extend(list(cwd.parents))
+
+        for base in candidates:
+            repo_candidate = base / "libs" / "deepagents"
+            pkg_init = repo_candidate / "deepagents" / "__init__.py"
+            if pkg_init.exists():
+                repo_str = str(repo_candidate)
+                if repo_str not in sys.path:
+                    # Prepend so it wins over site-packages
+                    sys.path.insert(0, repo_str)
+                return
+
+    # These live in the `deepagents` package (not deepagents-cli).
+    try:
+        from deepagents.middleware.business_idea_development import (
+            BusinessIdeaDevelopmentMiddleware,
+        )
+        from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
+        from deepagents.middleware.language import LanguageDetectionMiddleware
+    except ModuleNotFoundError:
+        _maybe_prefer_repo_deepagents()
+        try:
+            from deepagents.middleware.business_idea_development import (
+                BusinessIdeaDevelopmentMiddleware,
+            )
+            from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
+            from deepagents.middleware.language import LanguageDetectionMiddleware
+        except ModuleNotFoundError as e:
+            raise ModuleNotFoundError(
+                "Business Co-Founder preset requires a `deepagents` install that includes "
+                "`deepagents.middleware.business_idea_tracker` and "
+                "`deepagents.middleware.business_idea_development`.\n\n"
+                "Fix options:\n"
+                "- Run from the monorepo root so `libs/deepagents` can be detected, or\n"
+                "- Install the local deepagents package in editable mode.\n"
+            ) from e
+
+    agent_middleware.extend(
+        [
+            LanguageDetectionMiddleware(),
+            BusinessIdeaTrackerMiddleware(),
+            BusinessIdeaDevelopmentMiddleware(),
+        ]
+    )
+
+
+class _DiskBackedInMemorySaver(InMemorySaver):
+    """Disk-persisted variant of InMemorySaver.
+
+    - Stores checkpoints/writes/blobs in a local pickle file.
+    - Lets the CLI resume the same conversation across restarts.
+    """
+
+    def __init__(self, *, file_path: Path) -> None:
+        super().__init__()
+        self._file_path = Path(file_path)
+        self._load_from_disk()
+
+    def _load_from_disk(self) -> None:
+        if not self._file_path.exists():
+            return
+        try:
+            payload = pickle.loads(self._file_path.read_bytes())
+            if not isinstance(payload, dict):
+                return
+            storage = payload.get("storage", {})
+            writes = payload.get("writes", {})
+            blobs = payload.get("blobs", {})
+            if not isinstance(storage, dict) or not isinstance(writes, dict) or not isinstance(blobs, dict):
+                return
+
+            # Rehydrate defaultdicts without trying to pickle lambdas.
+            self.storage = defaultdict(lambda: defaultdict(dict))
+            for thread_id, ns_map in storage.items():
+                if not isinstance(ns_map, dict):
+                    continue
+                self.storage[thread_id] = defaultdict(dict)
+                for checkpoint_ns, ckpt_map in ns_map.items():
+                    if isinstance(ckpt_map, dict):
+                        self.storage[thread_id][checkpoint_ns] = dict(ckpt_map)
+
+            self.writes = defaultdict(dict)
+            for outer_key, inner_map in writes.items():
+                if isinstance(inner_map, dict):
+                    self.writes[outer_key] = dict(inner_map)
+
+            self.blobs = dict(blobs)
+        except Exception as e:  # noqa: BLE001
+            warnings.warn(
+                f"Failed to load conversation checkpoint from {self._file_path}: {e!s}. "
+                "Starting with a fresh in-memory state.",
+                stacklevel=2,
+            )
+
+    def _dump_to_disk(self) -> None:
+        try:
+            self._file_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "storage": {
+                    thread_id: {ns: dict(ckpts) for ns, ckpts in ns_map.items()}
+                    for thread_id, ns_map in self.storage.items()
+                },
+                "writes": {k: dict(v) for k, v in self.writes.items()},
+                "blobs": dict(self.blobs),
+            }
+            tmp = self._file_path.with_suffix(self._file_path.suffix + ".tmp")
+            tmp.write_bytes(pickle.dumps(payload))
+            os.replace(tmp, self._file_path)
+        except Exception as e:  # noqa: BLE001
+            warnings.warn(
+                f"Failed to persist conversation checkpoint to {self._file_path}: {e!s}.",
+                stacklevel=2,
+            )
+
+    def put(self, config, checkpoint, metadata, new_versions):  # type: ignore[override]
+        out = super().put(config, checkpoint, metadata, new_versions)
+        self._dump_to_disk()
+        return out
+
+    def put_writes(self, config, writes, task_id, task_path: str = ""):  # type: ignore[override]
+        super().put_writes(config, writes, task_id, task_path)
+        self._dump_to_disk()
+
+    def delete_thread(self, thread_id: str) -> None:  # type: ignore[override]
+        super().delete_thread(thread_id)
+        self._dump_to_disk()
 
 
 def list_agents() -> None:
@@ -335,6 +508,7 @@ def create_cli_agent(
     enable_memory: bool = True,
     enable_skills: bool = True,
     enable_shell: bool = True,
+    preset: Literal["business_cofounder"] | None = None,
 ) -> tuple[Pregel, CompositeBackend]:
     """Create a CLI-configured agent with flexible options.
 
@@ -356,6 +530,8 @@ def create_cli_agent(
         enable_memory: Enable AgentMemoryMiddleware for persistent memory
         enable_skills: Enable SkillsMiddleware for custom agent skills
         enable_shell: Enable ShellMiddleware for local shell execution (only in local mode)
+        preset: Optional agent preset. Use "business_cofounder" to enable the Business Co-Founder
+            agent configuration (example skills + business idea middleware).
 
     Returns:
         2-tuple of (agent_graph, composite_backend)
@@ -379,6 +555,8 @@ def create_cli_agent(
     if enable_skills:
         skills_dir = settings.ensure_user_skills_dir(assistant_id)
         project_skills_dir = settings.get_project_skills_dir()
+        if preset == "business_cofounder":
+            _bootstrap_example_skills(dest_skills_dir=Path(skills_dir))
 
     # Build middleware stack based on enabled features
     agent_middleware = []
@@ -396,6 +574,9 @@ def create_cli_agent(
             agent_middleware.append(
                 AgentMemoryMiddleware(settings=settings, assistant_id=assistant_id)
             )
+
+        if preset == "business_cofounder":
+            _add_business_cofounder_middleware(agent_middleware=agent_middleware)
 
         # Add skills middleware
         if enable_skills:
@@ -428,6 +609,9 @@ def create_cli_agent(
                 AgentMemoryMiddleware(settings=settings, assistant_id=assistant_id)
             )
 
+        if preset == "business_cofounder":
+            _add_business_cofounder_middleware(agent_middleware=agent_middleware)
+
         # Add skills middleware
         if enable_skills:
             agent_middleware.append(
@@ -453,6 +637,15 @@ def create_cli_agent(
         # Full HITL for destructive operations
         interrupt_on = _add_interrupt_on()
 
+    # Checkpointer:
+    # - Default CLI uses in-memory only
+    # - Business Co-Founder preset persists checkpoints to disk for conversation resume
+    if preset == "business_cofounder":
+        ckpt_path = settings.get_agent_dir(assistant_id) / "conversation_checkpoint.pkl"
+        checkpointer: InMemorySaver = _DiskBackedInMemorySaver(file_path=ckpt_path)
+    else:
+        checkpointer = InMemorySaver()
+
     # Create the agent
     agent = create_deep_agent(
         model=model,
@@ -461,6 +654,6 @@ def create_cli_agent(
         backend=composite_backend,
         middleware=agent_middleware,
         interrupt_on=interrupt_on,
-        checkpointer=InMemorySaver(),
+        checkpointer=checkpointer,
     ).with_config(config)
     return agent, composite_backend

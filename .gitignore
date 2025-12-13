@@ -216,3 +216,4 @@ __marimo__/
 .idea
 .tmp_home
 .docker.env
+.deploy.env

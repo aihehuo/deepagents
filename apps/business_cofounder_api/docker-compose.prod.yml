@@ -1,0 +1,37 @@
+version: "3.8"
+
+services:
+  business-cofounder-api:
+    build:
+      context: ../..
+      dockerfile: apps/business_cofounder_api/Dockerfile
+    container_name: business-cofounder-api-prod
+    ports:
+      - "8001:8001"
+    env_file:
+      - .docker.env
+    environment:
+      - HOME=/root
+    volumes:
+      # Production: use a named volume (doesn't depend on a host ./data folder existing).
+      - business_cofounder_api_data:/root/.deepagents/business_cofounder_api
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+        reservations:
+          cpus: "1"
+          memory: 2G
+
+volumes:
+  business_cofounder_api_data:
+
+

@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  business-cofounder-api:
+    build:
+      context: ../..
+      dockerfile: apps/business_cofounder_api/Dockerfile
+    container_name: business-cofounder-api
+    ports:
+      - "8001:8001"
+    env_file:
+      - .docker.env
+    environment:
+      # Persist checkpoints + skills under /root/.deepagents/business_cofounder_api by default
+      - HOME=/root
+    volumes:
+      # Persist checkpoints/skills across restarts
+      - ./.tmp_home/.deepagents/business_cofounder_api:/root/.deepagents/business_cofounder_api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+

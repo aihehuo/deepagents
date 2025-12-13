@@ -13,17 +13,62 @@ import time
 from pathlib import Path
 
 import pytest
-from langchain.agents import create_agent
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 
+from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
-from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
 from deepagents_cli.skills.load import list_skills
 from deepagents_cli.skills.middleware import SkillsMiddleware
 
 from tests.timing_middleware import TimingMiddleware
+
+
+def _load_model_config(repo_root: Path) -> tuple[str, str, str]:
+    """Load model configuration.
+
+    Prefer environment variables (works in sandbox/CI). Fallback to `.env.deepseek` if readable.
+    """
+    base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    model_name = os.environ.get("ANTHROPIC_MODEL", "deepseek-chat")
+
+    if base_url and api_key:
+        return base_url, api_key, model_name
+
+    env_file = repo_root / ".env.deepseek"
+    if not env_file.exists():
+        pytest.skip(
+            "Missing ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY and `.env.deepseek` not found. "
+            "Set env vars or provide `.env.deepseek`."
+        )
+
+    try:
+        env_text = env_file.read_text(encoding="utf-8")
+    except (PermissionError, OSError) as e:
+        pytest.skip(
+            f"Could not read `{env_file}` ({type(e).__name__}: {e}). "
+            "Set ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY in the environment to run this test."
+        )
+
+    env_vars: dict[str, str] = {}
+    for line in env_text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "export " in line:
+            key_value = line.replace("export ", "", 1).split("=", 1)
+            if len(key_value) == 2:
+                key, value = key_value
+                env_vars[key] = value.strip('"\'')
+
+    base_url = env_vars.get("ANTHROPIC_BASE_URL")
+    api_key = env_vars.get("ANTHROPIC_API_KEY")
+    model_name = env_vars.get("ANTHROPIC_MODEL", model_name)
+
+    if not base_url or not api_key:
+        pytest.skip("DeepSeek configuration incomplete (missing ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY).")
+
+    return base_url, api_key, model_name
 
 
 @pytest.mark.timeout(180)  # 3 minutes for real LLM calls
@@ -98,29 +143,7 @@ def test_persona_clarification_skill_usage_and_outcome(tmp_path: Path) -> None:
     """
     # Load model configuration
     repo_root = Path(__file__).parent.parent
-    env_file = repo_root / ".env.deepseek"
-    
-    if not env_file.exists():
-        pytest.skip(f"DeepSeek config file not found: {env_file}")
-    
-    # Read environment variables
-    env_vars = {}
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "export " in line:
-                key_value = line.replace("export ", "").split("=", 1)
-                if len(key_value) == 2:
-                    key, value = key_value
-                    value = value.strip('"\'')
-                    env_vars[key] = value
-    
-    base_url = env_vars.get("ANTHROPIC_BASE_URL")
-    api_key = env_vars.get("ANTHROPIC_API_KEY")
-    model_name = env_vars.get("ANTHROPIC_MODEL", "deepseek-chat")
-    
-    if not base_url or not api_key:
-        pytest.skip("DeepSeek configuration incomplete in .env.deepseek")
+    base_url, api_key, model_name = _load_model_config(repo_root)
     
     # Set up environment
     old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
@@ -165,11 +188,11 @@ def test_persona_clarification_skill_usage_and_outcome(tmp_path: Path) -> None:
         filesystem_backend = FilesystemBackend(root_dir=str(tmp_path))
         timing_middleware = TimingMiddleware(verbose=True)
         
-        agent = create_agent(
+        agent = create_deep_agent(
             model=model,
+            backend=filesystem_backend,
             middleware=[
                 timing_middleware,
-                FilesystemMiddleware(backend=filesystem_backend),
                 SkillsMiddleware(
                     skills_dir=skills_dir,
                     assistant_id=agent_id,
@@ -440,28 +463,7 @@ def test_persona_clarification_with_vague_idea(tmp_path: Path) -> None:
     """
     # Load model configuration (same as above)
     repo_root = Path(__file__).parent.parent
-    env_file = repo_root / ".env.deepseek"
-    
-    if not env_file.exists():
-        pytest.skip(f"DeepSeek config file not found: {env_file}")
-    
-    env_vars = {}
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "export " in line:
-                key_value = line.replace("export ", "").split("=", 1)
-                if len(key_value) == 2:
-                    key, value = key_value
-                    value = value.strip('"\'')
-                    env_vars[key] = value
-    
-    base_url = env_vars.get("ANTHROPIC_BASE_URL")
-    api_key = env_vars.get("ANTHROPIC_API_KEY")
-    model_name = env_vars.get("ANTHROPIC_MODEL", "deepseek-chat")
-    
-    if not base_url or not api_key:
-        pytest.skip("DeepSeek configuration incomplete")
+    base_url, api_key, model_name = _load_model_config(repo_root)
     
     old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
     old_api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -492,10 +494,10 @@ def test_persona_clarification_with_vague_idea(tmp_path: Path) -> None:
         
         filesystem_backend = FilesystemBackend(root_dir=str(tmp_path))
         
-        agent = create_agent(
+        agent = create_deep_agent(
             model=model,
+            backend=filesystem_backend,
             middleware=[
-                FilesystemMiddleware(backend=filesystem_backend),
                 SkillsMiddleware(
                     skills_dir=skills_dir,
                     assistant_id="test-persona-vague",
@@ -591,29 +593,7 @@ def test_persona_clarification_with_chinese_input(tmp_path: Path) -> None:
     """
     # Load model configuration
     repo_root = Path(__file__).parent.parent
-    env_file = repo_root / ".env.deepseek"
-    
-    if not env_file.exists():
-        pytest.skip(f"DeepSeek config file not found: {env_file}")
-    
-    # Read environment variables
-    env_vars = {}
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "export " in line:
-                key_value = line.replace("export ", "").split("=", 1)
-                if len(key_value) == 2:
-                    key, value = key_value
-                    value = value.strip('"\'')
-                    env_vars[key] = value
-    
-    base_url = env_vars.get("ANTHROPIC_BASE_URL")
-    api_key = env_vars.get("ANTHROPIC_API_KEY")
-    model_name = env_vars.get("ANTHROPIC_MODEL", "deepseek-chat")
-    
-    if not base_url or not api_key:
-        pytest.skip("DeepSeek configuration incomplete in .env.deepseek")
+    base_url, api_key, model_name = _load_model_config(repo_root)
     
     # Set up environment
     old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
@@ -658,12 +638,12 @@ def test_persona_clarification_with_chinese_input(tmp_path: Path) -> None:
         filesystem_backend = FilesystemBackend(root_dir=str(tmp_path))
         timing_middleware = TimingMiddleware(verbose=True)
         
-        agent = create_agent(
+        agent = create_deep_agent(
             model=model,
+            backend=filesystem_backend,
             middleware=[
                 timing_middleware,
                 LanguageDetectionMiddleware(),  # Add language detection
-                FilesystemMiddleware(backend=filesystem_backend),
                 SkillsMiddleware(
                     skills_dir=skills_dir,
                     assistant_id=agent_id,

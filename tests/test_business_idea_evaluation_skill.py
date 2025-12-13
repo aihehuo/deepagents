@@ -13,14 +13,13 @@ import time
 from pathlib import Path
 
 import pytest
-from langchain.agents import create_agent
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
+from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
-from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
 from deepagents_cli.skills.load import list_skills
 from deepagents_cli.skills.middleware import SkillsMiddleware
@@ -170,12 +169,12 @@ def test_business_idea_evaluation_with_complete_idea(tmp_path: Path) -> None:
         # Create checkpointer for state persistence
         checkpointer = MemorySaver()
         
-        agent = create_agent(
+        agent = create_deep_agent(
             model=model,
+            backend=filesystem_backend,
             middleware=[
                 timing_middleware,
                 BusinessIdeaTrackerMiddleware(),  # Track business idea completion
-                FilesystemMiddleware(backend=filesystem_backend),
                 SkillsMiddleware(
                     skills_dir=skills_dir,
                     assistant_id=agent_id,
@@ -403,11 +402,11 @@ def test_business_idea_evaluation_with_incomplete_idea(tmp_path: Path) -> None:
         # Create checkpointer for state persistence
         checkpointer = MemorySaver()
         
-        agent = create_agent(
+        agent = create_deep_agent(
             model=model,
+            backend=filesystem_backend,
             middleware=[
                 BusinessIdeaTrackerMiddleware(),  # Track business idea completion
-                FilesystemMiddleware(backend=filesystem_backend),
                 SkillsMiddleware(
                     skills_dir=skills_dir,
                     assistant_id="test-idea-evaluation-incomplete",
@@ -571,13 +570,13 @@ def test_business_idea_evaluation_with_chinese_input(tmp_path: Path) -> None:
         # Create checkpointer for state persistence
         checkpointer = MemorySaver()
         
-        agent = create_agent(
+        agent = create_deep_agent(
             model=model,
+            backend=filesystem_backend,
             middleware=[
                 timing_middleware,
                 BusinessIdeaTrackerMiddleware(),  # Track business idea completion
                 LanguageDetectionMiddleware(),  # Add language detection
-                FilesystemMiddleware(backend=filesystem_backend),
                 SkillsMiddleware(
                     skills_dir=skills_dir,
                     assistant_id=agent_id,
@@ -860,12 +859,12 @@ def test_business_idea_evaluation_skill_not_called_after_completion(tmp_path: Pa
         # Create checkpointer for state persistence
         checkpointer = MemorySaver()
         
-        agent = create_agent(
+        agent = create_deep_agent(
             model=model,
+            backend=filesystem_backend,
             middleware=[
                 timing_middleware,
                 BusinessIdeaTrackerMiddleware(),  # Track business idea completion
-                FilesystemMiddleware(backend=filesystem_backend),
                 SkillsMiddleware(
                     skills_dir=skills_dir,
                     assistant_id=agent_id,

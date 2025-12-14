@@ -11,14 +11,12 @@ This test verifies the entire business idea development workflow:
 The test uses BusinessIdeaTrackerMiddleware to enforce the sequential unlock conditions.
 """
 
-import os
 import re
 import shutil
 import time
 from pathlib import Path
 
 import pytest
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -29,53 +27,8 @@ from deepagents.middleware.language import LanguageDetectionMiddleware
 from deepagents_cli.skills.load import list_skills
 from deepagents_cli.skills.middleware import SkillsMiddleware
 
+from tests.model_provider import create_test_model, load_test_model_config
 from tests.timing_middleware import TimingMiddleware
-
-
-def _load_model_config(repo_root: Path) -> tuple[str, str, str]:
-    """Load model configuration.
-
-    Prefer environment variables (works in sandbox/CI). Fallback to `.env.deepseek` if readable.
-    """
-    base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    model_name = os.environ.get("ANTHROPIC_MODEL", "deepseek-chat")
-
-    if base_url and api_key:
-        return base_url, api_key, model_name
-
-    env_file = repo_root / ".env.deepseek"
-    if not env_file.exists():
-        pytest.skip(
-            "Missing ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY and `.env.deepseek` not found. "
-            "Set env vars or provide `.env.deepseek`."
-        )
-
-    try:
-        env_text = env_file.read_text(encoding="utf-8")
-    except (PermissionError, OSError) as e:
-        pytest.skip(
-            f"Could not read `{env_file}` ({type(e).__name__}: {e}). "
-            "Set ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY in the environment to run this test."
-        )
-
-    env_vars: dict[str, str] = {}
-    for line in env_text.splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "export " in line:
-            key_value = line.replace("export ", "", 1).split("=", 1)
-            if len(key_value) == 2:
-                key, value = key_value
-                env_vars[key] = value.strip('"\'')
-
-    base_url = env_vars.get("ANTHROPIC_BASE_URL")
-    api_key = env_vars.get("ANTHROPIC_API_KEY")
-    model_name = env_vars.get("ANTHROPIC_MODEL", model_name)
-
-    if not base_url or not api_key:
-        pytest.skip("DeepSeek configuration incomplete (missing ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY).")
-
-    return base_url, api_key, model_name
 
 
 @pytest.mark.timeout(600)  # 10 minutes for the full sequence
@@ -89,17 +42,8 @@ def test_complete_sequential_skill_progression(tmp_path: Path) -> None:
     - Skills are locked when prerequisites aren't met
     - The entire workflow executes successfully
     """
-    # Load model configuration
     repo_root = Path(__file__).parent.parent
-    base_url, api_key, model_name = _load_model_config(repo_root)
-    
-    # Set up environment
-    old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    old_api_key = os.environ.get("ANTHROPIC_API_KEY")
-    
-    os.environ["ANTHROPIC_BASE_URL"] = base_url
-    os.environ["ANTHROPIC_API_KEY"] = api_key
-    
+    cfg = load_test_model_config(repo_root=repo_root)
     try:
         # Set up skills directory with all required skills
         agent_id = "test_sequential_progression"
@@ -137,14 +81,8 @@ def test_complete_sequential_skill_progression(tmp_path: Path) -> None:
         print(f"Skills loaded: {len(skills)}")
         print(f"Skills: {', '.join(skill_names)}\n")
         
-        # Create model
-        model = ChatAnthropic(
-            model=model_name,
-            base_url=base_url,
-            api_key=api_key,
-            max_tokens=20000,
-            timeout=300.0,
-        )
+        # Create model (DeepSeek default; switch to Qwen via BC_API_PROVIDER=qwen + QWEN_* env vars)
+        model = create_test_model(cfg=cfg)
         
         # Create agent with BusinessIdeaTrackerMiddleware to enforce sequence
         filesystem_backend = FilesystemBackend(root_dir=str(tmp_path))
@@ -488,14 +426,5 @@ and personalized boundary recommendations."""
         timing_middleware.print_summary()
         
     finally:
-        # Restore environment
-        if old_base_url is not None:
-            os.environ["ANTHROPIC_BASE_URL"] = old_base_url
-        elif "ANTHROPIC_BASE_URL" in os.environ:
-            del os.environ["ANTHROPIC_BASE_URL"]
-        
-        if old_api_key is not None:
-            os.environ["ANTHROPIC_API_KEY"] = old_api_key
-        elif "ANTHROPIC_API_KEY" in os.environ:
-            del os.environ["ANTHROPIC_API_KEY"]
+        pass
 

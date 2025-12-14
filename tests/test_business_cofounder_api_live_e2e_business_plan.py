@@ -14,7 +14,7 @@ from apps.business_cofounder_api.checkpointer import DiskBackedInMemorySaver
 
 
 def _base_url() -> str:
-    return os.environ.get("BC_API_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
+    return os.environ.get("BC_API_BASE_URL", "http://127.0.0.1:8002").rstrip("/")
 
 def _checkpoints_host_path_override() -> str | None:
     """

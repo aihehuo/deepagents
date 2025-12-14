@@ -7,14 +7,12 @@ This test verifies:
 4. Dependency check - skill is not used before business idea and product/service are clarified
 """
 
-import os
 import re
 import shutil
 import time
 from pathlib import Path
 
 import pytest
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -25,53 +23,8 @@ from deepagents.middleware.language import LanguageDetectionMiddleware
 from deepagents_cli.skills.load import list_skills
 from deepagents_cli.skills.middleware import SkillsMiddleware
 
+from tests.model_provider import create_test_model, load_test_model_config
 from tests.timing_middleware import TimingMiddleware
-
-
-def _load_model_config(repo_root: Path) -> tuple[str, str, str]:
-    """Load model configuration.
-
-    Prefer environment variables (works in sandbox/CI). Fallback to `.env.deepseek` if readable.
-    """
-    base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    model_name = os.environ.get("ANTHROPIC_MODEL", "deepseek-chat")
-
-    if base_url and api_key:
-        return base_url, api_key, model_name
-
-    env_file = repo_root / ".env.deepseek"
-    if not env_file.exists():
-        pytest.skip(
-            "Missing ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY and `.env.deepseek` not found. "
-            "Set env vars or provide `.env.deepseek`."
-        )
-
-    try:
-        env_text = env_file.read_text(encoding="utf-8")
-    except (PermissionError, OSError) as e:
-        pytest.skip(
-            f"Could not read `{env_file}` ({type(e).__name__}: {e}). "
-            "Set ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY in the environment to run this test."
-        )
-
-    env_vars: dict[str, str] = {}
-    for line in env_text.splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "export " in line:
-            key_value = line.replace("export ", "", 1).split("=", 1)
-            if len(key_value) == 2:
-                key, value = key_value
-                env_vars[key] = value.strip('"\'')
-
-    base_url = env_vars.get("ANTHROPIC_BASE_URL")
-    api_key = env_vars.get("ANTHROPIC_API_KEY")
-    model_name = env_vars.get("ANTHROPIC_MODEL", model_name)
-
-    if not base_url or not api_key:
-        pytest.skip("DeepSeek configuration incomplete (missing ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY).")
-
-    return base_url, api_key, model_name
 
 
 @pytest.mark.timeout(180)  # 3 minutes for real LLM calls
@@ -143,17 +96,8 @@ def test_business_model_pivot_exploration_with_complete_idea(tmp_path: Path) -> 
     - Output contains exploration of multiple business models with required sections
     - Skill is used after business idea and product/service are clarified
     """
-    # Load model configuration
     repo_root = Path(__file__).parent.parent
-    base_url, api_key, model_name = _load_model_config(repo_root)
-    
-    # Set up environment
-    old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    old_api_key = os.environ.get("ANTHROPIC_API_KEY")
-    
-    os.environ["ANTHROPIC_BASE_URL"] = base_url
-    os.environ["ANTHROPIC_API_KEY"] = api_key
-    
+    cfg = load_test_model_config(repo_root=repo_root)
     try:
         # Set up skills directory
         agent_id = "test_business_model_pivot_exploration"
@@ -185,14 +129,8 @@ def test_business_model_pivot_exploration_with_complete_idea(tmp_path: Path) -> 
         print("TEST: BUSINESS MODEL PIVOT EXPLORATION WITH COMPLETE IDEA")
         print("="*80)
         
-        # Create model
-        model = ChatAnthropic(
-            model=model_name,
-            base_url=base_url,
-            api_key=api_key,
-            max_tokens=20000,
-            timeout=300.0,
-        )
+        # Create model (DeepSeek default; switch to Qwen via BC_API_PROVIDER=qwen + QWEN_* env vars)
+        model = create_test_model(cfg=cfg)
         
         # Create agent with SkillsMiddleware and BusinessIdeaTrackerMiddleware
         filesystem_backend = FilesystemBackend(root_dir=str(tmp_path))
@@ -402,16 +340,7 @@ The product is a mobile application with AI-powered task prioritization, automat
         print("✅ Test passed: Skill correctly explores business model pivots after business idea is identified")
         
     finally:
-        # Restore environment variables
-        if old_base_url:
-            os.environ["ANTHROPIC_BASE_URL"] = old_base_url
-        elif "ANTHROPIC_BASE_URL" in os.environ:
-            del os.environ["ANTHROPIC_BASE_URL"]
-        
-        if old_api_key:
-            os.environ["ANTHROPIC_API_KEY"] = old_api_key
-        elif "ANTHROPIC_API_KEY" in os.environ:
-            del os.environ["ANTHROPIC_API_KEY"]
+        pass
 
 
 @pytest.mark.timeout(300)
@@ -424,17 +353,8 @@ def test_business_model_pivot_exploration_with_chinese_input(tmp_path: Path) -> 
     - Business model pivot exploration structure is present in Chinese response
     - Multiple business models are explored
     """
-    # Load model configuration
     repo_root = Path(__file__).parent.parent
-    base_url, api_key, model_name = _load_model_config(repo_root)
-    
-    # Set up environment
-    old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    old_api_key = os.environ.get("ANTHROPIC_API_KEY")
-    
-    os.environ["ANTHROPIC_BASE_URL"] = base_url
-    os.environ["ANTHROPIC_API_KEY"] = api_key
-    
+    cfg = load_test_model_config(repo_root=repo_root)
     try:
         # Set up skills directory
         agent_id = "test_business_model_pivot_exploration_chinese"
@@ -459,14 +379,7 @@ def test_business_model_pivot_exploration_with_chinese_input(tmp_path: Path) -> 
         print("TEST: BUSINESS MODEL PIVOT EXPLORATION WITH CHINESE INPUT")
         print("="*80)
         
-        # Create model
-        model = ChatAnthropic(
-            model=model_name,
-            base_url=base_url,
-            api_key=api_key,
-            max_tokens=20000,
-            timeout=300.0,
-        )
+        model = create_test_model(cfg=cfg)
         
         # Create agent with LanguageDetectionMiddleware
         filesystem_backend = FilesystemBackend(root_dir=str(tmp_path))
@@ -643,14 +556,5 @@ When a user provides input about a potential business idea, you should:
         print("✅ Test passed: Skill correctly explores business model pivots in Chinese")
         
     finally:
-        # Restore environment variables
-        if old_base_url:
-            os.environ["ANTHROPIC_BASE_URL"] = old_base_url
-        elif "ANTHROPIC_BASE_URL" in os.environ:
-            del os.environ["ANTHROPIC_BASE_URL"]
-        
-        if old_api_key:
-            os.environ["ANTHROPIC_API_KEY"] = old_api_key
-        elif "ANTHROPIC_API_KEY" in os.environ:
-            del os.environ["ANTHROPIC_API_KEY"]
+        pass
 

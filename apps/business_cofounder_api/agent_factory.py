@@ -9,6 +9,8 @@ from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.business_idea_development import BusinessIdeaDevelopmentMiddleware
 from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
+from deepagents.middleware.routing import build_default_coder_routing_middleware
+from deepagents.subagent_presets import build_coder_subagent_from_env
 from deepagents_cli.skills.middleware import SkillsMiddleware
 from langchain_anthropic import ChatAnthropic
 
@@ -43,37 +45,100 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     Returns:
         (agent_graph, checkpoints_path)
     """
-    # Model configuration:
-    # - Defaults to env-driven settings so you can point at DeepSeek proxy or Anthropic.
-    # - Falls back to a reasonable default model name if env is not set.
-    model_name = os.environ.get("BC_API_MODEL") or os.environ.get("ANTHROPIC_MODEL") or "deepseek-chat"
-    max_tokens = int(os.environ.get("BC_API_MAX_TOKENS") or "20000")
-    temperature_env = os.environ.get("BC_API_TEMPERATURE")
+    # Model configuration (single generic env var set):
+    # - MODEL_API_PROVIDER: deepseek | qwen
+    # - MODEL_API_KEY / MODEL_BASE_URL / MODEL_NAME
+    # - MODEL_API_MAX_TOKENS / MODEL_API_TEMPERATURE / MODEL_API_TIMEOUT_S (optional)
+    provider = (os.environ.get("MODEL_API_PROVIDER") or "deepseek").strip().lower()
+    base_url = os.environ.get("MODEL_BASE_URL")
+    api_key = os.environ.get("MODEL_API_KEY")
 
-    model_kwargs: dict[str, object] = {
-        "model": model_name,
-        "max_tokens": max_tokens,
-    }
-    if temperature_env is not None:
+    model_name = os.environ.get("MODEL_NAME")
+    if not model_name:
+        model_name = "qwen-plus" if provider == "qwen" else "deepseek-chat"
+
+    max_tokens_env = os.environ.get("MODEL_API_MAX_TOKENS") or "20000"
+    timeout_env = os.environ.get("MODEL_API_TIMEOUT_S") or "180.0"
+    temperature_env = os.environ.get("MODEL_API_TEMPERATURE")
+
+    try:
+        max_tokens = int(max_tokens_env)
+    except ValueError:
+        max_tokens = 20000
+    try:
+        timeout_s = float(timeout_env)
+    except ValueError:
+        timeout_s = 180.0
+
+    temperature: float | None = None
+    if temperature_env is not None and temperature_env != "":
         try:
-            model_kwargs["temperature"] = float(temperature_env)
+            temperature = float(temperature_env)
         except ValueError:
-            pass
+            temperature = None
 
-    # If you're using an OpenAI-compatible or Anthropic-compatible proxy (e.g. DeepSeek),
-    # these env vars are typically how ChatAnthropic is configured.
-    base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if base_url:
-        model_kwargs["base_url"] = base_url
-    if api_key:
-        model_kwargs["api_key"] = api_key
+    if provider == "qwen":
+        # Qwen (DashScope) OpenAI-compatible mode
+        from langchain_openai import ChatOpenAI  # lazy import (avoid import-time side effects in tests)
 
-    model = ChatAnthropic(**model_kwargs)
+        openai_kwargs: dict[str, object] = {
+            "model": model_name,
+            "max_tokens": max_tokens,
+            "timeout": timeout_s,
+        }
+        if temperature is not None:
+            openai_kwargs["temperature"] = temperature
+        if base_url:
+            openai_kwargs["base_url"] = base_url
+        if api_key:
+            openai_kwargs["api_key"] = api_key
+
+        model = ChatOpenAI(**openai_kwargs)
+    else:
+        # DeepSeek / Anthropic-compatible proxy
+        anthropic_kwargs: dict[str, object] = {
+            "model": model_name,
+            "max_tokens": max_tokens,
+            "timeout": timeout_s,
+        }
+        if temperature is not None:
+            anthropic_kwargs["temperature"] = temperature
+        if base_url:
+            anthropic_kwargs["base_url"] = base_url
+        if api_key:
+            anthropic_kwargs["api_key"] = api_key
+
+        model = ChatAnthropic(**anthropic_kwargs)
 
     base_dir = Path.home() / ".deepagents" / "business_cofounder_api"
     skills_dir = base_dir / "skills"
     checkpoints_path = base_dir / "checkpoints.pkl"
+    agent_md_path = base_dir / "agent.md"
+
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    # CLI-created agents typically have ~/.deepagents/<agent_id>/agent.md injected into prompts.
+    # Our API runs without the CLI, so we support an API-local agent.md at:
+    #   ~/.deepagents/business_cofounder_api/agent.md
+    # If missing, we create a small default template.
+    if not agent_md_path.exists():
+        agent_md_path.write_text(
+            """# Business Co-Founder Agent (API)
+
+## Operating mode
+- You are running behind an HTTP API.
+- You must follow the BusinessIdeaTrackerMiddleware sequential unlock rules.
+- When you complete a milestone, call the corresponding mark_* tool.
+
+## Output style
+- Be concise, structured, and action-oriented.
+- Prefer bullet points and clear section headers.
+""",
+            encoding="utf-8",
+        )
+
+    agent_md = agent_md_path.read_text(encoding="utf-8").strip()
+    memory_prefix = f"<agent_md>\\n{agent_md}\\n</agent_md>\\n\\n" if agent_md else ""
 
     _copy_example_skills_if_missing(dest_skills_dir=skills_dir)
 
@@ -82,21 +147,29 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     # IMPORTANT: FilesystemBackend virtual_mode=False so SkillsMiddleware absolute paths work.
     backend = FilesystemBackend(root_dir=str(Path.cwd()), virtual_mode=False)
 
+    coder_subagent = build_coder_subagent_from_env(tools=None, name="coder")
+    subagents = [coder_subagent] if coder_subagent is not None else []
+
+    middleware = [
+        LanguageDetectionMiddleware(),
+        BusinessIdeaTrackerMiddleware(),
+        BusinessIdeaDevelopmentMiddleware(),
+        SkillsMiddleware(
+            skills_dir=skills_dir,
+            assistant_id=agent_id,
+            project_skills_dir=None,
+        ),
+    ]
+    if coder_subagent is not None:
+        middleware.append(build_default_coder_routing_middleware(coder_subagent_type="coder"))
+
     agent = create_deep_agent(
         model=model,
         backend=backend,
         checkpointer=checkpointer,
-        middleware=[
-            LanguageDetectionMiddleware(),
-            BusinessIdeaTrackerMiddleware(),
-            BusinessIdeaDevelopmentMiddleware(),
-            SkillsMiddleware(
-                skills_dir=skills_dir,
-                assistant_id=agent_id,
-                project_skills_dir=None,
-            ),
-        ],
-        system_prompt="You are a business co-founder assistant helping entrepreneurs develop their startup ideas.",
+        subagents=subagents,
+        middleware=middleware,
+        system_prompt=memory_prefix + "You are a business co-founder assistant helping entrepreneurs develop their startup ideas.",
     )
 
     return agent, checkpoints_path

@@ -9,29 +9,22 @@ WORKDIR /app
 # Environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH="/app/libs/deepagents:/app/libs/deepagents-cli"
 
-# System deps (kept consistent with BPGenerationAgent; safe default)
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy dependency manifests first for better caching
-COPY libs/deepagents/pyproject.toml libs/deepagents/uv.lock /app/libs/deepagents/
-COPY libs/deepagents-cli/pyproject.toml libs/deepagents-cli/uv.lock /app/libs/deepagents-cli/
+# System deps
+# NOTE: Avoid apt-get in this image because some environments cannot validate Debian repo signatures
+# (e.g. network MITM / restricted corporate mirrors), which breaks builds.
+# Current requirements are pure-Python, so we don't need gcc/g++ here.
 
 # Minimal runtime deps for the API layer (FastAPI/Uvicorn + optional langdetect).
 COPY apps/business_cofounder_api/requirements.txt /app/apps/business_cofounder_api/requirements.txt
 
-RUN pip install --no-cache-dir -r /app/apps/business_cofounder_api/requirements.txt
+RUN pip install -r /app/apps/business_cofounder_api/requirements.txt
 
-# Install deepagents + deepagents-cli from local source
+# Copy deepagents + deepagents-cli source (imported via PYTHONPATH; no pip editable install)
 COPY libs/deepagents /app/libs/deepagents
 COPY libs/deepagents-cli /app/libs/deepagents-cli
-RUN pip install --no-cache-dir -e /app/libs/deepagents -e /app/libs/deepagents-cli
 
 # Copy application code
 COPY apps/business_cofounder_api /app/apps/business_cofounder_api

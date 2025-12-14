@@ -43,7 +43,9 @@ To print every `/chat` request’s user message + the assistant’s final reply 
 ## Endpoints
 
 - `GET /health`
+- `GET /state` (debug; milestones + todos; enable with `BC_API_ENABLE_STATE_ENDPOINT=1`)
 - `POST /chat`
+- `POST /chat/stream` (SSE; streaming tokens to avoid timeouts for long generations)
 - `POST /reset`
 
 ## Persistence model
@@ -65,5 +67,20 @@ This API server is not the CLI, so it uses its own `agent.md` location:
 
 On first start, the server will auto-create a default `agent.md` if missing, and inject it
 into the system prompt for every call.
+
+## Streaming (avoid timeouts for long outputs)
+
+For long generations (e.g. converting a full business plan into a styled HTML page via the coder subagent),
+use the SSE endpoint:
+
+```bash
+curl -N -X POST "http://127.0.0.1:8001/chat/stream" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"u1","conversation_id":"default","message":"Convert the plan to a single HTML page. Output ONLY HTML."}'
+```
+
+The stream emits JSON events:
+- `{"type":"delta","text":"..."}` (many)
+- `{"type":"final","text":"..."}` (once)
 
 

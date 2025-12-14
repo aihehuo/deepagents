@@ -547,7 +547,7 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
                 f"{skill_unlock_status}\n\n"
                 f"**REQUIRED ACTION**: \n"
                 f"- DO NOT read the business-idea-evaluation SKILL.md file\n"
-                f"- DO NOT use the business-idea-evaluation skill\n"
+                f"- DO NOT attempt a tool/function call named `business-idea-evaluation`\n"
                 f"- DO NOT re-evaluate the idea\n"
                 f"- DO NOT call mark_business_idea_complete again\n"
                 f"- Use appropriate unlocked skills based on the user's request and current progression state"
@@ -561,7 +561,7 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
                 f"{skill_unlock_status}\n\n"
                 "**REQUIRED ACTION**: \n"
                 "- DO NOT read the business-idea-evaluation SKILL.md file\n"
-                "- DO NOT use the business-idea-evaluation skill\n"
+                "- DO NOT attempt a tool/function call named `business-idea-evaluation`\n"
                 "- DO NOT re-evaluate the idea\n"
                 "- DO NOT call mark_business_idea_complete again\n"
                 "- Use appropriate unlocked skills based on the user's request and current progression state"
@@ -573,7 +573,11 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
                 "No complete business idea has been identified yet.\n\n"
                 "**SKILL UNLOCK STATUS:**\n"
                 f"{skill_unlock_status}\n\n"
-                "**ACTION**: Use the business-idea-evaluation skill to evaluate the user's input. Once an idea is identified and marked complete, other skills will unlock sequentially."
+                "**ACTION**: The business idea is not complete yet.\n"
+                "- Read the `business-idea-evaluation` skill's `SKILL.md` using `read_file` (see Skills list for the exact path)\n"
+                "- Follow the instructions in that SKILL.md in your normal response\n"
+                "- If and only if the idea is complete, call `mark_business_idea_complete` with an idea summary\n"
+                "Once an idea is identified and marked complete, other skills will unlock sequentially."
             )
 
         full_prompt = self.system_prompt_template + idea_context
@@ -618,7 +622,7 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
                 f"{skill_unlock_status}\n\n"
                 f"**REQUIRED ACTION**: \n"
                 f"- DO NOT read the business-idea-evaluation SKILL.md file\n"
-                f"- DO NOT use the business-idea-evaluation skill\n"
+                f"- DO NOT attempt a tool/function call named `business-idea-evaluation`\n"
                 f"- DO NOT re-evaluate the idea\n"
                 f"- DO NOT call mark_business_idea_complete again\n"
                 f"- Use appropriate unlocked skills based on the user's request and current progression state"
@@ -632,7 +636,7 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
                 f"{skill_unlock_status}\n\n"
                 "**REQUIRED ACTION**: \n"
                 "- DO NOT read the business-idea-evaluation SKILL.md file\n"
-                "- DO NOT use the business-idea-evaluation skill\n"
+                "- DO NOT attempt a tool/function call named `business-idea-evaluation`\n"
                 "- DO NOT re-evaluate the idea\n"
                 "- DO NOT call mark_business_idea_complete again\n"
                 "- Use appropriate unlocked skills based on the user's request and current progression state"
@@ -644,7 +648,11 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
                 "No complete business idea has been identified yet.\n\n"
                 "**SKILL UNLOCK STATUS:**\n"
                 f"{skill_unlock_status}\n\n"
-                "**ACTION**: Use the business-idea-evaluation skill to evaluate the user's input. Once an idea is identified and marked complete, other skills will unlock sequentially."
+                "**ACTION**: The business idea is not complete yet.\n"
+                "- Read the `business-idea-evaluation` skill's `SKILL.md` using `read_file` (see Skills list for the exact path)\n"
+                "- Follow the instructions in that SKILL.md in your normal response\n"
+                "- If and only if the idea is complete, call `mark_business_idea_complete` with an idea summary\n"
+                "Once an idea is identified and marked complete, other skills will unlock sequentially."
             )
 
         full_prompt = self.system_prompt_template + idea_context

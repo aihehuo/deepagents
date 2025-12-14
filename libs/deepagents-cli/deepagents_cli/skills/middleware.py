@@ -74,6 +74,12 @@ Skills follow a **progressive disclosure** pattern - you know they exist (name +
 3. **Follow the skill's instructions**: SKILL.md contains step-by-step workflows, best practices, and examples
 4. **Access supporting files**: Skills may include Python scripts, configs, or reference docs - use absolute paths
 
+**IMPORTANT (Do NOT treat skills as tools / function calls):**
+- Skills are **markdown playbooks**, not callable tools/functions.
+- Skills will **NOT** appear in the tool list.
+- NEVER attempt a tool/function call whose name equals a skill name (e.g. `business-idea-evaluation`).
+- To use a skill, you must read its `SKILL.md` via the `read_file` tool using the path shown above, then follow the instructions in your normal response.
+
 **When to Use Skills:**
 - When the user's request matches a skill's domain (e.g., "research X" → web-research skill)
 - When you need specialized knowledge or structured workflows
@@ -95,7 +101,7 @@ User: "Can you research the latest developments in quantum computing?"
 3. Follow the skill's research workflow (search → organize → synthesize)
 4. Use any helper scripts with absolute paths
 
-Remember: Skills are tools to make you more capable and consistent. When in doubt, check if a skill exists for the task!
+Remember: Skills are **playbooks** to make you more capable and consistent. When in doubt, check if a skill exists for the task!
 """
 
 

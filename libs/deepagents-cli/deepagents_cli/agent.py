@@ -646,12 +646,25 @@ def create_cli_agent(
     else:
         checkpointer = InMemorySaver()
 
+    subagents = None
+    if preset == "business_cofounder":
+        # Optional: enable a code-focused subagent (e.g. Qwen Coder) when configured via env.
+        # This is designed to be easily extensible later (additional subagents + routing rules).
+        from deepagents.middleware.routing import build_default_coder_routing_middleware
+        from deepagents.subagent_presets import build_coder_subagent_from_env
+
+        coder = build_coder_subagent_from_env(tools=None, name="coder")
+        if coder is not None:
+            subagents = [coder]
+            agent_middleware.append(build_default_coder_routing_middleware(coder_subagent_type="coder"))
+
     # Create the agent
     agent = create_deep_agent(
         model=model,
         system_prompt=system_prompt,
         tools=tools,
         backend=composite_backend,
+        subagents=subagents,
         middleware=agent_middleware,
         interrupt_on=interrupt_on,
         checkpointer=checkpointer,

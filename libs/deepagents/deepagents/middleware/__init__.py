@@ -5,6 +5,7 @@ from deepagents.middleware.business_idea_development import BusinessIdeaDevelopm
 from deepagents.middleware.datetime import DateTimeMiddleware
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
+from deepagents.middleware.routing import SubagentRoutingMiddleware, build_default_coder_routing_middleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
 
 __all__ = [
@@ -14,6 +15,8 @@ __all__ = [
     "DateTimeMiddleware",
     "FilesystemMiddleware",
     "LanguageDetectionMiddleware",
+    "SubagentRoutingMiddleware",
+    "build_default_coder_routing_middleware",
     "SubAgent",
     "SubAgentMiddleware",
 ]

@@ -6,14 +6,12 @@ This test verifies:
 3. Outcome validation - the agent produces evaluation in the expected format
 """
 
-import os
 import re
 import shutil
 import time
 from pathlib import Path
 
 import pytest
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -25,6 +23,8 @@ from deepagents_cli.skills.load import list_skills
 from deepagents_cli.skills.middleware import SkillsMiddleware
 
 from tests.timing_middleware import TimingMiddleware
+
+from tests.model_provider import create_test_model, load_test_model_config
 
 
 @pytest.mark.timeout(180)  # 3 minutes for real LLM calls
@@ -97,39 +97,8 @@ def test_business_idea_evaluation_with_complete_idea(tmp_path: Path) -> None:
     - Complete idea is recognized correctly
     - Idea is marked as complete in state
     """
-    # Load model configuration
     repo_root = Path(__file__).parent.parent
-    env_file = repo_root / ".env.deepseek"
-    
-    if not env_file.exists():
-        pytest.skip(f"DeepSeek config file not found: {env_file}")
-    
-    # Read environment variables
-    env_vars = {}
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "export " in line:
-                key_value = line.replace("export ", "").split("=", 1)
-                if len(key_value) == 2:
-                    key, value = key_value
-                    value = value.strip('"\'')
-                    env_vars[key] = value
-    
-    base_url = env_vars.get("ANTHROPIC_BASE_URL")
-    api_key = env_vars.get("ANTHROPIC_API_KEY")
-    model_name = env_vars.get("ANTHROPIC_MODEL", "deepseek-chat")
-    
-    if not base_url or not api_key:
-        pytest.skip("DeepSeek configuration incomplete in .env.deepseek")
-    
-    # Set up environment
-    old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    old_api_key = os.environ.get("ANTHROPIC_API_KEY")
-    
-    os.environ["ANTHROPIC_BASE_URL"] = base_url
-    os.environ["ANTHROPIC_API_KEY"] = api_key
-    
+    cfg = load_test_model_config(repo_root=repo_root)
     try:
         # Set up skills directory
         agent_id = "test_business_idea_evaluation"
@@ -154,13 +123,7 @@ def test_business_idea_evaluation_with_complete_idea(tmp_path: Path) -> None:
         print("="*80)
         
         # Create model
-        model = ChatAnthropic(
-            model=model_name,
-            base_url=base_url,
-            api_key=api_key,
-            max_tokens=20000,
-            timeout=180.0,
-        )
+        model = create_test_model(cfg=cfg)
         
         # Create agent with SkillsMiddleware and BusinessIdeaTrackerMiddleware
         filesystem_backend = FilesystemBackend(root_dir=str(tmp_path))
@@ -197,10 +160,24 @@ Follow these steps:
 Remember: This skill should only be used until a complete business idea is identified. Once marked as complete, do not use it again.""",
             )
         
-        # User request with a complete business idea (painpoint perspective)
-        user_request = """I want to create an app that helps busy professionals manage their work-life balance. 
-Many professionals struggle with burnout because they can't effectively prioritize tasks and end up working late into the night. 
-The app would help them set boundaries and manage their time more effectively."""
+        # User request with a complete business idea.
+        #
+        # IMPORTANT: The business-idea-evaluation skill requires a concrete "HOW" (mechanism/workflow),
+        # not just a generic "an app that helps...". Keep this description specific so the model
+        # reliably marks the idea as complete via mark_business_idea_complete.
+        user_request = """I want to create a mobile app for busy professionals who are burning out because they can't prioritize tasks and they keep working late.
+
+How it works:
+- The user connects Google Calendar/Outlook and imports tasks from email/Slack or manually enters tasks.
+- The app automatically categorizes tasks, suggests a daily time-blocked plan, and assigns a priority score based on deadlines + effort + impact.
+- It enforces boundaries by auto-blocking focus time, batching notifications, and warning when meetings push beyond the user’s “workday end”.
+- It provides weekly burnout risk insights (based on late-night work hours and schedule overload) and suggests concrete adjustments (e.g., move low-impact tasks, decline meeting types).
+
+Why it’s different:
+- Calendar-native workflow (plans are actually written back into the calendar).
+- Personalized boundary settings and enforcement, not just reminders.
+
+Goal: reduce overtime hours and improve work-life balance for knowledge workers in high-meeting environments."""
         
         print(f"\n📝 User Request (Complete Idea):\n{user_request}\n")
         print("⏳ Starting agent execution...\n")
@@ -326,16 +303,7 @@ The app would help them set boundaries and manage their time more effectively.""
         print("✅ Test passed: Skill correctly evaluates complete business idea")
         
     finally:
-        # Restore environment variables
-        if old_base_url:
-            os.environ["ANTHROPIC_BASE_URL"] = old_base_url
-        elif "ANTHROPIC_BASE_URL" in os.environ:
-            del os.environ["ANTHROPIC_BASE_URL"]
-        
-        if old_api_key:
-            os.environ["ANTHROPIC_API_KEY"] = old_api_key
-        elif "ANTHROPIC_API_KEY" in os.environ:
-            del os.environ["ANTHROPIC_API_KEY"]
+        pass
 
 
 @pytest.mark.timeout(180)
@@ -347,37 +315,8 @@ def test_business_idea_evaluation_with_incomplete_idea(tmp_path: Path) -> None:
     - Agent provides feedback about what's missing
     - Agent generates clarifying questions
     """
-    # Load model configuration
     repo_root = Path(__file__).parent.parent
-    env_file = repo_root / ".env.deepseek"
-    
-    if not env_file.exists():
-        pytest.skip(f"DeepSeek config file not found: {env_file}")
-    
-    env_vars = {}
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "export " in line:
-                key_value = line.replace("export ", "").split("=", 1)
-                if len(key_value) == 2:
-                    key, value = key_value
-                    value = value.strip('"\'')
-                    env_vars[key] = value
-    
-    base_url = env_vars.get("ANTHROPIC_BASE_URL")
-    api_key = env_vars.get("ANTHROPIC_API_KEY")
-    model_name = env_vars.get("ANTHROPIC_MODEL", "deepseek-chat")
-    
-    if not base_url or not api_key:
-        pytest.skip("DeepSeek configuration incomplete")
-    
-    old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    old_api_key = os.environ.get("ANTHROPIC_API_KEY")
-    
-    os.environ["ANTHROPIC_BASE_URL"] = base_url
-    os.environ["ANTHROPIC_API_KEY"] = api_key
-    
+    cfg = load_test_model_config(repo_root=repo_root)
     try:
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir(parents=True, exist_ok=True)
@@ -389,13 +328,7 @@ def test_business_idea_evaluation_with_incomplete_idea(tmp_path: Path) -> None:
         skill_dest = skills_dir / "business-idea-evaluation"
         shutil.copytree(example_skill_dir, skill_dest)
         
-        model = ChatAnthropic(
-            model=model_name,
-            base_url=base_url,
-            api_key=api_key,
-            max_tokens=20000,
-            timeout=180.0,
-        )
+        model = create_test_model(cfg=cfg)
         
         filesystem_backend = FilesystemBackend(root_dir=str(tmp_path))
         
@@ -477,15 +410,7 @@ def test_business_idea_evaluation_with_incomplete_idea(tmp_path: Path) -> None:
             print("\n✅ Test passed: Skill handles incomplete ideas correctly")
         
     finally:
-        if old_base_url:
-            os.environ["ANTHROPIC_BASE_URL"] = old_base_url
-        elif "ANTHROPIC_BASE_URL" in os.environ:
-            del os.environ["ANTHROPIC_BASE_URL"]
-        
-        if old_api_key:
-            os.environ["ANTHROPIC_API_KEY"] = old_api_key
-        elif "ANTHROPIC_API_KEY" in os.environ:
-            del os.environ["ANTHROPIC_API_KEY"]
+        pass
 
 
 @pytest.mark.timeout(180)
@@ -498,39 +423,8 @@ def test_business_idea_evaluation_with_chinese_input(tmp_path: Path) -> None:
     - Skill still works correctly with Chinese input
     - Evaluation is generated in Chinese with proper structure
     """
-    # Load model configuration
     repo_root = Path(__file__).parent.parent
-    env_file = repo_root / ".env.deepseek"
-    
-    if not env_file.exists():
-        pytest.skip(f"DeepSeek config file not found: {env_file}")
-    
-    # Read environment variables
-    env_vars = {}
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "export " in line:
-                key_value = line.replace("export ", "").split("=", 1)
-                if len(key_value) == 2:
-                    key, value = key_value
-                    value = value.strip('"\'')
-                    env_vars[key] = value
-    
-    base_url = env_vars.get("ANTHROPIC_BASE_URL")
-    api_key = env_vars.get("ANTHROPIC_API_KEY")
-    model_name = env_vars.get("ANTHROPIC_MODEL", "deepseek-chat")
-    
-    if not base_url or not api_key:
-        pytest.skip("DeepSeek configuration incomplete in .env.deepseek")
-    
-    # Set up environment
-    old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    old_api_key = os.environ.get("ANTHROPIC_API_KEY")
-    
-    os.environ["ANTHROPIC_BASE_URL"] = base_url
-    os.environ["ANTHROPIC_API_KEY"] = api_key
-    
+    cfg = load_test_model_config(repo_root=repo_root)
     try:
         # Set up skills directory
         agent_id = "test_business_idea_evaluation_chinese"
@@ -555,13 +449,7 @@ def test_business_idea_evaluation_with_chinese_input(tmp_path: Path) -> None:
         print("="*80)
         
         # Create model
-        model = ChatAnthropic(
-            model=model_name,
-            base_url=base_url,
-            api_key=api_key,
-            max_tokens=20000,
-            timeout=180.0,
-        )
+        model = create_test_model(cfg=cfg)
         
         # Create agent with SkillsMiddleware, LanguageDetectionMiddleware, and BusinessIdeaTrackerMiddleware
         filesystem_backend = FilesystemBackend(root_dir=str(tmp_path))
@@ -766,16 +654,7 @@ Remember: This skill should only be used until a complete business idea is ident
         print(f"  3. Evaluation Performed: {'✅' if has_evaluation else '⚠️'}")
         
     finally:
-        # Restore environment variables
-        if old_base_url:
-            os.environ["ANTHROPIC_BASE_URL"] = old_base_url
-        elif "ANTHROPIC_BASE_URL" in os.environ:
-            del os.environ["ANTHROPIC_BASE_URL"]
-        
-        if old_api_key:
-            os.environ["ANTHROPIC_API_KEY"] = old_api_key
-        elif "ANTHROPIC_API_KEY" in os.environ:
-            del os.environ["ANTHROPIC_API_KEY"]
+        pass
 
 
 @pytest.mark.timeout(180)
@@ -787,39 +666,8 @@ def test_business_idea_evaluation_skill_not_called_after_completion(tmp_path: Pa
     - The agent respects the business_idea_complete flag
     - Subsequent messages do not trigger re-evaluation
     """
-    # Load model configuration
     repo_root = Path(__file__).parent.parent
-    env_file = repo_root / ".env.deepseek"
-    
-    if not env_file.exists():
-        pytest.skip(f"DeepSeek config file not found: {env_file}")
-    
-    # Read environment variables
-    env_vars = {}
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "export " in line:
-                key_value = line.replace("export ", "").split("=", 1)
-                if len(key_value) == 2:
-                    key, value = key_value
-                    value = value.strip('"\'')
-                    env_vars[key] = value
-    
-    base_url = env_vars.get("ANTHROPIC_BASE_URL")
-    api_key = env_vars.get("ANTHROPIC_API_KEY")
-    model_name = env_vars.get("ANTHROPIC_MODEL", "deepseek-chat")
-    
-    if not base_url or not api_key:
-        pytest.skip("DeepSeek configuration incomplete in .env.deepseek")
-    
-    # Set up environment
-    old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    old_api_key = os.environ.get("ANTHROPIC_API_KEY")
-    
-    os.environ["ANTHROPIC_BASE_URL"] = base_url
-    os.environ["ANTHROPIC_API_KEY"] = api_key
-    
+    cfg = load_test_model_config(repo_root=repo_root)
     try:
         # Set up skills directory
         agent_id = "test_business_idea_evaluation_no_reuse"
@@ -844,13 +692,7 @@ def test_business_idea_evaluation_skill_not_called_after_completion(tmp_path: Pa
         print("="*80)
         
         # Create model
-        model = ChatAnthropic(
-            model=model_name,
-            base_url=base_url,
-            api_key=api_key,
-            max_tokens=20000,
-            timeout=180.0,
-        )
+        model = create_test_model(cfg=cfg)
         
         # Create agent with BusinessIdeaTrackerMiddleware
         filesystem_backend = FilesystemBackend(root_dir=str(tmp_path))
@@ -1041,13 +883,4 @@ The app would provide personalized study plans, progress tracking, and reminders
         print("  3. Flag persisted correctly ✅")
         
     finally:
-        # Restore environment variables
-        if old_base_url:
-            os.environ["ANTHROPIC_BASE_URL"] = old_base_url
-        elif "ANTHROPIC_BASE_URL" in os.environ:
-            del os.environ["ANTHROPIC_BASE_URL"]
-        
-        if old_api_key:
-            os.environ["ANTHROPIC_API_KEY"] = old_api_key
-        elif "ANTHROPIC_API_KEY" in os.environ:
-            del os.environ["ANTHROPIC_API_KEY"]
+        pass

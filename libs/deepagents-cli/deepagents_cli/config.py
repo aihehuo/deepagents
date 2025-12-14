@@ -134,6 +134,11 @@ class Settings:
     # API keys
     openai_api_key: str | None
     anthropic_api_key: str | None
+    qwen_api_key: str | None
+    qwen_base_url: str | None
+    deepseek_api_key: str | None
+    deepseek_base_url: str | None
+    deepseek_model: str | None
     google_api_key: str | None
     tavily_api_key: str | None
 
@@ -153,6 +158,25 @@ class Settings:
         # Detect API keys
         openai_key = os.environ.get("OPENAI_API_KEY")
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        qwen_key = os.environ.get("QWEN_API_KEY")
+        qwen_base_url = os.environ.get("QWEN_BASE_URL")
+        # DeepSeek (Anthropic-compatible) explicit config.
+        # Support both canonical uppercase and the mixed-case variants mentioned by user.
+        deepseek_key = (
+            os.environ.get("DEEPSEEK_API_KEY")
+            or os.environ.get("DeepSeek_API_key")
+            or os.environ.get("DeepSeek_API_KEY")
+        )
+        deepseek_base_url = (
+            os.environ.get("DEEPSEEK_BASE_URL")
+            or os.environ.get("DeepSeek_base_URL")
+            or os.environ.get("DeepSeek_BASE_URL")
+        )
+        deepseek_model = (
+            os.environ.get("DEEPSEEK_MODEL")
+            or os.environ.get("DeepSeek_model")
+            or os.environ.get("DeepSeek_MODEL")
+        )
         google_key = os.environ.get("GOOGLE_API_KEY")
         tavily_key = os.environ.get("TAVILY_API_KEY")
 
@@ -162,6 +186,11 @@ class Settings:
         return cls(
             openai_api_key=openai_key,
             anthropic_api_key=anthropic_key,
+            qwen_api_key=qwen_key,
+            qwen_base_url=qwen_base_url,
+            deepseek_api_key=deepseek_key,
+            deepseek_base_url=deepseek_base_url,
+            deepseek_model=deepseek_model,
             google_api_key=google_key,
             tavily_api_key=tavily_key,
             project_root=project_root,
@@ -171,6 +200,16 @@ class Settings:
     def has_openai(self) -> bool:
         """Check if OpenAI API key is configured."""
         return self.openai_api_key is not None
+
+    @property
+    def has_qwen(self) -> bool:
+        """Check if Qwen (OpenAI-compatible) API key is configured."""
+        return self.qwen_api_key is not None
+
+    @property
+    def has_deepseek(self) -> bool:
+        """Check if DeepSeek (Anthropic-compatible) API key is configured."""
+        return self.deepseek_api_key is not None
 
     @property
     def has_anthropic(self) -> bool:
@@ -377,6 +416,93 @@ def create_model() -> BaseChatModel:
     Raises:
         SystemExit if no API key is configured
     """
+    # Optional explicit provider override (shared with our API/tests).
+    # - BC_API_PROVIDER=qwen forces Qwen
+    # - BC_API_PROVIDER=openai forces OpenAI
+    # - otherwise, auto-detect based on available keys
+    provider = (os.environ.get("BC_API_PROVIDER") or "").strip().lower()
+
+    if provider == "deepseek":
+        if not settings.has_deepseek:
+            console.print(
+                "[bold yellow]Warning:[/bold yellow] BC_API_PROVIDER=deepseek but DEEPSEEK_API_KEY is not set; falling back to auto-detection."
+            )
+        else:
+            from langchain_anthropic import ChatAnthropic
+
+            model_name = (
+                os.environ.get("DEEPSEEK_MODEL")
+                or os.environ.get("DeepSeek_model")
+                or settings.deepseek_model
+                or "deepseek-chat"
+            )
+            console.print(f"[dim]Using DeepSeek (Anthropic-compatible) model: {model_name}[/dim]")
+            kwargs: dict[str, object] = {
+                "model_name": model_name,
+                # Keep parity with previous Anthropic defaults
+                "max_tokens": 20_000,
+            }
+            if settings.deepseek_base_url:
+                kwargs["base_url"] = settings.deepseek_base_url
+            if settings.deepseek_api_key:
+                kwargs["api_key"] = settings.deepseek_api_key
+            return ChatAnthropic(**kwargs)
+
+    if provider == "qwen":
+        if not settings.has_qwen:
+            console.print(
+                "[bold yellow]Warning:[/bold yellow] BC_API_PROVIDER=qwen but QWEN_API_KEY is not set; falling back to auto-detection."
+            )
+        else:
+            from langchain_openai import ChatOpenAI
+
+            model_name = os.environ.get("QWEN_MODEL", "qwen-plus")
+            console.print(f"[dim]Using Qwen (OpenAI-compatible) model: {model_name}[/dim]")
+            kwargs: dict[str, object] = {"model": model_name, "api_key": settings.qwen_api_key}
+            if settings.qwen_base_url:
+                kwargs["base_url"] = settings.qwen_base_url
+            return ChatOpenAI(**kwargs)
+
+    if provider == "openai":
+        if not settings.has_openai:
+            console.print(
+                "[bold yellow]Warning:[/bold yellow] BC_API_PROVIDER=openai but OPENAI_API_KEY is not set; falling back to auto-detection."
+            )
+        else:
+            from langchain_openai import ChatOpenAI
+
+            model_name = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
+            console.print(f"[dim]Using OpenAI model: {model_name}[/dim]")
+            return ChatOpenAI(
+                model=model_name,
+            )
+
+    # Auto-detect providers by key availability (prefer Qwen if configured).
+    if settings.has_deepseek:
+        from langchain_anthropic import ChatAnthropic
+
+        model_name = settings.deepseek_model or "deepseek-chat"
+        console.print(f"[dim]Using DeepSeek (Anthropic-compatible) model: {model_name}[/dim]")
+        kwargs: dict[str, object] = {
+            "model_name": model_name,
+            "max_tokens": 20_000,
+        }
+        if settings.deepseek_base_url:
+            kwargs["base_url"] = settings.deepseek_base_url
+        if settings.deepseek_api_key:
+            kwargs["api_key"] = settings.deepseek_api_key
+        return ChatAnthropic(**kwargs)
+
+    if settings.has_qwen:
+        from langchain_openai import ChatOpenAI
+
+        model_name = os.environ.get("QWEN_MODEL", "qwen-plus")
+        console.print(f"[dim]Using Qwen (OpenAI-compatible) model: {model_name}[/dim]")
+        kwargs: dict[str, object] = {"model": model_name, "api_key": settings.qwen_api_key}
+        if settings.qwen_base_url:
+            kwargs["base_url"] = settings.qwen_base_url
+        return ChatOpenAI(**kwargs)
+
     if settings.has_openai:
         from langchain_openai import ChatOpenAI
 
@@ -409,6 +535,8 @@ def create_model() -> BaseChatModel:
     console.print("[bold red]Error:[/bold red] No API key configured.")
     console.print("\nPlease set one of the following environment variables:")
     console.print("  - OPENAI_API_KEY     (for OpenAI models like gpt-5-mini)")
+    console.print("  - QWEN_API_KEY       (for Qwen in OpenAI-compatible mode)")
+    console.print("  - DEEPSEEK_API_KEY   (for DeepSeek in Anthropic-compatible mode)")
     console.print("  - ANTHROPIC_API_KEY  (for Claude models)")
     console.print("  - GOOGLE_API_KEY     (for Google Gemini models)")
     console.print("\nExample:")

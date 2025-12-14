@@ -19,13 +19,19 @@ PYTHONPATH="libs/deepagents:libs/deepagents-cli" \
 
 ## Model configuration
 
-The server uses `ChatAnthropic` and is **env-configurable** (so you can point it at Anthropic, or an Anthropic-compatible proxy such as DeepSeek):
+The server supports switching between DeepSeek and Qwen via a single generic env var set:
 
-- `BC_API_MODEL` (preferred) or `ANTHROPIC_MODEL`
-- `ANTHROPIC_API_KEY`
-- `ANTHROPIC_BASE_URL` (optional; use this for proxies)
-- `BC_API_TEMPERATURE` (optional)
-- `BC_API_MAX_TOKENS` (optional)
+- `MODEL_API_PROVIDER`: `deepseek` (default) or `qwen`
+- `MODEL_NAME` (optional; provider default will be used if unset)
+- `MODEL_API_KEY`
+- `MODEL_BASE_URL` (optional; required for most proxy/compatible endpoints)
+- `MODEL_API_TEMPERATURE` (optional)
+- `MODEL_API_MAX_TOKENS` (optional)
+- `MODEL_API_TIMEOUT_S` (optional)
+
+### Provider notes
+- `MODEL_API_PROVIDER=deepseek`: uses Anthropic-compatible `ChatAnthropic`
+- `MODEL_API_PROVIDER=qwen`: uses OpenAI-compatible `ChatOpenAI` (DashScope compatible-mode works here)
 
 ## Request/response logging (optional)
 
@@ -49,5 +55,15 @@ To print every `/chat` request’s user message + the assistant’s final reply 
 
 This persists the full LangGraph state, including any **SummarizationMiddleware**-compressed
 `state["messages"]`.
+
+## agent.md (API runtime)
+
+The CLI has an `agent.md` memory file under `~/.deepagents/<assistant_id>/agent.md`.
+This API server is not the CLI, so it uses its own `agent.md` location:
+
+- `~/.deepagents/business_cofounder_api/agent.md`
+
+On first start, the server will auto-create a default `agent.md` if missing, and inject it
+into the system prompt for every call.
 
 

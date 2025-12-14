@@ -133,6 +133,7 @@ class BusinessIdeaDevelopmentMiddleware(AgentMiddleware):
         self,
         *,
         system_prompt_template: str | None = None,
+        strict_todo_sync: bool = False,
     ) -> None:
         """Initialize the BusinessIdeaDevelopmentMiddleware.
 
@@ -143,6 +144,10 @@ class BusinessIdeaDevelopmentMiddleware(AgentMiddleware):
         self.system_prompt_template = (
             system_prompt_template or BUSINESS_IDEA_DEVELOPMENT_SYSTEM_PROMPT
         )
+        # When enabled, we always overwrite the todo list to match the canonical
+        # milestone-derived progression. This prevents the LLM from "wandering" to
+        # later steps by rewriting todos, which can stall the workflow.
+        self.strict_todo_sync = strict_todo_sync
         # We don't provide tools - we rely on TodoListMiddleware for write_todos
         # and BusinessIdeaTrackerMiddleware for milestone marking tools
         self.tools = []
@@ -287,6 +292,10 @@ class BusinessIdeaDevelopmentMiddleware(AgentMiddleware):
 
         # Check if todos already exist in state
         existing_todos = state.get("todos", [])
+
+        if self.strict_todo_sync:
+            # Keep the todo list purely derived from milestone state.
+            return {"todos": generated_todos} if existing_todos != generated_todos else None
 
         # If no todos exist, initialize them
         if not existing_todos:

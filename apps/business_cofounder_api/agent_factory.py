@@ -15,14 +15,19 @@ from deepagents_cli.skills.middleware import SkillsMiddleware
 from langchain_anthropic import ChatAnthropic
 
 from apps.business_cofounder_api.checkpointer import DiskBackedInMemorySaver
+from apps.business_cofounder_api.docs_backend import DocsOnlyWriteBackend
 
 
 def _copy_example_skills_if_missing(*, dest_skills_dir: Path) -> None:
     """Copy deepagents-cli packaged example skills into dest_skills_dir (no overwrite)."""
     # deepagents_cli/... -> deepagents-cli root -> examples/skills
-    import deepagents_cli
+    # Use find_spec to avoid importing the full CLI package (which may pull optional deps).
+    import importlib.util
 
-    cli_root = Path(deepagents_cli.__file__).resolve().parent.parent
+    spec = importlib.util.find_spec("deepagents_cli")
+    if spec is None or not spec.origin:
+        return
+    cli_root = Path(spec.origin).resolve().parent.parent
     src = cli_root / "examples" / "skills"
     if not src.exists():
         return
@@ -114,8 +119,10 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     skills_dir = base_dir / "skills"
     checkpoints_path = base_dir / "checkpoints.pkl"
     agent_md_path = base_dir / "agent.md"
+    docs_dir = base_dir / "docs"
 
     base_dir.mkdir(parents=True, exist_ok=True)
+    docs_dir.mkdir(parents=True, exist_ok=True)
 
     # CLI-created agents typically have ~/.deepagents/<agent_id>/agent.md injected into prompts.
     # Our API runs without the CLI, so we support an API-local agent.md at:
@@ -133,6 +140,11 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
 ## Output style
 - Be concise, structured, and action-oriented.
 - Prefer bullet points and clear section headers.
+
+## File outputs
+- When asked to generate a document (HTML/Markdown/etc.), you MUST use the filesystem tools.
+- Save all generated documents to the docs folder:
+  - `~/.deepagents/business_cofounder_api/docs/` (this path exists in the API runtime)
 """,
             encoding="utf-8",
         )
@@ -145,7 +157,11 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     checkpointer = DiskBackedInMemorySaver(file_path=checkpoints_path)
 
     # IMPORTANT: FilesystemBackend virtual_mode=False so SkillsMiddleware absolute paths work.
-    backend = FilesystemBackend(root_dir=str(Path.cwd()), virtual_mode=False)
+    # Wrap it so all writes/edits are forced into docs_dir (prevents writing to / or /home/user).
+    backend = DocsOnlyWriteBackend(
+        backend=FilesystemBackend(root_dir=str(Path.cwd()), virtual_mode=False),
+        docs_dir=docs_dir,
+    )
 
     coder_subagent = build_coder_subagent_from_env(tools=None, name="coder")
     subagents = [coder_subagent] if coder_subagent is not None else []
@@ -153,7 +169,7 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     middleware = [
         LanguageDetectionMiddleware(),
         BusinessIdeaTrackerMiddleware(),
-        BusinessIdeaDevelopmentMiddleware(),
+        BusinessIdeaDevelopmentMiddleware(strict_todo_sync=True),
         SkillsMiddleware(
             skills_dir=skills_dir,
             assistant_id=agent_id,

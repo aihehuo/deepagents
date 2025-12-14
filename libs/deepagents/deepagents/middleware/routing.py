@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Awaitable, Callable, Sequence
 
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -108,6 +108,32 @@ class SubagentRoutingMiddleware(AgentMiddleware):
         current = request.system_prompt or ""
         merged = (current + "\n\n" + extra).strip() if current else extra
         return handler(request.override(system_message=SystemMessage(content=merged)))
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        """Async variant required when agents are invoked via `ainvoke()` / `astream()`."""
+        user_text = _last_human_text(request)
+        additions: list[str] = []
+        for rule in self._rules:
+            try:
+                if rule.should_route(user_text, request):
+                    additions.append(rule.instruction)
+            except Exception:  # noqa: BLE001
+                continue
+
+        if not additions:
+            return await handler(request)
+
+        extra = "\n\n".join(additions).strip()
+        if not extra:
+            return await handler(request)
+
+        current = request.system_prompt or ""
+        merged = (current + "\n\n" + extra).strip() if current else extra
+        return await handler(request.override(system_message=SystemMessage(content=merged)))
 
 
 def build_default_coder_routing_middleware(*, coder_subagent_type: str = "coder") -> SubagentRoutingMiddleware:

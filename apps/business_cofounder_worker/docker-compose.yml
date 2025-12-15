@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/business_cofounder_worker/Dockerfile
+    container_name: business-cofounder-worker
+    env_file:
+      - .docker.env
+    volumes:
+      - ../business_cofounder_api/.tmp_home/.deepagents:/root/.deepagents
+    restart: unless-stopped
+    # Use solo pool to avoid thread creation issues
+    command: ["celery", "-A", "apps.business_cofounder_worker.celery_app", "worker", "--loglevel=info", "--pool=prefork"]
+

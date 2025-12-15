@@ -1,0 +1,14 @@
+# Business Co-Founder Worker - Minimal Celery setup for testing
+celery>=5.3.0
+redis>=5.0.0
+
+# Shared dependencies with API (for agent creation)
+# Match API requirements for consistency
+langchain>=1.1.0,<2.0.0
+langchain-core>=1.1.0,<2.0.0
+langchain-anthropic>=1.2.0,<2.0.0
+langchain-openai>=0.1.0
+langgraph>=0.2.0
+wcmatch>=10.0
+langdetect>=1.0.9
+

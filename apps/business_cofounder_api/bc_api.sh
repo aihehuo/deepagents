@@ -19,7 +19,8 @@ set -euo pipefail
 #   ./apps/business_cofounder_api/bc_api.sh stream "Convert the plan into a single HTML page. Output ONLY HTML."
 #   BC_API_ENABLE_STATE_ENDPOINT=1 ./apps/business_cofounder_api/bc_api.sh state
 
-BASE_URL="${BC_API_BASE_URL:-http://127.0.0.1:8001}"
+PORT="${BC_API_PORT:-8001}"
+BASE_URL="${BC_API_BASE_URL:-http://127.0.0.1:${PORT}}"
 USER_ID="${BC_API_USER_ID:-u1}"
 CONV_ID="${BC_API_CONV_ID:-default}"
 
@@ -79,7 +80,7 @@ usage() {
   cat <<EOF
 Usage:
   BC_API_BASE_URL=http://127.0.0.1:8001 BC_API_USER_ID=u1 BC_API_CONV_ID=default \\
-    ./apps/business_cofounder_api/bc_api.sh <command> [args...]
+    ./apps/business_cofounder_api/bc_api.sh [-p PORT] <command> [args...]
 
 Commands:
   health                  GET /health
@@ -89,6 +90,30 @@ Commands:
   stream "<message>"      POST /chat/stream (SSE streaming)
 EOF
 }
+
+while getopts ":p:" opt; do
+  case "${opt}" in
+    p)
+      PORT="${OPTARG}"
+      ;;
+    \?)
+      echo "Unknown option: -${OPTARG}" >&2
+      usage
+      exit 2
+      ;;
+    :)
+      echo "Missing value for -${OPTARG}" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+# If the user didn't override BC_API_BASE_URL, rebuild BASE_URL using the (possibly overridden) port.
+if [[ -z "${BC_API_BASE_URL:-}" ]]; then
+  BASE_URL="http://127.0.0.1:${PORT}"
+fi
 
 cmd="${1:-}"
 shift || true

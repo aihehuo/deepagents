@@ -20,7 +20,7 @@ fi
 REGISTRY="${ALIYUN_DOCKER_REGISTRY:-${REGISTRY:-}}"
 USERNAME="${ALIYUN_DOCKER_USERNAME:-${USERNAME:-}}"
 IMAGE_NAME="${DOCKER_IMAGE_NAME:-${IMAGE_NAME:-aihehuo/business-cofounder-api}}"
-TAG="${TAG:-${DOCKER_IMAGE_TAG:-0.0.1}}"
+TAG="${TAG:-${DOCKER_IMAGE_TAG:-0.0.2}}"
 
 if [ -z "$REGISTRY" ] || [ -z "$USERNAME" ]; then
   echo "Error: registry/username not configured."

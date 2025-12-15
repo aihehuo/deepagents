@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
@@ -278,10 +279,73 @@ class _AppState:
 app = FastAPI(title="Business Co-Founder Agent API", version="0.1.0")
 _state: _AppState | None = None
 
+# Async networking in CPython uses a threadpool for DNS resolution (loop.getaddrinfo -> run_in_executor).
+# Some production hosts have extremely low thread limits; to avoid "can't start new thread" under load,
+# we install a tiny, fixed-size default executor and warm it up at startup.
+_ASYNCIO_DEFAULT_EXECUTOR: ThreadPoolExecutor | None = None
+
+
+def _patch_openai_no_thread() -> None:
+    """Patch OpenAI python SDK to avoid asyncio.to_thread in ultra-restricted environments.
+
+    Some production environments have extremely low thread limits and crash with:
+      RuntimeError: can't start new thread
+
+    The OpenAI SDK's async path calls asyncio.to_thread() for small sync helpers (e.g. platform detection).
+    If thread creation is disallowed, that fails. This patch replaces that helper with a direct call.
+
+    Enable with: BC_API_OPENAI_NO_THREAD=1
+    """
+    if not _env_flag("BC_API_OPENAI_NO_THREAD", default=False):
+        return
+    try:
+        import openai._utils._sync as _openai_sync  # type: ignore
+    except Exception:
+        return
+
+    async def _to_thread_noop(func, /, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return func(*args, **kwargs)
+
+    try:
+        _openai_sync.to_thread = _to_thread_noop  # type: ignore[attr-defined]
+        _logger.info("Applied BC_API_OPENAI_NO_THREAD patch (openai._utils._sync.to_thread).")
+    except Exception:
+        return
+
+
+async def _configure_asyncio_default_executor() -> None:
+    global _ASYNCIO_DEFAULT_EXECUTOR
+    if _ASYNCIO_DEFAULT_EXECUTOR is not None:
+        return
+    max_workers = int(os.environ.get("BC_API_ASYNCIO_EXECUTOR_WORKERS", "1"))
+    if max_workers < 1:
+        max_workers = 1
+    _ASYNCIO_DEFAULT_EXECUTOR = ThreadPoolExecutor(
+        max_workers=max_workers,
+        thread_name_prefix="bc-asyncio",
+    )
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(_ASYNCIO_DEFAULT_EXECUTOR)
+    # Warm up: forces the executor to start at least one worker thread now,
+    # so later DNS lookups don't try (and fail) to spawn a new thread.
+    try:
+        await loop.run_in_executor(None, lambda: None)
+        _logger.info("Configured asyncio default executor (workers=%s).", max_workers)
+    except Exception as e:  # noqa: BLE001
+        _logger.warning(
+            "Failed to warm up asyncio default executor (workers=%s): %s: %s. "
+            "Async DNS/networking may fail with 'can't start new thread'.",
+            max_workers,
+            type(e).__name__,
+            str(e),
+        )
+
 
 @app.on_event("startup")
 async def _startup() -> None:
     global _state
+    await _configure_asyncio_default_executor()
+    _patch_openai_no_thread()
     agent, checkpoints_path = create_business_cofounder_agent(agent_id="business_cofounder_agent")
     _state = _AppState(agent=agent, checkpoints_path=str(checkpoints_path), thread_locks={})
 

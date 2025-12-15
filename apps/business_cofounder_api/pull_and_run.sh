@@ -40,6 +40,8 @@ FULL_IMAGE="$REGISTRY/$IMAGE_NAME:$TAG"
 # Container configuration
 CONTAINER_NAME="${CONTAINER_NAME:-business-cofounder-api-remote}"
 PORT="${PORT:-8002}"
+echo "Container name: $CONTAINER_NAME"
+echo "Port: $PORT"
 
 # Local persistence folder (host) -> container checkpoint folder
 DATA_DIR="${DATA_DIR:-${SCRIPT_DIR}/.tmp_home/.deepagents/business_cofounder_api}"

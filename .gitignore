@@ -217,3 +217,5 @@ __marimo__/
 .tmp_home
 .docker.env
 .deploy.env
+
+tests/*.md

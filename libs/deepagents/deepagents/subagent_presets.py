@@ -127,3 +127,137 @@ Operating rules:
     }
 
 
+def build_aihehuo_subagent_from_env(
+    *,
+    tools: Sequence[BaseTool | Any] | None,
+    name: str = "aihehuo",
+) -> dict[str, Any] | None:
+    """Create an AI He Huo (爱合伙) search subagent spec from environment variables.
+    
+    This subagent is specialized for searching the AI He Huo platform to find:
+    - Co-founders and business partners
+    - Investors
+    - Domain experts
+    - Related business ideas and projects
+    
+    Design goals:
+    - Default to "off" unless API key + model are available.
+    - Keep it provider-agnostic (qwen=openai-compatible, deepseek=anthropic-compatible).
+    - Equipped with AihehuoMiddleware for search capabilities.
+    
+    Env vars (recommended, aihehuo-specific):
+    - AIHEHUO_MODEL_API_PROVIDER: qwen | deepseek
+    - AIHEHUO_MODEL_API_KEY
+    - AIHEHUO_MODEL_BASE_URL (optional depending on provider)
+    - AIHEHUO_MODEL_NAME
+    - AIHEHUO_MODEL_API_MAX_TOKENS (optional)
+    - AIHEHUO_MODEL_API_TEMPERATURE (optional)
+    - AIHEHUO_MODEL_API_TIMEOUT_S (optional)
+    - AIHEHUO_API_KEY (required for search functionality)
+    - AIHEHUO_API_BASE (optional, defaults to https://new-api.aihehuo.com)
+    
+    Defaults/fallbacks:
+    - If an AIHEHUO_MODEL_* variable is missing, we fall back to the main MODEL_* variable (if set).
+    - AIHEHUO_API_KEY must be set for the subagent to be useful (search won't work without it).
+    """
+    provider = (
+        os.environ.get("AIHEHUO_MODEL_API_PROVIDER")
+        or os.environ.get("MODEL_API_PROVIDER")
+        or "qwen"
+    ).strip().lower()
+    
+    api_key = os.environ.get("AIHEHUO_MODEL_API_KEY") or os.environ.get("MODEL_API_KEY")
+    base_url = os.environ.get("AIHEHUO_MODEL_BASE_URL") or os.environ.get("MODEL_BASE_URL")
+    model_name = os.environ.get("AIHEHUO_MODEL_NAME") or os.environ.get("MODEL_NAME")
+    
+    # If not configured, don't enable the AI He Huo subagent.
+    if not api_key or not model_name:
+        return None
+    
+    # Check for AI He Huo API key (required for search functionality)
+    aihehuo_api_key = os.environ.get("AIHEHUO_API_KEY")
+    if not aihehuo_api_key:
+        # Still create the subagent, but it won't be able to search without the API key
+        # The middleware will handle the error gracefully
+        pass
+    
+    temperature = _get_env_float("AIHEHUO_MODEL_API_TEMPERATURE", _get_env_float("MODEL_API_TEMPERATURE", 0.7))
+    timeout_s = _get_env_float("AIHEHUO_MODEL_API_TIMEOUT_S", _get_env_float("MODEL_API_TIMEOUT_S", 180.0))
+    max_tokens = _get_env_int("AIHEHUO_MODEL_API_MAX_TOKENS", _get_env_int("MODEL_API_MAX_TOKENS", 20000))
+    
+    if provider == "deepseek":
+        from langchain_anthropic import ChatAnthropic  # noqa: WPS433
+        
+        aihehuo_model = ChatAnthropic(
+            model=model_name,
+            max_tokens=max_tokens,
+            timeout=timeout_s,
+            temperature=temperature,
+            base_url=base_url,
+            api_key=api_key,
+        )
+    else:
+        # Default: qwen / OpenAI-compatible mode.
+        # Lazy import to avoid sandbox/CI import-time side effects when aihehuo is disabled.
+        from langchain_openai import ChatOpenAI  # noqa: WPS433
+        
+        kwargs: dict[str, object] = {
+            "model": model_name,
+            "max_tokens": max_tokens,
+            "timeout": timeout_s,
+            "temperature": temperature,
+        }
+        if base_url:
+            kwargs["base_url"] = base_url
+        if api_key:
+            kwargs["api_key"] = api_key
+        
+        aihehuo_model = ChatOpenAI(**kwargs)
+    
+    system_prompt = """You are an AI He Huo (爱合伙) search specialist subagent.
+
+You specialize in:
+- Searching for co-founders, business partners, and team members on the AI He Huo platform
+- Finding investors interested in specific industries, technologies, or business models
+- Discovering domain experts with relevant experience
+- Exploring related business ideas and projects
+- Matching entrepreneurs with potential partners based on business needs
+
+Operating rules:
+- Use aihehuo_search_members to find people (co-founders, investors, experts)
+- Use aihehuo_search_ideas to find related business ideas and projects
+- Create multiple targeted searches for different roles/needs
+- Use natural language queries (full sentences, not just keywords)
+- Query must be longer than 5 characters for member searches
+- Use the investor parameter when searching specifically for investors
+- Synthesize results and provide clear recommendations
+- Be specific and targeted in your search queries
+
+**Report Writing Requirements:**
+- When writing reports or summaries, use Chinese (中文) as the language
+- For each candidate you recommend, you MUST include their profile page link/URL if it's available in the search results
+- Profile links are essential - always extract and include them from the search response data
+"""
+    
+    # Import middleware
+    from deepagents.middleware.aihehuo import AihehuoMiddleware
+    from deepagents.middleware.datetime import DateTimeMiddleware
+    
+    # Build middleware list - include AihehuoMiddleware for search capabilities
+    # and DateTimeMiddleware for accurate timestamps in reports
+    subagent_middleware = [
+        DateTimeMiddleware(),  # Provides get_current_datetime tool for accurate timestamps
+        AihehuoMiddleware(),
+    ]
+    
+    return {
+        "name": name,
+        "description": "Use for searching the AI He Huo (爱合伙) platform to find co-founders, investors, partners, and related business ideas. Specialized in matching entrepreneurs with potential collaborators.",
+        "system_prompt": system_prompt,
+        # Pass through tools from main agent (filesystem tools, etc.)
+        "tools": list(tools or []),
+        "model": aihehuo_model,
+        "middleware": subagent_middleware,
+    }
+
+

@@ -45,10 +45,45 @@ _DEFAULT_CODE_KEYWORDS = (
     "css",
 )
 
+_DEFAULT_AIHEHUO_KEYWORDS = (
+    "co-founder",
+    "cofounder",
+    "founder",
+    "partner",
+    "investor",
+    "investment",
+    "funding",
+    "ai he huo",
+    "aihehuo",
+    "爱合伙",
+    "search members",
+    "find people",
+    "find partners",
+    "find investors",
+    "business partner",
+    "technical co-founder",
+    "business co-founder",
+    "domain expert",
+    "similar ideas",
+    "related projects",
+    "business idea",
+    "startup partner",
+    "team member",
+    "collaborator",
+)
+
 _DEFAULT_CODE_REGEXES: tuple[re.Pattern[str], ...] = (
     re.compile(r"```"),  # fenced code block
     re.compile(r"<(html|div|span|body|head|script|style)\b", re.IGNORECASE),
     re.compile(r"\b(CSS|HTML|JS|TS|TSX|JSX)\b", re.IGNORECASE),
+)
+
+_DEFAULT_AIHEHUO_REGEXES: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(co-?founder|cofounder)\b", re.IGNORECASE),
+    re.compile(r"\b(find|search|look for).*(partner|investor|co-founder|founder)", re.IGNORECASE),
+    re.compile(r"\b(ai he huo|aihehuo|爱合伙)\b", re.IGNORECASE),
+    re.compile(r"\b(technical|business).*(co-?founder|partner)", re.IGNORECASE),
+    re.compile(r"\b(similar|related).*(idea|project|business)", re.IGNORECASE),
 )
 
 
@@ -60,6 +95,24 @@ def _looks_like_coding_task(text: str) -> bool:
     if any(k in low for k in _DEFAULT_CODE_KEYWORDS):
         return True
     return any(rx.search(t) is not None for rx in _DEFAULT_CODE_REGEXES)
+
+
+def _looks_like_aihehuo_search_task(text: str) -> bool:
+    """Check if text looks like an AI He Huo search task.
+    
+    Args:
+        text: User input text to check
+        
+    Returns:
+        True if the text appears to be asking for co-founders, investors, partners, or related searches
+    """
+    t = (text or "").strip()
+    if not t:
+        return False
+    low = t.lower()
+    if any(k in low for k in _DEFAULT_AIHEHUO_KEYWORDS):
+        return True
+    return any(rx.search(t) is not None for rx in _DEFAULT_AIHEHUO_REGEXES)
 
 
 @dataclass(frozen=True)
@@ -152,6 +205,44 @@ If the user is asking for **code** (including **HTML/CSS/JS**, scripts, Dockerfi
             name="code_html_to_coder",
             subagent_type=coder_subagent_type,
             should_route=lambda text, _req: _looks_like_coding_task(text),
+            instruction=instruction,
+        )
+    ]
+    return SubagentRoutingMiddleware(rules=rules)
+
+
+def build_default_aihehuo_routing_middleware(*, aihehuo_subagent_type: str = "aihehuo") -> SubagentRoutingMiddleware:
+    """Factory for routing AI He Huo search tasks to the aihehuo subagent.
+    
+    This middleware detects when the user is asking to:
+    - Find co-founders, partners, or team members
+    - Search for investors
+    - Find domain experts
+    - Explore related business ideas
+    
+    Args:
+        aihehuo_subagent_type: The name/type of the AI He Huo subagent (default: "aihehuo")
+        
+    Returns:
+        SubagentRoutingMiddleware configured to route AI He Huo search tasks
+    """
+    instruction = f"""## Routing hint (AI He Huo search)
+
+If the user is asking to **find co-founders, partners, investors, or search the AI He Huo (爱合伙) platform**, you **MUST** delegate the search to the `{aihehuo_subagent_type}` subagent:
+- Use the `task` tool with `subagent_type="{aihehuo_subagent_type}"`.
+- In the task description, include:
+  - The business idea or requirements
+  - What types of people are needed (technical co-founder, business co-founder, investors, domain experts)
+  - Any specific criteria or constraints
+- The subagent has specialized AI He Huo search tools and will perform multiple targeted searches.
+- After the subagent completes the search, summarize the findings and recommendations for the user.
+"""
+    
+    rules = [
+        SubagentRouteRule(
+            name="aihehuo_search_to_aihehuo",
+            subagent_type=aihehuo_subagent_type,
+            should_route=lambda text, _req: _looks_like_aihehuo_search_task(text),
             instruction=instruction,
         )
     ]

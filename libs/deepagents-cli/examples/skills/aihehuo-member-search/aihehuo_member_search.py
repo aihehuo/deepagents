@@ -17,69 +17,12 @@ except ImportError:
     requests = None  # Will be checked when actually needed
 
 
-def load_env_file(env_path: Path) -> Dict[str, str]:
-    """Load environment variables from .env.aihehuo file.
-    
-    Args:
-        env_path: Path to the .env.aihehuo file
-        
-    Returns:
-        Dictionary of environment variables
-    """
-    env_vars = {}
-    if not env_path.exists():
-        return env_vars
-    
-    with open(env_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if '=' in line:
-                key, value = line.split('=', 1)
-                env_vars[key.strip()] = value.strip()
-    return env_vars
-
-
 def get_api_config() -> tuple[str, str]:
-    """Get the API base URL and API key from .env.aihehuo file.
+    """Get the API base URL and API key from environment variables.
     
     Returns:
         Tuple of (API base URL, API key)
     """
-    # Try to find .env.aihehuo in the repository root
-    # Start from current script location and go up to find repo root
-    current = Path(__file__).resolve()
-    repo_root = None
-    
-    # Go up the directory tree to find the repository root
-    for parent in current.parents:
-        env_file = parent / '.env.aihehuo'
-        if env_file.exists():
-            repo_root = parent
-            break
-    
-    # If not found, try common locations
-    if repo_root is None:
-        # Try from current working directory
-        cwd = Path.cwd()
-        for parent in cwd.parents:
-            env_file = parent / '.env.aihehuo'
-            if env_file.exists():
-                repo_root = parent
-                break
-    
-    # Try home directory as fallback
-    if repo_root is None:
-        home_env = Path.home() / '.env.aihehuo'
-        if home_env.exists():
-            repo_root = Path.home()
-    
-    if repo_root:
-        env_vars = load_env_file(repo_root / '.env.aihehuo')
-        api_base = env_vars.get('AIHEHUO_API_BASE', 'https://new-api.aihehuo.com')
-        api_key = env_vars.get('AIHEHUO_API_KEY', '')
-        return api_base, api_key
     
     # Default fallback - try environment variables
     api_base = os.getenv('AIHEHUO_API_BASE', 'https://new-api.aihehuo.com')

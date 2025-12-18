@@ -97,6 +97,13 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
             openai_kwargs["base_url"] = base_url
         if api_key:
             openai_kwargs["api_key"] = api_key
+        
+        # Enable usage metadata in responses (for both streaming and non-streaming)
+        # For streaming: include_usage in stream_options
+        # For non-streaming: usage is typically included by default, but we ensure it's enabled
+        openai_kwargs["model_kwargs"] = {
+            "stream_options": {"include_usage": True},
+        }
 
         model = ChatOpenAI(**openai_kwargs)
     else:

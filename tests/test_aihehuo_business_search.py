@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 from langchain.agents import create_agent
 from langchain.agents.middleware.todo import TodoListMiddleware
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 
 from deepagents.backends.filesystem import FilesystemBackend
@@ -24,6 +23,7 @@ from deepagents.middleware.datetime import DateTimeMiddleware
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents_cli.skills.middleware import SkillsMiddleware
 
+from tests.model_provider import create_test_model, load_test_model_config
 from tests.timing_middleware import TimingMiddleware
 
 
@@ -42,63 +42,22 @@ def test_aihehuo_business_search_with_todos_and_datetime(tmp_path: Path) -> None
        - The agent generates a report with current date/time
        - All todos are completed
     """
-    # Load DeepSeek configuration from .env.deepseek
     repo_root = Path(__file__).parent.parent
-    env_file = repo_root / ".env.deepseek"
-    if not env_file.exists():
-        pytest.skip(f"DeepSeek config file not found: {env_file}")
     
-    # Read and parse the env file
-    env_vars = {}
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "export " in line:
-                key_value = line.replace("export ", "").split("=", 1)
-                if len(key_value) == 2:
-                    key, value = key_value
-                    value = value.strip('"\'')
-                    env_vars[key] = value
+    # Load model configuration using generic model provider interface
+    cfg = load_test_model_config(repo_root=repo_root)
     
-    base_url = env_vars.get("ANTHROPIC_BASE_URL")
-    api_key = env_vars.get("ANTHROPIC_API_KEY")
-    model_name = env_vars.get("ANTHROPIC_MODEL", "deepseek-chat")
-    
-    if not base_url or not api_key:
-        pytest.skip("DeepSeek configuration incomplete in .env.deepseek")
-    
-    # Check for aihehuo API key
-    aihehuo_env_file = repo_root / ".env.aihehuo"
-    if not aihehuo_env_file.exists():
-        pytest.skip(f"AI He Huo config file not found: {aihehuo_env_file}")
-    
-    # Read aihehuo config
-    aihehuo_env_vars = {}
-    with open(aihehuo_env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key_value = line.split("=", 1)
-                if len(key_value) == 2:
-                    key, value = key_value
-                    value = value.strip('"\'')
-                    aihehuo_env_vars[key.strip()] = value.strip()
-    
-    aihehuo_api_key = aihehuo_env_vars.get("AIHEHUO_API_KEY")
+    aihehuo_api_key = os.environ.get("AIHEHUO_API_KEY")
     if not aihehuo_api_key:
-        pytest.skip("AIHEHUO_API_KEY not found in .env.aihehuo")
+        pytest.skip("AIHEHUO_API_KEY not found in environment variables")
     
-    # Temporarily set environment variables
-    old_base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    old_api_key = os.environ.get("ANTHROPIC_API_KEY")
+    # Temporarily set environment variables for aihehuo API
     old_aihehuo_key = os.environ.get("AIHEHUO_API_KEY")
     old_aihehuo_base = os.environ.get("AIHEHUO_API_BASE")
     
-    os.environ["ANTHROPIC_BASE_URL"] = base_url
-    os.environ["ANTHROPIC_API_KEY"] = api_key
     os.environ["AIHEHUO_API_KEY"] = aihehuo_api_key
-    if "AIHEHUO_API_BASE" in aihehuo_env_vars:
-        os.environ["AIHEHUO_API_BASE"] = aihehuo_env_vars["AIHEHUO_API_BASE"]
+    if "AIHEHUO_API_BASE" in os.environ:
+        os.environ["AIHEHUO_API_BASE"] = os.environ["AIHEHUO_API_BASE"]
     
     try:
         # Set up skills directory
@@ -114,14 +73,10 @@ def test_aihehuo_business_search_with_todos_and_datetime(tmp_path: Path) -> None
         skill_dest = skills_dir / "aihehuo-member-search"
         shutil.copytree(example_skill_dir, skill_dest)
         
-        # Create DeepSeek model with increased timeout for long-running requests
-        model = ChatAnthropic(
-            model=model_name,
-            base_url=base_url,
-            api_key=api_key,
-            max_tokens=20000,
-            timeout=300.0,  # 5 minute timeout for API calls
-        )
+        # Create model using generic model provider interface
+        # Note: Model timeout defaults to 180s but can be overridden via MODEL_API_TIMEOUT_S env var
+        # For this long-running test, consider setting MODEL_API_TIMEOUT_S=300 if needed
+        model = create_test_model(cfg=cfg)
         
         # Create agent with TodoListMiddleware, DateTimeMiddleware, FilesystemMiddleware, and SkillsMiddleware
         # FilesystemMiddleware is configured to write files to tmp_path so reports are saved to disk
@@ -298,6 +253,10 @@ Use the aihehuo-member-search skill to search for members on the AI He Huo platf
         print("="*80)
         
         # Extract todos from final state
+        if not result:
+            print("\n⚠️  Cannot extract execution summary - agent execution failed")
+            raise AssertionError("Agent execution failed - cannot validate test requirements")
+        
         todos = result.get("todos", [])
         if todos:
             print(f"\n✅ Todo List ({len(todos)} items):")
@@ -515,16 +474,6 @@ Use the aihehuo-member-search skill to search for members on the AI He Huo platf
         
     finally:
         # Restore environment variables
-        if old_base_url:
-            os.environ["ANTHROPIC_BASE_URL"] = old_base_url
-        elif "ANTHROPIC_BASE_URL" in os.environ:
-            del os.environ["ANTHROPIC_BASE_URL"]
-        
-        if old_api_key:
-            os.environ["ANTHROPIC_API_KEY"] = old_api_key
-        elif "ANTHROPIC_API_KEY" in os.environ:
-            del os.environ["ANTHROPIC_API_KEY"]
-        
         if old_aihehuo_key:
             os.environ["AIHEHUO_API_KEY"] = old_aihehuo_key
         elif "AIHEHUO_API_KEY" in os.environ:

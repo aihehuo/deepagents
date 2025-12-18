@@ -375,6 +375,7 @@ def _read_file_tool_generator(
         """Synchronous wrapper for read_file tool."""
         resolved_backend = _get_backend(backend, runtime)
         file_path = _validate_path(file_path)
+        print(f"[read_file] Reading file: {file_path} (offset={offset}, limit={limit})")
         return resolved_backend.read(file_path, offset=offset, limit=limit)
 
     async def async_read_file(
@@ -386,6 +387,7 @@ def _read_file_tool_generator(
         """Asynchronous wrapper for read_file tool."""
         resolved_backend = _get_backend(backend, runtime)
         file_path = _validate_path(file_path)
+        print(f"[read_file] Reading file: {file_path} (offset={offset}, limit={limit})")
         return await resolved_backend.aread(file_path, offset=offset, limit=limit)
 
     return StructuredTool.from_function(
@@ -419,6 +421,7 @@ def _write_file_tool_generator(
         """Synchronous wrapper for write_file tool."""
         resolved_backend = _get_backend(backend, runtime)
         file_path = _validate_path(file_path)
+        print(f"[write_file] Writing file: {file_path} (content_length={len(content)})")
         res: WriteResult = resolved_backend.write(file_path, content)
         if res.error:
             return res.error
@@ -445,6 +448,7 @@ def _write_file_tool_generator(
         """Asynchronous wrapper for write_file tool."""
         resolved_backend = _get_backend(backend, runtime)
         file_path = _validate_path(file_path)
+        print(f"[write_file] Writing file: {file_path} (content_length={len(content)})")
         res: WriteResult = await resolved_backend.awrite(file_path, content)
         if res.error:
             return res.error

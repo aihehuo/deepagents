@@ -523,57 +523,27 @@ class FilesystemMiddleware(AgentMiddleware):
         tool_description = self._custom_tool_descriptions.get("read_file") or READ_FILE_TOOL_DESCRIPTION
         token_limit = self._tool_token_limit_before_evict
 
-        def sync_read_file(
-            file_path: Annotated[str, "Absolute path to the file to read. Must be absolute, not relative."],
-            runtime: ToolRuntime[None, FilesystemState],
-            offset: Annotated[int, "Line number to start reading from (0-indexed). Use for pagination of large files."] = DEFAULT_READ_OFFSET,
-            limit: Annotated[int, "Maximum number of lines to read. Use for pagination of large files."] = DEFAULT_READ_LIMIT,
-        ) -> str:
-            """Synchronous wrapper for read_file tool."""
-            resolved_backend = self._get_backend(runtime)
-            validated_path = _validate_path(file_path)
-            result = resolved_backend.read(validated_path, offset=offset, limit=limit)
+    def sync_read_file(
+        file_path: str,
+        runtime: ToolRuntime[None, FilesystemState],
+        offset: int = DEFAULT_READ_OFFSET,
+        limit: int = DEFAULT_READ_LIMIT,
+    ) -> str:
+        """Synchronous wrapper for read_file tool."""
+        resolved_backend = _get_backend(backend, runtime)
+        file_path = _validate_path(file_path)
+        return resolved_backend.read(file_path, offset=offset, limit=limit)
 
-            lines = result.splitlines(keepends=True)
-            if len(lines) > limit:
-                lines = lines[:limit]
-                result = "".join(lines)
-
-            # Check if result exceeds token threshold and truncate if necessary
-            if token_limit and len(result) >= NUM_CHARS_PER_TOKEN * token_limit:
-                # Calculate truncation message length to ensure final result stays under threshold
-                truncation_msg = READ_FILE_TRUNCATION_MSG.format(file_path=validated_path)
-                max_content_length = NUM_CHARS_PER_TOKEN * token_limit - len(truncation_msg)
-                result = result[:max_content_length]
-                result += truncation_msg
-
-            return result
-
-        async def async_read_file(
-            file_path: Annotated[str, "Absolute path to the file to read. Must be absolute, not relative."],
-            runtime: ToolRuntime[None, FilesystemState],
-            offset: Annotated[int, "Line number to start reading from (0-indexed). Use for pagination of large files."] = DEFAULT_READ_OFFSET,
-            limit: Annotated[int, "Maximum number of lines to read. Use for pagination of large files."] = DEFAULT_READ_LIMIT,
-        ) -> str:
-            """Asynchronous wrapper for read_file tool."""
-            resolved_backend = self._get_backend(runtime)
-            validated_path = _validate_path(file_path)
-            result = await resolved_backend.aread(validated_path, offset=offset, limit=limit)
-
-            lines = result.splitlines(keepends=True)
-            if len(lines) > limit:
-                lines = lines[:limit]
-                result = "".join(lines)
-
-            # Check if result exceeds token threshold and truncate if necessary
-            if token_limit and len(result) >= NUM_CHARS_PER_TOKEN * token_limit:
-                # Calculate truncation message length to ensure final result stays under threshold
-                truncation_msg = READ_FILE_TRUNCATION_MSG.format(file_path=validated_path)
-                max_content_length = NUM_CHARS_PER_TOKEN * token_limit - len(truncation_msg)
-                result = result[:max_content_length]
-                result += truncation_msg
-
-            return result
+    async def async_read_file(
+        file_path: str,
+        runtime: ToolRuntime[None, FilesystemState],
+        offset: int = DEFAULT_READ_OFFSET,
+        limit: int = DEFAULT_READ_LIMIT,
+    ) -> str:
+        """Asynchronous wrapper for read_file tool."""
+        resolved_backend = _get_backend(backend, runtime)
+        file_path = _validate_path(file_path)
+        return await resolved_backend.aread(file_path, offset=offset, limit=limit)
 
         return StructuredTool.from_function(
             name="read_file",
@@ -586,57 +556,57 @@ class FilesystemMiddleware(AgentMiddleware):
         """Create the write_file tool."""
         tool_description = self._custom_tool_descriptions.get("write_file") or WRITE_FILE_TOOL_DESCRIPTION
 
-        def sync_write_file(
-            file_path: Annotated[str, "Absolute path where the file should be created. Must be absolute, not relative."],
-            content: Annotated[str, "The text content to write to the file. This parameter is required."],
-            runtime: ToolRuntime[None, FilesystemState],
-        ) -> Command | str:
-            """Synchronous wrapper for write_file tool."""
-            resolved_backend = self._get_backend(runtime)
-            validated_path = _validate_path(file_path)
-            res: WriteResult = resolved_backend.write(validated_path, content)
-            if res.error:
-                return res.error
-            # If backend returns state update, wrap into Command with ToolMessage
-            if res.files_update is not None:
-                return Command(
-                    update={
-                        "files": res.files_update,
-                        "messages": [
-                            ToolMessage(
-                                content=f"Updated file {res.path}",
-                                tool_call_id=runtime.tool_call_id,
-                            )
-                        ],
-                    }
-                )
-            return f"Updated file {res.path}"
+    def sync_write_file(
+        file_path: str,
+        content: str,
+        runtime: ToolRuntime[None, FilesystemState],
+    ) -> Command | str:
+        """Synchronous wrapper for write_file tool."""
+        resolved_backend = _get_backend(backend, runtime)
+        file_path = _validate_path(file_path)
+        res: WriteResult = resolved_backend.write(file_path, content)
+        if res.error:
+            return res.error
+        # If backend returns state update, wrap into Command with ToolMessage
+        if res.files_update is not None:
+            return Command(
+                update={
+                    "files": res.files_update,
+                    "messages": [
+                        ToolMessage(
+                            content=f"Updated file {res.path}",
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ],
+                }
+            )
+        return f"Updated file {res.path}"
 
-        async def async_write_file(
-            file_path: Annotated[str, "Absolute path where the file should be created. Must be absolute, not relative."],
-            content: Annotated[str, "The text content to write to the file. This parameter is required."],
-            runtime: ToolRuntime[None, FilesystemState],
-        ) -> Command | str:
-            """Asynchronous wrapper for write_file tool."""
-            resolved_backend = self._get_backend(runtime)
-            validated_path = _validate_path(file_path)
-            res: WriteResult = await resolved_backend.awrite(validated_path, content)
-            if res.error:
-                return res.error
-            # If backend returns state update, wrap into Command with ToolMessage
-            if res.files_update is not None:
-                return Command(
-                    update={
-                        "files": res.files_update,
-                        "messages": [
-                            ToolMessage(
-                                content=f"Updated file {res.path}",
-                                tool_call_id=runtime.tool_call_id,
-                            )
-                        ],
-                    }
-                )
-            return f"Updated file {res.path}"
+    async def async_write_file(
+        file_path: str,
+        content: str,
+        runtime: ToolRuntime[None, FilesystemState],
+    ) -> Command | str:
+        """Asynchronous wrapper for write_file tool."""
+        resolved_backend = _get_backend(backend, runtime)
+        file_path = _validate_path(file_path)
+        res: WriteResult = await resolved_backend.awrite(file_path, content)
+        if res.error:
+            return res.error
+        # If backend returns state update, wrap into Command with ToolMessage
+        if res.files_update is not None:
+            return Command(
+                update={
+                    "files": res.files_update,
+                    "messages": [
+                        ToolMessage(
+                            content=f"Updated file {res.path}",
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ],
+                }
+            )
+        return f"Updated file {res.path}"
 
         return StructuredTool.from_function(
             name="write_file",

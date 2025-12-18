@@ -830,6 +830,7 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
         delta_count = 0
         seen_types: dict[str, int] = {}
         last_written_html_path: str | None = None
+        last_progress_update: float = 0.0
         done = False
 
         try:
@@ -864,6 +865,36 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
 
                 _namespace, current_stream_mode, data = chunk
 
+                # Handle UPDATES stream mode - provides progress information
+                if current_stream_mode == "updates":
+                    # Updates stream contains node execution and tool call information
+                    if isinstance(data, dict):
+                        # Extract node name and status
+                        node_name = data.get("node", "")
+                        if node_name:
+                            # Send progress update (throttle to avoid spam)
+                            import time
+                            now = time.time()
+                            if now - last_progress_update > 0.5:  # Max once per 0.5 seconds
+                                # Try to extract tool call info
+                                tool_calls = data.get("tool_calls", [])
+                                if tool_calls:
+                                    for tc in tool_calls[:1]:  # Just first tool call
+                                        tool_name = tc.get("name", "") if isinstance(tc, dict) else ""
+                                        if tool_name:
+                                            progress_msg = f"Calling {tool_name}..."
+                                            payload = {"type": "progress", "message": progress_msg}
+                                            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                            last_progress_update = now
+                                else:
+                                    # Generic node execution
+                                    progress_msg = f"Processing {node_name}..."
+                                    payload = {"type": "progress", "message": progress_msg}
+                                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                    last_progress_update = now
+                    continue
+
+                # Handle MESSAGES stream mode
                 if current_stream_mode != "messages":
                     continue
 
@@ -879,6 +910,13 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                 if isinstance(message, ToolMessage):
                     tool_name = getattr(message, "name", "") or ""
                     tool_content = getattr(message, "content", "") or ""
+                    
+                    # Send progress update when tool execution completes
+                    if tool_name:
+                        progress_msg = f"Completed {tool_name}"
+                        payload = {"type": "progress", "message": progress_msg}
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    
                     if tool_name == "write_file" and isinstance(tool_content, str):
                         prefix = "Updated file "
                         if tool_content.startswith(prefix):
@@ -895,6 +933,17 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                 if not isinstance(message, (AIMessage, AIMessageChunk)):
                     if getattr(message, "type", None) != "ai":
                         continue
+
+                # Check for tool calls in AI messages and send progress updates
+                tool_calls = getattr(message, "tool_calls", None)
+                if tool_calls:
+                    for tc in tool_calls[:3]:  # Limit to first 3 tool calls
+                        if isinstance(tc, dict):
+                            tool_name = tc.get("name", "")
+                            if tool_name:
+                                progress_msg = f"Preparing to call {tool_name}..."
+                                payload = {"type": "progress", "message": progress_msg}
+                                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
                 for text in _extract_text_chunks_from_ai_message(message):
                     final_parts.append(text)

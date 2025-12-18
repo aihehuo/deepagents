@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -205,6 +206,184 @@ def _extract_text_chunks_from_ai_message(message: Any) -> list[str]:
     return []
 
 
+def _resolve_write_path(virtual_path: str, docs_dir: str | None = None) -> str:
+    """Resolve a virtual filesystem path to the actual write path in docs_dir.
+    
+    DocsOnlyWriteBackend maps all writes to docs_dir, taking only the filename
+    from the virtual path. This function mimics that behavior for display purposes.
+    
+    Args:
+        virtual_path: Virtual path from the agent (e.g., "/path/to/file.md")
+        docs_dir: Docs directory where files are actually written
+        
+    Returns:
+        Actual write path in docs_dir, or original path if docs_dir is not available
+    """
+    if not virtual_path or not docs_dir:
+        return virtual_path
+    
+    try:
+        from pathlib import Path
+        docs = Path(docs_dir).expanduser().resolve()
+        
+        # DocsOnlyWriteBackend._map_write_path extracts just the filename
+        filename = Path(virtual_path).name or "output.txt"
+        actual_path = (docs / filename).resolve()
+        
+        return str(actual_path)
+    except Exception:  # noqa: BLE001
+        return virtual_path
+
+
+def _resolve_read_path(virtual_path: str, backend_root_dir: str | None = None) -> str:
+    """Resolve a virtual filesystem path to actual read path.
+    
+    For reads, the path is resolved relative to the backend's root directory.
+    Virtual paths start with "/" and are resolved relative to root_dir.
+    
+    Args:
+        virtual_path: Virtual path (e.g., "/" or "/path/to/file")
+        backend_root_dir: Root directory of the backend
+        
+    Returns:
+        Resolved absolute path, or original path if resolution fails
+    """
+    if not virtual_path:
+        return virtual_path
+    
+    # If path is already absolute (contains directory separators and looks like absolute path)
+    # Check if it looks like an absolute path that shouldn't be resolved
+    path_obj = None
+    try:
+        from pathlib import Path
+        path_obj = Path(virtual_path)
+        # If it's already an absolute path and exists or looks like a real absolute path
+        if path_obj.is_absolute() and len(path_obj.parts) > 2:
+            # Check if it starts with common absolute path prefixes
+            if str(path_obj).startswith(("/Users/", "/home/", "/tmp/", "/var/", "/opt/", "/usr/")):
+                return str(path_obj.resolve())
+    except Exception:  # noqa: BLE001
+        pass
+    
+    # If no backend_root_dir, return as-is
+    if not backend_root_dir:
+        return virtual_path
+    
+    try:
+        from pathlib import Path
+        root = Path(backend_root_dir).resolve()
+        
+        # Virtual paths start with "/" - remove it and resolve relative to root_dir
+        if virtual_path == "/":
+            return str(root)
+        
+        # Remove leading slash and resolve
+        relative_path = virtual_path.lstrip("/")
+        if not relative_path:
+            return str(root)
+        
+        resolved = (root / relative_path).resolve()
+        return str(resolved)
+    except Exception:  # noqa: BLE001
+        return virtual_path
+
+
+def _format_tool_call_progress(tool_name: str, tool_args: dict[str, Any] | None = None, docs_dir: str | None = None, backend_root_dir: str | None = None) -> str:
+    """Format a progress message for a tool call, including relevant parameters.
+    
+    Note: File paths shown are virtual filesystem paths (relative to agent's working directory),
+    not absolute local filesystem paths.
+    
+    Args:
+        tool_name: Name of the tool being called
+        tool_args: Dictionary of tool call arguments
+        
+    Returns:
+        Formatted progress message string
+    """
+    if not tool_args:
+        return f"Calling {tool_name}..."
+    
+    # Extract relevant parameters based on tool name
+    if tool_name == "read_file":
+        file_path = tool_args.get("file_path", "")
+        offset = tool_args.get("offset")
+        limit = tool_args.get("limit")
+        if file_path:
+            # For reads, resolve relative to backend root
+            actual_path = _resolve_read_path(file_path, backend_root_dir)
+            parts = [f"Reading {actual_path}"]
+            if offset is not None or limit is not None:
+                offset_str = str(offset) if offset is not None else "0"
+                limit_str = f", limit={limit}" if limit is not None else ""
+                parts.append(f" (offset={offset_str}{limit_str})")
+            return "".join(parts)
+    
+    elif tool_name == "write_file":
+        file_path = tool_args.get("file_path", "")
+        if file_path:
+            # For writes, show actual path in docs_dir (DocsOnlyWriteBackend maps all writes there)
+            actual_path = _resolve_write_path(file_path, docs_dir)
+            return f"Writing {actual_path}"
+    
+    elif tool_name == "edit_file":
+        file_path = tool_args.get("file_path", "")
+        if file_path:
+            # For edits, show actual path in docs_dir (DocsOnlyWriteBackend maps all edits there)
+            actual_path = _resolve_write_path(file_path, docs_dir)
+            return f"Editing {actual_path}"
+    
+    elif tool_name == "ls" or tool_name == "list_files":
+        path = tool_args.get("path", "")
+        if path:
+            # For directory listing, resolve relative to backend root
+            actual_path = _resolve_read_path(path, backend_root_dir)
+            return f"Listing files in {actual_path}"
+    
+    elif tool_name == "glob":
+        pattern = tool_args.get("pattern", "")
+        path = tool_args.get("path", "")
+        if pattern and path:
+            # For glob, resolve relative to backend root
+            actual_path = _resolve_read_path(path, backend_root_dir)
+            return f"Globbing '{pattern}' in {actual_path}"
+        elif pattern:
+            return f"Globbing '{pattern}'"
+        elif path:
+            # For glob, resolve relative to backend root
+            actual_path = _resolve_read_path(path, backend_root_dir)
+            return f"Globbing in {actual_path}"
+    
+    elif tool_name == "grep":
+        pattern = tool_args.get("pattern", "")
+        path = tool_args.get("path", "")
+        if pattern and path:
+            # For grep, resolve relative to backend root
+            actual_path = _resolve_read_path(path, backend_root_dir)
+            return f"Searching for '{pattern[:30]}...' in {actual_path}"
+        elif pattern:
+            return f"Searching for '{pattern[:30]}...'"
+        elif path:
+            # For grep, resolve relative to backend root
+            actual_path = _resolve_read_path(path, backend_root_dir)
+            return f"Searching in {actual_path}"
+    
+    elif tool_name == "execute" or tool_name == "shell":
+        command = tool_args.get("command", "")
+        if command:
+            # Truncate long commands
+            cmd_preview = command[:50] + "..." if len(command) > 50 else command
+            return f"Executing: {cmd_preview}"
+    
+    elif tool_name == "task":
+        subagent_type = tool_args.get("subagent_type", "")
+        if subagent_type:
+            return f"Delegating to {subagent_type} subagent"
+    
+    # Default: just tool name
+    return f"Calling {tool_name}..."
+
+
 def _summarize_state_values(values: dict[str, Any]) -> dict[str, Any]:
     """Return a small JSON-serializable summary for debugging."""
     milestones = {
@@ -274,6 +453,8 @@ class _AppState:
     checkpoints_path: str
     # Ensure the same thread_id is processed serially (avoid checkpoint races).
     thread_locks: dict[str, asyncio.Lock]
+    # Docs directory where agent writes files (DocsOnlyWriteBackend constraint)
+    docs_dir: str | None = None
 
 
 app = FastAPI(title="Business Co-Founder Agent API", version="0.1.0")
@@ -347,11 +528,23 @@ async def _startup() -> None:
     await _configure_asyncio_default_executor()
     _patch_openai_no_thread()
     agent, checkpoints_path = create_business_cofounder_agent(agent_id="business_cofounder_agent")
-    _state = _AppState(agent=agent, checkpoints_path=str(checkpoints_path), thread_locks={})
+    
+    # Extract docs_dir from agent configuration
+    # The backend is wrapped in DocsOnlyWriteBackend which constrains all writes to docs_dir.
+    from pathlib import Path
+    docs_dir = str(Path.home() / ".deepagents" / "business_cofounder_api" / "docs")
+    
+    _state = _AppState(
+        agent=agent,
+        checkpoints_path=str(checkpoints_path),
+        thread_locks={},
+        docs_dir=docs_dir,
+    )
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
+    _logger.info("GET /health - received request")
     assert _state is not None
     return {"status": "ok", "checkpoints_path": _state.checkpoints_path}
 
@@ -363,6 +556,7 @@ async def get_state(user_id: str, conversation_id: str = "default") -> dict[str,
     Disabled by default. Enable with:
       BC_API_ENABLE_STATE_ENDPOINT=1
     """
+    _logger.info("GET /state - received request (user_id=%s, conversation_id=%s)", user_id, conversation_id)
     if not _env_flag("BC_API_ENABLE_STATE_ENDPOINT", default=False):
         raise HTTPException(status_code=404, detail="Not found")
 
@@ -419,6 +613,12 @@ async def get_state(user_id: str, conversation_id: str = "default") -> dict[str,
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
+    _logger.info(
+        "POST /chat - received request (user_id=%s, conversation_id=%s, message_len=%d)",
+        req.user_id,
+        req.conversation_id,
+        len(req.message),
+    )
     assert _state is not None
     tid = _thread_id(user_id=req.user_id, conversation_id=req.conversation_id)
 
@@ -490,10 +690,22 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
     This avoids client/proxy timeouts for long generations (e.g. HTML via coder subagent).
 
     SSE event format:
-    - data: {"type":"delta","text":"..."}  (many)
-    - data: {"type":"final","text":"..."}  (once)
+    - data: {"type":"delta","text":"..."}  (many) - text chunks from assistant
+    - data: {"type":"progress","message":"..."}  (many) - progress updates during execution
+    - data: {"type":"final","text":"..."}  (once) - final complete response
     - data: {"type":"error","detail":{...}} (once, if error)
+    
+    Progress updates are sent when:
+    - Tool calls are being prepared or executed
+    - Nodes in the agent graph are being processed
+    - Tool execution completes
     """
+    _logger.info(
+        "POST /chat/stream - received request (user_id=%s, conversation_id=%s, message_len=%d)",
+        req.user_id,
+        req.conversation_id,
+        len(req.message),
+    )
     assert _state is not None
     tid = _thread_id(user_id=req.user_id, conversation_id=req.conversation_id)
 
@@ -503,10 +715,17 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
         _state.thread_locks[tid] = lock
 
     async def _gen():
+        import time
         final_parts: list[str] = []
         delta_count = 0
         seen_types: dict[str, int] = {}
         last_written_html_path: str | None = None
+        last_progress_update: float = 0.0
+        # Track tool calls by ID to match with ToolMessages
+        tool_call_args_cache: dict[str, dict[str, Any]] = {}
+        # Track model call stats - start timing from the beginning of the request
+        request_start_time = time.time()
+        model_call_start_time: float | None = None
         async with lock:
             try:
                 async for chunk in _state.agent.astream(
@@ -526,6 +745,258 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
 
                     _namespace, current_stream_mode, data = chunk
 
+                    # Handle UPDATES stream mode - provides progress information
+                    if current_stream_mode == "updates":
+                        # Updates stream structure: dict where keys are node names or special markers
+                        # Example: {"node_name": {"tool_calls": [...]}} or {"__interrupt__": [...]}
+                        if isinstance(data, dict):
+                            # Skip special markers like "__interrupt__"
+                            for key, update_data in data.items():
+                                if key.startswith("__") and key.endswith("__"):
+                                    continue  # Skip special markers
+                                
+                                node_name = key
+                                print(f"node_name: {node_name}")
+                                # update_data is the actual update content for this node
+                                if not isinstance(update_data, dict):
+                                    continue
+                                # Send progress update (throttle to avoid spam)
+                                import time
+                                now = time.time()
+                                if now - last_progress_update > 0:  # Max once per 0.5 seconds
+                                    # Special handling for "tools" node - contains ToolMessages with results
+                                    if node_name == "tools":
+                                        messages = update_data.get("messages", [])
+                                        for msg in messages:
+                                            # Check if it's a ToolMessage (tool execution result)
+                                            if isinstance(msg, ToolMessage) or (isinstance(msg, dict) and msg.get("type") == "tool"):
+                                                tool_name = msg.get("name", "") if isinstance(msg, dict) else getattr(msg, "name", "")
+                                                tool_call_id = msg.get("tool_call_id", "") if isinstance(msg, dict) else getattr(msg, "tool_call_id", "")
+                                                
+                                                # Look up cached tool args using tool_call_id
+                                                cached_tool_info = tool_call_args_cache.get(tool_call_id, {}) if tool_call_id else {}
+                                                cached_args = cached_tool_info.get("args", {})
+                                                
+                                                if tool_name:
+                                                    # Format progress message with file path from cached args
+                                                    from pathlib import Path
+                                                    docs_dir = _state.docs_dir if _state else None
+                                                    backend_root_dir = str(Path.cwd()) if _state else None
+                                                    progress_msg = _format_tool_call_progress(tool_name, cached_args, docs_dir, backend_root_dir)
+                                                    payload = {"type": "progress", "message": progress_msg}
+                                                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                                    last_progress_update = now
+                                        continue
+                                    
+                                    # For "model" node, tool_calls are in the AIMessage within messages
+                                    if node_name == "model":
+                                        # Track start time for this model call if not already set
+                                        # Note: The model node appears AFTER completion in the updates stream,
+                                        # so we use request_start_time as an approximation
+                                        # (this includes middleware processing time, not just model call time)
+                                        if model_call_start_time is None:
+                                            model_call_start_time = request_start_time
+                                        
+                                        messages = update_data.get("messages", [])
+                                        for msg in messages:
+                                            # Check if it's an AIMessage with tool_calls
+                                            if isinstance(msg, dict):
+                                                msg_type = msg.get("type", "")
+                                                if msg_type == "ai":
+                                                    # Extract token usage and stats - try multiple locations
+                                                    response_metadata = msg.get("response_metadata", {}) or {}
+                                                    usage_metadata = msg.get("usage_metadata") or response_metadata.get("usage_metadata") or {}
+                                                    
+                                                    # Extract token counts from various possible locations
+                                                    input_tokens = 0
+                                                    output_tokens = 0
+                                                    
+                                                    # Try usage_metadata dict
+                                                    if isinstance(usage_metadata, dict):
+                                                        input_tokens = usage_metadata.get("input_tokens") or usage_metadata.get("prompt_tokens") or 0
+                                                        output_tokens = usage_metadata.get("output_tokens") or usage_metadata.get("completion_tokens") or 0
+                                                    
+                                                    # Try response_metadata directly
+                                                    if isinstance(response_metadata, dict):
+                                                        if not input_tokens:
+                                                            input_tokens = response_metadata.get("input_tokens") or response_metadata.get("prompt_tokens") or 0
+                                                        if not output_tokens:
+                                                            output_tokens = response_metadata.get("output_tokens") or response_metadata.get("completion_tokens") or 0
+                                                    
+                                                    # Try top-level message fields
+                                                    if not input_tokens:
+                                                        input_tokens = msg.get("input_tokens") or msg.get("prompt_tokens") or 0
+                                                    if not output_tokens:
+                                                        output_tokens = msg.get("output_tokens") or msg.get("completion_tokens") or 0
+                                                    
+                                                    # Calculate processing time
+                                                    # Use request_start_time as the baseline since model node appears after completion
+                                                    processing_time = time.time() - request_start_time
+                                                    # Reset model_call_start_time for potential next model call in same request
+                                                    model_call_start_time = None
+                                                    
+                                                    # Print stats (even if zero, for debugging)
+                                                    _logger.info(
+                                                        "[LLM Call Stats] input_tokens=%d, output_tokens=%d, processing_time=%.2fs, response_metadata_keys=%s",
+                                                        input_tokens,
+                                                        output_tokens,
+                                                        processing_time,
+                                                        list(response_metadata.keys()) if isinstance(response_metadata, dict) else [],
+                                                    )
+                                                    
+                                                    tool_calls = msg.get("tool_calls", [])
+                                                    if tool_calls:
+                                                        for tc in tool_calls[:1]:  # Just first tool call
+                                                            if isinstance(tc, dict):
+                                                                tool_name = tc.get("name", "")
+                                                                tool_call_id = tc.get("id", "") or tc.get("tool_call_id", "")
+                                                                # Try multiple ways to get args
+                                                                tool_args = tc.get("args", {}) or tc.get("arguments", {})
+                                                                # Handle case where args might be nested under "function"
+                                                                if not tool_args and "function" in tc:
+                                                                    func_data = tc.get("function", {})
+                                                                    if isinstance(func_data, dict):
+                                                                        args_str = func_data.get("arguments", "")
+                                                                        if isinstance(args_str, str):
+                                                                            try:
+                                                                                tool_args = json.loads(args_str)
+                                                                            except Exception:
+                                                                                tool_args = {}
+                                                                        else:
+                                                                            tool_args = func_data.get("arguments", {})
+                                                                # If args is a string (JSON), parse it
+                                                                elif isinstance(tool_args, str):
+                                                                    try:
+                                                                        tool_args = json.loads(tool_args)
+                                                                    except Exception:
+                                                                        tool_args = {}
+                                                                
+                                                                # Cache tool call args by ID for later use with ToolMessages
+                                                                if tool_call_id and tool_name:
+                                                                    tool_call_args_cache[tool_call_id] = {"name": tool_name, "args": tool_args}
+                                                                
+                                                                if tool_name:
+                                                                    from pathlib import Path
+                                                                    docs_dir = _state.docs_dir if _state else None
+                                                                    backend_root_dir = str(Path.cwd()) if _state else None
+                                                                    progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
+                                                                    payload = {"type": "progress", "message": progress_msg}
+                                                                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                                                    last_progress_update = now
+                                                        break  # Only process first message with tool_calls
+                                            # Handle AIMessage objects (not dicts)
+                                            elif hasattr(msg, "tool_calls") and msg.tool_calls:
+                                                import time
+                                                # Extract token usage and stats from AIMessage object
+                                                # Use request_start_time as the baseline since model node appears after completion
+                                                processing_time = time.time() - request_start_time
+                                                # Reset model_call_start_time for potential next model call in same request
+                                                model_call_start_time = None
+                                                
+                                                # Try to get usage_metadata from the message
+                                                input_tokens = 0
+                                                output_tokens = 0
+                                                
+                                                usage_metadata = getattr(msg, "usage_metadata", None)
+                                                if usage_metadata:
+                                                    if isinstance(usage_metadata, dict):
+                                                        input_tokens = usage_metadata.get("input_tokens") or usage_metadata.get("prompt_tokens") or 0
+                                                        output_tokens = usage_metadata.get("output_tokens") or usage_metadata.get("completion_tokens") or 0
+                                                    else:
+                                                        # Try as object with attributes
+                                                        input_tokens = getattr(usage_metadata, "input_tokens", None) or getattr(usage_metadata, "prompt_tokens", None) or 0
+                                                        output_tokens = getattr(usage_metadata, "output_tokens", None) or getattr(usage_metadata, "completion_tokens", None) or 0
+                                                
+                                                # Try response_metadata if usage_metadata didn't work
+                                                if not input_tokens and not output_tokens:
+                                                    response_metadata = getattr(msg, "response_metadata", None)
+                                                    if response_metadata:
+                                                        if isinstance(response_metadata, dict):
+                                                            input_tokens = response_metadata.get("input_tokens") or response_metadata.get("prompt_tokens") or 0
+                                                            output_tokens = response_metadata.get("output_tokens") or response_metadata.get("completion_tokens") or 0
+                                                        else:
+                                                            input_tokens = getattr(response_metadata, "input_tokens", None) or getattr(response_metadata, "prompt_tokens", None) or 0
+                                                            output_tokens = getattr(response_metadata, "output_tokens", None) or getattr(response_metadata, "completion_tokens", None) or 0
+                                                
+                                                # Print stats (with debug info)
+                                                _logger.info(
+                                                    "[LLM Call Stats] input_tokens=%d, output_tokens=%d, processing_time=%.2fs, has_usage_metadata=%s, has_response_metadata=%s",
+                                                    input_tokens,
+                                                    output_tokens,
+                                                    processing_time,
+                                                    usage_metadata is not None,
+                                                    hasattr(msg, "response_metadata"),
+                                                )
+                                                
+                                                for tc in msg.tool_calls[:1]:
+                                                    if isinstance(tc, dict):
+                                                        tool_name = tc.get("name", "")
+                                                        tool_call_id = tc.get("id", "") or tc.get("tool_call_id", "")
+                                                        tool_args = tc.get("args", {}) or tc.get("arguments", {})
+                                                        if isinstance(tool_args, str):
+                                                            try:
+                                                                tool_args = json.loads(tool_args)
+                                                            except Exception:
+                                                                tool_args = {}
+                                                        
+                                                        # Cache tool call args
+                                                        if tool_call_id and tool_name:
+                                                            tool_call_args_cache[tool_call_id] = {"name": tool_name, "args": tool_args}
+                                                        
+                                                        if tool_name:
+                                                            from pathlib import Path
+                                                            docs_dir = _state.docs_dir if _state else None
+                                                            backend_root_dir = str(Path.cwd()) if _state else None
+                                                            progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
+                                                            payload = {"type": "progress", "message": progress_msg}
+                                                            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                                            last_progress_update = now
+                                                break
+                                    else:
+                                        # For other nodes, try to extract tool call info from the update data
+                                        tool_calls = update_data.get("tool_calls", [])
+                                        if tool_calls:
+                                            for tc in tool_calls[:1]:  # Just first tool call
+                                                if isinstance(tc, dict):
+                                                    tool_name = tc.get("name", "")
+                                                    # Try multiple ways to get args - different providers structure this differently
+                                                    tool_args = tc.get("args", {}) or tc.get("arguments", {})
+                                                    # Handle case where args might be nested under "function"
+                                                    if not tool_args and "function" in tc:
+                                                        func_data = tc.get("function", {})
+                                                        if isinstance(func_data, dict):
+                                                            args_str = func_data.get("arguments", "")
+                                                            if isinstance(args_str, str):
+                                                                try:
+                                                                    tool_args = json.loads(args_str)
+                                                                except Exception:
+                                                                    tool_args = {}
+                                                            else:
+                                                                tool_args = func_data.get("arguments", {})
+                                                    # If args is a string (JSON), parse it
+                                                    elif isinstance(tool_args, str):
+                                                        try:
+                                                            tool_args = json.loads(tool_args)
+                                                        except Exception:
+                                                            tool_args = {}
+                                                    
+                                                    if tool_name:
+                                                        from pathlib import Path
+                                                        docs_dir = _state.docs_dir if _state else None
+                                                        backend_root_dir = str(Path.cwd()) if _state else None
+                                                        progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
+                                                        payload = {"type": "progress", "message": progress_msg}
+                                                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                                        last_progress_update = now
+                                        else:
+                                            # Generic node execution (no tool calls, just node processing)
+                                            progress_msg = f"Processing {node_name}..."
+                                            payload = {"type": "progress", "message": progress_msg}
+                                            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                            last_progress_update = now
+                        continue
+
+                    # Handle MESSAGES stream mode
                     if current_stream_mode != "messages":
                         continue
                     # Messages stream returns (message, metadata)
@@ -540,13 +1011,50 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                     if isinstance(message, ToolMessage):
                         tool_name = getattr(message, "name", "") or ""
                         tool_content = getattr(message, "content", "") or ""
-                        if tool_name == "write_file" and isinstance(tool_content, str):
-                            # Filesystem tool returns: "Updated file <path>"
-                            prefix = "Updated file "
-                            if tool_content.startswith(prefix):
-                                p = tool_content[len(prefix) :].strip()
-                                if p.lower().endswith(".html"):
-                                    last_written_html_path = p
+                        tool_call_id = getattr(message, "tool_call_id", "") or ""
+                        
+                        # Try to get tool args from cache using tool_call_id
+                        cached_tool_info = tool_call_args_cache.get(tool_call_id, {}) if tool_call_id else {}
+                        cached_args = cached_tool_info.get("args", {})
+                        if cached_tool_info.get("name"):
+                            tool_name = cached_tool_info["name"]  # Use cached name if available
+                        
+                        # Send progress update when tool execution completes
+                        if tool_name:
+                            # Try to extract file path from tool content or cached args
+                            file_path = None
+                            
+                            # First, try to get file_path from cached args (most reliable)
+                            if cached_args:
+                                file_path = cached_args.get("file_path", "") or cached_args.get("path", "")
+                            
+                            # Fallback: try to extract from tool content
+                            if not file_path:
+                                if tool_name == "write_file" and isinstance(tool_content, str):
+                                    # Filesystem tool returns: "Updated file <path>"
+                                    prefix = "Updated file "
+                                    if tool_content.startswith(prefix):
+                                        file_path = tool_content[len(prefix) :].strip()
+                                        if file_path.lower().endswith(".html"):
+                                            last_written_html_path = file_path
+                                elif tool_name == "read_file" and isinstance(tool_content, str):
+                                    # Try to extract file path from read_file content
+                                    # read_file content might contain file path info, or we can look for patterns
+                                    # For now, try to find file path in the content if it's a short error message
+                                    if len(tool_content) < 200:
+                                        # Look for common patterns that might indicate file path
+                                        # Try to find absolute paths in the content
+                                        path_match = re.search(r'/(?:[^/\s]+/)*[^/\s]+', tool_content)
+                                        if path_match:
+                                            file_path = path_match.group(0)
+                            
+                            # Format completion message with file path if available
+                            if file_path:
+                                progress_msg = f"Completed {tool_name}: {file_path}"
+                            else:
+                                progress_msg = f"Completed {tool_name}"
+                            payload = {"type": "progress", "message": progress_msg}
+                            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
                         continue
 
                     # Ignore human echoes
@@ -558,6 +1066,91 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                         # Some providers may not use these exact classes; fall back on type=="ai" when present.
                         if getattr(message, "type", None) != "ai":
                             continue
+
+                    # Extract token usage from AIMessage if available (messages stream has more complete metadata)
+                    if isinstance(message, (AIMessage, AIMessageChunk)) or getattr(message, "type", None) == "ai":
+                        # Try to extract token usage - this is often more complete in messages stream
+                        usage_metadata = getattr(message, "usage_metadata", None)
+                        response_metadata = getattr(message, "response_metadata", None)
+                        
+                        input_tokens = 0
+                        output_tokens = 0
+                        
+                        # Try usage_metadata first
+                        if usage_metadata:
+                            if isinstance(usage_metadata, dict):
+                                input_tokens = usage_metadata.get("input_tokens") or usage_metadata.get("prompt_tokens") or 0
+                                output_tokens = usage_metadata.get("output_tokens") or usage_metadata.get("completion_tokens") or 0
+                            else:
+                                input_tokens = getattr(usage_metadata, "input_tokens", None) or getattr(usage_metadata, "prompt_tokens", None) or 0
+                                output_tokens = getattr(usage_metadata, "output_tokens", None) or getattr(usage_metadata, "completion_tokens", None) or 0
+                        
+                        # Try response_metadata if usage_metadata didn't work
+                        if (not input_tokens and not output_tokens) and response_metadata:
+                            if isinstance(response_metadata, dict):
+                                input_tokens = response_metadata.get("input_tokens") or response_metadata.get("prompt_tokens") or 0
+                                output_tokens = response_metadata.get("output_tokens") or response_metadata.get("completion_tokens") or 0
+                            else:
+                                input_tokens = getattr(response_metadata, "input_tokens", None) or getattr(response_metadata, "prompt_tokens", None) or 0
+                                output_tokens = getattr(response_metadata, "output_tokens", None) or getattr(response_metadata, "completion_tokens", None) or 0
+                        
+                        # Log token usage if found
+                        if input_tokens or output_tokens:
+                            _logger.info(
+                                "[LLM Call Stats from messages stream] input_tokens=%d, output_tokens=%d",
+                                input_tokens,
+                                output_tokens,
+                            )
+                    
+                    # Check for tool calls in AI messages and send progress updates
+                    tool_calls = getattr(message, "tool_calls", None)
+                    if tool_calls:
+                        for tc in tool_calls[:3]:  # Limit to first 3 tool calls
+                            if isinstance(tc, dict):
+                                tool_name = tc.get("name", "")
+                                tool_call_id = tc.get("id", "") or tc.get("tool_call_id", "")
+                                # Try multiple ways to get args - different providers structure this differently
+                                tool_args = tc.get("args", {}) or tc.get("arguments", {})
+                                # Handle case where args might be nested under "function"
+                                if not tool_args and "function" in tc:
+                                    func_data = tc.get("function", {})
+                                    if isinstance(func_data, dict):
+                                        args_str = func_data.get("arguments", "")
+                                        if isinstance(args_str, str):
+                                            try:
+                                                tool_args = json.loads(args_str)
+                                            except Exception:
+                                                tool_args = {}
+                                        else:
+                                            tool_args = func_data.get("arguments", {})
+                                # If args is a string (JSON), parse it
+                                elif isinstance(tool_args, str):
+                                    try:
+                                        tool_args = json.loads(tool_args)
+                                    except Exception:
+                                        tool_args = {}
+                                
+                                # Cache tool call args by ID for later use with ToolMessages
+                                if tool_call_id and tool_name:
+                                    tool_call_args_cache[tool_call_id] = {"name": tool_name, "args": tool_args}
+                                
+                                # Debug logging if enabled
+                                if _env_flag("BC_API_STREAM_DEBUG", default=False):
+                                    _logger.debug(
+                                        "Tool call in AI message: name=%s, id=%s, args=%s, tc_keys=%s",
+                                        tool_name,
+                                        tool_call_id,
+                                        tool_args,
+                                        list(tc.keys()) if isinstance(tc, dict) else [],
+                                    )
+                                
+                                if tool_name:
+                                    from pathlib import Path
+                                    docs_dir = _state.docs_dir if _state else None
+                                    backend_root_dir = str(Path.cwd()) if _state else None
+                                    progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
+                                    payload = {"type": "progress", "message": progress_msg}
+                                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
                     for text in _extract_text_chunks_from_ai_message(message):
                         final_parts.append(text)
@@ -619,6 +1212,11 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
 @app.post("/reset", response_model=ResetResponse)
 async def reset(req: ResetRequest) -> ResetResponse:
     """Reset a user's conversation by deleting the thread from the checkpointer."""
+    _logger.info(
+        "POST /reset - received request (user_id=%s, conversation_id=%s)",
+        req.user_id,
+        req.conversation_id,
+    )
     assert _state is not None
     tid = _thread_id(user_id=req.user_id, conversation_id=req.conversation_id)
 

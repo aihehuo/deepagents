@@ -79,6 +79,12 @@ DATETIME_SYSTEM_PROMPT = """## `get_current_datetime`
 
 You have access to the `get_current_datetime` tool to get the current date and time.
 Use this tool when you need to know what time it is, for timestamping, scheduling, or time-based context.
+
+**Important guidelines:**
+- When writing reports or documents that include dates or timestamps, you MUST use this tool to get the accurate current date and time.
+- Do NOT guess or make up dates/times - always call `get_current_datetime` to ensure accuracy.
+- For human-readable format in reports, use `format='readable'` when calling the tool (e.g., "January 15, 2024 at 2:30 PM").
+- This is especially important when timestamping reports, recommendations, or any time-sensitive information.
 """
 
 

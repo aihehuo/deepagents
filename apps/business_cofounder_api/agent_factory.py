@@ -9,8 +9,14 @@ from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.business_idea_development import BusinessIdeaDevelopmentMiddleware
 from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
-from deepagents.middleware.routing import build_default_coder_routing_middleware
-from deepagents.subagent_presets import build_coder_subagent_from_env
+from deepagents.middleware.routing import (
+    build_default_aihehuo_routing_middleware,
+    build_default_coder_routing_middleware,
+)
+from deepagents.subagent_presets import (
+    build_aihehuo_subagent_from_env,
+    build_coder_subagent_from_env,
+)
 from deepagents_cli.skills.middleware import SkillsMiddleware
 from langchain_anthropic import ChatAnthropic
 
@@ -171,8 +177,14 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     )
 
     coder_subagent = build_coder_subagent_from_env(tools=None, name="coder")
-    subagents = [coder_subagent] if coder_subagent is not None else []
-
+    aihehuo_subagent = build_aihehuo_subagent_from_env(tools=None, name="aihehuo")
+    
+    subagents = []
+    if coder_subagent is not None:
+        subagents.append(coder_subagent)
+    if aihehuo_subagent is not None:
+        subagents.append(aihehuo_subagent)
+    
     middleware = [
         LanguageDetectionMiddleware(),
         BusinessIdeaTrackerMiddleware(),
@@ -185,6 +197,8 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     ]
     if coder_subagent is not None:
         middleware.append(build_default_coder_routing_middleware(coder_subagent_type="coder"))
+    if aihehuo_subagent is not None:
+        middleware.append(build_default_aihehuo_routing_middleware(aihehuo_subagent_type="aihehuo"))
 
     agent = create_deep_agent(
         model=model,

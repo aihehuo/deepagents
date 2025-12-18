@@ -14,7 +14,7 @@ from apps.business_cofounder_api.checkpointer import DiskBackedInMemorySaver
 
 
 def _base_url() -> str:
-    return os.environ.get("BC_API_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
+    return os.environ.get("BC_API_BASE_URL", "http://127.0.0.1:8002").rstrip("/")
 
 def _checkpoints_host_path_override() -> str | None:
     """
@@ -392,7 +392,7 @@ Problem:
 
 Solution:
 - A Slack + Jira + PagerDuty integrated assistant that (1) summarizes workload/alerts, (2) flags risk patterns, (3) recommends weekly focus plans,
-  and (4) provides lightweight “manager interventions” templates.
+  and (4) provides lightweight "manager interventions" templates.
 
 Target users:
 - Primary: Engineering managers (10–80 reports across teams) at 200–2000 employee companies.
@@ -411,7 +411,10 @@ Competition:
 Team:
 - We have 8 years building developer tools, and we previously built internal analytics at a large SaaS company.
 
-Please evaluate whether this is a complete business idea. If complete, call mark_business_idea_complete.""",
+**IMPORTANT: Please use the business-idea-evaluation skill to evaluate whether this is a complete business idea. 
+- Check if it satisfies the WHO/WHAT/HOW completeness gate.
+- If complete, call mark_business_idea_complete with a brief summary.
+- Do NOT explore business model archetypes, pricing strategies, or other topics yet. Only evaluate completeness.**""",
             timeout_s=_e2e_chat_timeout_s(),
         )
 

@@ -82,11 +82,128 @@ bc_chat() {
 bc_stream() {
   local base_url="${1:-${BC_BASE_URL}}"
   local msg="${2:?message required}"
+  
+  # # Capture curl output to temp file to avoid stdout conflicts, then process it
+  # local temp_file
+  # temp_file="$(mktemp)"
+  # trap "rm -f '${temp_file}'" EXIT
+  
+  # Stream to temp file first (this avoids the curl stdout conflict)
   curl -N -sS -X POST "${base_url}/chat/stream" \
     -H "Accept: text/event-stream" \
     -H "Content-Type: application/json" \
     -d "{\"user_id\":\"${USER_ID}\",\"conversation_id\":\"${CONV_ID}\",\"message\":$(json_escape "${msg}")}"
+    # > "${temp_file}" 2>&1
   echo
+  
+#   # Now parse and format the captured stream
+#   python3 - <<'PYTHON_SCRIPT' "${temp_file}"
+# import sys
+# import json
+
+# delta_buffer = []
+# final_text = None
+# progress_messages = []
+
+# def format_text(text):
+#     """Format text with proper line breaks."""
+#     if not text:
+#         return ""
+#     return text.rstrip()
+
+# def print_section(title, content, separator="="):
+#     """Print a formatted section with title and content."""
+#     if not content:
+#         return
+#     print(f"\n{separator * 70}")
+#     print(f"{title}")
+#     print(f"{separator * 70}")
+#     formatted = format_text(content)
+#     print(formatted)
+#     print()
+
+# # Read from temp file
+# temp_file = sys.argv[1] if len(sys.argv) > 1 else None
+# if not temp_file:
+#     print("ERROR: No temp file provided", file=sys.stderr)
+#     sys.exit(1)
+
+# try:
+#     with open(temp_file, 'r', encoding='utf-8', errors='replace') as f:
+#         for line in f:
+#             line = line.rstrip('\n\r')
+            
+#             # Skip empty lines and comments
+#             if not line or line.startswith(':'):
+#                 continue
+            
+#             # Parse SSE data line
+#             if line.startswith('data:'):
+#                 content = line[5:].strip()
+#                 if not content:
+#                     continue
+                
+#                 try:
+#                     event = json.loads(content)
+#                 except json.JSONDecodeError:
+#                     continue
+                
+#                 if not isinstance(event, dict):
+#                     continue
+                
+#                 event_type = event.get('type', '')
+                
+#                 if event_type == 'delta':
+#                     # Accumulate delta chunks
+#                     text = event.get('text', '')
+#                     if text:
+#                         delta_buffer.append(text)
+#                         # Print delta chunks as we process them
+#                         print(text, end='', flush=True)
+                
+#                 elif event_type == 'final':
+#                     # Store final message for formatting at the end
+#                     text = event.get('text', '')
+#                     if text:
+#                         final_text = text
+                
+#                 elif event_type == 'progress':
+#                     # Store progress messages
+#                     progress_msg = event.get('message', '')
+#                     if progress_msg:
+#                         progress_messages.append(progress_msg)
+                
+#                 elif event_type == 'error':
+#                     # Print error immediately
+#                     error_detail = event.get('detail', {})
+#                     print(f"\n{'!' * 70}", file=sys.stderr)
+#                     print("ERROR", file=sys.stderr)
+#                     print(f"{'!' * 70}", file=sys.stderr)
+#                     print(json.dumps(error_detail, indent=2, ensure_ascii=False), file=sys.stderr)
+#                     print(file=sys.stderr)
+# except Exception as e:
+#     print(f"\nERROR parsing stream: {e}", file=sys.stderr)
+#     # Try to show raw content for debugging
+#     try:
+#         with open(temp_file, 'r', encoding='utf-8', errors='replace') as f:
+#             raw = f.read()
+#             if raw and len(raw) < 10000:  # Only show if not too large
+#                 print("\nRaw stream output:", file=sys.stderr)
+#                 print(raw[:1000], file=sys.stderr)
+#     except:
+#         pass
+
+# # After stream ends, print formatted sections
+# if delta_buffer:
+#     print()  # Newline after streaming deltas
+#     print_section("STREAMING OUTPUT (Delta Messages)", ''.join(delta_buffer), "=")
+
+# if final_text:
+#     print_section("FINAL MESSAGE", final_text, "=")
+
+# if progress_messages:
+#     print_section("PROGRESS UPDATES", '\n'.join(f"• {msg}" for msg in progress_messages), "-")
+# PYTHON_SCRIPT
 }
 
 bc_state() {

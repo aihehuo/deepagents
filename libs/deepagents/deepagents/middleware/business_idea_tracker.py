@@ -33,14 +33,38 @@ class BusinessIdeaState(AgentState):
     persona_clarified: NotRequired[bool]
     """Whether the user persona has been clarified."""
 
+    clarified_persona: NotRequired[str | None]
+    """The clarified persona details, if persona has been clarified."""
+
     painpoint_enhanced: NotRequired[bool]
     """Whether the pain point has been enhanced."""
+
+    enhanced_painpoint: NotRequired[str | None]
+    """The enhanced pain point details, if pain point has been enhanced."""
+
+    early_adopter_identified: NotRequired[bool]
+    """Whether early adopters have been identified."""
+
+    early_adopter_profile: NotRequired[str | None]
+    """The early adopter profile and identification details, if early adopters have been identified."""
 
     pitch_created: NotRequired[bool]
     """Whether a 60-second pitch has been created."""
 
+    created_pitch: NotRequired[str | None]
+    """The created 60-second pitch content, if pitch has been created."""
+
     pricing_optimized: NotRequired[bool]
     """Whether baseline pricing and optimization has been completed."""
+
+    pricing_strategy: NotRequired[str | None]
+    """The pricing strategy and optimization details, if pricing has been optimized."""
+
+    business_model_explored: NotRequired[bool]
+    """Whether business model pivot exploration has been completed."""
+
+    business_model_exploration_results: NotRequired[str | None]
+    """The business model exploration results, if business model exploration has been completed."""
 
 
 class BusinessIdeaStateUpdate(TypedDict):
@@ -55,14 +79,38 @@ class BusinessIdeaStateUpdate(TypedDict):
     persona_clarified: NotRequired[bool]
     """Whether the user persona has been clarified."""
 
+    clarified_persona: NotRequired[str | None]
+    """The clarified persona details, if persona has been clarified."""
+
     painpoint_enhanced: NotRequired[bool]
     """Whether the pain point has been enhanced."""
+
+    enhanced_painpoint: NotRequired[str | None]
+    """The enhanced pain point details, if pain point has been enhanced."""
+
+    early_adopter_identified: NotRequired[bool]
+    """Whether early adopters have been identified."""
+
+    early_adopter_profile: NotRequired[str | None]
+    """The early adopter profile and identification details, if early adopters have been identified."""
 
     pitch_created: NotRequired[bool]
     """Whether a 60-second pitch has been created."""
 
+    created_pitch: NotRequired[str | None]
+    """The created 60-second pitch content, if pitch has been created."""
+
     pricing_optimized: NotRequired[bool]
     """Whether baseline pricing and optimization has been completed."""
+
+    pricing_strategy: NotRequired[str | None]
+    """The pricing strategy and optimization details, if pricing has been optimized."""
+
+    business_model_explored: NotRequired[bool]
+    """Whether business model pivot exploration has been completed."""
+
+    business_model_exploration_results: NotRequired[str | None]
+    """The business model exploration results, if business model exploration has been completed."""
 
 
 MARK_BUSINESS_IDEA_COMPLETE_TOOL_DESCRIPTION = """Mark a business idea as complete and materialized.
@@ -80,19 +128,32 @@ MARK_PERSONA_CLARIFIED_TOOL_DESCRIPTION = """Mark that the user persona has been
 Use this tool after using the persona-clarification skill to mark that the persona has been clarified. This unlocks the painpoint-enhancement skill.
 
 Args:
-    confirmation: A brief confirmation message (e.g., "Persona clarified").
+    persona_content: The clarified persona details (demographics, background, goals, pain points, behaviors, etc.).
+    confirmation: Optional brief confirmation message (e.g., "Persona clarified"). Defaults to "Persona clarified" if not provided.
 
-This tool updates the agent state to indicate that the persona has been clarified."""
+This tool updates the agent state to indicate that the persona has been clarified and stores the persona content."""
 
 
 MARK_PAINPOINT_ENHANCED_TOOL_DESCRIPTION = """Mark that the pain point has been enhanced.
 
-Use this tool after using the painpoint-enhancement skill to mark that the pain point has been enhanced. This, combined with persona_clarified, unlocks the 60s-pitch-creation skill.
+Use this tool after using the painpoint-enhancement skill to mark that the pain point has been enhanced. This unlocks the early-adopter-identification skill.
 
 Args:
-    confirmation: A brief confirmation message (e.g., "Pain point enhanced").
+    painpoint_content: The enhanced pain point details, including the six emotional-resonance dimensions.
+    confirmation: Optional brief confirmation message (e.g., "Pain point enhanced"). Defaults to "Pain point enhanced" if not provided.
 
-This tool updates the agent state to indicate that the pain point has been enhanced."""
+This tool updates the agent state to indicate that the pain point has been enhanced and stores the enhanced pain point content."""
+
+
+MARK_EARLY_ADOPTER_IDENTIFIED_TOOL_DESCRIPTION = """Mark that early adopters have been identified.
+
+Use this tool after using the early-adopter-identification skill to mark that early adopters have been identified. This, combined with persona_clarified and painpoint_enhanced, unlocks the 60s-pitch-creation skill.
+
+Args:
+    early_adopter_content: The early adopter profile and identification details, including characteristics, behaviors, and where to find them.
+    confirmation: Optional brief confirmation message (e.g., "Early adopters identified"). Defaults to "Early adopters identified" if not provided.
+
+This tool updates the agent state to indicate that early adopters have been identified and stores the early adopter profile content."""
 
 
 MARK_PITCH_CREATED_TOOL_DESCRIPTION = """Mark that a 60-second pitch has been created.
@@ -100,9 +161,10 @@ MARK_PITCH_CREATED_TOOL_DESCRIPTION = """Mark that a 60-second pitch has been cr
 Use this tool after using the 60s-pitch-creation skill to mark that the pitch has been created. This unlocks the baseline-pricing-and-optimization skill.
 
 Args:
-    confirmation: A brief confirmation message (e.g., "Pitch created").
+    pitch_content: The complete 60-second pitch content, including pain point resonance, team advantages, and call to action.
+    confirmation: Optional brief confirmation message (e.g., "Pitch created"). Defaults to "Pitch created" if not provided.
 
-This tool updates the agent state to indicate that the pitch has been created."""
+This tool updates the agent state to indicate that the pitch has been created and stores the pitch content."""
 
 
 MARK_PRICING_OPTIMIZED_TOOL_DESCRIPTION = """Mark that baseline pricing and optimization has been completed.
@@ -110,9 +172,21 @@ MARK_PRICING_OPTIMIZED_TOOL_DESCRIPTION = """Mark that baseline pricing and opti
 Use this tool after using the baseline-pricing-and-optimization skill to mark that pricing optimization has been completed. This unlocks the business-model-pivot-exploration skill.
 
 Args:
-    confirmation: A brief confirmation message (e.g., "Pricing optimized").
+    pricing_content: The pricing strategy details, including baseline pricing, optimization tactics, and key partners.
+    confirmation: Optional brief confirmation message (e.g., "Pricing optimized"). Defaults to "Pricing optimized" if not provided.
 
-This tool updates the agent state to indicate that pricing optimization has been completed."""
+This tool updates the agent state to indicate that pricing optimization has been completed and stores the pricing strategy content."""
+
+
+MARK_BUSINESS_MODEL_EXPLORED_TOOL_DESCRIPTION = """Mark that business model pivot exploration has been completed.
+
+Use this tool after using the business-model-pivot-exploration skill to mark that business model exploration has been completed. This skill explores seven business model archetypes (Retail, Service, Brokerage, Transaction, Subscription, Usage-Based, Membership) and generates alternative business model options for the user's product or service.
+
+Args:
+    exploration_results: The business model exploration results, including analysis of each model archetype and recommendations.
+    confirmation: Optional brief confirmation message (e.g., "Business model exploration completed"). Defaults to "Business model exploration completed" if not provided.
+
+This tool updates the agent state to indicate that business model exploration has been completed and stores the exploration results."""
 
 
 def _get_mark_business_idea_complete_tool() -> StructuredTool:
@@ -158,24 +232,30 @@ def _get_mark_persona_clarified_tool() -> StructuredTool:
     """Create a tool that marks persona as clarified."""
     
     def mark_persona_clarified(
+        persona_content: Annotated[
+            str,
+            "The clarified persona details (demographics, background, goals, pain points, behaviors, etc.).",
+        ],
         confirmation: Annotated[
             str,
-            "A brief confirmation message (e.g., 'Persona clarified').",
+            "Optional brief confirmation message (e.g., 'Persona clarified').",
         ] = "Persona clarified",
         tool_call_id: Annotated[str, InjectedToolCallId] = "",
     ) -> Command:
         """Mark that the user persona has been clarified.
         
         Args:
+            persona_content: The clarified persona details.
             confirmation: A brief confirmation message.
             tool_call_id: Injected tool call ID.
         
         Returns:
-            Command with state update marking persona as clarified.
+            Command with state update marking persona as clarified and storing persona content.
         """
         return Command(
             update={
                 "persona_clarified": True,
+                "clarified_persona": persona_content,
                 "messages": [
                     ToolMessage(
                         content=f"Marked persona as clarified: {confirmation}",
@@ -196,24 +276,30 @@ def _get_mark_painpoint_enhanced_tool() -> StructuredTool:
     """Create a tool that marks pain point as enhanced."""
     
     def mark_painpoint_enhanced(
+        painpoint_content: Annotated[
+            str,
+            "The enhanced pain point details, including the six emotional-resonance dimensions.",
+        ],
         confirmation: Annotated[
             str,
-            "A brief confirmation message (e.g., 'Pain point enhanced').",
+            "Optional brief confirmation message (e.g., 'Pain point enhanced').",
         ] = "Pain point enhanced",
         tool_call_id: Annotated[str, InjectedToolCallId] = "",
     ) -> Command:
         """Mark that the pain point has been enhanced.
         
         Args:
+            painpoint_content: The enhanced pain point details.
             confirmation: A brief confirmation message.
             tool_call_id: Injected tool call ID.
         
         Returns:
-            Command with state update marking pain point as enhanced.
+            Command with state update marking pain point as enhanced and storing painpoint content.
         """
         return Command(
             update={
                 "painpoint_enhanced": True,
+                "enhanced_painpoint": painpoint_content,
                 "messages": [
                     ToolMessage(
                         content=f"Marked pain point as enhanced: {confirmation}",
@@ -230,28 +316,78 @@ def _get_mark_painpoint_enhanced_tool() -> StructuredTool:
     )
 
 
+def _get_mark_early_adopter_identified_tool() -> StructuredTool:
+    """Create a tool that marks early adopters as identified."""
+    
+    def mark_early_adopter_identified(
+        early_adopter_content: Annotated[
+            str,
+            "The early adopter profile and identification details, including characteristics, behaviors, and where to find them.",
+        ],
+        confirmation: Annotated[
+            str,
+            "Optional brief confirmation message (e.g., 'Early adopters identified').",
+        ] = "Early adopters identified",
+        tool_call_id: Annotated[str, InjectedToolCallId] = "",
+    ) -> Command:
+        """Mark that early adopters have been identified.
+        
+        Args:
+            early_adopter_content: The early adopter profile and identification details.
+            confirmation: A brief confirmation message.
+            tool_call_id: Injected tool call ID.
+        
+        Returns:
+            Command with state update marking early adopters as identified and storing early adopter profile content.
+        """
+        return Command(
+            update={
+                "early_adopter_identified": True,
+                "early_adopter_profile": early_adopter_content,
+                "messages": [
+                    ToolMessage(
+                        content=f"Marked early adopters as identified: {confirmation}",
+                        tool_call_id=tool_call_id,
+                    )
+                ],
+            }
+        )
+    
+    return StructuredTool.from_function(
+        func=mark_early_adopter_identified,
+        name="mark_early_adopter_identified",
+        description=MARK_EARLY_ADOPTER_IDENTIFIED_TOOL_DESCRIPTION,
+    )
+
+
 def _get_mark_pitch_created_tool() -> StructuredTool:
     """Create a tool that marks pitch as created."""
     
     def mark_pitch_created(
+        pitch_content: Annotated[
+            str,
+            "The complete 60-second pitch content, including pain point resonance, team advantages, and call to action.",
+        ],
         confirmation: Annotated[
             str,
-            "A brief confirmation message (e.g., 'Pitch created').",
+            "Optional brief confirmation message (e.g., 'Pitch created').",
         ] = "Pitch created",
         tool_call_id: Annotated[str, InjectedToolCallId] = "",
     ) -> Command:
         """Mark that a 60-second pitch has been created.
         
         Args:
+            pitch_content: The complete 60-second pitch content.
             confirmation: A brief confirmation message.
             tool_call_id: Injected tool call ID.
         
         Returns:
-            Command with state update marking pitch as created.
+            Command with state update marking pitch as created and storing pitch content.
         """
         return Command(
             update={
                 "pitch_created": True,
+                "created_pitch": pitch_content,
                 "messages": [
                     ToolMessage(
                         content=f"Marked pitch as created: {confirmation}",
@@ -272,24 +408,30 @@ def _get_mark_pricing_optimized_tool() -> StructuredTool:
     """Create a tool that marks pricing optimization as completed."""
     
     def mark_pricing_optimized(
+        pricing_content: Annotated[
+            str,
+            "The pricing strategy details, including baseline pricing, optimization tactics, and key partners.",
+        ],
         confirmation: Annotated[
             str,
-            "A brief confirmation message (e.g., 'Pricing optimized').",
+            "Optional brief confirmation message (e.g., 'Pricing optimized').",
         ] = "Pricing optimized",
         tool_call_id: Annotated[str, InjectedToolCallId] = "",
     ) -> Command:
         """Mark that baseline pricing and optimization has been completed.
         
         Args:
+            pricing_content: The pricing strategy details.
             confirmation: A brief confirmation message.
             tool_call_id: Injected tool call ID.
         
         Returns:
-            Command with state update marking pricing optimization as completed.
+            Command with state update marking pricing optimization as completed and storing pricing strategy content.
         """
         return Command(
             update={
                 "pricing_optimized": True,
+                "pricing_strategy": pricing_content,
                 "messages": [
                     ToolMessage(
                         content=f"Marked pricing optimization as completed: {confirmation}",
@@ -303,6 +445,50 @@ def _get_mark_pricing_optimized_tool() -> StructuredTool:
         func=mark_pricing_optimized,
         name="mark_pricing_optimized",
         description=MARK_PRICING_OPTIMIZED_TOOL_DESCRIPTION,
+    )
+
+
+def _get_mark_business_model_explored_tool() -> StructuredTool:
+    """Create a tool that marks business model exploration as completed."""
+    
+    def mark_business_model_explored(
+        exploration_results: Annotated[
+            str,
+            "The business model exploration results, including analysis of each model archetype and recommendations.",
+        ],
+        confirmation: Annotated[
+            str,
+            "Optional brief confirmation message (e.g., 'Business model exploration completed').",
+        ] = "Business model exploration completed",
+        tool_call_id: Annotated[str, InjectedToolCallId] = "",
+    ) -> Command:
+        """Mark that business model pivot exploration has been completed.
+        
+        Args:
+            exploration_results: The business model exploration results.
+            confirmation: A brief confirmation message.
+            tool_call_id: Injected tool call ID.
+        
+        Returns:
+            Command with state update marking business model exploration as completed and storing exploration results.
+        """
+        return Command(
+            update={
+                "business_model_explored": True,
+                "business_model_exploration_results": exploration_results,
+                "messages": [
+                    ToolMessage(
+                        content=f"Marked business model exploration as completed: {confirmation}",
+                        tool_call_id=tool_call_id,
+                    )
+                ],
+            }
+        )
+    
+    return StructuredTool.from_function(
+        func=mark_business_model_explored,
+        name="mark_business_model_explored",
+        description=MARK_BUSINESS_MODEL_EXPLORED_TOOL_DESCRIPTION,
     )
 
 
@@ -328,31 +514,40 @@ The conversation follows a sequential skill progression. Skills are unlocked onl
    - Use this skill after persona is clarified to strengthen and enhance the pain point
    - Enhances pain points using six emotional-resonance dimensions
    - LOCKED when: persona_clarified == False (persona not clarified yet)
-   - When complete, call `mark_painpoint_enhanced` tool → unlocks 60s-pitch-creation (with persona)
+   - When complete, call `mark_painpoint_enhanced` tool → unlocks early-adopter-identification
 
-4. **60s-pitch-creation** (UNLOCKED when: persona_clarified == True AND painpoint_enhanced == True)
-   - Use this skill after both persona is clarified AND pain point is enhanced
-   - Creates a 60-second entrepreneurial pitch
-   - LOCKED when: persona_clarified == False OR painpoint_enhanced == False
+4. **early-adopter-identification** (UNLOCKED when: painpoint_enhanced == True)
+   - Use this skill after pain point is enhanced to identify the early adopter segment
+   - Identifies the first batch of customers who are value-sensitive, actively seeking solutions, and willing to try first-generation products
+   - LOCKED when: painpoint_enhanced == False (pain point not enhanced yet)
+   - When complete, call `mark_early_adopter_identified` tool → unlocks 60s-pitch-creation (with persona and early adopter segment)
+
+5. **60s-pitch-creation** (UNLOCKED when: persona_clarified == True AND painpoint_enhanced == True AND early_adopter_identified == True)
+   - Use this skill after persona is clarified, pain point is enhanced, AND early adopters are identified
+   - Creates a 60-second entrepreneurial pitch targeting the early adopter segment
+   - LOCKED when: persona_clarified == False OR painpoint_enhanced == False OR early_adopter_identified == False
    - When complete, call `mark_pitch_created` tool → unlocks baseline-pricing-and-optimization
 
-5. **baseline-pricing-and-optimization** (UNLOCKED when: pitch_created == True)
+6. **baseline-pricing-and-optimization** (UNLOCKED when: pitch_created == True)
    - Use this skill after the 60-second pitch has been created
    - Establishes baseline pricing and generates pricing optimization tactics
    - LOCKED when: pitch_created == False (pitch not created yet)
    - When complete, call `mark_pricing_optimized` tool → unlocks business-model-pivot-exploration
 
-6. **business-model-pivot-exploration** (UNLOCKED when: pricing_optimized == True)
+7. **business-model-pivot-exploration** (UNLOCKED when: pricing_optimized == True)
    - Use this skill after baseline pricing and optimization is completed
-   - Explores seven business model archetypes (Retail, Service, Brokerage, etc.)
+   - Explores seven business model archetypes (Retail, Service, Brokerage, Transaction, Subscription, Usage-Based, Membership)
    - LOCKED when: pricing_optimized == False (pricing not optimized yet)
+   - When complete, call `mark_business_model_explored` tool to mark the exploration as complete
 
 **Milestone Marking Tools:**
 - `mark_business_idea_complete`: Mark business idea as complete (unlocks persona-clarification)
 - `mark_persona_clarified`: Mark persona as clarified (unlocks painpoint-enhancement)
-- `mark_painpoint_enhanced`: Mark pain point as enhanced (unlocks 60s-pitch-creation)
+- `mark_painpoint_enhanced`: Mark pain point as enhanced (unlocks early-adopter-identification)
+- `mark_early_adopter_identified`: Mark early adopters as identified (unlocks 60s-pitch-creation)
 - `mark_pitch_created`: Mark pitch as created (unlocks baseline-pricing-and-optimization)
 - `mark_pricing_optimized`: Mark pricing optimization as completed (unlocks business-model-pivot-exploration)
+- `mark_business_model_explored`: Mark business model exploration as completed
 
 **Important:** Always call the appropriate milestone marking tool after completing each skill to unlock the next skill in the sequence."""
 
@@ -398,8 +593,10 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
             _get_mark_business_idea_complete_tool(),
             _get_mark_persona_clarified_tool(),
             _get_mark_painpoint_enhanced_tool(),
+            _get_mark_early_adopter_identified_tool(),
             _get_mark_pitch_created_tool(),
             _get_mark_pricing_optimized_tool(),
+            _get_mark_business_model_explored_tool(),
         ]
 
     def before_agent(
@@ -423,12 +620,22 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
             updates["materialized_business_idea"] = None
         if "persona_clarified" not in state:
             updates["persona_clarified"] = False
+            updates["clarified_persona"] = None
         if "painpoint_enhanced" not in state:
             updates["painpoint_enhanced"] = False
+            updates["enhanced_painpoint"] = None
+        if "early_adopter_identified" not in state:
+            updates["early_adopter_identified"] = False
+            updates["early_adopter_profile"] = None
         if "pitch_created" not in state:
             updates["pitch_created"] = False
+            updates["created_pitch"] = None
         if "pricing_optimized" not in state:
             updates["pricing_optimized"] = False
+            updates["pricing_strategy"] = None
+        if "business_model_explored" not in state:
+            updates["business_model_explored"] = False
+            updates["business_model_exploration_results"] = None
         
         return BusinessIdeaStateUpdate(**updates) if updates else None
 
@@ -444,14 +651,17 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
         business_idea_complete = state.get("business_idea_complete", False)
         persona_clarified = state.get("persona_clarified", False)
         painpoint_enhanced = state.get("painpoint_enhanced", False)
+        early_adopter_identified = state.get("early_adopter_identified", False)
         pitch_created = state.get("pitch_created", False)
         pricing_optimized = state.get("pricing_optimized", False)
+        business_model_explored = state.get("business_model_explored", False)
         
         # Determine unlock status for each skill
         business_idea_eval_unlocked = not business_idea_complete
         persona_clarification_unlocked = business_idea_complete
         painpoint_enhancement_unlocked = persona_clarified
-        pitch_creation_unlocked = persona_clarified and painpoint_enhanced
+        early_adopter_identification_unlocked = painpoint_enhanced
+        pitch_creation_unlocked = persona_clarified and painpoint_enhanced and early_adopter_identified
         pricing_optimization_unlocked = pitch_created
         pivot_exploration_unlocked = pricing_optimized
         
@@ -481,18 +691,29 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
         else:
             status_lines.append("🔒 LOCKED: painpoint-enhancement (requires persona_clarified == True)")
         
+        # early-adopter-identification
+        if early_adopter_identification_unlocked:
+            if early_adopter_identified:
+                status_lines.append("✅ UNLOCKED: early-adopter-identification (early adopters already identified)")
+            else:
+                status_lines.append("✅ UNLOCKED: early-adopter-identification (use this after pain point is enhanced)")
+        else:
+            status_lines.append("🔒 LOCKED: early-adopter-identification (requires painpoint_enhanced == True)")
+        
         # 60s-pitch-creation
         if pitch_creation_unlocked:
             if pitch_created:
                 status_lines.append("✅ UNLOCKED: 60s-pitch-creation (pitch already created)")
             else:
-                status_lines.append("✅ UNLOCKED: 60s-pitch-creation (use this after persona clarified AND painpoint enhanced)")
+                status_lines.append("✅ UNLOCKED: 60s-pitch-creation (use this after persona clarified AND painpoint enhanced AND early adopters identified)")
         else:
             missing = []
             if not persona_clarified:
                 missing.append("persona_clarified")
             if not painpoint_enhanced:
                 missing.append("painpoint_enhanced")
+            if not early_adopter_identified:
+                missing.append("early_adopter_identified")
             status_lines.append(f"🔒 LOCKED: 60s-pitch-creation (requires {' AND '.join(missing)})")
         
         # baseline-pricing-and-optimization
@@ -506,7 +727,10 @@ class BusinessIdeaTrackerMiddleware(AgentMiddleware):
         
         # business-model-pivot-exploration
         if pivot_exploration_unlocked:
-            status_lines.append("✅ UNLOCKED: business-model-pivot-exploration (use this after pricing optimization is complete)")
+            if business_model_explored:
+                status_lines.append("✅ UNLOCKED: business-model-pivot-exploration (business model exploration already completed)")
+            else:
+                status_lines.append("✅ UNLOCKED: business-model-pivot-exploration (use this after pricing optimization is complete)")
         else:
             status_lines.append("🔒 LOCKED: business-model-pivot-exploration (requires pricing_optimized == True)")
         

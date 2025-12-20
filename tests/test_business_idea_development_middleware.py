@@ -107,6 +107,10 @@ def _identify_skill_from_text(text: str) -> str | None:
     if ("enhanced pain point" in t and "dimension analysis" in t) or ("增强" in text and "痛点" in text):
         return "painpoint-enhancement"
 
+    # early-adopter-identification
+    if ("early adopter" in t and ("profile" in t or "characteristics" in t or "behaviors" in t)) or ("早期采用者" in text or "早期用户" in text):
+        return "early-adopter-identification"
+
     # 60s-pitch-creation
     if (("60-second pitch" in t or "黄金60秒" in t) and ("pitch breakdown" in t or "call to action" in t)) or ("60秒" in text and "pitch" in t):
         return "60s-pitch-creation"
@@ -132,6 +136,7 @@ def _collect_outputs_by_skill(messages: list) -> dict[str, str]:
         ("mark_business_idea_complete", "business-idea-evaluation"),
         ("mark_persona_clarified", "persona-clarification"),
         ("mark_painpoint_enhanced", "painpoint-enhancement"),
+        ("mark_early_adopter_identified", "early-adopter-identification"),
         ("mark_pitch_created", "60s-pitch-creation"),
         ("mark_pricing_optimized", "baseline-pricing-and-optimization"),
     ]
@@ -219,6 +224,7 @@ def _write_unified_output(*, filesystem_dir: Path, messages: list, duration: flo
         "business-idea-evaluation",
         "persona-clarification",
         "painpoint-enhancement",
+        "early-adopter-identification",
         "60s-pitch-creation",
         "baseline-pricing-and-optimization",
         "business-model-pivot-exploration",
@@ -251,6 +257,7 @@ def _setup_required_skills(repo_root: Path, skills_dir: Path) -> list[str]:
         "business-idea-evaluation",
         "persona-clarification",
         "painpoint-enhancement",
+        "early-adopter-identification",
         "60s-pitch-creation",
         "baseline-pricing-and-optimization",
         "business-model-pivot-exploration",
@@ -415,8 +422,10 @@ The todos will automatically update as you complete milestones. Focus on the cur
             "business_idea_complete": result.get("business_idea_complete", False),
             "persona_clarified": result.get("persona_clarified", False),
             "painpoint_enhanced": result.get("painpoint_enhanced", False),
+            "early_adopter_identified": result.get("early_adopter_identified", False),
             "pitch_created": result.get("pitch_created", False),
             "pricing_optimized": result.get("pricing_optimized", False),
+            "business_model_explored": result.get("business_model_explored", False),
         }
         
         print(f"\n🎯 Milestones:")
@@ -424,14 +433,36 @@ The todos will automatically update as you complete milestones. Focus on the cur
             status_icon = "✅" if completed else "❌"
             print(f"  {status_icon} {milestone}: {completed}")
         
+        # Check content fields
+        content_fields = {
+            "materialized_business_idea": result.get("materialized_business_idea"),
+            "clarified_persona": result.get("clarified_persona"),
+            "enhanced_painpoint": result.get("enhanced_painpoint"),
+            "early_adopter_profile": result.get("early_adopter_profile"),
+            "created_pitch": result.get("created_pitch"),
+            "pricing_strategy": result.get("pricing_strategy"),
+            "business_model_exploration_results": result.get("business_model_exploration_results"),
+        }
+        
+        print(f"\n📝 Content Fields:")
+        for field_name, content in content_fields.items():
+            if content:
+                status_icon = "✅"
+                preview = content[:60] + "..." if len(content) > 60 else content
+                print(f"  {status_icon} {field_name}: {preview}")
+            else:
+                print(f"  ❌ {field_name}: (empty)")
+        
         # Check messages for milestone tool calls
         messages = result.get("messages", [])
         milestone_tools_called = {
             "mark_business_idea_complete": False,
             "mark_persona_clarified": False,
             "mark_painpoint_enhanced": False,
+            "mark_early_adopter_identified": False,
             "mark_pitch_created": False,
             "mark_pricing_optimized": False,
+            "mark_business_model_explored": False,
         }
         
         for message in messages:
@@ -474,6 +505,49 @@ The todos will automatically update as you complete milestones. Focus on the cur
         )
         print("✅ Business idea evaluated and marked complete")
         
+        # Verify content fields are populated when milestones are complete
+        if milestones["business_idea_complete"]:
+            assert content_fields["materialized_business_idea"], (
+                "materialized_business_idea should be populated when business_idea_complete is True"
+            )
+            print("✅ Business idea content stored in state")
+        
+        if milestones["persona_clarified"]:
+            assert content_fields["clarified_persona"], (
+                "clarified_persona should be populated when persona_clarified is True"
+            )
+            print("✅ Persona content stored in state")
+        
+        if milestones["painpoint_enhanced"]:
+            assert content_fields["enhanced_painpoint"], (
+                "enhanced_painpoint should be populated when painpoint_enhanced is True"
+            )
+            print("✅ Enhanced painpoint content stored in state")
+        
+        if milestones["early_adopter_identified"]:
+            assert content_fields["early_adopter_profile"], (
+                "early_adopter_profile should be populated when early_adopter_identified is True"
+            )
+            print("✅ Early adopter profile content stored in state")
+        
+        if milestones["pitch_created"]:
+            assert content_fields["created_pitch"], (
+                "created_pitch should be populated when pitch_created is True"
+            )
+            print("✅ Pitch content stored in state")
+        
+        if milestones["pricing_optimized"]:
+            assert content_fields["pricing_strategy"], (
+                "pricing_strategy should be populated when pricing_optimized is True"
+            )
+            print("✅ Pricing strategy content stored in state")
+        
+        if milestones["business_model_explored"]:
+            assert content_fields["business_model_exploration_results"], (
+                "business_model_exploration_results should be populated when business_model_explored is True"
+            )
+            print("✅ Business model exploration results stored in state")
+        
         # Check if agent progressed further (at least persona clarification)
         # We're lenient here - the agent might not complete all steps in one go
         # but should at least complete the first few
@@ -481,6 +555,7 @@ The todos will automatically update as you complete milestones. Focus on the cur
             milestones["business_idea_complete"]
             or milestones["persona_clarified"]
             or milestones["painpoint_enhanced"]
+            or milestones["early_adopter_identified"]
         )
         assert progress_made, (
             "Agent should have made progress through at least the first few milestones"
@@ -535,6 +610,7 @@ The todos will automatically update as you complete milestones. Focus on the cur
                 "business-idea-evaluation",
                 "persona-clarification",
                 "painpoint-enhancement",
+                "early-adopter-identification",
                 "60s-pitch-creation",
                 "baseline-pricing-and-optimization",
                 "business-model-pivot-exploration",
@@ -564,8 +640,9 @@ The todos will automatically update as you complete milestones. Focus on the cur
         print(f"\nSummary:")
         print(f"  - Todos generated: {len(todos)}")
         print(f"  - Todos completed: {len(completed_todos)}")
-        print(f"  - Milestones reached: {sum(milestones.values())}/5")
-        print(f"  - Milestone tools called: {sum(milestone_tools_called.values())}/5")
+        print(f"  - Milestones reached: {sum(milestones.values())}/7")
+        print(f"  - Milestone tools called: {sum(milestone_tools_called.values())}/7")
+        print(f"  - Content fields populated: {sum(1 for c in content_fields.values() if c)}/7")
         print(f"  - Execution time: {duration:.2f}s")
         # Note: We intentionally keep the unified output minimal (LLM outputs only).
         print(f"  - Unified output: {unified_output_path}")
@@ -652,8 +729,19 @@ Use business-idea-evaluation and ask clarifying questions. Only call mark_busine
         assert result.get("business_idea_complete") is False, "Incomplete idea should NOT be marked complete"
         assert result.get("persona_clarified") is False
         assert result.get("painpoint_enhanced") is False
+        assert result.get("early_adopter_identified") is False
         assert result.get("pitch_created") is False
         assert result.get("pricing_optimized") is False
+        assert result.get("business_model_explored") is False
+        
+        # Content fields should not be populated for incomplete ideas
+        assert not result.get("materialized_business_idea"), "materialized_business_idea should not be set for incomplete ideas"
+        assert not result.get("clarified_persona"), "clarified_persona should not be set for incomplete ideas"
+        assert not result.get("enhanced_painpoint"), "enhanced_painpoint should not be set for incomplete ideas"
+        assert not result.get("early_adopter_profile"), "early_adopter_profile should not be set for incomplete ideas"
+        assert not result.get("created_pitch"), "created_pitch should not be set for incomplete ideas"
+        assert not result.get("pricing_strategy"), "pricing_strategy should not be set for incomplete ideas"
+        assert not result.get("business_model_exploration_results"), "business_model_exploration_results should not be set for incomplete ideas"
 
         # Tool-call expectations: should NOT call mark_business_idea_complete
         messages = result.get("messages", [])

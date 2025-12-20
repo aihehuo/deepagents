@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -72,8 +73,10 @@ def _log_debug_state(*, result: dict[str, Any], thread_id: str) -> None:
         "business_idea_complete": bool(result.get("business_idea_complete")),
         "persona_clarified": bool(result.get("persona_clarified")),
         "painpoint_enhanced": bool(result.get("painpoint_enhanced")),
+        "early_adopter_identified": bool(result.get("early_adopter_identified")),
         "pitch_created": bool(result.get("pitch_created")),
         "pricing_optimized": bool(result.get("pricing_optimized")),
+        "business_model_explored": bool(result.get("business_model_explored")),
     }
     todos = result.get("todos") if isinstance(result.get("todos"), list) else []
     in_progress = None
@@ -113,50 +116,6 @@ def _extract_state_values_from_checkpoint(checkpoint: Any) -> dict[str, Any]:
                 return v
         return checkpoint
     return {}
-
-def _extract_text_chunks_from_ai_message(message: Any) -> list[str]:
-    """Best-effort extraction of streamed text chunks from an AI message/chunk.
-
-    Different providers expose different shapes:
-    - Anthropic: message.content_blocks -> [{"type":"text","text":"..."}]
-    - OpenAI-compatible: message.content may be a string OR a list of blocks/dicts
-    """
-    chunks: list[str] = []
-
-    content_blocks = getattr(message, "content_blocks", None)
-    if isinstance(content_blocks, list) and content_blocks:
-        for block in content_blocks:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") != "text":
-                continue
-            text = block.get("text", "")
-            if isinstance(text, str) and text:
-                chunks.append(text)
-        if chunks:
-            return chunks
-
-    content = getattr(message, "content", None)
-    if isinstance(content, str) and content:
-        return [content]
-    if isinstance(content, list) and content:
-        for item in content:
-            if isinstance(item, str) and item:
-                chunks.append(item)
-                continue
-            if isinstance(item, dict):
-                text = item.get("text")
-                if isinstance(text, str) and text:
-                    chunks.append(text)
-        if chunks:
-            return chunks
-
-    text_attr = getattr(message, "text", None)
-    if isinstance(text_attr, str) and text_attr:
-        return [text_attr]
-
-    return []
-
 
 def _extract_text_chunks_from_ai_message(message: Any) -> list[str]:
     """Best-effort extraction of streamed text chunks from an AI message/chunk.
@@ -384,14 +343,391 @@ def _format_tool_call_progress(tool_name: str, tool_args: dict[str, Any] | None 
     return f"Calling {tool_name}..."
 
 
+def _compose_concise_callback_message(
+    namespace: Any,
+    stream_mode: str,
+    data: Any,
+    docs_dir: str | None = None,
+    backend_root_dir: str | None = None,
+) -> str:
+    """Compose a concise human-readable message from stream chunk data.
+    
+    Args:
+        namespace: The namespace from the chunk
+        stream_mode: Either "messages" or "updates"
+        data: The data from the chunk
+        docs_dir: Docs directory for file path resolution
+        backend_root_dir: Backend root directory for file path resolution
+        
+    Returns:
+        A concise string message describing what's happening
+    """
+    
+    if stream_mode == "messages":
+        # For messages stream, data is a tuple: (message, metadata)
+        if isinstance(data, tuple) and len(data) >= 1:
+            message = data[0]
+            metadata = data[1] if len(data) > 1 else {}
+            
+            # Get the actual class name for better identification
+            class_name = type(message).__name__
+            
+            # Check message type (semantic type from LangChain: "ai", "tool", "human")
+            msg_type = getattr(message, "type", None)
+            if not msg_type:
+                msg_type = message.get("type") if isinstance(message, dict) else None
+            
+            if msg_type in ("ai", "AIMessageChunk"):
+                # Check for finish_reason to identify completed messages
+                response_metadata = getattr(message, "response_metadata", None) or (message.get("response_metadata") if isinstance(message, dict) else None)
+                finish_reason = None
+                if isinstance(response_metadata, dict):
+                    finish_reason = response_metadata.get("finish_reason")
+                
+                # Check for invalid_tool_calls - these are partial streaming fragments of tool call arguments
+                # They're marked "invalid" because they're incomplete JSON until the full tool call is received
+                # Example: fragments like '": "/Users/yc' that will become a complete file path
+                # Skip these intermediate chunks - they're not meaningful for callbacks
+                invalid_tool_calls = getattr(message, "invalid_tool_calls", None) or (message.get("invalid_tool_calls") if isinstance(message, dict) else None)
+                if invalid_tool_calls and isinstance(invalid_tool_calls, (list, tuple)) and len(invalid_tool_calls) > 0:
+                    # These are partial streaming chunks - skip them unless we have a finish_reason indicating completion
+                    if finish_reason != "tool_calls":
+                        # Return None to skip this callback entirely (filter out intermediate streaming chunks)
+                        return None
+                
+                # Check for tool calls - prioritize completed tool calls
+                tool_calls = getattr(message, "tool_calls", None) or (message.get("tool_calls") if isinstance(message, dict) else None)
+                
+                # If finish_reason is 'tool_calls', this is a completed tool call message
+                if finish_reason == "tool_calls" and tool_calls and isinstance(tool_calls, (list, tuple)):
+                    tool_info_list = []
+                    for tc in tool_calls[:3]:  # Limit to first 3 tool calls
+                        tool_name = None
+                        tool_args = {}
+                        
+                        if isinstance(tc, dict):
+                            tool_name = tc.get("name", "")
+                            tool_args = tc.get("args", {}) or tc.get("arguments", {})
+                            # Try to parse args if it's a string
+                            if isinstance(tool_args, str):
+                                try:
+                                    import json
+                                    tool_args = json.loads(tool_args)
+                                except Exception:  # noqa: BLE001
+                                    tool_args = {}
+                        else:
+                            tool_name = getattr(tc, "name", None)
+                            tool_args = getattr(tc, "args", None) or getattr(tc, "arguments", None) or {}
+                        
+                        if tool_name:
+                            # Use the progress formatter for better messages
+                            try:
+                                progress_msg = _format_tool_call_progress(
+                                    tool_name, tool_args, docs_dir, backend_root_dir
+                                )
+                                tool_info_list.append(progress_msg)
+                            except Exception:  # noqa: BLE001
+                                tool_info_list.append(f"Calling {tool_name}...")
+                    
+                    if tool_info_list:
+                        # Join multiple tool calls with semicolons
+                        return "; ".join(tool_info_list) if len(tool_info_list) > 1 else tool_info_list[0]
+                
+                # Check for tool calls even if not finished (streaming chunks)
+                elif tool_calls and isinstance(tool_calls, (list, tuple)):
+                    tool_names = []
+                    for tc in tool_calls[:3]:
+                        if isinstance(tc, dict):
+                            tool_name = tc.get("name", "")
+                        else:
+                            tool_name = getattr(tc, "name", "")
+                        if tool_name:
+                            tool_names.append(tool_name)
+                    if tool_names:
+                        # Only show tool call names during streaming if we have valid names
+                        # (avoid showing empty or invalid tool calls)
+                        valid_names = [n for n in tool_names if n]
+                        if valid_names:
+                            return f"Calling {', '.join(valid_names)}..."
+                
+                # Extract text content - only show meaningful chunks
+                content = getattr(message, "content", None) or (message.get("content") if isinstance(message, dict) else None)
+                if isinstance(content, str) and len(content.strip()) > 0:  # Only show substantial text chunks
+                    preview = content.strip()[:150] + "..." if len(content.strip()) > 150 else content.strip()
+                    return f"Assistant: {preview}"
+                elif isinstance(content, list) and content:
+                    # Extract text from content blocks
+                    text_parts = []
+                    for item in content[:2]:
+                        if isinstance(item, str) and len(item.strip()) > 5:
+                            text_parts.append(item.strip()[:80])
+                        elif isinstance(item, dict):
+                            text = item.get("text", "")
+                            if text and len(text.strip()) > 5:
+                                text_parts.append(text.strip()[:80])
+                    if text_parts:
+                        preview = " ".join(text_parts)
+                        if len(preview) > 150:
+                            preview = preview[:150] + "..."
+                        return f"Assistant: {preview}"
+                
+                # If we have finish_reason but no tool calls and no content, it's just processing
+                if finish_reason:
+                    return "Assistant processing..."
+                
+                return None
+            
+            elif msg_type in ("tool", "ToolMessageChunk"):
+                tool_name = getattr(message, "name", None) or (message.get("name") if isinstance(message, dict) else None)
+                if tool_name:
+                    return f"Tool {tool_name} completed"
+                return "Tool execution completed"
+            
+            elif msg_type in ("human", "HumanMessageChunk"):
+                return "User message received"
+            
+            # If we couldn't determine the type from the type attribute, use the class name
+            if not msg_type or msg_type not in ("ai", "tool", "human"):
+                return f"Processing {class_name}..."
+        
+        # Fallback: try to get class name from data
+        if isinstance(data, tuple) and len(data) >= 1:
+            class_name = type(data[0]).__name__
+            return f"Processing {class_name}..."
+        
+        return f"Processing message for messages type {msg_type}..."
+    elif stream_mode == "updates":
+        # For updates stream, extract node name and action
+        if isinstance(data, dict):
+            # Skip special markers
+            for key, update_data in data.items():
+                if key.startswith("__") and key.endswith("__"):
+                    continue
+                
+                node_name = key
+                if not isinstance(update_data, dict):
+                    continue
+                
+                # Check for tool calls in update data
+                tool_calls = update_data.get("tool_calls", [])
+                if tool_calls:
+                    tool_names = []
+                    for tc in tool_calls[:3]:
+                        if isinstance(tc, dict):
+                            tool_name = tc.get("name", "")
+                            if tool_name:
+                                tool_args = tc.get("args", {}) or tc.get("arguments", {})
+                                # Use the existing progress formatter if available
+                                try:
+                                    progress_msg = _format_tool_call_progress(
+                                        tool_name, tool_args, docs_dir, backend_root_dir
+                                    )
+                                    tool_names.append(progress_msg)
+                                except Exception:  # noqa: BLE001
+                                    tool_names.append(f"Calling {tool_name}...")
+                    if tool_names:
+                        return "; ".join(tool_names)
+                
+                # Check for messages (tool results)
+                # Note: messages might be an Overwrite object or other non-iterable type
+                messages = update_data.get("messages", [])
+                if messages and isinstance(messages, (list, tuple)):
+                    for msg in messages:
+                        if isinstance(msg, dict):
+                            if msg.get("type") == "tool":
+                                tool_name = msg.get("name", "")
+                                if tool_name:
+                                    return f"Tool {tool_name} completed"
+                        elif hasattr(msg, "type") and getattr(msg, "type") == "tool":
+                            tool_name = getattr(msg, "name", "")
+                            if tool_name:
+                                return f"Tool {tool_name} completed"
+                
+                # Generic node processing
+                return f"Processing {node_name}..."
+        
+        return "Processing update..."
+    
+    # Fallback
+    return f"Stream update: {stream_mode}"
+
+
+def _serialize_for_json(obj: Any) -> Any:
+    """Recursively serialize an object to be JSON-serializable.
+    
+    Handles LangChain message objects and other complex types by converting them to dicts.
+    """
+    # Handle LangChain message objects
+    if hasattr(obj, "model_dump"):
+        try:
+            return obj.model_dump()
+        except Exception:  # noqa: BLE001
+            pass
+    
+    if hasattr(obj, "dict"):
+        try:
+            return obj.dict()
+        except Exception:  # noqa: BLE001
+            pass
+    
+    # Handle dicts
+    if isinstance(obj, dict):
+        return {k: _serialize_for_json(v) for k, v in obj.items()}
+    
+    # Handle lists
+    if isinstance(obj, list):
+        return [_serialize_for_json(item) for item in obj]
+    
+    # Handle tuples
+    if isinstance(obj, tuple):
+        return tuple(_serialize_for_json(item) for item in obj)
+    
+    # Handle basic JSON-serializable types
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    
+    # For objects with __dict__, try to serialize it
+    if hasattr(obj, "__dict__"):
+        try:
+            return {k: _serialize_for_json(v) for k, v in obj.__dict__.items()}
+        except Exception:  # noqa: BLE001
+            pass
+    
+    # Last resort: convert to string
+    return str(obj)
+
+
+def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
+    """Invoke the callback URL with the given message payload.
+    
+    Args:
+        callback_url: The URL to POST to
+        message: The message payload to send (will be JSON serialized)
+    """
+    try:
+        import requests
+        
+        # Serialize the message to ensure it's JSON-serializable
+        serialized_message = _serialize_for_json(message)
+        
+        response = requests.post(
+            callback_url,
+            json=serialized_message,
+            headers={"Content-Type": "application/json"},
+            timeout=30,
+        )
+        response.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        # Log error but don't raise - we don't want callback failures to stop the stream
+        _logger.warning(
+            "Failed to invoke callback URL %s: %s: %s",
+            callback_url,
+            type(e).__name__,
+            str(e),
+        )
+
+
+def _run_async_stream_with_callback(
+    agent: Any,
+    user_message: str,
+    thread_id: str,
+    user_id: str,
+    metadata: dict[str, Any],
+    callback_url: str,
+    docs_dir: str | None = None,
+    backend_root_dir: str | None = None,
+) -> None:
+    """Run the agent stream in a background thread and invoke callback for each update.
+    
+    This function runs in a separate thread and creates its own event loop.
+    Note: Locking is handled at the endpoint level before starting this thread.
+    
+    Args:
+        agent: The agent instance to stream from
+        user_message: The user's message
+        thread_id: The thread ID for the conversation
+        user_id: The user ID
+        metadata: Optional metadata
+        callback_url: The callback URL to POST updates to
+        docs_dir: Docs directory for file path resolution in callback messages
+        backend_root_dir: Backend root directory for file path resolution in callback messages
+    """
+    # Create a new event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        async def _stream_and_callback():
+            try:
+                async for chunk in agent.astream(
+                    {"messages": [HumanMessage(content=user_message)]},
+                    config={
+                        "configurable": {"thread_id": thread_id},
+                        "metadata": {"user_id": user_id, **metadata},
+                    },
+                    stream_mode=["messages", "updates"],
+                    subgraphs=True,
+                    durability="exit",
+                ):
+                    # Chunks are tuples: (namespace, stream_mode, data)
+                    if not isinstance(chunk, tuple) or len(chunk) != 3:
+                        continue
+                    
+                    namespace, stream_mode, data = chunk
+                    
+                    # Compose a concise message from the chunk data
+                    concise_message = _compose_concise_callback_message(
+                        namespace, stream_mode, data, docs_dir, backend_root_dir
+                    )
+                    
+                    # Skip None messages (e.g., intermediate streaming chunks we want to filter out)
+                    if concise_message is None:
+                        continue
+                    
+                    # Determine if this is an assistant message or a status update
+                    callback_payload: dict[str, Any] = {}
+                    if concise_message.lower().startswith("assistant:"):
+                        # Extract the actual message content after "Assistant:"
+                        message_content = concise_message[len("Assistant:"):].strip()
+                        if message_content:
+                            callback_payload["message"] = message_content
+                    else:
+                        # This is a status update, not an assistant message
+                        callback_payload["status"] = concise_message
+                    
+                    # Only invoke callback if we have a payload
+                    if callback_payload:
+                        _invoke_callback(callback_url, callback_payload)
+            
+            except Exception as e:  # noqa: BLE001
+                _logger.exception(
+                    "Error in async stream with callback thread_id=%s: %s: %s",
+                    thread_id,
+                    type(e).__name__,
+                    str(e),
+                )
+                # Send error to callback as a status update (errors are not assistant messages)
+                error_message = f"Error: {type(e).__name__}: {str(e)}"
+                if _env_flag("BC_API_RETURN_TRACEBACK", default=False):
+                    error_message += f"\n{traceback.format_exc()}"
+                _invoke_callback(callback_url, {"status": error_message})
+        
+        loop.run_until_complete(_stream_and_callback())
+    
+    finally:
+        loop.close()
+
+
 def _summarize_state_values(values: dict[str, Any]) -> dict[str, Any]:
     """Return a small JSON-serializable summary for debugging."""
     milestones = {
         "business_idea_complete": bool(values.get("business_idea_complete")),
         "persona_clarified": bool(values.get("persona_clarified")),
         "painpoint_enhanced": bool(values.get("painpoint_enhanced")),
+        "early_adopter_identified": bool(values.get("early_adopter_identified")),
         "pitch_created": bool(values.get("pitch_created")),
         "pricing_optimized": bool(values.get("pricing_optimized")),
+        "business_model_explored": bool(values.get("business_model_explored")),
     }
     todos = values.get("todos") if isinstance(values.get("todos"), list) else []
     msg_count = 0
@@ -445,6 +781,20 @@ class ResetResponse(BaseModel):
     conversation_id: str
     thread_id: str
     ok: bool
+
+
+class CallDeepAgentAsyncRequest(BaseModel):
+    user_id: str = Field(..., description="Upstream server-provided user id")
+    message: str = Field(..., description="User message")
+    conversation_id: str = Field("default", description="Conversation id (defaults to 'default')")
+    callback: str = Field(..., description="Callback URL to receive update messages")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Optional metadata from upstream")
+
+
+class CallDeepAgentAsyncResponse(BaseModel):
+    success: bool
+    session_id: str = Field(..., description="Session ID (same as thread_id)")
+    message: str = Field(..., description="Success or error message")
 
 
 @dataclass
@@ -1207,6 +1557,80 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                 yield f"data: {json.dumps({'type':'error','detail':detail}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(_gen(), media_type="text/event-stream; charset=utf-8")
+
+
+@app.post("/deep_agent/call_async", response_model=CallDeepAgentAsyncResponse)
+async def call_deep_agent_async(req: CallDeepAgentAsyncRequest) -> CallDeepAgentAsyncResponse:
+    """Start an async agent stream in a background thread and return immediately.
+    
+    This endpoint accepts a callback URL and starts the agent streaming in a background thread.
+    Each update from the stream will be POSTed to the callback URL with the message parameter
+    containing the update data.
+    
+    Returns immediately with a session_id (same as thread_id) and success status.
+    The actual streaming happens asynchronously in a separate thread.
+    """
+    _logger.info(
+        "POST /deep_agent/call_async - received request (user_id=%s, conversation_id=%s, message_len=%d, callback=%s)",
+        req.user_id,
+        req.conversation_id,
+        len(req.message),
+        req.callback,
+    )
+    assert _state is not None
+    tid = _thread_id(user_id=req.user_id, conversation_id=req.conversation_id)
+
+    # Get or create lock for this thread_id (for consistency with other endpoints)
+    # We don't hold it during execution since we're running in background
+    lock = _state.thread_locks.get(tid)
+    if lock is None:
+        lock = asyncio.Lock()
+        _state.thread_locks[tid] = lock
+
+    try:
+        # Get paths for file resolution in callback messages
+        from pathlib import Path
+        docs_dir = _state.docs_dir if _state else None
+        backend_root_dir = str(Path.cwd()) if _state else None
+        
+        # Start background thread to run the async stream
+        thread = threading.Thread(
+            target=_run_async_stream_with_callback,
+            args=(
+                _state.agent,
+                req.message,
+                tid,
+                req.user_id,
+                req.metadata or {},
+                req.callback,
+                docs_dir,
+                backend_root_dir,
+            ),
+            daemon=True,
+            name=f"bc-async-{tid}",
+        )
+        thread.start()
+        
+        return CallDeepAgentAsyncResponse(
+            success=True,
+            session_id=tid,
+            message="Stream started successfully",
+        )
+    
+    except Exception as e:  # noqa: BLE001
+        _logger.exception(
+            "POST /callDeepAgentAsync failed user_id=%s conversation_id=%s thread_id=%s error_type=%s error_message=%s",
+            req.user_id,
+            req.conversation_id,
+            tid,
+            type(e).__name__,
+            str(e),
+        )
+        return CallDeepAgentAsyncResponse(
+            success=False,
+            session_id=tid,
+            message=f"Failed to start stream: {type(e).__name__}: {str(e)}",
+        )
 
 
 @app.post("/reset", response_model=ResetResponse)

@@ -8,9 +8,10 @@ The sequential progression:
 1. business-idea-evaluation → mark_business_idea_complete
 2. persona-clarification → mark_persona_clarified
 3. painpoint-enhancement → mark_painpoint_enhanced
-4. 60s-pitch-creation → mark_pitch_created
-5. baseline-pricing-optimization → mark_pricing_optimized
-6. business-model-pivot-exploration
+4. early-adopter-identification → mark_early_adopter_identified
+5. 60s-pitch-creation → mark_pitch_created
+6. baseline-pricing-optimization → mark_pricing_optimized
+7. business-model-pivot-exploration
 """
 
 from collections.abc import Awaitable, Callable
@@ -47,8 +48,10 @@ class BusinessIdeaDevelopmentState(AgentState):
     materialized_business_idea: NotRequired[str | None]
     persona_clarified: NotRequired[bool]
     painpoint_enhanced: NotRequired[bool]
+    early_adopter_identified: NotRequired[bool]
     pitch_created: NotRequired[bool]
     pricing_optimized: NotRequired[bool]
+    business_model_explored: NotRequired[bool]
 
     # From TodoListMiddleware
     todos: Annotated[NotRequired[list[Todo]], OmitFromInput]
@@ -67,6 +70,10 @@ BUSINESS_IDEA_DEVELOPMENT_TODOS = [
     {
         "content": "Enhance the pain point using the painpoint-enhancement skill. Evaluate across six emotional-resonance dimensions (urgency, frequency, economic cost, universality, viral spread, regulatory pressure). Then call mark_painpoint_enhanced tool.",
         "milestone": "painpoint_enhanced",
+    },
+    {
+        "content": "Identify early adopters using the early-adopter-identification skill. Identify the first batch of customers who are value-sensitive, actively seeking solutions, and willing to try first-generation products. Include their characteristics, behaviors, and where to find them. Then call mark_early_adopter_identified tool.",
+        "milestone": "early_adopter_identified",
     },
     {
         "content": "Create a 60-second pitch using the 60s-pitch-creation skill. Include pain point resonance, team advantage statement, and call to action. Then call mark_pitch_created tool.",
@@ -95,6 +102,7 @@ You are helping develop a business idea through a structured, sequential workflo
   - After business-idea-evaluation → call `mark_business_idea_complete`
   - After persona-clarification → call `mark_persona_clarified`
   - After painpoint-enhancement → call `mark_painpoint_enhanced`
+  - After early-adopter-identification → call `mark_early_adopter_identified`
   - After 60s-pitch-creation → call `mark_pitch_created`
   - After baseline-pricing-optimization → call `mark_pricing_optimized`
 
@@ -164,6 +172,7 @@ class BusinessIdeaDevelopmentMiddleware(AgentMiddleware):
         business_idea_complete = state.get("business_idea_complete", False)
         persona_clarified = state.get("persona_clarified", False)
         painpoint_enhanced = state.get("painpoint_enhanced", False)
+        early_adopter_identified = state.get("early_adopter_identified", False)
         pitch_created = state.get("pitch_created", False)
         pricing_optimized = state.get("pricing_optimized", False)
 
@@ -224,8 +233,8 @@ class BusinessIdeaDevelopmentMiddleware(AgentMiddleware):
             )
             return todos  # Can't proceed until painpoint is enhanced
 
-        # Step 4: 60-Second Pitch Creation
-        if pitch_created:
+        # Step 4: Early Adopter Identification
+        if early_adopter_identified:
             todos.append(
                 Todo(
                     content=BUSINESS_IDEA_DEVELOPMENT_TODOS[3]["content"],
@@ -240,10 +249,10 @@ class BusinessIdeaDevelopmentMiddleware(AgentMiddleware):
                     status="pending",
                 )
             )
-            return todos  # Can't proceed until pitch is created
+            return todos  # Can't proceed until early adopters are identified
 
-        # Step 5: Baseline Pricing and Optimization
-        if pricing_optimized:
+        # Step 5: 60-Second Pitch Creation
+        if pitch_created:
             todos.append(
                 Todo(
                     content=BUSINESS_IDEA_DEVELOPMENT_TODOS[4]["content"],
@@ -258,12 +267,30 @@ class BusinessIdeaDevelopmentMiddleware(AgentMiddleware):
                     status="pending",
                 )
             )
+            return todos  # Can't proceed until pitch is created
+
+        # Step 6: Baseline Pricing and Optimization
+        if pricing_optimized:
+            todos.append(
+                Todo(
+                    content=BUSINESS_IDEA_DEVELOPMENT_TODOS[5]["content"],
+                    status="completed",
+                )
+            )
+            current_step = 6
+        else:
+            todos.append(
+                Todo(
+                    content=BUSINESS_IDEA_DEVELOPMENT_TODOS[5]["content"],
+                    status="pending",
+                )
+            )
             return todos  # Can't proceed until pricing is optimized
 
-        # Step 6: Business Model Pivot Exploration
+        # Step 7: Business Model Pivot Exploration
         todos.append(
             Todo(
-                content=BUSINESS_IDEA_DEVELOPMENT_TODOS[5]["content"],
+                content=BUSINESS_IDEA_DEVELOPMENT_TODOS[6]["content"],
                 status="pending",  # This is the final step, no milestone to track
             )
         )

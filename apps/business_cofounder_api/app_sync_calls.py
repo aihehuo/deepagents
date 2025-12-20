@@ -127,8 +127,10 @@ def _log_debug_state(*, result: dict[str, Any], thread_id: str) -> None:
         "business_idea_complete": bool(result.get("business_idea_complete")),
         "persona_clarified": bool(result.get("persona_clarified")),
         "painpoint_enhanced": bool(result.get("painpoint_enhanced")),
+        "early_adopter_identified": bool(result.get("early_adopter_identified")),
         "pitch_created": bool(result.get("pitch_created")),
         "pricing_optimized": bool(result.get("pricing_optimized")),
+        "business_model_explored": bool(result.get("business_model_explored")),
     }
     todos = result.get("todos") if isinstance(result.get("todos"), list) else []
     in_progress = None
@@ -224,8 +226,10 @@ def _summarize_state_values(values: dict[str, Any]) -> dict[str, Any]:
         "business_idea_complete": bool(values.get("business_idea_complete")),
         "persona_clarified": bool(values.get("persona_clarified")),
         "painpoint_enhanced": bool(values.get("painpoint_enhanced")),
+        "early_adopter_identified": bool(values.get("early_adopter_identified")),
         "pitch_created": bool(values.get("pitch_created")),
         "pricing_optimized": bool(values.get("pricing_optimized")),
+        "business_model_explored": bool(values.get("business_model_explored")),
     }
     todos = values.get("todos") if isinstance(values.get("todos"), list) else []
     msg_count = 0

@@ -641,6 +641,50 @@ def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
         )
 
 
+def _send_heartbeat(callback_url: str, session_id: str) -> None:
+    """Send a heartbeat to the Rails server.
+    
+    Args:
+        callback_url: The base callback URL (will append /heartbeat)
+        session_id: The session ID (thread_id) for this conversation
+    """
+    heartbeat_url = f"{callback_url.rstrip('/')}/heartbeat"
+    try:
+        import requests
+        
+        heartbeat_payload = {
+            "session_id": session_id,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+        
+        _logger.debug(
+            "_send_heartbeat - sending to %s (session_id=%s)",
+            heartbeat_url,
+            session_id,
+        )
+        
+        response = requests.post(
+            heartbeat_url,
+            json=heartbeat_payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10,  # Shorter timeout for heartbeats
+        )
+        _logger.debug(
+            "_send_heartbeat - response status=%d (heartbeat_url=%s)",
+            response.status_code,
+            heartbeat_url,
+        )
+        response.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        # Log error but don't raise - we don't want heartbeat failures to stop the stream
+        _logger.warning(
+            "Failed to send heartbeat to %s: %s: %s",
+            heartbeat_url,
+            type(e).__name__,
+            str(e),
+        )
+
+
 def _run_async_stream_with_callback(
     agent: Any,
     user_message: str,
@@ -676,12 +720,58 @@ def _run_async_stream_with_callback(
     
     try:
         async def _stream_and_callback():
+            # Heartbeat configuration
+            HEARTBEAT_INTERVAL_SECONDS = 10  # Send heartbeat every 10 seconds
+            heartbeat_task: asyncio.Task | None = None
+            heartbeat_stop_event = asyncio.Event()
+            
+            async def _heartbeat_loop():
+                """Background task that sends heartbeats periodically."""
+                try:
+                    while not heartbeat_stop_event.is_set():
+                        # Send heartbeat
+                        # Use asyncio.to_thread to run the synchronous requests.post in a thread
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(
+                            None,
+                            _send_heartbeat,
+                            callback_url,
+                            thread_id,
+                        )
+                        
+                        # Wait for the interval or until stop event is set
+                        try:
+                            await asyncio.wait_for(
+                                heartbeat_stop_event.wait(),
+                                timeout=HEARTBEAT_INTERVAL_SECONDS,
+                            )
+                            # If we get here, stop event was set
+                            break
+                        except asyncio.TimeoutError:
+                            # Timeout means interval elapsed, continue loop
+                            continue
+                except Exception as e:  # noqa: BLE001
+                    _logger.warning(
+                        "Heartbeat loop error (thread_id=%s): %s: %s",
+                        thread_id,
+                        type(e).__name__,
+                        str(e),
+                    )
+            
             try:
                 _logger.info(
                     "_run_async_stream_with_callback - starting (thread_id=%s, callback_url=%s, message_len=%d)",
                     thread_id,
                     callback_url,
                     len(user_message),
+                )
+                
+                # Start heartbeat task
+                heartbeat_task = asyncio.create_task(_heartbeat_loop())
+                _logger.debug(
+                    "_run_async_stream_with_callback - started heartbeat task (thread_id=%s, interval=%ds)",
+                    thread_id,
+                    HEARTBEAT_INTERVAL_SECONDS,
                 )
                 
                 # Set callback_url in initial state so middleware can access it for LLM-driven callbacks
@@ -781,6 +871,28 @@ def _run_async_stream_with_callback(
                 
                 _logger.info("_run_async_stream_with_callback - stream completed (thread_id=%s, total_chunks=%d)", thread_id, chunk_count)
                 
+                # Stop heartbeat before sending final callback
+                if heartbeat_task:
+                    _logger.debug(
+                        "_run_async_stream_with_callback - stopping heartbeat (thread_id=%s)",
+                        thread_id,
+                    )
+                    heartbeat_stop_event.set()
+                    try:
+                        await asyncio.wait_for(heartbeat_task, timeout=2.0)
+                    except asyncio.TimeoutError:
+                        _logger.warning(
+                            "_run_async_stream_with_callback - heartbeat task did not stop within timeout (thread_id=%s)",
+                            thread_id,
+                        )
+                        heartbeat_task.cancel()
+                    except Exception as e:  # noqa: BLE001
+                        _logger.warning(
+                            "_run_async_stream_with_callback - error stopping heartbeat (thread_id=%s): %s",
+                            thread_id,
+                            str(e),
+                        )
+                
                 # Send final callback to inform the Rails application that the stream is completed
                 # and it can accept new input from the user
                 final_callback_payload: dict[str, Any] = {
@@ -801,6 +913,19 @@ def _run_async_stream_with_callback(
                     type(e).__name__,
                     str(e),
                 )
+                
+                # Stop heartbeat on error
+                if heartbeat_task:
+                    _logger.debug(
+                        "_run_async_stream_with_callback - stopping heartbeat due to error (thread_id=%s)",
+                        thread_id,
+                    )
+                    heartbeat_stop_event.set()
+                    try:
+                        await asyncio.wait_for(heartbeat_task, timeout=2.0)
+                    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+                        heartbeat_task.cancel()
+                
                 # Send error to callback as a status update (errors are not assistant messages)
                 error_message = f"Error: {type(e).__name__}: {str(e)}"
                 if _env_flag("BC_API_RETURN_TRACEBACK", default=False):

@@ -1,8 +1,10 @@
 """Middleware for providing AI He Huo platform search tools to an agent."""
 
 import json
+import mimetypes
 import os
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from langchain.agents.middleware.types import (
     AgentMiddleware,
@@ -279,7 +281,6 @@ Examples:
 
 The results are returned in JSON format with project information, descriptions, and related details."""
 
-
 def _search_members_tool_generator(
     custom_description: str | None = None,
 ) -> BaseTool:
@@ -448,6 +449,34 @@ class AihehuoMiddleware(AgentMiddleware):
             system_prompt: Optional custom system prompt override.
             custom_tool_descriptions: Optional custom tool descriptions override.
         """
+        # Check configuration during initialization
+        print("[AihehuoMiddleware] Initializing AI He Huo middleware...")
+        
+        # Check for requests package
+        if requests is None:
+            print("[AihehuoMiddleware] WARNING: 'requests' package not installed!")
+            print("[AihehuoMiddleware]   Install with: pip install requests")
+            print("[AihehuoMiddleware]   Tools will not function without this package.")
+        else:
+            print("[AihehuoMiddleware] ✓ 'requests' package is available")
+        
+        # Check environment variables
+        api_base, api_key = _get_api_config()
+        
+        print("[AihehuoMiddleware] Configuration check:")
+        print(f"  AIHEHUO_API_BASE: {api_base}")
+        
+        if api_key:
+            # Mask API key for security (show first 8 and last 4 chars)
+            masked_key = f"{api_key[:8]}...{api_key[-4:]}" if len(api_key) > 12 else "***"
+            print(f"  AIHEHUO_API_KEY: {masked_key} (present, length: {len(api_key)})")
+            print("[AihehuoMiddleware] ✓ API key is configured")
+        else:
+            print("  AIHEHUO_API_KEY: NOT SET")
+            print("[AihehuoMiddleware] ⚠ WARNING: AIHEHUO_API_KEY is not configured!")
+            print("[AihehuoMiddleware]   The middleware will be initialized, but API calls will fail.")
+            print("[AihehuoMiddleware]   Set AIHEHUO_API_KEY environment variable to enable functionality.")
+        
         # Set system prompt (allow full override or None to use default)
         self._custom_system_prompt = system_prompt
         
@@ -459,6 +488,11 @@ class AihehuoMiddleware(AgentMiddleware):
             _search_members_tool_generator(custom_tool_descriptions.get("aihehuo_search_members")),
             _search_ideas_tool_generator(custom_tool_descriptions.get("aihehuo_search_ideas")),
         ]
+        
+        print(f"[AihehuoMiddleware] ✓ Initialized with {len(self.tools)} tools:")
+        print(f"  - aihehuo_search_members")
+        print(f"  - aihehuo_search_ideas")
+        print("[AihehuoMiddleware] Initialization complete.")
     
     def wrap_model_call(
         self,

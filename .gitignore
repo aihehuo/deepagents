@@ -224,3 +224,8 @@ libs/deepagents-cli/TEXTUAL_PROGRESS.md
 */tmp/.DS_Store
 .tmp_home
 .docker.env
+.deploy.env
+
+tests/*.md
+aihehuo_mcp
+BPGenerationAgent

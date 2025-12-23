@@ -6,6 +6,9 @@ from pathlib import Path
 
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
+from apps.business_cofounder_api.callback_middleware import CallbackMiddleware
+from deepagents.middleware.aihehuo import AihehuoMiddleware
+from deepagents.middleware.asset_upload import AssetUploadMiddleware
 from deepagents.middleware.business_idea_development import BusinessIdeaDevelopmentMiddleware
 from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
@@ -192,6 +195,12 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
             assistant_id=agent_id,
             project_skills_dir=None,
         ),
+        AihehuoMiddleware(),  # Provides aihehuo_search_members and aihehuo_search_ideas tools
+        AssetUploadMiddleware(
+            backend_root=str(Path.cwd()),
+            docs_dir=str(docs_dir),
+        ),  # Provides upload_asset tool with DocsOnlyWriteBackend awareness
+        CallbackMiddleware(),  # Always include - activates when callback_url is set in state
     ]
     
     # Combine routing rules into a single SubagentRoutingMiddleware to avoid duplicate middleware instances

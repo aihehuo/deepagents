@@ -9,14 +9,16 @@ import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import StreamingResponse
-    from pydantic import BaseModel, Field
+    from fastapi.exceptions import RequestValidationError
+    from pydantic import BaseModel, Field, ValidationError, field_validator
 except Exception as e:  # noqa: BLE001
     raise RuntimeError(
         "FastAPI is required to run the Business Co-Founder API. "
@@ -609,6 +611,12 @@ def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
         
         # Serialize the message to ensure it's JSON-serializable
         serialized_message = _serialize_for_json(message)
+        _logger.debug(
+            "_invoke_callback - sending to %s (payload_keys=%s, message_id=%s)",
+            callback_url,
+            list(serialized_message.keys()),
+            serialized_message.get("message_id"),
+        )
         
         response = requests.post(
             callback_url,
@@ -616,14 +624,20 @@ def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
             headers={"Content-Type": "application/json"},
             timeout=30,
         )
+        _logger.debug(
+            "_invoke_callback - response status=%d (callback_url=%s)",
+            response.status_code,
+            callback_url,
+        )
         response.raise_for_status()
     except Exception as e:  # noqa: BLE001
         # Log error but don't raise - we don't want callback failures to stop the stream
         _logger.warning(
-            "Failed to invoke callback URL %s: %s: %s",
+            "Failed to invoke callback URL %s: %s: %s (payload_keys=%s)",
             callback_url,
             type(e).__name__,
             str(e),
+            list(message.keys()) if isinstance(message, dict) else "N/A",
         )
 
 
@@ -638,6 +652,10 @@ def _run_async_stream_with_callback(
     backend_root_dir: str | None = None,
 ) -> None:
     """Run the agent stream in a background thread and invoke callback for each update.
+    
+    This function provides two callback mechanisms:
+    1. Automatic callbacks from stream chunks (processed here)
+    2. LLM-driven callbacks via the callback tool (handled by CallbackMiddleware)
     
     This function runs in a separate thread and creates its own event loop.
     Note: Locking is handled at the endpoint level before starting this thread.
@@ -659,45 +677,122 @@ def _run_async_stream_with_callback(
     try:
         async def _stream_and_callback():
             try:
+                _logger.info(
+                    "_run_async_stream_with_callback - starting (thread_id=%s, callback_url=%s, message_len=%d)",
+                    thread_id,
+                    callback_url,
+                    len(user_message),
+                )
+                
+                # Set callback_url in initial state so middleware can access it for LLM-driven callbacks
+                # The CallbackMiddleware will set session_id from thread_id in before_agent
+                initial_state = {
+                    "messages": [HumanMessage(content=user_message)],
+                    "callback_url": callback_url,
+                }
+                _logger.debug("_run_async_stream_with_callback - initial_state keys: %s", list(initial_state.keys()))
+                
+                config = {
+                    "configurable": {"thread_id": thread_id},
+                    "metadata": {"user_id": user_id, **metadata},
+                }
+                _logger.debug("_run_async_stream_with_callback - config: %s", config)
+                
+                chunk_count = 0
                 async for chunk in agent.astream(
-                    {"messages": [HumanMessage(content=user_message)]},
-                    config={
-                        "configurable": {"thread_id": thread_id},
-                        "metadata": {"user_id": user_id, **metadata},
-                    },
+                    initial_state,
+                    config=config,
                     stream_mode=["messages", "updates"],
                     subgraphs=True,
                     durability="exit",
                 ):
+                    chunk_count += 1
                     # Chunks are tuples: (namespace, stream_mode, data)
                     if not isinstance(chunk, tuple) or len(chunk) != 3:
+                        _logger.debug("_run_async_stream_with_callback - skipping invalid chunk (not tuple or wrong length): %s", type(chunk))
                         continue
                     
                     namespace, stream_mode, data = chunk
+                    _logger.debug(
+                        "_run_async_stream_with_callback - chunk #%d (namespace=%s, stream_mode=%s, data_type=%s)",
+                        chunk_count,
+                        namespace,
+                        stream_mode,
+                        type(data).__name__,
+                    )
+                    
+                    # Extract message ID from chunk data (for message concatenation in frontend)
+                    message_id: str | None = None
+                    if stream_mode == "messages" and isinstance(data, tuple) and len(data) >= 1:
+                        message = data[0]
+                        # Try to get the message ID from various possible attributes
+                        if hasattr(message, "id"):
+                            message_id = getattr(message, "id", None)
+                            _logger.debug("_run_async_stream_with_callback - extracted message_id from attribute: %s", message_id)
+                        elif isinstance(message, dict):
+                            message_id = message.get("id")
+                            _logger.debug("_run_async_stream_with_callback - extracted message_id from dict: %s", message_id)
                     
                     # Compose a concise message from the chunk data
                     concise_message = _compose_concise_callback_message(
                         namespace, stream_mode, data, docs_dir, backend_root_dir
                     )
+                    _logger.debug(
+                        "_run_async_stream_with_callback - concise_message: %s (message_id=%s)",
+                        concise_message[:100] if concise_message else None,
+                        message_id,
+                    )
                     
                     # Skip None messages (e.g., intermediate streaming chunks we want to filter out)
                     if concise_message is None:
+                        _logger.debug("_run_async_stream_with_callback - skipping None concise_message")
                         continue
                     
                     # Determine if this is an assistant message or a status update
-                    callback_payload: dict[str, Any] = {}
+                    callback_payload: dict[str, Any] = {
+                        "session_id": thread_id,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    }
+                    
+                    # Add message_id if available (for frontend message concatenation)
+                    if message_id:
+                        callback_payload["message_id"] = message_id
+                    
                     if concise_message.lower().startswith("assistant:"):
                         # Extract the actual message content after "Assistant:"
                         message_content = concise_message[len("Assistant:"):].strip()
                         if message_content:
+                            callback_payload["message_id"] = message_id
                             callback_payload["message"] = message_content
                     else:
                         # This is a status update, not an assistant message
                         callback_payload["status"] = concise_message
                     
-                    # Only invoke callback if we have a payload
-                    if callback_payload:
+                    # Only invoke callback if we have a message or status
+                    if "message" in callback_payload or "status" in callback_payload:
+                        _logger.debug(
+                            "_run_async_stream_with_callback - invoking callback (payload_keys=%s, has_message_id=%s)",
+                            list(callback_payload.keys()),
+                            "message_id" in callback_payload,
+                        )
                         _invoke_callback(callback_url, callback_payload)
+                    else:
+                        _logger.debug("_run_async_stream_with_callback - skipping callback (no message or status)")
+                
+                _logger.info("_run_async_stream_with_callback - stream completed (thread_id=%s, total_chunks=%d)", thread_id, chunk_count)
+                
+                # Send final callback to inform the Rails application that the stream is completed
+                # and it can accept new input from the user
+                final_callback_payload: dict[str, Any] = {
+                    "session_id": thread_id,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "status": "stream_completed",
+                }
+                _logger.info(
+                    "_run_async_stream_with_callback - sending final completion callback (thread_id=%s)",
+                    thread_id,
+                )
+                _invoke_callback(callback_url, final_callback_payload)
             
             except Exception as e:  # noqa: BLE001
                 _logger.exception(
@@ -710,7 +805,14 @@ def _run_async_stream_with_callback(
                 error_message = f"Error: {type(e).__name__}: {str(e)}"
                 if _env_flag("BC_API_RETURN_TRACEBACK", default=False):
                     error_message += f"\n{traceback.format_exc()}"
-                _invoke_callback(callback_url, {"status": error_message})
+                _invoke_callback(
+                    callback_url,
+                    {
+                        "session_id": thread_id,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "status": error_message,
+                    },
+                )
         
         loop.run_until_complete(_stream_and_callback())
     
@@ -784,11 +886,33 @@ class ResetResponse(BaseModel):
 
 
 class CallDeepAgentAsyncRequest(BaseModel):
-    user_id: str = Field(..., description="Upstream server-provided user id")
+    user_id: str = Field(..., description="Upstream server-provided user id (accepts int or str, coerced to str)")
     message: str = Field(..., description="User message")
-    conversation_id: str = Field("default", description="Conversation id (defaults to 'default')")
-    callback: str = Field(..., description="Callback URL to receive update messages")
+    conversation_id: str = Field("default", description="Conversation id (accepts int or str, coerced to str, defaults to 'default')")
+    callback: str | None = Field(None, description="Callback URL to receive update messages (alias: callback_url)")
+    callback_url: str | None = Field(None, alias="callback_url", description="Callback URL to receive update messages")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Optional metadata from upstream")
+    
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def coerce_user_id_to_str(cls, v: Any) -> str:
+        """Coerce user_id to string."""
+        return str(v)
+    
+    @field_validator("conversation_id", mode="before")
+    @classmethod
+    def coerce_conversation_id_to_str(cls, v: Any) -> str:
+        """Coerce conversation_id to string."""
+        if v is None:
+            return "default"
+        return str(v)
+    
+    def model_post_init(self, __context: Any) -> None:
+        """Ensure callback is set from callback_url if needed."""
+        if not self.callback and self.callback_url:
+            self.callback = self.callback_url
+        if not self.callback:
+            raise ValueError("Either 'callback' or 'callback_url' must be provided")
 
 
 class CallDeepAgentAsyncResponse(BaseModel):
@@ -809,6 +933,27 @@ class _AppState:
 
 app = FastAPI(title="Business Co-Founder Agent API", version="0.1.0")
 _state: _AppState | None = None
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> Any:
+    """Log validation errors for debugging."""
+    body_bytes = await request.body()
+    body_str = body_bytes.decode("utf-8", errors="ignore")[:1000]  # Truncate long bodies
+    _logger.error(
+        "=== VALIDATION ERROR === %s %s",
+        request.method,
+        request.url.path,
+    )
+    _logger.error("Validation errors: %s", exc.errors())
+    _logger.error("Request body (first 1000 chars): %s", body_str)
+    _logger.error("Request headers: %s", dict(request.headers))
+    # Return the default FastAPI validation error response
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": body_str[:500]},
+    )
 
 # Async networking in CPython uses a threadpool for DNS resolution (loop.getaddrinfo -> run_in_executor).
 # Some production hosts have extremely low thread limits; to avoid "can't start new thread" under load,
@@ -1570,15 +1715,27 @@ async def call_deep_agent_async(req: CallDeepAgentAsyncRequest) -> CallDeepAgent
     Returns immediately with a session_id (same as thread_id) and success status.
     The actual streaming happens asynchronously in a separate thread.
     """
+    # Log immediately when function is called (validation passed)
+    _logger.info("=== call_deep_agent_async CALLED ===")
     _logger.info(
-        "POST /deep_agent/call_async - received request (user_id=%s, conversation_id=%s, message_len=%d, callback=%s)",
+        "POST /deep_agent/call_async - received request (user_id=%s, conversation_id=%s, message_len=%d, callback=%s, metadata=%s)",
         req.user_id,
         req.conversation_id,
         len(req.message),
         req.callback,
+        req.metadata,
+    )
+    _logger.debug(
+        "POST /deep_agent/call_async - full request: user_id=%r, conversation_id=%r, message=%r, callback=%r, metadata=%r",
+        req.user_id,
+        req.conversation_id,
+        req.message[:100] if req.message else None,
+        req.callback,
+        req.metadata,
     )
     assert _state is not None
     tid = _thread_id(user_id=req.user_id, conversation_id=req.conversation_id)
+    _logger.debug("POST /deep_agent/call_async - thread_id=%s", tid)
 
     # Get or create lock for this thread_id (for consistency with other endpoints)
     # We don't hold it during execution since we're running in background
@@ -1592,6 +1749,13 @@ async def call_deep_agent_async(req: CallDeepAgentAsyncRequest) -> CallDeepAgent
         from pathlib import Path
         docs_dir = _state.docs_dir if _state else None
         backend_root_dir = str(Path.cwd()) if _state else None
+        
+        _logger.info(
+            "POST /deep_agent/call_async - starting background thread (thread_id=%s, callback_url=%s, docs_dir=%s)",
+            tid,
+            req.callback,
+            docs_dir,
+        )
         
         # Start background thread to run the async stream
         thread = threading.Thread(
@@ -1610,6 +1774,7 @@ async def call_deep_agent_async(req: CallDeepAgentAsyncRequest) -> CallDeepAgent
             name=f"bc-async-{tid}",
         )
         thread.start()
+        _logger.info("POST /deep_agent/call_async - background thread started (thread_id=%s)", tid)
         
         return CallDeepAgentAsyncResponse(
             success=True,

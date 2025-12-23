@@ -219,3 +219,5 @@ __marimo__/
 .deploy.env
 
 tests/*.md
+aihehuo_mcp
+BPGenerationAgent

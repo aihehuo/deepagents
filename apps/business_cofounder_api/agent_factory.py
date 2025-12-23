@@ -22,8 +22,12 @@ from deepagents.subagent_presets import (
     build_aihehuo_subagent_from_env,
     build_coder_subagent_from_env,
 )
-from deepagents_cli.skills.middleware import SkillsMiddleware
+from collections.abc import Awaitable, Callable
+
+from deepagents_cli.skills.middleware import SkillsMiddleware, SkillsState, SkillsStateUpdate
+from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain_anthropic import ChatAnthropic
+from langgraph.runtime import Runtime
 
 from apps.business_cofounder_api.checkpointer import DiskBackedInMemorySaver
 from apps.business_cofounder_api.docs_backend import DocsOnlyWriteBackend
@@ -170,10 +174,12 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
 
     checkpointer = DiskBackedInMemorySaver(file_path=checkpoints_path)
 
-    # IMPORTANT: FilesystemBackend virtual_mode=False so SkillsMiddleware absolute paths work.
-    # Wrap it so all writes/edits are forced into docs_dir (prevents writing to / or /home/user).
+    # Use virtual_mode=True for security (sandbox to base_dir)
+    # Since skills_dir and docs_dir are both under base_dir, we can use a single
+    # FilesystemBackend with base_dir as root. Skills will be accessible at /skills/
+    # and docs at /docs/ via virtual paths.
     backend = DocsOnlyWriteBackend(
-        backend=FilesystemBackend(root_dir=str(Path.cwd()), virtual_mode=False),
+        backend=FilesystemBackend(root_dir=str(base_dir), virtual_mode=True),
         docs_dir=docs_dir,
     )
 
@@ -186,18 +192,95 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     if aihehuo_subagent is not None:
         subagents.append(aihehuo_subagent)
     
+    # Create SkillsMiddleware with path conversion wrapper
+    # This converts absolute skill paths to virtual paths (/skills/{skill_name}/SKILL.md)
+    # so they work with virtual_mode=True backend (rooted at base_dir)
+    base_skills_middleware = SkillsMiddleware(
+        skills_dir=skills_dir,
+        assistant_id=agent_id,
+        project_skills_dir=None,
+    )
+    
+    # Wrapper to convert absolute skill paths to virtual paths
+    class VirtualPathSkillsMiddleware(AgentMiddleware):
+        """Wrapper that converts absolute skill paths to virtual paths for virtual_mode backend."""
+        
+        state_schema = SkillsState
+        
+        def __init__(self, base_middleware: SkillsMiddleware, skills_dir: Path):
+            self.base_middleware = base_middleware
+            self.skills_dir = Path(skills_dir).expanduser().resolve()
+            
+            # Discover and print skills during initialization
+            from deepagents_cli.skills.load import list_skills
+            print(f"[VirtualPathSkillsMiddleware] Initializing...")
+            print(f"  Skills directory: {self.skills_dir}")
+            
+            # Load skills to discover what's available
+            skills = list_skills(
+                user_skills_dir=self.skills_dir,
+                project_skills_dir=None,
+            )
+            
+            if skills:
+                print(f"[VirtualPathSkillsMiddleware] Discovered {len(skills)} skill(s):")
+                for skill in skills:
+                    # Convert to virtual path for display
+                    virtual_path = self._convert_skill_path_to_virtual(skill["path"])
+                    print(f"  - {skill['name']}: {skill['description']}")
+                    print(f"    → Virtual path: {virtual_path}")
+            else:
+                print(f"[VirtualPathSkillsMiddleware] No skills discovered in {self.skills_dir}")
+            print(f"[VirtualPathSkillsMiddleware] Initialization complete.")
+        
+        def _convert_skill_path_to_virtual(self, absolute_path: str) -> str:
+            """Convert absolute skill path to virtual path (/skills/{skill_name}/SKILL.md)."""
+            try:
+                skill_path = Path(absolute_path).resolve()
+                # Check if path is within skills_dir
+                if skill_path.is_relative_to(self.skills_dir):
+                    # Get relative path from skills_dir
+                    relative = skill_path.relative_to(self.skills_dir)
+                    # Convert to virtual path: /skills/{skill_name}/SKILL.md
+                    return f"/skills/{relative}"
+                # If not in skills_dir, return as-is (shouldn't happen, but fail safe)
+                return absolute_path
+            except (ValueError, OSError):
+                # If path resolution fails, return as-is
+                return absolute_path
+        
+        def before_agent(self, state: SkillsState, runtime: Runtime) -> SkillsStateUpdate | None:
+            """Load skills and convert paths to virtual paths."""
+            result = self.base_middleware.before_agent(state, runtime)
+            if result and "skills_metadata" in result:
+                # Convert all skill paths to virtual paths
+                converted_skills = []
+                for skill in result["skills_metadata"]:
+                    converted_skill = dict(skill)
+                    converted_skill["path"] = self._convert_skill_path_to_virtual(skill["path"])
+                    converted_skills.append(converted_skill)
+                
+                return SkillsStateUpdate(skills_metadata=converted_skills)
+            return result
+        
+        def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
+            """Delegate to base middleware (paths already converted in before_agent)."""
+            return self.base_middleware.wrap_model_call(request, handler)
+        
+        async def awrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]) -> ModelResponse:
+            """Delegate to base middleware (paths already converted in before_agent)."""
+            return await self.base_middleware.awrap_model_call(request, handler)
+    
+    virtual_skills_middleware = VirtualPathSkillsMiddleware(base_skills_middleware, skills_dir)
+    
     middleware = [
         LanguageDetectionMiddleware(),
         BusinessIdeaTrackerMiddleware(),
         BusinessIdeaDevelopmentMiddleware(strict_todo_sync=True),
-        SkillsMiddleware(
-            skills_dir=skills_dir,
-            assistant_id=agent_id,
-            project_skills_dir=None,
-        ),
+        virtual_skills_middleware,
         AihehuoMiddleware(),  # Provides aihehuo_search_members and aihehuo_search_ideas tools
         AssetUploadMiddleware(
-            backend_root=str(Path.cwd()),
+            backend_root=str(base_dir),  # Backend root is base_dir, not cwd
             docs_dir=str(docs_dir),
         ),  # Provides upload_asset tool with DocsOnlyWriteBackend awareness
         CallbackMiddleware(),  # Always include - activates when callback_url is set in state

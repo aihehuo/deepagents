@@ -304,35 +304,40 @@ def _resolve_file_path_for_upload(file_path: str, runtime: ToolRuntime[None, Ass
         except Exception:
             pass
     
-    # Strategy 1: If it's an absolute path that looks like a real path but doesn't exist,
-    # try resolving relative to backend root (remove leading path components)
+    # Strategy 1: Handle virtual paths (paths starting with "/" that are virtual, not absolute)
+    # With virtual_mode=True, paths like /tmp/file.html are virtual paths relative to backend_root
+    # But DocsOnlyWriteBackend redirects all writes to docs_dir, so check docs_dir first
     path_obj = Path(file_path)
+    
+    # Extract filename for DocsOnlyWriteBackend resolution (it only uses the filename)
+    filename = path_obj.name
+    
+    # Priority 1: Check docs_dir + filename (DocsOnlyWriteBackend maps all writes to docs_dir)
+    # This is the most likely location since all writes go to docs_dir regardless of virtual path
+    if docs_dir and os.path.exists(docs_dir) and filename:
+        candidate = Path(docs_dir) / filename
+        if os.path.exists(candidate):
+            print(f"[AssetUploadMiddleware] Resolved path via docs_dir: {file_path} -> {candidate}")
+            return str(candidate.resolve())
+    
+    # Priority 2: If it's an absolute path that doesn't exist, try resolving relative to backend root
     if path_obj.is_absolute() and not os.path.exists(file_path):
-        # Extract just the filename
-        filename = path_obj.name
-        
         # Try backend root + filename
-        if backend_root:
+        if backend_root and filename:
             candidate = Path(backend_root) / filename
             if os.path.exists(candidate):
                 print(f"[AssetUploadMiddleware] Resolved path: {file_path} -> {candidate}")
                 return str(candidate.resolve())
         
-        # Try docs_dir + filename (DocsOnlyWriteBackend maps all writes to docs_dir)
-        if docs_dir and os.path.exists(docs_dir):
-            candidate = Path(docs_dir) / filename
-            if os.path.exists(candidate):
-                print(f"[AssetUploadMiddleware] Resolved path via docs_dir: {file_path} -> {candidate}")
-                return str(candidate.resolve())
-        
-        # Try resolving relative to backend root (remove leading /Users/... etc.)
+        # Try resolving the virtual path relative to backend root
+        # e.g., /tmp/file.html -> base_dir/tmp/file.html (if virtual_mode=True)
         if backend_root:
-            # If path looks like /Users/.../filename, try just filename in backend root
-            if len(path_obj.parts) > 1:
-                candidate = Path(backend_root) / filename
-                if os.path.exists(candidate):
-                    print(f"[AssetUploadMiddleware] Resolved path (filename only): {file_path} -> {candidate}")
-                    return str(candidate.resolve())
+            # Remove leading slash and resolve relative to backend root
+            relative_path = file_path.lstrip("/")
+            candidate = Path(backend_root) / relative_path
+            if os.path.exists(candidate):
+                print(f"[AssetUploadMiddleware] Resolved virtual path to backend root: {file_path} -> {candidate}")
+                return str(candidate.resolve())
     
     # Strategy 2: If it starts with "/" but isn't a real absolute path, treat as virtual path
     if file_path.startswith("/") and not path_obj.is_absolute():

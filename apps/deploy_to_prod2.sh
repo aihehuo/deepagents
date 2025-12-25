@@ -95,11 +95,11 @@ if [ -z "$REMOTE_HOST" ]; then
 fi
 
 # Container internal config
-# For workers, use /home/celery (non-root user); for API, use /root
+# For workers, use /home/celery (non-root user); for API, use /home/appuser (non-root user)
 if [[ "$APP_NAME" == *"worker"* ]]; then
   CONTAINER_DATA_DIR="/home/celery/.deepagents/${APP_NAME}"
 else
-  CONTAINER_DATA_DIR="/root/.deepagents/${APP_NAME}"
+  CONTAINER_DATA_DIR="/home/appuser/.deepagents/${APP_NAME}"
 fi
 
 if [ -z "$ALIYUN_DOCKER_PASSWORD" ]; then
@@ -132,11 +132,11 @@ while IFS='=' read -r key value; do
 done < "$ENV_FILE"
 
 # Ensure HOME points to correct directory inside container
-# For workers, use /home/celery; for API, use /root
+# For workers, use /home/celery; for API, use /home/appuser
 if [[ "$APP_NAME" == *"worker"* ]]; then
   DOCKER_ENV_FILE_CONTENT+="HOME=/home/celery"$'\n'
 else
-  DOCKER_ENV_FILE_CONTENT+="HOME=/root"$'\n'
+  DOCKER_ENV_FILE_CONTENT+="HOME=/home/appuser"$'\n'
 fi
 
 ssh "$REMOTE_USER@$REMOTE_HOST" bash <<REMOTE_SCRIPT_END
@@ -160,10 +160,17 @@ echo "\$ALIYUN_DOCKER_PASSWORD" | docker login --username "\$USERNAME" --passwor
 echo "Preparing directories..."
 mkdir -p "\$REMOTE_DIR/data"
 
-# Fix permissions for non-root user (if app is a worker)
+# Fix permissions for mounted volume
 if [[ "$APP_NAME" == *"worker"* ]]; then
   echo "Setting permissions for celery user (UID 1000)..."
   # Ensure the data directory and its parent structure are owned by celery user
+  chown -R 1000:1000 "\$REMOTE_DIR/data" || true
+  # Also ensure parent directories exist and are accessible
+  mkdir -p "\$(dirname "\$REMOTE_DIR/data")" || true
+else
+  echo "Setting permissions for appuser (UID 1000) for API container..."
+  # For API containers running as appuser (non-root), ensure the directory is owned by UID 1000
+  # Ensure the data directory and its parent structure are owned by appuser (UID 1000)
   chown -R 1000:1000 "\$REMOTE_DIR/data" || true
   # Also ensure parent directories exist and are accessible
   mkdir -p "\$(dirname "\$REMOTE_DIR/data")" || true
@@ -200,9 +207,18 @@ fi
 
 echo "Starting container: \$CONTAINER_NAME"
 echo "Attached to network: \$NETWORK_NAME"
+# Determine user for container (non-root)
+if [[ "$APP_NAME" == *"worker"* ]]; then
+  CONTAINER_USER="1000:1000"  # celery user
+else
+  CONTAINER_USER="1000:1000"  # appuser (same UID as celery for consistency)
+fi
+echo "Running as user: \$CONTAINER_USER (non-root)"
+
 if [ -n "\$PORT" ] && [ "\$IS_WORKER" != "true" ]; then
   docker run -d \\
     --name "\$CONTAINER_NAME" \\
+    --user "\$CONTAINER_USER" \\
     --network "\$NETWORK_NAME" \\
     -p "\$PORT:\$CONTAINER_PORT" \\
     -v "\$REMOTE_DIR/data:\$CONTAINER_DATA_DIR" \\
@@ -215,6 +231,7 @@ if [ -n "\$PORT" ] && [ "\$IS_WORKER" != "true" ]; then
 else
   docker run -d \\
     --name "\$CONTAINER_NAME" \\
+    --user "\$CONTAINER_USER" \\
     --network "\$NETWORK_NAME" \\
     -v "\$REMOTE_DIR/data:\$CONTAINER_DATA_DIR" \\
     --add-host=host.docker.internal:\$HOST_GATEWAY_IP \\

@@ -3,6 +3,7 @@
 
 import os
 import re
+from datetime import datetime
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Annotated, Literal, NotRequired
 
@@ -840,6 +841,208 @@ class FilesystemMiddleware(AgentMiddleware):
             func=sync_execute,
             coroutine=async_execute,
         )
+
+
+TOOL_GENERATORS = {
+    "ls": _ls_tool_generator,
+    "read_file": _read_file_tool_generator,
+    "write_file": _write_file_tool_generator,
+    "edit_file": _edit_file_tool_generator,
+    "glob": _glob_tool_generator,
+    "grep": _grep_tool_generator,
+    "execute": _execute_tool_generator,
+}
+
+
+def _get_filesystem_tools(
+    backend: BackendProtocol,
+    custom_tool_descriptions: dict[str, str] | None = None,
+) -> list[BaseTool]:
+    """Get filesystem and execution tools.
+
+    Args:
+        backend: Backend to use for file storage and optional execution, or a factory function that takes runtime and returns a backend.
+        custom_tool_descriptions: Optional custom descriptions for tools.
+
+    Returns:
+        List of configured tools: ls, read_file, write_file, edit_file, glob, grep, execute.
+    """
+    if custom_tool_descriptions is None:
+        custom_tool_descriptions = {}
+    tools = []
+
+    for tool_name, tool_generator in TOOL_GENERATORS.items():
+        tool = tool_generator(backend, custom_tool_descriptions.get(tool_name))
+        tools.append(tool)
+    return tools
+
+
+TOO_LARGE_TOOL_MSG = """Tool result too large, the result of this tool call {tool_call_id} was saved in the filesystem at this path: {file_path}
+You can read the result from the filesystem by using the read_file tool, but make sure to only read part of the result at a time.
+You can do this by specifying an offset and limit in the read_file tool call.
+For example, to read the first 100 lines, you can use the read_file tool with offset=0 and limit=100.
+
+Here are the first 10 lines of the result:
+{content_sample}
+"""
+
+
+class FilesystemMiddleware(AgentMiddleware):
+    """Middleware for providing filesystem and optional execution tools to an agent.
+
+    This middleware adds filesystem tools to the agent: ls, read_file, write_file,
+    edit_file, glob, and grep. Files can be stored using any backend that implements
+    the BackendProtocol.
+
+    If the backend implements SandboxBackendProtocol, an execute tool is also added
+    for running shell commands.
+
+    Args:
+        backend: Backend for file storage and optional execution. If not provided, defaults to StateBackend
+            (ephemeral storage in agent state). For persistent storage or hybrid setups,
+            use CompositeBackend with custom routes. For execution support, use a backend
+            that implements SandboxBackendProtocol.
+        system_prompt: Optional custom system prompt override.
+        custom_tool_descriptions: Optional custom tool descriptions override.
+        tool_token_limit_before_evict: Optional token limit before evicting a tool result to the filesystem.
+
+    Example:
+        ```python
+        from deepagents.middleware.filesystem import FilesystemMiddleware
+        from deepagents.backends import StateBackend, StoreBackend, CompositeBackend
+        from langchain.agents import create_agent
+
+        # Ephemeral storage only (default, no execution)
+        agent = create_agent(middleware=[FilesystemMiddleware()])
+
+        # With hybrid storage (ephemeral + persistent /memories/)
+        backend = CompositeBackend(default=StateBackend(), routes={"/memories/": StoreBackend()})
+        agent = create_agent(middleware=[FilesystemMiddleware(backend=backend)])
+
+        # With sandbox backend (supports execution)
+        from my_sandbox import DockerSandboxBackend
+
+        sandbox = DockerSandboxBackend(container_id="my-container")
+        agent = create_agent(middleware=[FilesystemMiddleware(backend=sandbox)])
+        ```
+    """
+
+    state_schema = FilesystemState
+
+    def __init__(
+        self,
+        *,
+        backend: BACKEND_TYPES | None = None,
+        system_prompt: str | None = None,
+        custom_tool_descriptions: dict[str, str] | None = None,
+        tool_token_limit_before_evict: int | None = 20000,
+    ) -> None:
+        """Initialize the filesystem middleware.
+
+        Args:
+            backend: Backend for file storage and optional execution, or a factory callable.
+                Defaults to StateBackend if not provided.
+            system_prompt: Optional custom system prompt override.
+            custom_tool_descriptions: Optional custom tool descriptions override.
+            tool_token_limit_before_evict: Optional token limit before evicting a tool result to the filesystem.
+        """
+        self.tool_token_limit_before_evict = tool_token_limit_before_evict
+
+        # Use provided backend or default to StateBackend factory
+        self.backend = backend if backend is not None else (lambda rt: StateBackend(rt))
+
+        # Set system prompt (allow full override or None to generate dynamically)
+        self._custom_system_prompt = system_prompt
+
+        self.tools = _get_filesystem_tools(self.backend, custom_tool_descriptions)
+
+        # Test write/read functionality during initialization
+        self._test_filesystem_access()
+
+    def _get_backend(self, runtime: ToolRuntime) -> BackendProtocol:
+        """Get the resolved backend instance from backend or factory.
+
+        Args:
+            runtime: The tool runtime context.
+
+        Returns:
+            Resolved backend instance.
+        """
+        if callable(self.backend):
+            return self.backend(runtime)
+        return self.backend
+
+    def _test_filesystem_access(self) -> None:
+        """Test write/read functionality during initialization to verify permissions and backend access.
+
+        This writes a temporary file with a timestamp, reads it back, and prints the results
+        to help diagnose permission issues in Docker containers.
+        """
+        try:
+            # Create minimal state for FilesystemState
+            test_state = {"files": {}}
+            test_runtime = ToolRuntime(
+                state=test_state,
+                context=None,
+                tool_call_id="init_test",
+                store=None,
+                stream_writer=lambda _: None,
+                config={},
+            )
+
+            # Get backend instance
+            test_backend = self._get_backend(test_runtime)
+
+            # Generate test file path with timestamp
+            timestamp = datetime.utcnow().isoformat() + "Z"
+            test_file_path = f"/.filesystem_init_test_{timestamp.replace(':', '-').replace('.', '-')}.txt"
+            test_content = f"FilesystemMiddleware initialization test\nTimestamp: {timestamp}\nThis file was created during middleware initialization to verify write/read permissions."
+
+            print(f"[FilesystemMiddleware] Testing filesystem access...")
+            print(f"  Test file path: {test_file_path}")
+
+            # Test write
+            write_result: WriteResult = test_backend.write(test_file_path, test_content)
+            if write_result.error:
+                print(f"[FilesystemMiddleware] ❌ WRITE TEST FAILED: {write_result.error}")
+                return
+
+            print(f"[FilesystemMiddleware] ✓ Write test passed")
+            print(f"  Written file: {write_result.path}")
+
+            # Test read - use the same virtual path that was used for writing
+            # With virtual_mode=True, the path should resolve correctly
+            read_result = test_backend.read(test_file_path)
+            if isinstance(read_result, str) and read_result.startswith("Error"):
+                print(f"[FilesystemMiddleware] ❌ READ TEST FAILED: {read_result}")
+                return
+            
+            print(f"[FilesystemMiddleware] ✓ Read test passed")
+
+            # read() returns formatted content with line numbers, so we need to extract the actual content
+            # The format is: "     1  line1\n     2  line2\n..."
+            # We'll check if our test content lines appear in the result
+            read_content = read_result
+            test_lines = test_content.splitlines()
+            
+            # Check if all test content lines are present in the read result
+            all_lines_found = all(any(test_line in line for line in read_content.splitlines()) for test_line in test_lines)
+            
+            if all_lines_found:
+                print(f"[FilesystemMiddleware] ✓ Read test passed")
+                print(f"  Read content verified ({len(read_content)} bytes)")
+                print(f"[FilesystemMiddleware] ✓ All filesystem tests passed - write_file and read_file tools are working correctly")
+            else:
+                print(f"[FilesystemMiddleware] ⚠️  READ TEST WARNING: Content mismatch")
+                print(f"  Expected content length: {len(test_content)} bytes")
+                print(f"  Actual read result length: {len(read_content)} bytes")
+                print(f"  Expected content preview: {test_content[:100]}...")
+                print(f"  Actual read result preview: {read_content[:200]}...")
+
+        except Exception as e:
+            print(f"[FilesystemMiddleware] ❌ INITIALIZATION TEST ERROR: {type(e).__name__}: {e}")
+            import traceback
+            print(f"[FilesystemMiddleware] Traceback:\n{traceback.format_exc()}")
 
     def wrap_model_call(
         self,

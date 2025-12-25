@@ -11,11 +11,12 @@ services:
     env_file:
       - .docker.env
     environment:
-      # Persist checkpoints + skills under /root/.deepagents/business_cofounder_api by default
-      - HOME=/root
+      # Persist checkpoints + skills under /home/appuser/.deepagents/business_cofounder_api by default
+      - HOME=/home/appuser
+    user: "1000:1000"  # Run as non-root user (appuser, UID 1000)
     volumes:
       # Persist checkpoints/skills across restarts
-      - ./.tmp_home/.deepagents/business_cofounder_api:/root/.deepagents/business_cofounder_api
+      - ./.tmp_home/.deepagents/business_cofounder_api:/home/appuser/.deepagents/business_cofounder_api
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)"]

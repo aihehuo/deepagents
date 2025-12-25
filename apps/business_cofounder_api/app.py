@@ -473,9 +473,10 @@ def _compose_concise_callback_message(
                             preview = preview[:150] + "..."
                         return f"Assistant: {preview}"
                 
-                # If we have finish_reason but no tool calls and no content, it's just processing
+                # If we have finish_reason but no tool calls and no content, skip it
+                # (don't send "Assistant processing..." status - it's not useful)
                 if finish_reason:
-                    return "Assistant processing..."
+                    return None
                 
                 return None
             
@@ -852,10 +853,12 @@ def _run_async_stream_with_callback(
                         # Extract the actual message content after "Assistant:"
                         message_content = concise_message[len("Assistant:"):].strip()
                         if message_content:
+                            callback_payload["type"] = "message"
                             callback_payload["message_id"] = message_id
                             callback_payload["message"] = message_content
                     else:
                         # This is a status update, not an assistant message
+                        callback_payload["type"] = "status"
                         callback_payload["status"] = concise_message
                     
                     # Only invoke callback if we have a message or status
@@ -898,6 +901,7 @@ def _run_async_stream_with_callback(
                 final_callback_payload: dict[str, Any] = {
                     "session_id": thread_id,
                     "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "type": "status",
                     "status": "stream_completed",
                 }
                 _logger.info(
@@ -935,6 +939,7 @@ def _run_async_stream_with_callback(
                     {
                         "session_id": thread_id,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "type": "status",
                         "status": error_message,
                     },
                 )

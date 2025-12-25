@@ -17,6 +17,14 @@ ENV PYTHONUNBUFFERED=1 \
 # (e.g. network MITM / restricted corporate mirrors), which breaks builds.
 # Current requirements are pure-Python, so we don't need gcc/g++ here.
 
+# Create a non-root user for running the application
+# Use UID 1000 (common non-root UID) to match typical host user IDs
+RUN groupadd -r appuser -g 1000 && \
+    useradd -r -g appuser -u 1000 -d /home/appuser -s /bin/bash appuser && \
+    mkdir -p /home/appuser && \
+    mkdir -p /home/appuser/.deepagents && \
+    chown -R appuser:appuser /app /home/appuser
+
 # Minimal runtime deps for the API layer (FastAPI/Uvicorn + optional langdetect).
 COPY apps/business_cofounder_api/requirements.txt /app/apps/business_cofounder_api/requirements.txt
 
@@ -29,12 +37,22 @@ COPY libs/deepagents-cli /app/libs/deepagents-cli
 # Copy application code
 COPY apps/business_cofounder_api /app/apps/business_cofounder_api
 
+# Copy and set up entrypoint script
+COPY apps/business_cofounder_api/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 # Expose port (matches dev default)
 EXPOSE 8001
 
-# Health check
+# Health check (run as appuser via entrypoint)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD python -c "import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)" || exit 1
+
+# Use entrypoint to ensure directories exist before running the app
+# Note: With --user 1000:1000 in docker run, the container starts as UID 1000 (non-root)
+# The entrypoint runs as UID 1000 and just ensures directories exist
+# No user switching is needed since we're already running as the correct user
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 # Run the FastAPI app (pure-python server stack to reduce segfault risk):
 # - loop: asyncio (avoid uvloop)

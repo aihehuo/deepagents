@@ -30,7 +30,6 @@ from langchain_anthropic import ChatAnthropic
 from langgraph.runtime import Runtime
 
 from apps.business_cofounder_api.checkpointer import DiskBackedInMemorySaver
-from apps.business_cofounder_api.docs_backend import DocsOnlyWriteBackend
 
 
 def _copy_example_skills_if_missing(*, dest_skills_dir: Path) -> None:
@@ -175,13 +174,10 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     checkpointer = DiskBackedInMemorySaver(file_path=checkpoints_path)
 
     # Use virtual_mode=True for security (sandbox to base_dir)
-    # Since skills_dir and docs_dir are both under base_dir, we can use a single
-    # FilesystemBackend with base_dir as root. Skills will be accessible at /skills/
-    # and docs at /docs/ via virtual paths.
-    backend = DocsOnlyWriteBackend(
-        backend=FilesystemBackend(root_dir=str(base_dir), virtual_mode=True),
-        docs_dir=docs_dir,
-    )
+    # This prevents path traversal and ensures all file operations stay within base_dir.
+    # The agent can write anywhere within base_dir using virtual paths (e.g., /docs/, /skills/, etc.)
+    # Since skills_dir and docs_dir are both under base_dir, they're accessible via /skills/ and /docs/
+    backend = FilesystemBackend(root_dir=str(base_dir), virtual_mode=True)
 
     coder_subagent = build_coder_subagent_from_env(tools=None, name="coder")
     aihehuo_subagent = build_aihehuo_subagent_from_env(tools=None, name="aihehuo")
@@ -281,8 +277,8 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
         AihehuoMiddleware(),  # Provides aihehuo_search_members and aihehuo_search_ideas tools
         AssetUploadMiddleware(
             backend_root=str(base_dir),  # Backend root is base_dir, not cwd
-            docs_dir=str(docs_dir),
-        ),  # Provides upload_asset tool with DocsOnlyWriteBackend awareness
+            docs_dir=str(docs_dir),  # Preferred location for documents (agent can write anywhere in base_dir)
+        ),  # Provides upload_asset tool
         CallbackMiddleware(),  # Always include - activates when callback_url is set in state
     ]
     

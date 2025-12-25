@@ -3,6 +3,7 @@
 
 import os
 import re
+from datetime import datetime
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Annotated, Literal, NotRequired
 
@@ -871,6 +872,9 @@ class FilesystemMiddleware(AgentMiddleware):
 
         self.tools = _get_filesystem_tools(self.backend, custom_tool_descriptions)
 
+        # Test write/read functionality during initialization
+        self._test_filesystem_access()
+
     def _get_backend(self, runtime: ToolRuntime) -> BackendProtocol:
         """Get the resolved backend instance from backend or factory.
 
@@ -883,6 +887,78 @@ class FilesystemMiddleware(AgentMiddleware):
         if callable(self.backend):
             return self.backend(runtime)
         return self.backend
+
+    def _test_filesystem_access(self) -> None:
+        """Test write/read functionality during initialization to verify permissions and backend access.
+
+        This writes a temporary file with a timestamp, reads it back, and prints the results
+        to help diagnose permission issues in Docker containers.
+        """
+        try:
+            # Create minimal state for FilesystemState
+            test_state = {"files": {}}
+            test_runtime = ToolRuntime(
+                state=test_state,
+                context=None,
+                tool_call_id="init_test",
+                store=None,
+                stream_writer=lambda _: None,
+                config={},
+            )
+
+            # Get backend instance
+            test_backend = self._get_backend(test_runtime)
+
+            # Generate test file path with timestamp
+            timestamp = datetime.utcnow().isoformat() + "Z"
+            test_file_path = f"/.filesystem_init_test_{timestamp.replace(':', '-').replace('.', '-')}.txt"
+            test_content = f"FilesystemMiddleware initialization test\nTimestamp: {timestamp}\nThis file was created during middleware initialization to verify write/read permissions."
+
+            print(f"[FilesystemMiddleware] Testing filesystem access...")
+            print(f"  Test file path: {test_file_path}")
+
+            # Test write
+            write_result: WriteResult = test_backend.write(test_file_path, test_content)
+            if write_result.error:
+                print(f"[FilesystemMiddleware] ❌ WRITE TEST FAILED: {write_result.error}")
+                return
+
+            print(f"[FilesystemMiddleware] ✓ Write test passed")
+            print(f"  Written file: {write_result.path}")
+
+            # Test read - use the same virtual path that was used for writing
+            # With virtual_mode=True, the path should resolve correctly
+            read_result = test_backend.read(test_file_path)
+            if isinstance(read_result, str) and read_result.startswith("Error"):
+                print(f"[FilesystemMiddleware] ❌ READ TEST FAILED: {read_result}")
+                return
+            
+            print(f"[FilesystemMiddleware] ✓ Read test passed")
+
+            # read() returns formatted content with line numbers, so we need to extract the actual content
+            # The format is: "     1  line1\n     2  line2\n..."
+            # We'll check if our test content lines appear in the result
+            read_content = read_result
+            test_lines = test_content.splitlines()
+            
+            # Check if all test content lines are present in the read result
+            all_lines_found = all(any(test_line in line for line in read_content.splitlines()) for test_line in test_lines)
+            
+            if all_lines_found:
+                print(f"[FilesystemMiddleware] ✓ Read test passed")
+                print(f"  Read content verified ({len(read_content)} bytes)")
+                print(f"[FilesystemMiddleware] ✓ All filesystem tests passed - write_file and read_file tools are working correctly")
+            else:
+                print(f"[FilesystemMiddleware] ⚠️  READ TEST WARNING: Content mismatch")
+                print(f"  Expected content length: {len(test_content)} bytes")
+                print(f"  Actual read result length: {len(read_content)} bytes")
+                print(f"  Expected content preview: {test_content[:100]}...")
+                print(f"  Actual read result preview: {read_content[:200]}...")
+
+        except Exception as e:
+            print(f"[FilesystemMiddleware] ❌ INITIALIZATION TEST ERROR: {type(e).__name__}: {e}")
+            import traceback
+            print(f"[FilesystemMiddleware] Traceback:\n{traceback.format_exc()}")
 
     def wrap_model_call(
         self,

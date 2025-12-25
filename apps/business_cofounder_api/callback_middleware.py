@@ -146,8 +146,10 @@ def _get_callback_tool() -> StructuredTool:
         }
         
         if message:
+            callback_payload["type"] = "message"
             callback_payload["message"] = message
         if status:
+            callback_payload["type"] = "status"
             callback_payload["status"] = status
         
         # Invoke callback asynchronously (fire and forget)

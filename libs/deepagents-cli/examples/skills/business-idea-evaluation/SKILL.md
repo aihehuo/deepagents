@@ -40,12 +40,14 @@ Minimum requirement:
 - Implies a problem, need, or opportunity.
 
 ## What This Skill Produces
-The output includes:
+The output includes (all formatted in strict Markdown for readability):
 - Whether the current message qualifies as a complete business idea.
 - Which of the three perspectives it satisfies.
-- A brief explanation.
-- If complete: a concise summary of the idea.
-- If incomplete: feedback + 3 clarifying questions to guide the user.
+- A brief explanation with clear reasoning.
+- If complete: a concise, well-formatted summary of the idea.
+- If incomplete: constructive feedback + 3-5 clarifying questions to guide the user (in a numbered list).
+
+**All output MUST use proper Markdown formatting** (headers, bold text, lists, proper spacing) as specified in the Output Format section below.
 
 ## Completeness Gate (Mandatory)
 **Important:** A message can “touch” one of the three perspectives but still be **incomplete**.
@@ -91,37 +93,106 @@ In this case, the skill:
    - If WHO/WHAT/HOW are all concrete → the idea is complete.
    - Otherwise → the idea is incomplete (even if one perspective is partially satisfied).
 4. **If the idea is complete**:
-   - Provide the evaluation output with summary
+   - **Output the evaluation in strict Markdown format** (see Output Format section below)
+   - Provide the evaluation output with summary using proper Markdown headers, lists, and formatting
    - **IMMEDIATELY call the `mark_business_idea_complete` tool** with a concise summary (1-3 sentences) of the materialized idea
    - This marks the idea as complete in agent state and prevents future use of this skill
 5. **If the idea is incomplete**:
-   - Explain what is missing (explicitly reference WHO/WHAT/HOW gaps)
-   - Ask **3–5** clarifying questions (prioritize missing gate items)
+   - **Output the evaluation in strict Markdown format** (see Output Format section below)
+   - Explain what is missing (explicitly reference WHO/WHAT/HOW gaps) using proper Markdown formatting
+   - Ask **3–5** clarifying questions (prioritize missing gate items) in a numbered list
    - Do NOT call `mark_business_idea_complete`
 6. Once the idea is marked as complete via `mark_business_idea_complete`, this skill must never be invoked again in this conversation.
 
+**IMPORTANT:** Always format your output using strict Markdown syntax (headers, bold text, lists, proper spacing). This ensures the response is easy to read when displayed to users.
+
 ## Output Format
 
-Evaluation:
-- Is business idea: Yes/No
-- Satisfied perspectives:
-  - Painpoint Perspective: Yes/No
-  - Technology Perspective: Yes/No
-  - Future Vision Perspective: Yes/No
+**CRITICAL: You MUST output in strict Markdown format. Use proper Markdown headers, lists, and formatting for readability.**
 
-Reasoning:
-<short explanation>
+**CRITICAL SPACING RULES:**
+- **Every section header MUST have a blank line before it** - never run headers together
+- **Every bold label MUST have a blank line before it** - never run labels together  
+- **Every list (bullet or numbered) MUST have a blank line before the first item** - lists must be separated from preceding content
+- **Blank lines MUST separate every major element** - sections should never be in the same paragraph
+- **Do NOT put multiple sections in the same paragraph** - each section must be visually separated with blank lines
 
-If Idea is Complete:
-- Summary of idea:
-<one-paragraph summary>
-- **CRITICAL**: After providing the summary, you MUST call the `mark_business_idea_complete` tool with the idea summary to mark it as complete in agent state. This ensures the skill will not be used again.
+**Note:** The examples below show the markdown structure using code blocks for clarity, but you should output the actual Markdown-formatted content directly (not wrapped in code blocks). The structure shown is what your output should look like.
 
-If Idea is Incomplete:
-Feedback:
-- <why the idea is incomplete>
+### For Complete Ideas
 
-Clarifying Questions:
-1.
-2.
-3.
+Use this exact markdown structure (output the markdown directly, not in a code block). **CRITICAL: Always include a blank line before every section header, bold label, and the first item in every list.**
+
+```markdown
+## Evaluation
+
+**Is business idea:** Yes
+
+**Satisfied perspectives:**
+
+- ✅ Painpoint Perspective: Yes/No
+- ✅ Technology Perspective: Yes/No
+- ✅ Future Vision Perspective: Yes/No
+
+### Reasoning
+
+[Provide a clear, concise explanation of why this qualifies as a complete business idea, referencing the WHO/WHAT/HOW criteria.]
+
+### Summary
+
+[Provide a well-formatted one-paragraph summary of the business idea. Use proper paragraphs and formatting.]
+
+---
+
+**Next Step:**
+
+After providing the summary above, you MUST immediately call the `mark_business_idea_complete` tool with the idea summary to mark it as complete in agent state.
+```
+
+### For Incomplete Ideas
+
+Use this exact markdown structure (output the markdown directly, not in a code block). **CRITICAL: Always include a blank line before every section header, bold label, and the first item in every list.**
+
+```markdown
+## Evaluation
+
+**Is business idea:** No
+
+**Satisfied perspectives:**
+
+- ❌ Painpoint Perspective: Yes/No
+- ❌ Technology Perspective: Yes/No
+- ❌ Future Vision Perspective: Yes/No
+
+### Reasoning
+
+[Provide a clear explanation of why the idea is incomplete, explicitly referencing missing WHO/WHAT/HOW criteria.]
+
+### Feedback
+
+[Explain what specific elements are missing or need clarification. Be constructive and specific.]
+
+### Clarifying Questions
+
+1. [First question that addresses a missing WHO/WHAT/HOW element]
+2. [Second question that addresses another gap]
+3. [Third question that helps move the conversation forward]
+4. [Optional fourth question if needed]
+5. [Optional fifth question if needed]
+```
+
+### Formatting Requirements
+
+- **Always use Markdown headers** (`##` for main sections, `###` for subsections)
+- **MANDATORY: Include a blank line before EVERY section header** (`##` or `###`) - this creates proper visual separation
+- **MANDATORY: Include a blank line before EVERY bold label** (e.g., before `**Is business idea:**`, `**Satisfied perspectives:**`, etc.)
+- **MANDATORY: Include a blank line after bold labels** when the content that follows is on a new line (e.g., after `**Satisfied perspectives:**` there should be a blank line before the list)
+- **MANDATORY: Include a blank line before the FIRST item in EVERY list** (both bullet lists and numbered lists) - the first list item must have a blank line before it
+- **Use bold text** (`**text**`) for labels and emphasis
+- **Use checkmarks** (✅/❌) in lists for visual clarity
+- **Use numbered lists** for clarifying questions (1., 2., 3., etc.)
+- **Use horizontal rules** (`---`) with blank lines before and after to separate major sections
+- **Ensure proper spacing** between all sections (blank lines between every major element)
+- **Keep paragraphs concise** and well-formatted
+- **Do NOT run sections together** - every section, header, and bold label must have proper spacing
+- **Do NOT use plain text** - always format with Markdown syntax

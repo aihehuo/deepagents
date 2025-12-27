@@ -933,8 +933,6 @@ class FilesystemMiddleware(AgentMiddleware):
                 print(f"[FilesystemMiddleware] ❌ READ TEST FAILED: {read_result}")
                 return
             
-            print(f"[FilesystemMiddleware] ✓ Read test passed")
-
             # read() returns formatted content with line numbers, so we need to extract the actual content
             # The format is: "     1  line1\n     2  line2\n..."
             # We'll check if our test content lines appear in the result

@@ -167,29 +167,42 @@ def _extract_text_chunks_from_ai_message(message: Any) -> list[str]:
     return []
 
 
-def _resolve_write_path(virtual_path: str, docs_dir: str | None = None) -> str:
-    """Resolve a virtual filesystem path to the actual write path in docs_dir.
+def _resolve_write_path(virtual_path: str, backend_root: str | None = None) -> str:
+    """Resolve a virtual filesystem path to the actual write path.
     
-    DocsOnlyWriteBackend maps all writes to docs_dir, taking only the filename
-    from the virtual path. This function mimics that behavior for display purposes.
+    With virtual_mode=True, virtual paths are resolved relative to backend_root.
+    For example, /docs/file.md resolves to backend_root/docs/file.md.
     
     Args:
-        virtual_path: Virtual path from the agent (e.g., "/path/to/file.md")
-        docs_dir: Docs directory where files are actually written
+        virtual_path: Virtual path from the agent (e.g., "/docs/file.md")
+        backend_root: Backend root directory (defaults to base_dir)
         
     Returns:
-        Actual write path in docs_dir, or original path if docs_dir is not available
+        Actual write path, or original path if backend_root is not available
     """
-    if not virtual_path or not docs_dir:
+    if not virtual_path:
         return virtual_path
+    
+    if not backend_root:
+        # Default to the standard base_dir location
+        from pathlib import Path
+        backend_root = str(Path.home() / ".deepagents" / "business_cofounder_api")
     
     try:
         from pathlib import Path
-        docs = Path(docs_dir).expanduser().resolve()
+        root = Path(backend_root).expanduser().resolve()
         
-        # DocsOnlyWriteBackend._map_write_path extracts just the filename
-        filename = Path(virtual_path).name or "output.txt"
-        actual_path = (docs / filename).resolve()
+        # Remove leading slash and resolve relative to backend root
+        # e.g., /docs/file.md -> backend_root/docs/file.md
+        relative_path = virtual_path.lstrip("/")
+        actual_path = (root / relative_path).resolve()
+        
+        # Safety check: ensure path is within backend root
+        try:
+            actual_path.relative_to(root)
+        except ValueError:
+            # If path escapes root, just return the virtual path
+            return virtual_path
         
         return str(actual_path)
     except Exception:  # noqa: BLE001
@@ -283,15 +296,15 @@ def _format_tool_call_progress(tool_name: str, tool_args: dict[str, Any] | None 
     elif tool_name == "write_file":
         file_path = tool_args.get("file_path", "")
         if file_path:
-            # For writes, show actual path in docs_dir (DocsOnlyWriteBackend maps all writes there)
-            actual_path = _resolve_write_path(file_path, docs_dir)
+            # For writes, resolve virtual path to actual path relative to backend root
+            actual_path = _resolve_write_path(file_path, backend_root_dir)
             return f"Writing {actual_path}"
     
     elif tool_name == "edit_file":
         file_path = tool_args.get("file_path", "")
         if file_path:
-            # For edits, show actual path in docs_dir (DocsOnlyWriteBackend maps all edits there)
-            actual_path = _resolve_write_path(file_path, docs_dir)
+            # For edits, resolve virtual path to actual path relative to backend root
+            actual_path = _resolve_write_path(file_path, backend_root_dir)
             return f"Editing {actual_path}"
     
     elif tool_name == "ls" or tool_name == "list_files":
@@ -1057,7 +1070,10 @@ class _AppState:
     checkpoints_path: str
     # Ensure the same thread_id is processed serially (avoid checkpoint races).
     thread_locks: dict[str, asyncio.Lock]
-    # Docs directory where agent writes files (DocsOnlyWriteBackend constraint)
+    # Backend root directory (base_dir) where agent can write files
+    # With virtual_mode=True, all paths are resolved relative to this root
+    backend_root: str | None = None
+    # Docs directory (kept for backward compatibility with existing code)
     docs_dir: str | None = None
 
 
@@ -1154,16 +1170,18 @@ async def _startup() -> None:
     _patch_openai_no_thread()
     agent, checkpoints_path = create_business_cofounder_agent(agent_id="business_cofounder_agent")
     
-    # Extract docs_dir from agent configuration
-    # The backend is wrapped in DocsOnlyWriteBackend which constrains all writes to docs_dir.
+    # Extract backend_root from agent configuration
+    # With virtual_mode=True, all file operations are sandboxed to backend_root
     from pathlib import Path
-    docs_dir = str(Path.home() / ".deepagents" / "business_cofounder_api" / "docs")
+    backend_root = str(Path.home() / ".deepagents" / "business_cofounder_api")
+    docs_dir = str(Path.home() / ".deepagents" / "business_cofounder_api" / "docs")  # Keep for backward compatibility
     
     _state = _AppState(
         agent=agent,
         checkpoints_path=str(checkpoints_path),
         thread_locks={},
-        docs_dir=docs_dir,
+        backend_root=backend_root,
+        docs_dir=docs_dir,  # Keep for backward compatibility
     )
 
 
@@ -1406,7 +1424,7 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                                                     # Format progress message with file path from cached args
                                                     from pathlib import Path
                                                     docs_dir = _state.docs_dir if _state else None
-                                                    backend_root_dir = str(Path.cwd()) if _state else None
+                                                    backend_root_dir = _state.backend_root if _state else None
                                                     progress_msg = _format_tool_call_progress(tool_name, cached_args, docs_dir, backend_root_dir)
                                                     payload = {"type": "progress", "message": progress_msg}
                                                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -1503,7 +1521,7 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                                                                 if tool_name:
                                                                     from pathlib import Path
                                                                     docs_dir = _state.docs_dir if _state else None
-                                                                    backend_root_dir = str(Path.cwd()) if _state else None
+                                                                    backend_root_dir = _state.backend_root if _state else None
                                                                     progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
                                                                     payload = {"type": "progress", "message": progress_msg}
                                                                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -1571,7 +1589,7 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                                                         if tool_name:
                                                             from pathlib import Path
                                                             docs_dir = _state.docs_dir if _state else None
-                                                            backend_root_dir = str(Path.cwd()) if _state else None
+                                                            backend_root_dir = _state.backend_root if _state else None
                                                             progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
                                                             payload = {"type": "progress", "message": progress_msg}
                                                             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -1608,7 +1626,7 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                                                     if tool_name:
                                                         from pathlib import Path
                                                         docs_dir = _state.docs_dir if _state else None
-                                                        backend_root_dir = str(Path.cwd()) if _state else None
+                                                        backend_root_dir = _state.backend_root if _state else None
                                                         progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
                                                         payload = {"type": "progress", "message": progress_msg}
                                                         yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"

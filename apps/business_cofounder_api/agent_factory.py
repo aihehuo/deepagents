@@ -6,11 +6,12 @@ from pathlib import Path
 
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
-from apps.business_cofounder_api.callback_middleware import CallbackMiddleware
 from deepagents.middleware.aihehuo import AihehuoMiddleware
+from deepagents.middleware.artifacts import ArtifactsMiddleware
 from deepagents.middleware.asset_upload import AssetUploadMiddleware
 from deepagents.middleware.business_idea_development import BusinessIdeaDevelopmentMiddleware
 from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
+from deepagents.middleware.callback import CallbackMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
 from deepagents.middleware.routing import (
     SubagentRoutingMiddleware,
@@ -279,6 +280,7 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
             backend_root=str(base_dir),  # Backend root is base_dir, not cwd
             docs_dir=str(docs_dir),  # Preferred location for documents (agent can write anywhere in base_dir)
         ),  # Provides upload_asset tool
+        ArtifactsMiddleware(),  # Provides add_artifact tool to track uploaded artifact URLs
         CallbackMiddleware(),  # Always include - activates when callback_url is set in state
     ]
     

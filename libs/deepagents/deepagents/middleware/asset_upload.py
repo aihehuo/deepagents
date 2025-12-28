@@ -4,6 +4,7 @@ import json
 import mimetypes
 import os
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
 
 from langchain.agents.middleware.types import (
@@ -144,14 +145,23 @@ def _upload_file_to_aihehuo_api(
         
         # Get file info (use the actual file path that exists)
         file_size = os.path.getsize(actual_file_path)
-        filename = os.path.basename(actual_file_path)
+        original_filename = os.path.basename(actual_file_path)
         file_ext = os.path.splitext(actual_file_path)[1].lower()
+        
+        # Generate unique filename with timestamp to prevent overwrites in OSS
+        # Format: originalname_YYYYMMDD_HHMMSS.ext
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Split filename into name and extension
+        filename_without_ext = os.path.splitext(original_filename)[0]
+        # Append timestamp before extension
+        unique_filename = f"{filename_without_ext}_{timestamp_str}{file_ext}"
         
         # DEBUG: Print file information
         print(f"[AssetUploadMiddleware] Upload file - File information:")
         print(f"  Original path: {file_path}")
         print(f"  Actual file path: {actual_file_path}")
-        print(f"  Filename: {filename}")
+        print(f"  Original filename: {original_filename}")
+        print(f"  Unique filename (with timestamp): {unique_filename}")
         print(f"  File extension: {file_ext}")
         print(f"  File size: {file_size} bytes")
         
@@ -202,13 +212,15 @@ def _upload_file_to_aihehuo_api(
             else:
                 safe_headers[k] = v
         print(f"  Headers: {safe_headers}")
-        print(f"  Files: {{'file': ('{filename}', <file>, '{mime_type}')}}")
+        print(f"  Files: {{'file': ('{unique_filename}', <file>, '{mime_type}')}}")
         print(f"[AssetUploadMiddleware] Sending upload request...")
+        print(f"[AssetUploadMiddleware] Note: Using unique filename '{unique_filename}' to prevent overwrites in OSS")
         
         # Upload file using multipart/form-data
+        # Use unique_filename to ensure each upload gets a unique name in OSS
         with open(actual_file_path, 'rb') as f:
             files = {
-                'file': (filename, f, mime_type)
+                'file': (unique_filename, f, mime_type)
             }
             
             resp = requests.post(url, headers=upload_headers, files=files, timeout=timeout)

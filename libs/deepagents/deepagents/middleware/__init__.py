@@ -2,6 +2,7 @@
 
 from deepagents.middleware.accountant import AccountantMiddleware
 from deepagents.middleware.aihehuo import AihehuoMiddleware
+from deepagents.middleware.artifacts import ArtifactsMiddleware
 from deepagents.middleware.asset_upload import AssetUploadMiddleware
 from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
 from deepagents.middleware.business_idea_development import BusinessIdeaDevelopmentMiddleware
@@ -18,6 +19,7 @@ from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgent
 __all__ = [
     "AccountantMiddleware",
     "AihehuoMiddleware",
+    "ArtifactsMiddleware",
     "AssetUploadMiddleware",
     "BusinessIdeaTrackerMiddleware",
     "BusinessIdeaDevelopmentMiddleware",

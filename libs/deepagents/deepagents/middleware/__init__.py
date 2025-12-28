@@ -1,5 +1,6 @@
 """Middleware for the DeepAgent."""
 
+from deepagents.middleware.accountant import AccountantMiddleware
 from deepagents.middleware.aihehuo import AihehuoMiddleware
 from deepagents.middleware.asset_upload import AssetUploadMiddleware
 from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
@@ -15,6 +16,7 @@ from deepagents.middleware.routing import (
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
 
 __all__ = [
+    "AccountantMiddleware",
     "AihehuoMiddleware",
     "AssetUploadMiddleware",
     "BusinessIdeaTrackerMiddleware",

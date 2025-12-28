@@ -6,6 +6,7 @@ from deepagents.middleware.artifacts import ArtifactsMiddleware
 from deepagents.middleware.asset_upload import AssetUploadMiddleware
 from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
 from deepagents.middleware.business_idea_development import BusinessIdeaDevelopmentMiddleware
+from deepagents.middleware.callback import CallbackMiddleware
 from deepagents.middleware.datetime import DateTimeMiddleware
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
@@ -23,6 +24,7 @@ __all__ = [
     "AssetUploadMiddleware",
     "BusinessIdeaTrackerMiddleware",
     "BusinessIdeaDevelopmentMiddleware",
+    "CallbackMiddleware",
     "CompiledSubAgent",
     "DateTimeMiddleware",
     "FilesystemMiddleware",

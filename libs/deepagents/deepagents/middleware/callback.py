@@ -172,6 +172,9 @@ def _get_callback_tool() -> StructuredTool:  # noqa: PLR0915
         
         # Invoke callback asynchronously (fire and forget)
         try:
+            # Print callback payload for debugging/monitoring
+            print(f"[CallbackMiddleware] Sending callback ({callback_payload.get('type', 'unknown')}): {callback_payload}")
+            
             import requests
             requests.post(
                 callback_url,

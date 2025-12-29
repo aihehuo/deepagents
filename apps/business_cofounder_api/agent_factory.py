@@ -18,6 +18,7 @@ from deepagents.middleware.routing import (
     _looks_like_aihehuo_search_task,
     _looks_like_coding_task,
 )
+from deepagents.model_config import parse_model_config
 from deepagents.subagent_presets import (
     build_aihehuo_subagent_from_env,
     build_coder_subagent_from_env,
@@ -58,59 +59,71 @@ def _copy_example_skills_if_missing(*, dest_skills_dir: Path) -> None:
         shutil.copytree(skill_dir, dest)
 
 
+def _mask_sensitive_value(value: str | None, show_chars: int = 8) -> str:
+    """Mask a sensitive value for logging (show first N chars and last 4 chars)."""
+    if not value:
+        return "(not set)"
+    if len(value) <= show_chars + 4:
+        return "***"  # Too short to mask meaningfully
+    return f"{value[:show_chars]}...{value[-4:]}"
+
+
+def _mask_url(url: str | None) -> str:
+    """Mask URL for logging (show full URL as it's less sensitive than API keys)."""
+    if not url:
+        return "(not set)"
+    # For URLs, show the full URL since domain/path is not sensitive
+    # Only mask query parameters if present
+    if "?" in url:
+        base_url, query = url.split("?", 1)
+        return f"{base_url}?***"
+    return url
+
+
 def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     """Create the Business Co-Founder deep agent (shared across users; state isolated by thread_id).
 
     Returns:
         (agent_graph, checkpoints_path)
     """
-    # Model configuration (single generic env var set):
-    # - MODEL_API_PROVIDER: deepseek | qwen
-    # - MODEL_API_KEY / MODEL_BASE_URL / MODEL_NAME
-    # - MODEL_API_MAX_TOKENS / MODEL_API_TEMPERATURE / MODEL_API_TIMEOUT_S (optional)
-    provider = (os.environ.get("MODEL_API_PROVIDER") or "deepseek").strip().lower()
-    base_url = os.environ.get("MODEL_BASE_URL")
-    api_key = os.environ.get("MODEL_API_KEY")
+    # Model configuration using new provider-specific design:
+    # - supported_model_providers: comma-separated list (e.g., "deepseek,qwen")
+    # - Provider-specific: [PROVIDER]_BASE_URL, [PROVIDER]_API_KEY (e.g., QWEN_BASE_URL, DEEPSEEK_API_KEY)
+    # - Model name: [PROVIDER]_MAIN_AGENT_MODEL (e.g., QWEN_MAIN_AGENT_MODEL="qwen-plus")
+    # - Shared config: MODEL_API_MAX_TOKENS, MODEL_API_TEMPERATURE, MODEL_API_TIMEOUT_S
+    model_config = parse_model_config(
+        provider='qwen',  # Auto-detect from supported_model_providers
+        model_name_suffix="MAIN_AGENT_MODEL",
+        default_provider="deepseek",
+    )
 
-    model_name = os.environ.get("MODEL_NAME")
-    if not model_name:
-        model_name = "qwen-plus" if provider == "qwen" else "deepseek-chat"
+    # Print model configuration during initialization
+    print("[ModelConfig] Model provider configuration:")
+    print(f"  Provider: {model_config.provider}")
+    print(f"  Model: {model_config.model}")
+    print(f"  Base URL: {_mask_url(model_config.base_url)}")
+    print(f"  API Key: {_mask_sensitive_value(model_config.api_key)}")
+    print(f"  Max Tokens: {model_config.max_tokens}")
+    print(f"  Timeout: {model_config.timeout_s}s")
+    if model_config.temperature is not None:
+        print(f"  Temperature: {model_config.temperature}")
+    print()
 
-    max_tokens_env = os.environ.get("MODEL_API_MAX_TOKENS") or "20000"
-    timeout_env = os.environ.get("MODEL_API_TIMEOUT_S") or "180.0"
-    temperature_env = os.environ.get("MODEL_API_TEMPERATURE")
-
-    try:
-        max_tokens = int(max_tokens_env)
-    except ValueError:
-        max_tokens = 20000
-    try:
-        timeout_s = float(timeout_env)
-    except ValueError:
-        timeout_s = 180.0
-
-    temperature: float | None = None
-    if temperature_env is not None and temperature_env != "":
-        try:
-            temperature = float(temperature_env)
-        except ValueError:
-            temperature = None
-
-    if provider == "qwen":
+    if model_config.provider == "qwen":
         # Qwen (DashScope) OpenAI-compatible mode
         from langchain_openai import ChatOpenAI  # lazy import (avoid import-time side effects in tests)
 
         openai_kwargs: dict[str, object] = {
-            "model": model_name,
-            "max_tokens": max_tokens,
-            "timeout": timeout_s,
+            "model": model_config.model,
+            "max_tokens": model_config.max_tokens,
+            "timeout": model_config.timeout_s,
         }
-        if temperature is not None:
-            openai_kwargs["temperature"] = temperature
-        if base_url:
-            openai_kwargs["base_url"] = base_url
-        if api_key:
-            openai_kwargs["api_key"] = api_key
+        if model_config.temperature is not None:
+            openai_kwargs["temperature"] = model_config.temperature
+        if model_config.base_url:
+            openai_kwargs["base_url"] = model_config.base_url
+        if model_config.api_key:
+            openai_kwargs["api_key"] = model_config.api_key
         
         # Note: stream_options can only be set when stream: true, so we don't set it here.
         # Usage metadata is typically included by default in both streaming and non-streaming responses.
@@ -119,16 +132,16 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     else:
         # DeepSeek / Anthropic-compatible proxy
         anthropic_kwargs: dict[str, object] = {
-            "model": model_name,
-            "max_tokens": max_tokens,
-            "timeout": timeout_s,
+            "model": model_config.model,
+            "max_tokens": model_config.max_tokens,
+            "timeout": model_config.timeout_s,
         }
-        if temperature is not None:
-            anthropic_kwargs["temperature"] = temperature
-        if base_url:
-            anthropic_kwargs["base_url"] = base_url
-        if api_key:
-            anthropic_kwargs["api_key"] = api_key
+        if model_config.temperature is not None:
+            anthropic_kwargs["temperature"] = model_config.temperature
+        if model_config.base_url:
+            anthropic_kwargs["base_url"] = model_config.base_url
+        if model_config.api_key:
+            anthropic_kwargs["api_key"] = model_config.api_key
 
         model = ChatAnthropic(**anthropic_kwargs)
 
@@ -179,8 +192,13 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     # Since skills_dir and docs_dir are both under base_dir, they're accessible via /skills/ and /docs/
     backend = FilesystemBackend(root_dir=str(base_dir), virtual_mode=True)
 
-    coder_subagent = build_coder_subagent_from_env(tools=None, name="coder")
-    aihehuo_subagent = build_aihehuo_subagent_from_env(tools=None, name="aihehuo")
+    # Subagents use the same provider as the main agent, but with their own model names
+    coder_subagent = build_coder_subagent_from_env(
+        tools=None, name="coder", provider=model_config.provider
+    )
+    aihehuo_subagent = build_aihehuo_subagent_from_env(
+        tools=None, name="aihehuo", provider=model_config.provider
+    )
     
     subagents = []
     if coder_subagent is not None:

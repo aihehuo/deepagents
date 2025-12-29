@@ -11,80 +11,60 @@ from typing import Any, Sequence
 
 from langchain_core.tools import BaseTool
 
-
-def _get_env_float(name: str, default: float) -> float:
-    raw = os.environ.get(name)
-    if raw is None or raw == "":
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        return default
-
-
-def _get_env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None or raw == "":
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
+from deepagents.model_config import parse_model_config
 
 
 def build_coder_subagent_from_env(
     *,
     tools: Sequence[BaseTool | Any] | None,
     name: str = "coder",
+    provider: str | None = None,
 ) -> dict[str, Any] | None:
     """Create a single coder subagent spec from environment variables.
 
+    Uses the same provider config as the main agent, but with CODER_SUBAGENT_MODEL for model name.
+
     Design goals:
-    - Default to "off" unless API key + base URL are available.
+    - Default to "off" unless API key + model are available.
     - Keep it provider-agnostic (qwen=openai-compatible, deepseek=anthropic-compatible).
-    - Easy to extend (add more builders for more subagents later).
+    - Uses same provider config as main agent (same base_url, api_key, etc.), different model name.
 
-    Env vars (recommended, coder-specific):
-    - CODER_MODEL_API_PROVIDER: qwen | deepseek
-    - CODER_MODEL_API_KEY
-    - CODER_MODEL_BASE_URL (optional depending on provider; recommended for qwen-compatible endpoints)
-    - CODER_MODEL_NAME
-    - CODER_MODEL_API_MAX_TOKENS (optional)
-    - CODER_MODEL_API_TEMPERATURE (optional)
-    - CODER_MODEL_API_TIMEOUT_S (optional)
+    Env vars:
+    - Uses provider-specific vars: [PROVIDER]_BASE_URL, [PROVIDER]_API_KEY (e.g., QWEN_BASE_URL, QWEN_API_KEY)
+    - Model name: CODER_SUBAGENT_MODEL (e.g., "qwen-coder-plus")
+    - Shared config: MODEL_API_MAX_TOKENS, MODEL_API_TEMPERATURE, MODEL_API_TIMEOUT_S
 
-    Defaults/fallbacks:
-    - If a CODER_* variable is missing, we fall back to the main MODEL_* variable (if set).
+    Args:
+        tools: Tools to pass to the subagent.
+        name: Name of the subagent.
+        provider: Provider to use (e.g., "qwen", "deepseek"). If None, auto-detects from main agent.
     """
-
-    provider = (
-        os.environ.get("CODER_MODEL_API_PROVIDER")
-        or os.environ.get("MODEL_API_PROVIDER")
-        or "qwen"
-    ).strip().lower()
-
-    api_key = os.environ.get("CODER_MODEL_API_KEY") or os.environ.get("MODEL_API_KEY")
-    base_url = os.environ.get("CODER_MODEL_BASE_URL") or os.environ.get("MODEL_BASE_URL")
-    model_name = os.environ.get("CODER_MODEL_NAME") or os.environ.get("MODEL_NAME")
+    model_config = parse_model_config(
+        provider=provider,
+        model_name_suffix="CODER_SUBAGENT_MODEL",
+        default_provider="qwen",
+    )
 
     # If not configured, don't enable the coder subagent.
-    if not api_key or not model_name:
+    if not model_config.api_key or not model_config.model:
         return None
 
-    temperature = _get_env_float("CODER_MODEL_API_TEMPERATURE", _get_env_float("MODEL_API_TEMPERATURE", 0.2))
-    timeout_s = _get_env_float("CODER_MODEL_API_TIMEOUT_S", _get_env_float("MODEL_API_TIMEOUT_S", 180.0))
-    max_tokens = _get_env_int("CODER_MODEL_API_MAX_TOKENS", _get_env_int("MODEL_API_MAX_TOKENS", 20000))
+    # Use config values, with special default temperature for coder (0.2)
+    temperature = model_config.temperature if model_config.temperature is not None else 0.2
+    timeout_s = model_config.timeout_s
+    max_tokens = model_config.max_tokens
+    provider = model_config.provider
 
     if provider == "deepseek":
         from langchain_anthropic import ChatAnthropic  # noqa: WPS433
 
         coder_model = ChatAnthropic(
-            model=model_name,
+            model=model_config.model,
             max_tokens=max_tokens,
             timeout=timeout_s,
             temperature=temperature,
-            base_url=base_url,
-            api_key=api_key,
+            base_url=model_config.base_url,
+            api_key=model_config.api_key,
         )
     else:
         # Default: qwen / OpenAI-compatible mode.
@@ -92,15 +72,15 @@ def build_coder_subagent_from_env(
         from langchain_openai import ChatOpenAI  # noqa: WPS433
 
         kwargs: dict[str, object] = {
-            "model": model_name,
+            "model": model_config.model,
             "max_tokens": max_tokens,
             "timeout": timeout_s,
             "temperature": temperature,
         }
-        if base_url:
-            kwargs["base_url"] = base_url
-        if api_key:
-            kwargs["api_key"] = api_key
+        if model_config.base_url:
+            kwargs["base_url"] = model_config.base_url
+        if model_config.api_key:
+            kwargs["api_key"] = model_config.api_key
 
         coder_model = ChatOpenAI(**kwargs)
 
@@ -131,6 +111,7 @@ def build_aihehuo_subagent_from_env(
     *,
     tools: Sequence[BaseTool | Any] | None,
     name: str = "aihehuo",
+    provider: str | None = None,
 ) -> dict[str, Any] | None:
     """Create an AI He Huo (爱合伙) search subagent spec from environment variables.
     
@@ -140,38 +121,34 @@ def build_aihehuo_subagent_from_env(
     - Domain experts
     - Related business ideas and projects
     
+    Uses the same provider config as the main agent, but with AIHEHUO_SUBAGENT_MODEL for model name.
+    
     Design goals:
     - Default to "off" unless API key + model are available.
     - Keep it provider-agnostic (qwen=openai-compatible, deepseek=anthropic-compatible).
     - Equipped with AihehuoMiddleware for search capabilities.
+    - Uses same provider config as main agent (same base_url, api_key, etc.), different model name.
     
-    Env vars (recommended, aihehuo-specific):
-    - AIHEHUO_MODEL_API_PROVIDER: qwen | deepseek
-    - AIHEHUO_MODEL_API_KEY
-    - AIHEHUO_MODEL_BASE_URL (optional depending on provider)
-    - AIHEHUO_MODEL_NAME
-    - AIHEHUO_MODEL_API_MAX_TOKENS (optional)
-    - AIHEHUO_MODEL_API_TEMPERATURE (optional)
-    - AIHEHUO_MODEL_API_TIMEOUT_S (optional)
+    Env vars:
+    - Uses provider-specific vars: [PROVIDER]_BASE_URL, [PROVIDER]_API_KEY (e.g., QWEN_BASE_URL, QWEN_API_KEY)
+    - Model name: AIHEHUO_SUBAGENT_MODEL (e.g., "qwen-aihehuo-plus")
+    - Shared config: MODEL_API_MAX_TOKENS, MODEL_API_TEMPERATURE, MODEL_API_TIMEOUT_S
     - AIHEHUO_API_KEY (required for search functionality)
     - AIHEHUO_API_BASE (optional, defaults to https://new-api.aihehuo.com)
     
-    Defaults/fallbacks:
-    - If an AIHEHUO_MODEL_* variable is missing, we fall back to the main MODEL_* variable (if set).
-    - AIHEHUO_API_KEY must be set for the subagent to be useful (search won't work without it).
+    Args:
+        tools: Tools to pass to the subagent.
+        name: Name of the subagent.
+        provider: Provider to use (e.g., "qwen", "deepseek"). If None, auto-detects from main agent.
     """
-    provider = (
-        os.environ.get("AIHEHUO_MODEL_API_PROVIDER")
-        or os.environ.get("MODEL_API_PROVIDER")
-        or "qwen"
-    ).strip().lower()
-    
-    api_key = os.environ.get("AIHEHUO_MODEL_API_KEY") or os.environ.get("MODEL_API_KEY")
-    base_url = os.environ.get("AIHEHUO_MODEL_BASE_URL") or os.environ.get("MODEL_BASE_URL")
-    model_name = os.environ.get("AIHEHUO_MODEL_NAME") or os.environ.get("MODEL_NAME")
+    model_config = parse_model_config(
+        provider=provider,
+        model_name_suffix="AIHEHUO_SUBAGENT_MODEL",
+        default_provider="qwen",
+    )
     
     # If not configured, don't enable the AI He Huo subagent.
-    if not api_key or not model_name:
+    if not model_config.api_key or not model_config.model:
         return None
     
     # Check for AI He Huo API key (required for search functionality)
@@ -181,20 +158,22 @@ def build_aihehuo_subagent_from_env(
         # The middleware will handle the error gracefully
         pass
     
-    temperature = _get_env_float("AIHEHUO_MODEL_API_TEMPERATURE", _get_env_float("MODEL_API_TEMPERATURE", 0.7))
-    timeout_s = _get_env_float("AIHEHUO_MODEL_API_TIMEOUT_S", _get_env_float("MODEL_API_TIMEOUT_S", 180.0))
-    max_tokens = _get_env_int("AIHEHUO_MODEL_API_MAX_TOKENS", _get_env_int("MODEL_API_MAX_TOKENS", 20000))
+    # Use config values, with special default temperature for aihehuo (0.7)
+    temperature = model_config.temperature if model_config.temperature is not None else 0.7
+    timeout_s = model_config.timeout_s
+    max_tokens = model_config.max_tokens
+    provider = model_config.provider
     
     if provider == "deepseek":
         from langchain_anthropic import ChatAnthropic  # noqa: WPS433
         
         aihehuo_model = ChatAnthropic(
-            model=model_name,
+            model=model_config.model,
             max_tokens=max_tokens,
             timeout=timeout_s,
             temperature=temperature,
-            base_url=base_url,
-            api_key=api_key,
+            base_url=model_config.base_url,
+            api_key=model_config.api_key,
         )
     else:
         # Default: qwen / OpenAI-compatible mode.
@@ -202,15 +181,15 @@ def build_aihehuo_subagent_from_env(
         from langchain_openai import ChatOpenAI  # noqa: WPS433
         
         kwargs: dict[str, object] = {
-            "model": model_name,
+            "model": model_config.model,
             "max_tokens": max_tokens,
             "timeout": timeout_s,
             "temperature": temperature,
         }
-        if base_url:
-            kwargs["base_url"] = base_url
-        if api_key:
-            kwargs["api_key"] = api_key
+        if model_config.base_url:
+            kwargs["base_url"] = model_config.base_url
+        if model_config.api_key:
+            kwargs["api_key"] = model_config.api_key
         
         aihehuo_model = ChatOpenAI(**kwargs)
     

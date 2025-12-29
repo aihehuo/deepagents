@@ -13,8 +13,12 @@ from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
 )
-from langchain.tools import ToolRuntime
+from typing import Annotated
+
+from langchain.tools import InjectedToolCallId, ToolRuntime
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, StructuredTool
+from langgraph.types import Command
 
 try:
     import requests
@@ -410,7 +414,8 @@ def _upload_asset_tool_generator(
         file_path: str,
         runtime: ToolRuntime[None, AssetUploadState],
         timeout: int = 60,
-    ) -> str:
+        tool_call_id: Annotated[str, InjectedToolCallId] = "",
+    ) -> str | Command:
         """Synchronous wrapper for upload_asset tool."""
         # Resolve the file path through the backend if available
         resolved_path = _resolve_file_path_for_upload(file_path, runtime, backend_root, docs_dir)
@@ -418,13 +423,57 @@ def _upload_asset_tool_generator(
             file_path=resolved_path,
             timeout=timeout,
         )
-        return json.dumps(result, ensure_ascii=False, indent=2)
+        
+        # Parse the result to check if upload was successful
+        result_dict = result if isinstance(result, dict) else json.loads(result) if isinstance(result, str) else {}
+        
+        # Check if upload was successful (has URL, no error)
+        if isinstance(result_dict, dict) and "url" in result_dict and "error" not in result_dict:
+            file_url = result_dict.get("url")
+            file_name = result_dict.get("filename", "")
+            
+            # Determine artifact type from file extension
+            artifact_type = "html"
+            if file_name:
+                file_ext = file_name.lower().split(".")[-1] if "." in file_name else ""
+                if file_ext in ("md", "markdown"):
+                    artifact_type = "md"
+                elif file_ext == "pdf":
+                    artifact_type = "pdf"
+                elif file_ext in ("txt", "text"):
+                    artifact_type = "txt"
+            
+            # Create artifact metadata
+            artifact = {
+                "url": file_url,
+                "artifact_type": artifact_type,
+                "created_at": datetime.utcnow().isoformat() + "Z",
+            }
+            if file_name:
+                artifact["name"] = file_name
+            
+            # Return Command with both the tool message and artifacts state update
+            return Command(
+                update={
+                    "artifacts": [artifact],  # Reducer will append to existing list
+                    "messages": [
+                        ToolMessage(
+                            content=json.dumps(result_dict, ensure_ascii=False, indent=2),
+                            tool_call_id=tool_call_id,
+                        )
+                    ],
+                }
+            )
+        
+        # If upload failed or no URL, just return the result as a string
+        return json.dumps(result_dict, ensure_ascii=False, indent=2)
 
     async def async_upload_asset(
         file_path: str,
         runtime: ToolRuntime[None, AssetUploadState],
         timeout: int = 60,
-    ) -> str:
+        tool_call_id: Annotated[str, InjectedToolCallId] = "",
+    ) -> str | Command:
         """Asynchronous wrapper for upload_asset tool."""
         # Resolve the file path through the backend if available
         resolved_path = _resolve_file_path_for_upload(file_path, runtime, backend_root, docs_dir)
@@ -432,7 +481,50 @@ def _upload_asset_tool_generator(
             file_path=resolved_path,
             timeout=timeout,
         )
-        return json.dumps(result, ensure_ascii=False, indent=2)
+        
+        # Parse the result to check if upload was successful
+        result_dict = result if isinstance(result, dict) else json.loads(result) if isinstance(result, str) else {}
+        
+        # Check if upload was successful (has URL, no error)
+        if isinstance(result_dict, dict) and "url" in result_dict and "error" not in result_dict:
+            file_url = result_dict.get("url")
+            file_name = result_dict.get("filename", "")
+            
+            # Determine artifact type from file extension
+            artifact_type = "html"
+            if file_name:
+                file_ext = file_name.lower().split(".")[-1] if "." in file_name else ""
+                if file_ext in ("md", "markdown"):
+                    artifact_type = "md"
+                elif file_ext == "pdf":
+                    artifact_type = "pdf"
+                elif file_ext in ("txt", "text"):
+                    artifact_type = "txt"
+            
+            # Create artifact metadata
+            artifact = {
+                "url": file_url,
+                "artifact_type": artifact_type,
+                "created_at": datetime.utcnow().isoformat() + "Z",
+            }
+            if file_name:
+                artifact["name"] = file_name
+            
+            # Return Command with both the tool message and artifacts state update
+            return Command(
+                update={
+                    "artifacts": [artifact],  # Reducer will append to existing list
+                    "messages": [
+                        ToolMessage(
+                            content=json.dumps(result_dict, ensure_ascii=False, indent=2),
+                            tool_call_id=tool_call_id,
+                        )
+                    ],
+                }
+            )
+        
+        # If upload failed or no URL, just return the result as a string
+        return json.dumps(result_dict, ensure_ascii=False, indent=2)
 
     return StructuredTool.from_function(
         name="upload_asset",

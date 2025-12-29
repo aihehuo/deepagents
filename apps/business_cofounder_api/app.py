@@ -33,8 +33,8 @@ def _thread_id(*, user_id: str, conversation_id: str) -> str:
 
 # Use uvicorn's configured logger so output reliably shows up in the terminal.
 _logger = logging.getLogger("uvicorn.error")
-if _logger.level == logging.NOTSET:
-    _logger.setLevel(logging.INFO)
+# if _logger.level == logging.NOTSET:
+_logger.setLevel(logging.INFO)
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -472,18 +472,25 @@ def _compose_concise_callback_message(
                     return f"Assistant: {preview}"
                 elif isinstance(content, list) and content:
                     # Extract text from content blocks
+                    # DeepSeek and some providers send content as list of dicts: [{'text': '...', 'type': 'text', 'index': 0}]
                     text_parts = []
-                    for item in content[:2]:
-                        if isinstance(item, str) and len(item.strip()) > 5:
-                            text_parts.append(item.strip()[:80])
+                    for item in content:
+                        if isinstance(item, str):
+                            text = item.strip()
+                            # For streaming chunks, accept shorter text (at least 1 char)
+                            if len(text) > 0:
+                                text_parts.append(text)
                         elif isinstance(item, dict):
                             text = item.get("text", "")
-                            if text and len(text.strip()) > 5:
-                                text_parts.append(text.strip()[:80])
+                            if isinstance(text, str):
+                                text = text.strip()
+                                # For streaming chunks, accept shorter text (at least 1 char)
+                                if len(text) > 0:
+                                    text_parts.append(text)
                     if text_parts:
-                        preview = " ".join(text_parts)
-                        if len(preview) > 150:
-                            preview = preview[:150] + "..."
+                        # Join all text parts and create preview
+                        combined_text = "".join(text_parts)  # Join without spaces for better handling of streaming text
+                        preview = combined_text[:150] + "..." if len(combined_text) > 150 else combined_text
                         return f"Assistant: {preview}"
                 
                 # If we have finish_reason but no tool calls and no content, skip it
@@ -625,6 +632,11 @@ def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
         
         # Serialize the message to ensure it's JSON-serializable
         serialized_message = _serialize_for_json(message)
+        
+        # Print callback payload for debugging/monitoring
+        callback_type = serialized_message.get("type", "unknown")
+        print(f"[_invoke_callback] Sending callback ({callback_type}): {serialized_message}")
+        
         _logger.debug(
             "_invoke_callback - sending to %s (payload_keys=%s, message_id=%s)",
             callback_url,
@@ -653,6 +665,27 @@ def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
             str(e),
             list(message.keys()) if isinstance(message, dict) else "N/A",
         )
+
+
+def _send_artifacts_callback(callback_url: str, session_id: str, artifacts: list[dict[str, Any]]) -> None:
+    """Send an artifacts callback to notify the front end about uploaded artifacts.
+    
+    Args:
+        callback_url: The callback URL to POST to
+        session_id: The session ID (thread_id)
+        artifacts: List of artifact metadata dictionaries
+    """
+    if not callback_url:
+        return
+    
+    callback_payload: dict[str, Any] = {
+        "session_id": session_id,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "type": "artifacts",
+        "artifacts": artifacts,
+    }
+    
+    _invoke_callback(callback_url, callback_payload)
 
 
 def _send_heartbeat(callback_url: str, session_id: str) -> None:
@@ -711,9 +744,10 @@ def _run_async_stream_with_callback(
 ) -> None:
     """Run the agent stream in a background thread and invoke callback for each update.
     
-    This function provides two callback mechanisms:
-    1. Automatic callbacks from stream chunks (processed here)
-    2. LLM-driven callbacks via the callback tool (handled by CallbackMiddleware)
+    This function provides automatic callbacks from stream chunks:
+    - Status updates from tool calls and processing
+    - Assistant messages
+    - Artifacts updates (when artifacts are added to state)
     
     This function runs in a separate thread and creates its own event loop.
     Note: Locking is handled at the endpoint level before starting this thread.
@@ -788,11 +822,9 @@ def _run_async_stream_with_callback(
                     HEARTBEAT_INTERVAL_SECONDS,
                 )
                 
-                # Set callback_url in initial state so middleware can access it for LLM-driven callbacks
-                # The CallbackMiddleware will set session_id from thread_id in before_agent
+                # Set initial state for the agent
                 initial_state = {
                     "messages": [HumanMessage(content=user_message)],
-                    "callback_url": callback_url,
                 }
                 _logger.debug("_run_async_stream_with_callback - initial_state keys: %s", list(initial_state.keys()))
                 
@@ -825,6 +857,45 @@ def _run_async_stream_with_callback(
                         type(data).__name__,
                     )
                     
+                    # Check for artifacts in state updates and send callback
+                    if stream_mode == "updates" and isinstance(data, dict):
+                        # The updates stream structure: {"node_name": {"artifacts": [...], ...}, ...}
+                        # Check each node's update_data for artifacts field
+                        artifacts_detected = False
+                        for node_name, update_data in data.items():
+                            # Skip special markers like "__interrupt__"
+                            if node_name.startswith("__") and node_name.endswith("__"):
+                                continue
+                            
+                            if isinstance(update_data, dict) and "artifacts" in update_data:
+                                artifacts_detected = True
+                                break
+                        
+                        # If artifacts were updated, get the current state to retrieve the full artifacts list
+                        if artifacts_detected:
+                            try:
+                                # Get current state from agent to retrieve the complete artifacts list
+                                # get_state returns a StateSnapshot with a .values attribute
+                                current_state_snapshot = await agent.aget_state(config)
+                                if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+                                    artifacts_list = current_state_snapshot.values.get("artifacts", [])
+                                else:
+                                    artifacts_list = []
+                                
+                                if artifacts_list and isinstance(artifacts_list, list) and len(artifacts_list) > 0:
+                                    _logger.debug(
+                                        "_run_async_stream_with_callback - artifacts updated, sending artifacts callback (count=%d)",
+                                        len(artifacts_list),
+                                    )
+                                    _send_artifacts_callback(callback_url, thread_id, artifacts_list)
+                            except Exception as e:  # noqa: BLE001
+                                # If we can't get state, log but don't fail
+                                _logger.debug(
+                                    "_run_async_stream_with_callback - could not get state for artifacts: %s: %s",
+                                    type(e).__name__,
+                                    str(e),
+                                )
+                    
                     # Extract message ID from chunk data (for message concatenation in frontend)
                     message_id: str | None = None
                     if stream_mode == "messages" and isinstance(data, tuple) and len(data) >= 1:
@@ -849,7 +920,47 @@ def _run_async_stream_with_callback(
                     
                     # Skip None messages (e.g., intermediate streaming chunks we want to filter out)
                     if concise_message is None:
-                        _logger.debug("_run_async_stream_with_callback - skipping None concise_message")
+                        # Log the raw chunk data structure for debugging (especially for DeepSeek compatibility)
+                        _logger.debug(
+                            "_run_async_stream_with_callback - skipping None concise_message (stream_mode=%s, namespace=%s, data_type=%s)",
+                            stream_mode,
+                            namespace,
+                            type(data).__name__,
+                        )
+                        if stream_mode == "messages" and isinstance(data, tuple) and len(data) >= 1:
+                            message = data[0]
+                            msg_type = getattr(message, "type", None) or (message.get("type") if isinstance(message, dict) else None)
+                            class_name = type(message).__name__
+                            
+                            # Get detailed attributes for debugging
+                            content = getattr(message, "content", None) or (message.get("content") if isinstance(message, dict) else None)
+                            tool_calls = getattr(message, "tool_calls", None) or (message.get("tool_calls") if isinstance(message, dict) else None)
+                            response_metadata = getattr(message, "response_metadata", None) or (message.get("response_metadata") if isinstance(message, dict) else None)
+                            finish_reason = None
+                            if isinstance(response_metadata, dict):
+                                finish_reason = response_metadata.get("finish_reason")
+                            invalid_tool_calls = getattr(message, "invalid_tool_calls", None) or (message.get("invalid_tool_calls") if isinstance(message, dict) else None)
+                            
+                            # Log comprehensive details
+                            _logger.debug(
+                                "_run_async_stream_with_callback - None concise_message details: msg_type=%s, class_name=%s, "
+                                "has_content=%s, content_type=%s, content_preview=%s, "
+                                "has_tool_calls=%s, tool_calls_type=%s, tool_calls_count=%s, "
+                                "has_invalid_tool_calls=%s, invalid_tool_calls_count=%s, "
+                                "finish_reason=%s, has_response_metadata=%s",
+                                msg_type,
+                                class_name,
+                                content is not None,
+                                type(content).__name__ if content is not None else None,
+                                str(content)[:100] if content is not None else None,
+                                tool_calls is not None,
+                                type(tool_calls).__name__ if tool_calls is not None else None,
+                                len(tool_calls) if isinstance(tool_calls, (list, tuple)) else None,
+                                invalid_tool_calls is not None,
+                                len(invalid_tool_calls) if isinstance(invalid_tool_calls, (list, tuple)) else None,
+                                finish_reason,
+                                response_metadata is not None,
+                            )
                         continue
                     
                     # Determine if this is an assistant message or a status update
@@ -924,6 +1035,93 @@ def _run_async_stream_with_callback(
                 _invoke_callback(callback_url, final_callback_payload)
             
             except Exception as e:  # noqa: BLE001
+                # Get and print message history for debugging
+                try:
+                    current_state_snapshot = await agent.aget_state(config)
+                    if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+                        messages = current_state_snapshot.values.get("messages", [])
+                        _logger.error(
+                            "Error in async stream with callback thread_id=%s - Message history (count=%d):",
+                            thread_id,
+                            len(messages),
+                        )
+                        
+                        # Check for duplicate consecutive human messages
+                        for i in range(len(messages) - 1):
+                            current_msg = messages[i]
+                            next_msg = messages[i + 1]
+                            current_type = getattr(current_msg, "type", None) or (current_msg.get("type") if isinstance(current_msg, dict) else "unknown")
+                            next_type = getattr(next_msg, "type", None) or (next_msg.get("type") if isinstance(next_msg, dict) else "unknown")
+                            
+                            if current_type == "human" and next_type == "human":
+                                current_content = getattr(current_msg, "content", None) or (current_msg.get("content") if isinstance(current_msg, dict) else "")
+                                next_content = getattr(next_msg, "content", None) or (next_msg.get("content") if isinstance(next_msg, dict) else "")
+                                if current_content == next_content:
+                                    _logger.error(
+                                        "    ⚠️  DUPLICATE CONSECUTIVE HUMAN MESSAGES detected at Message[%d] and Message[%d]: %s",
+                                        i,
+                                        i + 1,
+                                        str(current_content)[:100] if current_content else None,
+                                    )
+                        
+                        for i, msg in enumerate(messages):
+                            msg_type = getattr(msg, "type", None) or (msg.get("type") if isinstance(msg, dict) else "unknown")
+                            msg_content = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "")
+                            tool_calls = getattr(msg, "tool_calls", None) or (msg.get("tool_calls") if isinstance(msg, dict) else None)
+                            tool_call_id = getattr(msg, "tool_call_id", None) or (msg.get("tool_call_id") if isinstance(msg, dict) else None)
+                            
+                            # Extract tool_call_ids from tool_calls if it's an AI message
+                            tool_call_ids_in_msg = []
+                            if tool_calls:
+                                if isinstance(tool_calls, list):
+                                    for tc in tool_calls:
+                                        if isinstance(tc, dict):
+                                            tc_id = tc.get("id") or tc.get("tool_call_id")
+                                            if tc_id:
+                                                tool_call_ids_in_msg.append(tc_id)
+                                        elif hasattr(tc, "id"):
+                                            tool_call_ids_in_msg.append(tc.id)
+                            
+                            _logger.error(
+                                "  Message[%d]: type=%s, tool_call_id=%s, tool_call_ids_in_tool_calls=%s, content_preview=%s",
+                                i,
+                                msg_type,
+                                tool_call_id,
+                                tool_call_ids_in_msg if tool_call_ids_in_msg else None,
+                                str(msg_content)[:100] if msg_content else None,
+                            )
+                            
+                            # Check if this is an AI message with tool_calls - verify each has a response
+                            if msg_type in ("ai", "AIMessage") and tool_calls:
+                                # Find all subsequent tool messages to see which tool_call_ids are covered
+                                subsequent_tool_call_ids = set()
+                                for j in range(i + 1, len(messages)):
+                                    next_msg = messages[j]
+                                    next_msg_type = getattr(next_msg, "type", None) or (next_msg.get("type") if isinstance(next_msg, dict) else "unknown")
+                                    if next_msg_type == "tool":
+                                        next_tool_call_id = getattr(next_msg, "tool_call_id", None) or (next_msg.get("tool_call_id") if isinstance(next_msg, dict) else None)
+                                        if next_tool_call_id:
+                                            subsequent_tool_call_ids.add(next_tool_call_id)
+                                
+                                # Check which tool_call_ids from this message don't have responses
+                                missing_responses = []
+                                for tc_id in tool_call_ids_in_msg:
+                                    if tc_id not in subsequent_tool_call_ids:
+                                        missing_responses.append(tc_id)
+                                
+                                if missing_responses:
+                                    _logger.error(
+                                        "    ⚠️  Message[%d] has tool_calls with missing responses: %s",
+                                        i,
+                                        missing_responses,
+                                    )
+                except Exception as state_err:  # noqa: BLE001
+                    _logger.error(
+                        "Failed to get message history for debugging: %s: %s",
+                        type(state_err).__name__,
+                        str(state_err),
+                    )
+                
                 _logger.exception(
                     "Error in async stream with callback thread_id=%s: %s: %s",
                     thread_id,

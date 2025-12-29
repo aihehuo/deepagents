@@ -1,22 +1,11 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from deepagents.model_config import ModelConfig, parse_model_config
 from langchain_core.language_models import BaseChatModel
-
-
-@dataclass(frozen=True)
-class ModelConfig:
-    provider: str  # "deepseek" (anthropic-compatible) | "qwen" (openai-compatible)
-    model: str
-    base_url: str | None
-    api_key: str | None
-    max_tokens: int
-    timeout_s: float
-    temperature: float | None
 
 
 _DID_PRINT_MODEL_SELECTION = False
@@ -56,99 +45,88 @@ def _read_dotenv_exports(path: Path) -> dict[str, str]:
 def load_test_model_config(*, repo_root: Path) -> ModelConfig:
     """Load model config for tests.
 
-    Preferred (generic) env vars:
-    - MODEL_API_PROVIDER: "qwen" | "deepseek"
-    - MODEL_API_KEY
-    - MODEL_BASE_URL (optional)
-    - MODEL_NAME
-    - MODEL_API_MAX_TOKENS (optional)
+    Uses the centralized parse_model_config() and adds test-specific features:
+    - Fallback to .env.qwen or .env.deepseek files if env vars are missing
+    - Fallback to BC_API_TEMPERATURE for temperature
+    - pytest.skip() if API key is missing
+
+    Supports both new and old env var patterns:
+    - New: [PROVIDER]_BASE_URL, [PROVIDER]_API_KEY, [PROVIDER]_MAIN_AGENT_MODEL
+    - Old (for backward compatibility): MODEL_BASE_URL, MODEL_API_KEY, MODEL_NAME
     """
-    provider = (
-        os.environ.get("MODEL_API_PROVIDER")
-        or "deepseek"
-    ).strip().lower()
-
-    max_tokens = int(
-        os.environ.get("MODEL_API_MAX_TOKENS")
-        or "20000"
+    # Start with centralized config parsing (auto-detect provider)
+    config = parse_model_config(
+        provider=None,  # Auto-detect from supported_model_providers
+        model_name_suffix="MAIN_AGENT_MODEL",
+        default_provider="deepseek",
     )
-    timeout_s = float(
-        os.environ.get("MODEL_API_TIMEOUT_S")
-        or "180.0"
-    )
-    temperature_env = os.environ.get("MODEL_API_TEMPERATURE") or os.environ.get(
-        "BC_API_TEMPERATURE"
-    )
-    temperature = float(temperature_env) if temperature_env is not None else None
 
-    if provider == "qwen":
-        # Prefer generic env vars, then fall back to historical ones.
-        base_url = os.environ.get("MODEL_BASE_URL")
-        api_key = os.environ.get("MODEL_API_KEY")
-        model = (
-            os.environ.get("MODEL_NAME")
-            or "qwen-plus"
-        )
+    # Handle BC_API_TEMPERATURE fallback (test-specific)
+    if config.temperature is None:
+        temperature_env = os.environ.get("BC_API_TEMPERATURE")
+        if temperature_env:
+            try:
+                temperature = float(temperature_env)
+            except ValueError:
+                temperature = None
+        else:
+            temperature = None
+    else:
+        temperature = config.temperature
 
+    # Handle .env file fallback (test-specific developer convenience)
+    # Support both new provider-specific vars and old MODEL_* vars in .env files
+    base_url = config.base_url
+    api_key = config.api_key
+    model = config.model
+    provider_upper = config.provider.upper()
+
+    if config.provider == "qwen":
         # Optional local fallback file (developer convenience)
         if (not base_url or not api_key) and (repo_root / ".env.qwen").exists():
             try:
                 env = _read_dotenv_exports(repo_root / ".env.qwen")
-                base_url = base_url or env.get("MODEL_BASE_URL")
-                api_key = api_key or env.get("MODEL_API_KEY")
-                model = env.get("MODEL_NAME") or model
+                # Try new provider-specific vars first, then old MODEL_* vars
+                base_url = base_url or env.get("QWEN_BASE_URL") or env.get("MODEL_BASE_URL")
+                api_key = api_key or env.get("QWEN_API_KEY") or env.get("MODEL_API_KEY")
+                model = env.get("QWEN_MAIN_AGENT_MODEL") or env.get("MAIN_AGENT_MODEL") or env.get("MODEL_NAME") or model
             except PermissionError:
                 # Some sandboxes block dotfiles; fall through to skip below.
                 pass
 
         if not api_key:
             pytest.skip(
-                "Qwen requested but MODEL_API_KEY is not set. "
-                "Set MODEL_API_PROVIDER=qwen and MODEL_API_KEY (and optionally MODEL_BASE_URL, MODEL_NAME) to run."
+                "Qwen requested but QWEN_API_KEY (or MODEL_API_KEY) is not set. "
+                "Set supported_model_providers=qwen and QWEN_API_KEY (and optionally QWEN_BASE_URL, QWEN_MAIN_AGENT_MODEL) to run."
+            )
+    else:
+        # Default: DeepSeek/Anthropic-compatible
+        env_file = repo_root / ".env.deepseek"
+        if (not base_url or not api_key) and env_file.exists():
+            try:
+                env = _read_dotenv_exports(env_file)
+                # Try new provider-specific vars first, then old MODEL_* vars
+                base_url = base_url or env.get("DEEPSEEK_BASE_URL") or env.get("MODEL_BASE_URL")
+                api_key = api_key or env.get("DEEPSEEK_API_KEY") or env.get("MODEL_API_KEY")
+                model = env.get("DEEPSEEK_MAIN_AGENT_MODEL") or env.get("MAIN_AGENT_MODEL") or env.get("MODEL_NAME") or model
+            except PermissionError:
+                # Some sandboxes block dotfiles; fall through to skip below.
+                pass
+
+        if not api_key:
+            pytest.skip(
+                "DeepSeek (Anthropic-compatible) requested but DEEPSEEK_API_KEY (or MODEL_API_KEY) is not set. "
+                "Set supported_model_providers=deepseek and DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL, DEEPSEEK_MAIN_AGENT_MODEL) to run."
             )
 
-        return ModelConfig(
-            provider="qwen",
-            model=model,
-            base_url=base_url,
-            api_key=api_key,
-            max_tokens=max_tokens,
-            timeout_s=timeout_s,
-            temperature=temperature,
-        )
-
-    # Default: DeepSeek/Anthropic-compatible
-    base_url = os.environ.get("MODEL_BASE_URL")
-    api_key = os.environ.get("MODEL_API_KEY")
-    model = (
-        os.environ.get("MODEL_NAME")
-        or "deepseek-chat"
-    )
-
-    env_file = repo_root / ".env.deepseek"
-    if (not base_url or not api_key) and env_file.exists():
-        try:
-            env = _read_dotenv_exports(env_file)
-            base_url = base_url or env.get("MODEL_BASE_URL")
-            api_key = api_key or env.get("MODEL_API_KEY") 
-            model = env.get("MODEL_NAME")
-        except PermissionError:
-            # Some sandboxes block dotfiles; fall through to skip below.
-            pass
-
-    if not api_key:
-        pytest.skip(
-            "DeepSeek (Anthropic-compatible) requested but MODEL_API_KEY is not set. "
-            "Set MODEL_API_PROVIDER=deepseek and MODEL_API_KEY (and optionally MODEL_BASE_URL, MODEL_NAME) to run."
-        )
-
+    # Return updated config with test-specific overrides
     return ModelConfig(
-        provider="deepseek",
+        provider=config.provider,
         model=model,
         base_url=base_url,
         api_key=api_key,
-        max_tokens=max_tokens,
-        timeout_s=timeout_s,
+        max_tokens=config.max_tokens,
+        timeout_s=config.timeout_s,
         temperature=temperature,
     )
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -31,6 +32,9 @@ from langchain_anthropic import ChatAnthropic
 from langgraph.runtime import Runtime
 
 from apps.business_cofounder_api.checkpointer import DiskBackedInMemorySaver
+
+# Use uvicorn's configured logger so output reliably shows up in the terminal.
+_logger = logging.getLogger("uvicorn.error")
 
 
 def _copy_example_skills_if_missing(*, dest_skills_dir: Path) -> None:
@@ -80,8 +84,12 @@ def _mask_url(url: str | None) -> str:
     return url
 
 
-def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
+def create_business_cofounder_agent(*, agent_id: str, provider: str = "qwen") -> tuple[object, Path]:
     """Create the Business Co-Founder deep agent (shared across users; state isolated by thread_id).
+
+    Args:
+        agent_id: Identifier for the agent
+        provider: Model provider to use ("qwen" or "deepseek", default: "qwen")
 
     Returns:
         (agent_graph, checkpoints_path)
@@ -91,59 +99,56 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
     # - Provider-specific: [PROVIDER]_BASE_URL, [PROVIDER]_API_KEY (e.g., QWEN_BASE_URL, DEEPSEEK_API_KEY)
     # - Model name: [PROVIDER]_MAIN_AGENT_MODEL (e.g., QWEN_MAIN_AGENT_MODEL="qwen-plus")
     # - Shared config: MODEL_API_MAX_TOKENS, MODEL_API_TEMPERATURE, MODEL_API_TIMEOUT_S
+    
     model_config = parse_model_config(
-        provider='qwen',  # Auto-detect from supported_model_providers
+        provider=provider,
         model_name_suffix="MAIN_AGENT_MODEL",
-        default_provider="deepseek",
+        default_provider=provider,
     )
 
-    # Print model configuration during initialization
-    print("[ModelConfig] Model provider configuration:")
-    print(f"  Provider: {model_config.provider}")
-    print(f"  Model: {model_config.model}")
-    print(f"  Base URL: {_mask_url(model_config.base_url)}")
-    print(f"  API Key: {_mask_sensitive_value(model_config.api_key)}")
-    print(f"  Max Tokens: {model_config.max_tokens}")
-    print(f"  Timeout: {model_config.timeout_s}s")
+    # Log model configuration during initialization
+    _logger.info("[ModelConfig] Model provider configuration:")
+    _logger.info("  Provider: %s", model_config.provider)
+    _logger.info("  Model: %s", model_config.model)
+    _logger.info("  Base URL: %s", _mask_url(model_config.base_url))
+    _logger.info("  API Key: %s", _mask_sensitive_value(model_config.api_key))
+    _logger.info("  Max Tokens: %s", model_config.max_tokens)
+    _logger.info("  Timeout: %ss", model_config.timeout_s)
     if model_config.temperature is not None:
-        print(f"  Temperature: {model_config.temperature}")
-    print()
+        _logger.info("  Temperature: %s", model_config.temperature)
 
+    # Create model based on provider
     if model_config.provider == "qwen":
-        # Qwen (DashScope) OpenAI-compatible mode
         from langchain_openai import ChatOpenAI  # lazy import (avoid import-time side effects in tests)
-
-        openai_kwargs: dict[str, object] = {
+        
+        model_kwargs: dict[str, object] = {
             "model": model_config.model,
             "max_tokens": model_config.max_tokens,
             "timeout": model_config.timeout_s,
         }
         if model_config.temperature is not None:
-            openai_kwargs["temperature"] = model_config.temperature
+            model_kwargs["temperature"] = model_config.temperature
         if model_config.base_url:
-            openai_kwargs["base_url"] = model_config.base_url
+            model_kwargs["base_url"] = model_config.base_url
         if model_config.api_key:
-            openai_kwargs["api_key"] = model_config.api_key
+            model_kwargs["api_key"] = model_config.api_key
         
-        # Note: stream_options can only be set when stream: true, so we don't set it here.
-        # Usage metadata is typically included by default in both streaming and non-streaming responses.
-
-        model = ChatOpenAI(**openai_kwargs)
+        model = ChatOpenAI(**model_kwargs)
     else:
         # DeepSeek / Anthropic-compatible proxy
-        anthropic_kwargs: dict[str, object] = {
+        model_kwargs: dict[str, object] = {
             "model": model_config.model,
             "max_tokens": model_config.max_tokens,
             "timeout": model_config.timeout_s,
         }
         if model_config.temperature is not None:
-            anthropic_kwargs["temperature"] = model_config.temperature
+            model_kwargs["temperature"] = model_config.temperature
         if model_config.base_url:
-            anthropic_kwargs["base_url"] = model_config.base_url
+            model_kwargs["base_url"] = model_config.base_url
         if model_config.api_key:
-            anthropic_kwargs["api_key"] = model_config.api_key
-
-        model = ChatAnthropic(**anthropic_kwargs)
+            model_kwargs["api_key"] = model_config.api_key
+        
+        model = ChatAnthropic(**model_kwargs)
 
     base_dir = Path.home() / ".deepagents" / "business_cofounder_api"
     skills_dir = base_dir / "skills"
@@ -225,10 +230,10 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
             self.base_middleware = base_middleware
             self.skills_dir = Path(skills_dir).expanduser().resolve()
             
-            # Discover and print skills during initialization
+            # Discover and log skills during initialization
             from deepagents_cli.skills.load import list_skills
-            print(f"[VirtualPathSkillsMiddleware] Initializing...")
-            print(f"  Skills directory: {self.skills_dir}")
+            _logger.info("[VirtualPathSkillsMiddleware] Initializing...")
+            _logger.info("  Skills directory: %s", self.skills_dir)
             
             # Load skills to discover what's available
             skills = list_skills(
@@ -237,15 +242,15 @@ def create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
             )
             
             if skills:
-                print(f"[VirtualPathSkillsMiddleware] Discovered {len(skills)} skill(s):")
+                _logger.info("[VirtualPathSkillsMiddleware] Discovered %d skill(s):", len(skills))
                 for skill in skills:
                     # Convert to virtual path for display
                     virtual_path = self._convert_skill_path_to_virtual(skill["path"])
-                    print(f"  - {skill['name']}: {skill['description']}")
-                    print(f"    → Virtual path: {virtual_path}")
+                    _logger.info("  - %s: %s", skill['name'], skill['description'])
+                    _logger.info("    → Virtual path: %s", virtual_path)
             else:
-                print(f"[VirtualPathSkillsMiddleware] No skills discovered in {self.skills_dir}")
-            print(f"[VirtualPathSkillsMiddleware] Initialization complete.")
+                _logger.info("[VirtualPathSkillsMiddleware] No skills discovered in %s", self.skills_dir)
+            _logger.info("[VirtualPathSkillsMiddleware] Initialization complete.")
         
         def _convert_skill_path_to_virtual(self, absolute_path: str) -> str:
             """Convert absolute skill path to virtual path (/skills/{skill_name}/SKILL.md)."""

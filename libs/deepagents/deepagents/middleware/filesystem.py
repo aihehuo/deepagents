@@ -873,7 +873,8 @@ class FilesystemMiddleware(AgentMiddleware):
         self.tools = _get_filesystem_tools(self.backend, custom_tool_descriptions)
 
         # Test write/read functionality during initialization
-        self._test_filesystem_access()
+        # Commented out to avoid test execution during initialization
+        # self._test_filesystem_access()
 
     def _get_backend(self, runtime: ToolRuntime) -> BackendProtocol:
         """Get the resolved backend instance from backend or factory.

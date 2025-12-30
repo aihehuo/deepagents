@@ -1036,6 +1036,9 @@ def _run_async_stream_with_callback(
                     _invoke_callback(callback_url, final_callback_payload)
                     
                 except Exception as e:  # noqa: BLE001
+                    # Save the primary exception immediately so it's accessible even if error handling fails
+                    primary_error = e
+                    
                     _logger.warning(
                         "[ModelFallback] Primary agent (qwen) failed during async stream: %s: %s",
                         type(e).__name__,
@@ -1217,8 +1220,14 @@ def _run_async_stream_with_callback(
                                 str(fallback_error),
                             )
                             # Fall through to original error handling
+                            # Use fallback_error as the original error since both agents failed
+                            original_error = fallback_error
                 
                 # Original error handling (if no fallback agent or fallback also failed)
+                # Use the primary error if original_error wasn't set (i.e., no fallback was attempted)
+                if 'original_error' not in locals():
+                    original_error = primary_error
+                
                 # Get and print message history for debugging
                 try:
                     current_state_snapshot = await agent.aget_state(config)
@@ -1309,8 +1318,8 @@ def _run_async_stream_with_callback(
                 _logger.exception(
                     "Error in async stream with callback thread_id=%s: %s: %s",
                     thread_id,
-                    type(e).__name__,
-                    str(e),
+                    type(original_error).__name__,
+                    str(original_error),
                 )
                 
                 # Stop heartbeat on error
@@ -1326,7 +1335,7 @@ def _run_async_stream_with_callback(
                         heartbeat_task.cancel()
                 
                 # Send error to callback as a status update (errors are not assistant messages)
-                error_message = f"Error: {type(e).__name__}: {str(e)}"
+                error_message = f"Error: {type(original_error).__name__}: {str(original_error)}"
                 if _env_flag("BC_API_RETURN_TRACEBACK", default=False):
                     error_message += f"\n{traceback.format_exc()}"
                 _invoke_callback(
@@ -1340,13 +1349,34 @@ def _run_async_stream_with_callback(
                 )
             except Exception as outer_e:  # noqa: BLE001
                 # Handle any unexpected errors that occur outside the inner try/except blocks
-                # (e.g., during initialization, heartbeat setup, etc.)
+                # (e.g., during initialization, heartbeat setup, or in error handling code itself)
+                # This can happen if an exception occurs in the error handling code (lines 1221-1340)
+                # where 'e' might not be in scope
                 _logger.exception(
                     "Unexpected error in _stream_and_callback (thread_id=%s): %s: %s",
                     thread_id,
                     type(outer_e).__name__,
                     str(outer_e),
                 )
+                
+                # Send error to callback if we have callback_url
+                if callback_url:
+                    try:
+                        error_message = f"Error: {type(outer_e).__name__}: {str(outer_e)}"
+                        if _env_flag("BC_API_RETURN_TRACEBACK", default=False):
+                            error_message += f"\n{traceback.format_exc()}"
+                        _invoke_callback(
+                            callback_url,
+                            {
+                                "session_id": thread_id,
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                                "type": "status",
+                                "status": error_message,
+                            },
+                        )
+                    except Exception:  # noqa: BLE001
+                        # If callback fails, just log it
+                        _logger.error("Failed to send error callback for outer exception")
                 # Ensure cleanup
                 if heartbeat_task:
                     heartbeat_stop_event.set()

@@ -510,6 +510,40 @@ def create_business_cofounder_agent(
         
         model = ChatAnthropic(**model_kwargs)
 
+    # Set model profile with max_input_tokens to enable fraction-based summarization trigger
+    # This allows SummarizationMiddleware to use fraction-based triggers (85% of max) instead of
+    # the hardcoded 170000 token fallback.
+    # Use provider-specific env vars: DEEPSEEK_MAX_TOKENS or QWEN_MAX_TOKENS
+    # Note: This should be the actual model context limit (e.g., 131072), not the output max_tokens
+    provider_upper = model_config.provider.upper()
+    max_input_tokens_env = os.environ.get(f"{provider_upper}_MAX_TOKENS")
+    if max_input_tokens_env:
+        max_input_tokens = int(max_input_tokens_env)
+    else:
+        # Fallback to 131072 if not set (common limit for many models like Qwen/DeepSeek)
+        # This is the context window size, not the output max_tokens
+        # Note: The error message shows the actual limit is 131072, so use that if env var not set
+        max_input_tokens = 131072
+        _logger.warning(
+            "  Max Input Tokens not set via %s_MAX_TOKENS, defaulting to %d (set this to your model's actual context limit)",
+            provider_upper,
+            max_input_tokens,
+        )
+    
+    if not hasattr(model, "profile") or model.profile is None:
+        model.profile = {}
+    if not isinstance(model.profile, dict):
+        model.profile = {}
+    model.profile["max_input_tokens"] = max_input_tokens
+    trigger_threshold = int(max_input_tokens * 0.85)
+    _logger.info("  Max Input Tokens (for summarization): %s (trigger at 85%% = %d tokens)", max_input_tokens, trigger_threshold)
+    
+    # Verify the profile was set correctly (for debugging)
+    if model.profile.get("max_input_tokens") != max_input_tokens:
+        _logger.error("  ERROR: Failed to set max_input_tokens in model profile!")
+    else:
+        _logger.info("  ✓ Model profile max_input_tokens verified: %s", model.profile.get("max_input_tokens"))
+
     base_dir = Path.home() / ".deepagents" / "business_cofounder_api"
     skills_dir = base_dir / "skills"
     checkpoints_path = base_dir / "checkpoints.pkl"

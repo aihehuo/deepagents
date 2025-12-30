@@ -835,206 +835,390 @@ def _run_async_stream_with_callback(
                 _logger.debug("_run_async_stream_with_callback - config: %s", config)
                 
                 chunk_count = 0
-                async for chunk in agent.astream(
-                    initial_state,
-                    config=config,
-                    stream_mode=["messages", "updates"],
-                    subgraphs=True,
-                    durability="exit",
-                ):
-                    chunk_count += 1
-                    # Chunks are tuples: (namespace, stream_mode, data)
-                    if not isinstance(chunk, tuple) or len(chunk) != 3:
-                        _logger.debug("_run_async_stream_with_callback - skipping invalid chunk (not tuple or wrong length): %s", type(chunk))
-                        continue
-                    
-                    namespace, stream_mode, data = chunk
-                    _logger.debug(
-                        "_run_async_stream_with_callback - chunk #%d (namespace=%s, stream_mode=%s, data_type=%s)",
-                        chunk_count,
-                        namespace,
-                        stream_mode,
-                        type(data).__name__,
-                    )
-                    
-                    # Check for artifacts in state updates and send callback
-                    if stream_mode == "updates" and isinstance(data, dict):
-                        # The updates stream structure: {"node_name": {"artifacts": [...], ...}, ...}
-                        # Check each node's update_data for artifacts field
-                        artifacts_detected = False
-                        for node_name, update_data in data.items():
-                            # Skip special markers like "__interrupt__"
-                            if node_name.startswith("__") and node_name.endswith("__"):
-                                continue
-                            
-                            if isinstance(update_data, dict) and "artifacts" in update_data:
-                                artifacts_detected = True
-                                break
+                try:
+                    async for chunk in agent.astream(
+                        initial_state,
+                        config=config,
+                        stream_mode=["messages", "updates"],
+                        subgraphs=True,
+                        durability="exit",
+                    ):
+                        chunk_count += 1
+                        # Chunks are tuples: (namespace, stream_mode, data)
+                        if not isinstance(chunk, tuple) or len(chunk) != 3:
+                            _logger.debug("_run_async_stream_with_callback - skipping invalid chunk (not tuple or wrong length): %s", type(chunk))
+                            continue
                         
-                        # If artifacts were updated, get the current state to retrieve the full artifacts list
-                        if artifacts_detected:
-                            try:
-                                # Get current state from agent to retrieve the complete artifacts list
-                                # get_state returns a StateSnapshot with a .values attribute
-                                current_state_snapshot = await agent.aget_state(config)
-                                if current_state_snapshot and hasattr(current_state_snapshot, "values"):
-                                    artifacts_list = current_state_snapshot.values.get("artifacts", [])
-                                else:
-                                    artifacts_list = []
-                                
-                                if artifacts_list and isinstance(artifacts_list, list) and len(artifacts_list) > 0:
-                                    _logger.debug(
-                                        "_run_async_stream_with_callback - artifacts updated, sending artifacts callback (count=%d)",
-                                        len(artifacts_list),
-                                    )
-                                    _send_artifacts_callback(callback_url, thread_id, artifacts_list)
-                            except Exception as e:  # noqa: BLE001
-                                # If we can't get state, log but don't fail
-                                _logger.debug(
-                                    "_run_async_stream_with_callback - could not get state for artifacts: %s: %s",
-                                    type(e).__name__,
-                                    str(e),
-                                )
-                    
-                    # Extract message ID from chunk data (for message concatenation in frontend)
-                    message_id: str | None = None
-                    if stream_mode == "messages" and isinstance(data, tuple) and len(data) >= 1:
-                        message = data[0]
-                        # Try to get the message ID from various possible attributes
-                        if hasattr(message, "id"):
-                            message_id = getattr(message, "id", None)
-                            _logger.debug("_run_async_stream_with_callback - extracted message_id from attribute: %s", message_id)
-                        elif isinstance(message, dict):
-                            message_id = message.get("id")
-                            _logger.debug("_run_async_stream_with_callback - extracted message_id from dict: %s", message_id)
-                    
-                    # Compose a concise message from the chunk data
-                    concise_message = _compose_concise_callback_message(
-                        namespace, stream_mode, data, docs_dir, backend_root_dir
-                    )
-                    _logger.debug(
-                        "_run_async_stream_with_callback - concise_message: %s (message_id=%s)",
-                        concise_message[:100] if concise_message else None,
-                        message_id,
-                    )
-                    
-                    # Skip None messages (e.g., intermediate streaming chunks we want to filter out)
-                    if concise_message is None:
-                        # Log the raw chunk data structure for debugging (especially for DeepSeek compatibility)
+                        namespace, stream_mode, data = chunk
                         _logger.debug(
-                            "_run_async_stream_with_callback - skipping None concise_message (stream_mode=%s, namespace=%s, data_type=%s)",
-                            stream_mode,
+                            "_run_async_stream_with_callback - chunk #%d (namespace=%s, stream_mode=%s, data_type=%s)",
+                            chunk_count,
                             namespace,
+                            stream_mode,
                             type(data).__name__,
                         )
+                        
+                        # Check for artifacts in state updates and send callback
+                        if stream_mode == "updates" and isinstance(data, dict):
+                            # The updates stream structure: {"node_name": {"artifacts": [...], ...}, ...}
+                            # Check each node's update_data for artifacts field
+                            artifacts_detected = False
+                            for node_name, update_data in data.items():
+                                # Skip special markers like "__interrupt__"
+                                if node_name.startswith("__") and node_name.endswith("__"):
+                                    continue
+                                
+                                if isinstance(update_data, dict) and "artifacts" in update_data:
+                                    artifacts_detected = True
+                                    break
+                            
+                            # If artifacts were updated, get the current state to retrieve the full artifacts list
+                            if artifacts_detected:
+                                try:
+                                    # Get current state from agent to retrieve the complete artifacts list
+                                    # get_state returns a StateSnapshot with a .values attribute
+                                    current_state_snapshot = await agent.aget_state(config)
+                                    if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+                                        artifacts_list = current_state_snapshot.values.get("artifacts", [])
+                                    else:
+                                        artifacts_list = []
+                                    
+                                    if artifacts_list and isinstance(artifacts_list, list) and len(artifacts_list) > 0:
+                                        _logger.debug(
+                                            "_run_async_stream_with_callback - artifacts updated, sending artifacts callback (count=%d)",
+                                            len(artifacts_list),
+                                        )
+                                        _send_artifacts_callback(callback_url, thread_id, artifacts_list)
+                                except Exception as e:  # noqa: BLE001
+                                    # If we can't get state, log but don't fail
+                                    _logger.debug(
+                                        "_run_async_stream_with_callback - could not get state for artifacts: %s: %s",
+                                        type(e).__name__,
+                                        str(e),
+                                    )
+                        
+                        # Extract message ID from chunk data (for message concatenation in frontend)
+                        message_id: str | None = None
                         if stream_mode == "messages" and isinstance(data, tuple) and len(data) >= 1:
                             message = data[0]
-                            msg_type = getattr(message, "type", None) or (message.get("type") if isinstance(message, dict) else None)
-                            class_name = type(message).__name__
-                            
-                            # Get detailed attributes for debugging
-                            content = getattr(message, "content", None) or (message.get("content") if isinstance(message, dict) else None)
-                            tool_calls = getattr(message, "tool_calls", None) or (message.get("tool_calls") if isinstance(message, dict) else None)
-                            response_metadata = getattr(message, "response_metadata", None) or (message.get("response_metadata") if isinstance(message, dict) else None)
-                            finish_reason = None
-                            if isinstance(response_metadata, dict):
-                                finish_reason = response_metadata.get("finish_reason")
-                            invalid_tool_calls = getattr(message, "invalid_tool_calls", None) or (message.get("invalid_tool_calls") if isinstance(message, dict) else None)
-                            
-                            # Log comprehensive details
+                            # Try to get the message ID from various possible attributes
+                            if hasattr(message, "id"):
+                                message_id = getattr(message, "id", None)
+                                _logger.debug("_run_async_stream_with_callback - extracted message_id from attribute: %s", message_id)
+                            elif isinstance(message, dict):
+                                message_id = message.get("id")
+                                _logger.debug("_run_async_stream_with_callback - extracted message_id from dict: %s", message_id)
+                        
+                        # Compose a concise message from the chunk data
+                        concise_message = _compose_concise_callback_message(
+                            namespace, stream_mode, data, docs_dir, backend_root_dir
+                        )
+                        _logger.debug(
+                            "_run_async_stream_with_callback - concise_message: %s (message_id=%s)",
+                            concise_message[:100] if concise_message else None,
+                            message_id,
+                        )
+                        
+                        # Skip None messages (e.g., intermediate streaming chunks we want to filter out)
+                        if concise_message is None:
+                            # Log the raw chunk data structure for debugging (especially for DeepSeek compatibility)
                             _logger.debug(
-                                "_run_async_stream_with_callback - None concise_message details: msg_type=%s, class_name=%s, "
-                                "has_content=%s, content_type=%s, content_preview=%s, "
-                                "has_tool_calls=%s, tool_calls_type=%s, tool_calls_count=%s, "
-                                "has_invalid_tool_calls=%s, invalid_tool_calls_count=%s, "
-                                "finish_reason=%s, has_response_metadata=%s",
-                                msg_type,
-                                class_name,
-                                content is not None,
-                                type(content).__name__ if content is not None else None,
-                                str(content)[:100] if content is not None else None,
-                                tool_calls is not None,
-                                type(tool_calls).__name__ if tool_calls is not None else None,
-                                len(tool_calls) if isinstance(tool_calls, (list, tuple)) else None,
-                                invalid_tool_calls is not None,
-                                len(invalid_tool_calls) if isinstance(invalid_tool_calls, (list, tuple)) else None,
-                                finish_reason,
-                                response_metadata is not None,
+                                "_run_async_stream_with_callback - skipping None concise_message (stream_mode=%s, namespace=%s, data_type=%s)",
+                                stream_mode,
+                                namespace,
+                                type(data).__name__,
                             )
-                        continue
+                            if stream_mode == "messages" and isinstance(data, tuple) and len(data) >= 1:
+                                message = data[0]
+                                msg_type = getattr(message, "type", None) or (message.get("type") if isinstance(message, dict) else None)
+                                class_name = type(message).__name__
+                                
+                                # Get detailed attributes for debugging
+                                content = getattr(message, "content", None) or (message.get("content") if isinstance(message, dict) else None)
+                                tool_calls = getattr(message, "tool_calls", None) or (message.get("tool_calls") if isinstance(message, dict) else None)
+                                response_metadata = getattr(message, "response_metadata", None) or (message.get("response_metadata") if isinstance(message, dict) else None)
+                                finish_reason = None
+                                if isinstance(response_metadata, dict):
+                                    finish_reason = response_metadata.get("finish_reason")
+                                invalid_tool_calls = getattr(message, "invalid_tool_calls", None) or (message.get("invalid_tool_calls") if isinstance(message, dict) else None)
+                                
+                                # Log comprehensive details
+                                _logger.debug(
+                                    "_run_async_stream_with_callback - None concise_message details: msg_type=%s, class_name=%s, "
+                                    "has_content=%s, content_type=%s, content_preview=%s, "
+                                    "has_tool_calls=%s, tool_calls_type=%s, tool_calls_count=%s, "
+                                    "has_invalid_tool_calls=%s, invalid_tool_calls_count=%s, "
+                                    "finish_reason=%s, has_response_metadata=%s",
+                                    msg_type,
+                                    class_name,
+                                    content is not None,
+                                    type(content).__name__ if content is not None else None,
+                                    str(content)[:100] if content is not None else None,
+                                    tool_calls is not None,
+                                    type(tool_calls).__name__ if tool_calls is not None else None,
+                                    len(tool_calls) if isinstance(tool_calls, (list, tuple)) else None,
+                                    invalid_tool_calls is not None,
+                                    len(invalid_tool_calls) if isinstance(invalid_tool_calls, (list, tuple)) else None,
+                                    finish_reason,
+                                    response_metadata is not None,
+                                )
+                            continue
+                        
+                        # Determine if this is an assistant message or a status update
+                        callback_payload: dict[str, Any] = {
+                            "session_id": thread_id,
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                        }
+                        
+                        # Add message_id if available (for frontend message concatenation)
+                        if message_id:
+                            callback_payload["message_id"] = message_id
+                        
+                        if concise_message.lower().startswith("assistant:"):
+                            # Extract the actual message content after "Assistant:"
+                            message_content = concise_message[len("Assistant:"):].strip()
+                            if message_content:
+                                callback_payload["type"] = "message"
+                                callback_payload["message_id"] = message_id
+                                callback_payload["message"] = message_content
+                        else:
+                            # This is a status update, not an assistant message
+                            callback_payload["type"] = "status"
+                            callback_payload["status"] = concise_message
+                        
+                        # Only invoke callback if we have a message or status
+                        if "message" in callback_payload or "status" in callback_payload:
+                            _logger.debug(
+                                "_run_async_stream_with_callback - invoking callback (payload_keys=%s, has_message_id=%s)",
+                                list(callback_payload.keys()),
+                                "message_id" in callback_payload,
+                            )
+                            _invoke_callback(callback_url, callback_payload)
+                        else:
+                            _logger.debug("_run_async_stream_with_callback - skipping callback (no message or status)")
                     
-                    # Determine if this is an assistant message or a status update
-                    callback_payload: dict[str, Any] = {
+                    _logger.info("_run_async_stream_with_callback - stream completed (thread_id=%s, total_chunks=%d)", thread_id, chunk_count)
+                    
+                    # Stop heartbeat before sending final callback
+                    if heartbeat_task:
+                        _logger.debug(
+                            "_run_async_stream_with_callback - stopping heartbeat (thread_id=%s)",
+                            thread_id,
+                        )
+                        heartbeat_stop_event.set()
+                        try:
+                            await asyncio.wait_for(heartbeat_task, timeout=2.0)
+                        except asyncio.TimeoutError:
+                            _logger.warning(
+                                "_run_async_stream_with_callback - heartbeat task did not stop within timeout (thread_id=%s)",
+                                thread_id,
+                            )
+                            heartbeat_task.cancel()
+                        except Exception as e:  # noqa: BLE001
+                            _logger.warning(
+                                "_run_async_stream_with_callback - error stopping heartbeat (thread_id=%s): %s",
+                                thread_id,
+                                str(e),
+                            )
+                    
+                    # Send final callback to inform the Rails application that the stream is completed
+                    # and it can accept new input from the user
+                    final_callback_payload: dict[str, Any] = {
                         "session_id": thread_id,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "type": "status",
+                        "status": "stream_completed",
                     }
-                    
-                    # Add message_id if available (for frontend message concatenation)
-                    if message_id:
-                        callback_payload["message_id"] = message_id
-                    
-                    if concise_message.lower().startswith("assistant:"):
-                        # Extract the actual message content after "Assistant:"
-                        message_content = concise_message[len("Assistant:"):].strip()
-                        if message_content:
-                            callback_payload["type"] = "message"
-                            callback_payload["message_id"] = message_id
-                            callback_payload["message"] = message_content
-                    else:
-                        # This is a status update, not an assistant message
-                        callback_payload["type"] = "status"
-                        callback_payload["status"] = concise_message
-                    
-                    # Only invoke callback if we have a message or status
-                    if "message" in callback_payload or "status" in callback_payload:
-                        _logger.debug(
-                            "_run_async_stream_with_callback - invoking callback (payload_keys=%s, has_message_id=%s)",
-                            list(callback_payload.keys()),
-                            "message_id" in callback_payload,
-                        )
-                        _invoke_callback(callback_url, callback_payload)
-                    else:
-                        _logger.debug("_run_async_stream_with_callback - skipping callback (no message or status)")
-                
-                _logger.info("_run_async_stream_with_callback - stream completed (thread_id=%s, total_chunks=%d)", thread_id, chunk_count)
-                
-                # Stop heartbeat before sending final callback
-                if heartbeat_task:
-                    _logger.debug(
-                        "_run_async_stream_with_callback - stopping heartbeat (thread_id=%s)",
+                    _logger.info(
+                        "_run_async_stream_with_callback - sending final completion callback (thread_id=%s)",
                         thread_id,
                     )
-                    heartbeat_stop_event.set()
-                    try:
-                        await asyncio.wait_for(heartbeat_task, timeout=2.0)
-                    except asyncio.TimeoutError:
-                        _logger.warning(
-                            "_run_async_stream_with_callback - heartbeat task did not stop within timeout (thread_id=%s)",
-                            thread_id,
-                        )
-                        heartbeat_task.cancel()
-                    except Exception as e:  # noqa: BLE001
-                        _logger.warning(
-                            "_run_async_stream_with_callback - error stopping heartbeat (thread_id=%s): %s",
-                            thread_id,
-                            str(e),
-                        )
+                    _invoke_callback(callback_url, final_callback_payload)
+                    
+                except Exception as e:  # noqa: BLE001
+                    _logger.warning(
+                        "[ModelFallback] Primary agent (qwen) failed during async stream: %s: %s",
+                        type(e).__name__,
+                        str(e),
+                    )
+                    _logger.info("[ModelFallback] Falling back to deepseek...")
+                    
+                    # Try fallback agent if available
+                    fallback_agent = None
+                    if _state is not None:
+                        fallback_agent = _state.fallback_agent
+                    
+                    if fallback_agent is not None:
+                        try:
+                            # Reset chunk count for fallback stream
+                            chunk_count = 0
+                            async for chunk in fallback_agent.astream(
+                                initial_state,
+                                config=config,
+                                stream_mode=["messages", "updates"],
+                                subgraphs=True,
+                                durability="exit",
+                            ):
+                                chunk_count += 1
+                                # Chunks are tuples: (namespace, stream_mode, data)
+                                if not isinstance(chunk, tuple) or len(chunk) != 3:
+                                    _logger.debug("_run_async_stream_with_callback - skipping invalid chunk (not tuple or wrong length): %s", type(chunk))
+                                    continue
+                                
+                                namespace, stream_mode, data = chunk
+                                _logger.debug(
+                                    "_run_async_stream_with_callback - chunk #%d (namespace=%s, stream_mode=%s, data_type=%s)",
+                                    chunk_count,
+                                    namespace,
+                                    stream_mode,
+                                    type(data).__name__,
+                                )
+                                
+                                # Check for artifacts in state updates and send callback
+                                if stream_mode == "updates" and isinstance(data, dict):
+                                    # The updates stream structure: {"node_name": {"artifacts": [...], ...}, ...}
+                                    # Check each node's update_data for artifacts field
+                                    artifacts_detected = False
+                                    for node_name, update_data in data.items():
+                                        # Skip special markers like "__interrupt__"
+                                        if node_name.startswith("__") and node_name.endswith("__"):
+                                            continue
+                                        
+                                        if isinstance(update_data, dict) and "artifacts" in update_data:
+                                            artifacts_detected = True
+                                            break
+                                    
+                                    # If artifacts were updated, get the current state to retrieve the full artifacts list
+                                    if artifacts_detected:
+                                        try:
+                                            # Get current state from agent to retrieve the complete artifacts list
+                                            # get_state returns a StateSnapshot with a .values attribute
+                                            current_state_snapshot = await fallback_agent.aget_state(config)
+                                            if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+                                                artifacts_list = current_state_snapshot.values.get("artifacts", [])
+                                            else:
+                                                artifacts_list = []
+                                            
+                                            if artifacts_list and isinstance(artifacts_list, list) and len(artifacts_list) > 0:
+                                                _logger.debug(
+                                                    "_run_async_stream_with_callback - artifacts updated, sending artifacts callback (count=%d)",
+                                                    len(artifacts_list),
+                                                )
+                                                _send_artifacts_callback(callback_url, thread_id, artifacts_list)
+                                        except Exception as e:  # noqa: BLE001
+                                            # If we can't get state, log but don't fail
+                                            _logger.debug(
+                                                "_run_async_stream_with_callback - could not get state for artifacts: %s: %s",
+                                                type(e).__name__,
+                                                str(e),
+                                            )
+                                
+                                # Extract message ID from chunk data (for message concatenation in frontend)
+                                message_id: str | None = None
+                                if stream_mode == "messages" and isinstance(data, tuple) and len(data) >= 1:
+                                    message = data[0]
+                                    # Try to get the message ID from various possible attributes
+                                    if hasattr(message, "id"):
+                                        message_id = getattr(message, "id", None)
+                                        _logger.debug("_run_async_stream_with_callback - extracted message_id from attribute: %s", message_id)
+                                    elif isinstance(message, dict):
+                                        message_id = message.get("id")
+                                        _logger.debug("_run_async_stream_with_callback - extracted message_id from dict: %s", message_id)
+                                
+                                # Compose a concise message from the chunk data
+                                concise_message = _compose_concise_callback_message(
+                                    namespace, stream_mode, data, docs_dir, backend_root_dir
+                                )
+                                _logger.debug(
+                                    "_run_async_stream_with_callback - concise_message: %s (message_id=%s)",
+                                    concise_message[:100] if concise_message else None,
+                                    message_id,
+                                )
+                                
+                                # Skip None messages (e.g., intermediate streaming chunks we want to filter out)
+                                if concise_message is None:
+                                    continue
+                                
+                                # Determine if this is an assistant message or a status update
+                                callback_payload: dict[str, Any] = {
+                                    "session_id": thread_id,
+                                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                                }
+                                
+                                # Add message_id if available (for frontend message concatenation)
+                                if message_id:
+                                    callback_payload["message_id"] = message_id
+                                
+                                if concise_message.lower().startswith("assistant:"):
+                                    # Extract the actual message content after "Assistant:"
+                                    message_content = concise_message[len("Assistant:"):].strip()
+                                    if message_content:
+                                        callback_payload["type"] = "message"
+                                        callback_payload["message_id"] = message_id
+                                        callback_payload["message"] = message_content
+                                else:
+                                    # This is a status update, not an assistant message
+                                    callback_payload["type"] = "status"
+                                    callback_payload["status"] = concise_message
+                                
+                                # Only invoke callback if we have a message or status
+                                if "message" in callback_payload or "status" in callback_payload:
+                                    _logger.debug(
+                                        "_run_async_stream_with_callback - invoking callback (payload_keys=%s, has_message_id=%s)",
+                                        list(callback_payload.keys()),
+                                        "message_id" in callback_payload,
+                                    )
+                                    _invoke_callback(callback_url, callback_payload)
+                                else:
+                                    _logger.debug("_run_async_stream_with_callback - skipping callback (no message or status)")
+                            
+                            _logger.info("_run_async_stream_with_callback - fallback stream completed (thread_id=%s, total_chunks=%d)", thread_id, chunk_count)
+                            
+                            # Stop heartbeat before sending final callback
+                            if heartbeat_task:
+                                _logger.debug(
+                                    "_run_async_stream_with_callback - stopping heartbeat (thread_id=%s)",
+                                    thread_id,
+                                )
+                                heartbeat_stop_event.set()
+                                try:
+                                    await asyncio.wait_for(heartbeat_task, timeout=2.0)
+                                except asyncio.TimeoutError:
+                                    _logger.warning(
+                                        "_run_async_stream_with_callback - heartbeat task did not stop within timeout (thread_id=%s)",
+                                        thread_id,
+                                    )
+                                    heartbeat_task.cancel()
+                                except Exception as e:  # noqa: BLE001
+                                    _logger.warning(
+                                        "_run_async_stream_with_callback - error stopping heartbeat (thread_id=%s): %s",
+                                        thread_id,
+                                        str(e),
+                                    )
+                            
+                            # Send final callback to inform the Rails application that the stream is completed
+                            final_callback_payload: dict[str, Any] = {
+                                "session_id": thread_id,
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                                "type": "status",
+                                "status": "stream_completed",
+                            }
+                            _logger.info(
+                                "_run_async_stream_with_callback - sending final completion callback (thread_id=%s)",
+                                thread_id,
+                            )
+                            _invoke_callback(callback_url, final_callback_payload)
+                            return  # Successfully completed with fallback agent
+                        
+                        except Exception as fallback_error:  # noqa: BLE001
+                            _logger.error(
+                                "[ModelFallback] Fallback agent (deepseek) also failed during async stream: %s: %s",
+                                type(fallback_error).__name__,
+                                str(fallback_error),
+                            )
+                            # Fall through to original error handling
                 
-                # Send final callback to inform the Rails application that the stream is completed
-                # and it can accept new input from the user
-                final_callback_payload: dict[str, Any] = {
-                    "session_id": thread_id,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "type": "status",
-                    "status": "stream_completed",
-                }
-                _logger.info(
-                    "_run_async_stream_with_callback - sending final completion callback (thread_id=%s)",
-                    thread_id,
-                )
-                _invoke_callback(callback_url, final_callback_payload)
-            
-            except Exception as e:  # noqa: BLE001
+                # Original error handling (if no fallback agent or fallback also failed)
                 # Get and print message history for debugging
                 try:
                     current_state_snapshot = await agent.aget_state(config)
@@ -1154,6 +1338,32 @@ def _run_async_stream_with_callback(
                         "status": error_message,
                     },
                 )
+            except Exception as outer_e:  # noqa: BLE001
+                # Handle any unexpected errors that occur outside the inner try/except blocks
+                # (e.g., during initialization, heartbeat setup, etc.)
+                _logger.exception(
+                    "Unexpected error in _stream_and_callback (thread_id=%s): %s: %s",
+                    thread_id,
+                    type(outer_e).__name__,
+                    str(outer_e),
+                )
+                # Ensure cleanup
+                if heartbeat_task:
+                    heartbeat_stop_event.set()
+                    try:
+                        await asyncio.wait_for(heartbeat_task, timeout=2.0)
+                    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+                        heartbeat_task.cancel()
+                # Send error callback
+                _invoke_callback(
+                    callback_url,
+                    {
+                        "session_id": thread_id,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "type": "status",
+                        "status": f"Error: {type(outer_e).__name__}: {str(outer_e)}",
+                    },
+                )
         
         loop.run_until_complete(_stream_and_callback())
     
@@ -1264,7 +1474,8 @@ class CallDeepAgentAsyncResponse(BaseModel):
 
 @dataclass
 class _AppState:
-    agent: Any
+    agent: Any  # primary agent
+    fallback_agent: Any  # fallback agent
     checkpoints_path: str
     # Ensure the same thread_id is processed serially (avoid checkpoint races).
     thread_locks: dict[str, asyncio.Lock]
@@ -1366,7 +1577,8 @@ async def _startup() -> None:
     global _state
     await _configure_asyncio_default_executor()
     _patch_openai_no_thread()
-    agent, checkpoints_path = create_business_cofounder_agent(agent_id="business_cofounder_agent")
+    primary_agent, checkpoints_path = create_business_cofounder_agent(agent_id="business_cofounder_agent", provider="qwen")
+    fallback_agent, _ = create_business_cofounder_agent(agent_id="business_cofounder_agent", provider="deepseek")
     
     # Extract backend_root from agent configuration
     # With virtual_mode=True, all file operations are sandboxed to backend_root
@@ -1375,7 +1587,8 @@ async def _startup() -> None:
     docs_dir = str(Path.home() / ".deepagents" / "business_cofounder_api" / "docs")  # Keep for backward compatibility
     
     _state = _AppState(
-        agent=agent,
+        agent=primary_agent,
+        fallback_agent=fallback_agent,
         checkpoints_path=str(checkpoints_path),
         thread_locks={},
         backend_root=backend_root,
@@ -1478,30 +1691,50 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 },
             )
         except Exception as e:  # noqa: BLE001
-            # Print a full traceback to server logs for local debugging.
-            _logger.exception(
-                "POST /chat failed user_id=%s conversation_id=%s thread_id=%s error_type=%s error_message=%s",
-                req.user_id,
-                req.conversation_id,
-                tid,
+            _logger.warning(
+                "[ModelFallback] Primary agent (qwen) failed: %s: %s",
                 type(e).__name__,
                 str(e),
             )
+            _logger.info("[ModelFallback] Falling back to deepseek...")
+            try:
+                result = await _state.fallback_agent.ainvoke(
+                    {"messages": [HumanMessage(content=req.message)]},
+                    {
+                        "configurable": {"thread_id": tid},
+                        "metadata": {"user_id": req.user_id, **(req.metadata or {})},
+                    },
+                )
+            except Exception as fallback_error:  # noqa: BLE001
+                _logger.error(
+                    "[ModelFallback] Fallback agent (deepseek) also failed: %s: %s",
+                    type(fallback_error).__name__,
+                    str(fallback_error),
+                )
+                # Print a full traceback to server logs for local debugging.
+                _logger.exception(
+                    "POST /chat failed user_id=%s conversation_id=%s thread_id=%s error_type=%s error_message=%s",
+                    req.user_id,
+                    req.conversation_id,
+                    tid,
+                    type(fallback_error).__name__,
+                    str(fallback_error),
+                )
 
-            # Optionally include traceback in HTTP response (useful for local dev; avoid enabling in prod).
-            detail: dict[str, Any] = {
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-                "thread_id": tid,
-            }
-            if _env_flag("BC_API_RETURN_TRACEBACK", default=False):
-                detail["traceback"] = traceback.format_exc()
+                # Optionally include traceback in HTTP response (useful for local dev; avoid enabling in prod).
+                detail: dict[str, Any] = {
+                    "error_type": type(fallback_error).__name__,
+                    "error_message": str(fallback_error),
+                    "thread_id": tid,
+                }
+                if _env_flag("BC_API_RETURN_TRACEBACK", default=False):
+                    detail["traceback"] = traceback.format_exc()
 
-            # Internal API: return a helpful message for debugging.
-            raise HTTPException(
-                status_code=502,
-                detail=detail,
-            ) from e
+                # Internal API: return a helpful message for debugging.
+                raise HTTPException(
+                    status_code=502,
+                    detail=detail,
+                ) from fallback_error
 
     messages = result.get("messages", [])
     ai_messages = [m for m in messages if getattr(m, "type", None) == "ai"]
@@ -2030,22 +2263,505 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                 )
                 yield f"data: {json.dumps({'type':'final','text':final_text}, ensure_ascii=False)}\n\n"
             except Exception as e:  # noqa: BLE001
-                _logger.exception(
-                    "POST /chat/stream failed user_id=%s conversation_id=%s thread_id=%s error_type=%s error_message=%s",
-                    req.user_id,
-                    req.conversation_id,
-                    tid,
+                _logger.warning(
+                    "[ModelFallback] Primary agent (qwen) failed during stream: %s: %s",
                     type(e).__name__,
                     str(e),
                 )
-                detail: dict[str, Any] = {
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "thread_id": tid,
-                }
-                if _env_flag("BC_API_RETURN_TRACEBACK", default=False):
-                    detail["traceback"] = traceback.format_exc()
-                yield f"data: {json.dumps({'type':'error','detail':detail}, ensure_ascii=False)}\n\n"
+                _logger.info("[ModelFallback] Falling back to deepseek...")
+                try:
+                    # Reset state for fallback stream
+                    final_parts = []
+                    delta_count = 0
+                    seen_types = {}
+                    last_written_html_path = None
+                    last_progress_update = 0.0
+                    tool_call_args_cache = {}
+                    request_start_time = time.time()
+                    model_call_start_time = None
+                    
+                    async for chunk in _state.fallback_agent.astream(
+                        {"messages": [HumanMessage(content=req.message)]},
+                        config={
+                            "configurable": {"thread_id": tid},
+                            "metadata": {"user_id": req.user_id, **(req.metadata or {})},
+                        },
+                        stream_mode=["messages", "updates"],
+                        subgraphs=True,
+                        durability="exit",
+                    ):
+                        # With subgraphs=True and multiple stream modes, chunks are:
+                        # (namespace, stream_mode, data)
+                        if not isinstance(chunk, tuple) or len(chunk) != 3:
+                            continue
+
+                        _namespace, current_stream_mode, data = chunk
+
+                        # Handle UPDATES stream mode - provides progress information
+                        if current_stream_mode == "updates":
+                            # Updates stream structure: dict where keys are node names or special markers
+                            # Example: {"node_name": {"tool_calls": [...]}} or {"__interrupt__": [...]}
+                            if isinstance(data, dict):
+                                # Skip special markers like "__interrupt__"
+                                for key, update_data in data.items():
+                                    if key.startswith("__") and key.endswith("__"):
+                                        continue  # Skip special markers
+                                    
+                                    node_name = key
+                                    print(f"node_name: {node_name}")
+                                    # update_data is the actual update content for this node
+                                    if not isinstance(update_data, dict):
+                                        continue
+                                    # Send progress update (throttle to avoid spam)
+                                    import time
+                                    now = time.time()
+                                    if now - last_progress_update > 0:  # Max once per 0.5 seconds
+                                        # Special handling for "tools" node - contains ToolMessages with results
+                                        if node_name == "tools":
+                                            messages = update_data.get("messages", [])
+                                            for msg in messages:
+                                                # Check if it's a ToolMessage (tool execution result)
+                                                if isinstance(msg, ToolMessage) or (isinstance(msg, dict) and msg.get("type") == "tool"):
+                                                    tool_name = msg.get("name", "") if isinstance(msg, dict) else getattr(msg, "name", "")
+                                                    tool_call_id = msg.get("tool_call_id", "") if isinstance(msg, dict) else getattr(msg, "tool_call_id", "")
+                                                    
+                                                    # Look up cached tool args using tool_call_id
+                                                    cached_tool_info = tool_call_args_cache.get(tool_call_id, {}) if tool_call_id else {}
+                                                    cached_args = cached_tool_info.get("args", {})
+                                                    
+                                                    if tool_name:
+                                                        # Format progress message with file path from cached args
+                                                        from pathlib import Path
+                                                        docs_dir = _state.docs_dir if _state else None
+                                                        backend_root_dir = _state.backend_root if _state else None
+                                                        progress_msg = _format_tool_call_progress(tool_name, cached_args, docs_dir, backend_root_dir)
+                                                        payload = {"type": "progress", "message": progress_msg}
+                                                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                                        last_progress_update = now
+                                            continue
+                                        
+                                        # For "model" node, tool_calls are in the AIMessage within messages
+                                        if node_name == "model":
+                                            # Track start time for this model call if not already set
+                                            # Note: The model node appears AFTER completion in the updates stream,
+                                            # so we use request_start_time as an approximation
+                                            # (this includes middleware processing time, not just model call time)
+                                            if model_call_start_time is None:
+                                                model_call_start_time = request_start_time
+                                            
+                                            messages = update_data.get("messages", [])
+                                            for msg in messages:
+                                                # Check if it's an AIMessage with tool_calls
+                                                if isinstance(msg, dict):
+                                                    msg_type = msg.get("type", "")
+                                                    if msg_type == "ai":
+                                                        # Extract token usage and stats - try multiple locations
+                                                        response_metadata = msg.get("response_metadata", {}) or {}
+                                                        usage_metadata = msg.get("usage_metadata") or response_metadata.get("usage_metadata") or {}
+                                                        
+                                                        # Extract token counts from various possible locations
+                                                        input_tokens = 0
+                                                        output_tokens = 0
+                                                        
+                                                        # Try usage_metadata dict
+                                                        if isinstance(usage_metadata, dict):
+                                                            input_tokens = usage_metadata.get("input_tokens") or usage_metadata.get("prompt_tokens") or 0
+                                                            output_tokens = usage_metadata.get("output_tokens") or usage_metadata.get("completion_tokens") or 0
+                                                        
+                                                        # Try response_metadata directly
+                                                        if isinstance(response_metadata, dict):
+                                                            if not input_tokens:
+                                                                input_tokens = response_metadata.get("input_tokens") or response_metadata.get("prompt_tokens") or 0
+                                                            if not output_tokens:
+                                                                output_tokens = response_metadata.get("output_tokens") or response_metadata.get("completion_tokens") or 0
+                                                        
+                                                        # Try top-level message fields
+                                                        if not input_tokens:
+                                                            input_tokens = msg.get("input_tokens") or msg.get("prompt_tokens") or 0
+                                                        if not output_tokens:
+                                                            output_tokens = msg.get("output_tokens") or msg.get("completion_tokens") or 0
+                                                        
+                                                        # Calculate processing time
+                                                        # Use request_start_time as the baseline since model node appears after completion
+                                                        processing_time = time.time() - request_start_time
+                                                        # Reset model_call_start_time for potential next model call in same request
+                                                        model_call_start_time = None
+                                                        
+                                                        # Print stats (even if zero, for debugging)
+                                                        _logger.info(
+                                                            "[LLM Call Stats] input_tokens=%d, output_tokens=%d, processing_time=%.2fs, response_metadata_keys=%s",
+                                                            input_tokens,
+                                                            output_tokens,
+                                                            processing_time,
+                                                            list(response_metadata.keys()) if isinstance(response_metadata, dict) else [],
+                                                        )
+                                                        
+                                                        tool_calls = msg.get("tool_calls", [])
+                                                        if tool_calls:
+                                                            for tc in tool_calls[:1]:  # Just first tool call
+                                                                if isinstance(tc, dict):
+                                                                    tool_name = tc.get("name", "")
+                                                                    tool_call_id = tc.get("id", "") or tc.get("tool_call_id", "")
+                                                                    # Try multiple ways to get args
+                                                                    tool_args = tc.get("args", {}) or tc.get("arguments", {})
+                                                                    # Handle case where args might be nested under "function"
+                                                                    if not tool_args and "function" in tc:
+                                                                        func_data = tc.get("function", {})
+                                                                        if isinstance(func_data, dict):
+                                                                            args_str = func_data.get("arguments", "")
+                                                                            if isinstance(args_str, str):
+                                                                                try:
+                                                                                    tool_args = json.loads(args_str)
+                                                                                except Exception:
+                                                                                    tool_args = {}
+                                                                            else:
+                                                                                tool_args = func_data.get("arguments", {})
+                                                                    # If args is a string (JSON), parse it
+                                                                    elif isinstance(tool_args, str):
+                                                                        try:
+                                                                            tool_args = json.loads(tool_args)
+                                                                        except Exception:
+                                                                            tool_args = {}
+                                                                    
+                                                                    # Cache tool call args by ID for later use with ToolMessages
+                                                                    if tool_call_id and tool_name:
+                                                                        tool_call_args_cache[tool_call_id] = {"name": tool_name, "args": tool_args}
+                                                                    
+                                                                    if tool_name:
+                                                                        from pathlib import Path
+                                                                        docs_dir = _state.docs_dir if _state else None
+                                                                        backend_root_dir = _state.backend_root if _state else None
+                                                                        progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
+                                                                        payload = {"type": "progress", "message": progress_msg}
+                                                                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                                                        last_progress_update = now
+                                                            break  # Only process first message with tool_calls
+                                                # Handle AIMessage objects (not dicts)
+                                                elif hasattr(msg, "tool_calls") and msg.tool_calls:
+                                                    import time
+                                                    # Extract token usage and stats from AIMessage object
+                                                    # Use request_start_time as the baseline since model node appears after completion
+                                                    processing_time = time.time() - request_start_time
+                                                    # Reset model_call_start_time for potential next model call in same request
+                                                    model_call_start_time = None
+                                                    
+                                                    # Try to get usage_metadata from the message
+                                                    input_tokens = 0
+                                                    output_tokens = 0
+                                                    
+                                                    usage_metadata = getattr(msg, "usage_metadata", None)
+                                                    if usage_metadata:
+                                                        if isinstance(usage_metadata, dict):
+                                                            input_tokens = usage_metadata.get("input_tokens") or usage_metadata.get("prompt_tokens") or 0
+                                                            output_tokens = usage_metadata.get("output_tokens") or usage_metadata.get("completion_tokens") or 0
+                                                        else:
+                                                            # Try as object with attributes
+                                                            input_tokens = getattr(usage_metadata, "input_tokens", None) or getattr(usage_metadata, "prompt_tokens", None) or 0
+                                                            output_tokens = getattr(usage_metadata, "output_tokens", None) or getattr(usage_metadata, "completion_tokens", None) or 0
+                                                    
+                                                    # Try response_metadata if usage_metadata didn't work
+                                                    if not input_tokens and not output_tokens:
+                                                        response_metadata = getattr(msg, "response_metadata", None)
+                                                        if response_metadata:
+                                                            if isinstance(response_metadata, dict):
+                                                                input_tokens = response_metadata.get("input_tokens") or response_metadata.get("prompt_tokens") or 0
+                                                                output_tokens = response_metadata.get("output_tokens") or response_metadata.get("completion_tokens") or 0
+                                                            else:
+                                                                input_tokens = getattr(response_metadata, "input_tokens", None) or getattr(response_metadata, "prompt_tokens", None) or 0
+                                                                output_tokens = getattr(response_metadata, "output_tokens", None) or getattr(response_metadata, "completion_tokens", None) or 0
+                                                    
+                                                    # Print stats (with debug info)
+                                                    _logger.info(
+                                                        "[LLM Call Stats] input_tokens=%d, output_tokens=%d, processing_time=%.2fs, has_usage_metadata=%s, has_response_metadata=%s",
+                                                        input_tokens,
+                                                        output_tokens,
+                                                        processing_time,
+                                                        usage_metadata is not None,
+                                                        hasattr(msg, "response_metadata"),
+                                                    )
+                                                    
+                                                    for tc in msg.tool_calls[:1]:
+                                                        if isinstance(tc, dict):
+                                                            tool_name = tc.get("name", "")
+                                                            tool_call_id = tc.get("id", "") or tc.get("tool_call_id", "")
+                                                            tool_args = tc.get("args", {}) or tc.get("arguments", {})
+                                                            if isinstance(tool_args, str):
+                                                                try:
+                                                                    tool_args = json.loads(tool_args)
+                                                                except Exception:
+                                                                    tool_args = {}
+                                                                
+                                                                # Cache tool call args
+                                                                if tool_call_id and tool_name:
+                                                                    tool_call_args_cache[tool_call_id] = {"name": tool_name, "args": tool_args}
+                                                                
+                                                                if tool_name:
+                                                                    from pathlib import Path
+                                                                    docs_dir = _state.docs_dir if _state else None
+                                                                    backend_root_dir = _state.backend_root if _state else None
+                                                                    progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
+                                                                    payload = {"type": "progress", "message": progress_msg}
+                                                                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                                                    last_progress_update = now
+                                                    break
+                                        else:
+                                            # For other nodes, try to extract tool call info from the update data
+                                            tool_calls = update_data.get("tool_calls", [])
+                                            if tool_calls:
+                                                for tc in tool_calls[:1]:  # Just first tool call
+                                                    if isinstance(tc, dict):
+                                                        tool_name = tc.get("name", "")
+                                                        # Try multiple ways to get args - different providers structure this differently
+                                                        tool_args = tc.get("args", {}) or tc.get("arguments", {})
+                                                        # Handle case where args might be nested under "function"
+                                                        if not tool_args and "function" in tc:
+                                                            func_data = tc.get("function", {})
+                                                            if isinstance(func_data, dict):
+                                                                args_str = func_data.get("arguments", "")
+                                                                if isinstance(args_str, str):
+                                                                    try:
+                                                                        tool_args = json.loads(args_str)
+                                                                    except Exception:
+                                                                        tool_args = {}
+                                                                else:
+                                                                    tool_args = func_data.get("arguments", {})
+                                                        # If args is a string (JSON), parse it
+                                                        elif isinstance(tool_args, str):
+                                                            try:
+                                                                tool_args = json.loads(tool_args)
+                                                            except Exception:
+                                                                tool_args = {}
+                                                        
+                                                        if tool_name:
+                                                            from pathlib import Path
+                                                            docs_dir = _state.docs_dir if _state else None
+                                                            backend_root_dir = _state.backend_root if _state else None
+                                                            progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
+                                                            payload = {"type": "progress", "message": progress_msg}
+                                                            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                                            last_progress_update = now
+                                            else:
+                                                # Generic node execution (no tool calls, just node processing)
+                                                progress_msg = f"Processing {node_name}..."
+                                                payload = {"type": "progress", "message": progress_msg}
+                                                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                                last_progress_update = now
+                            continue
+
+                        # Handle MESSAGES stream mode
+                        if current_stream_mode != "messages":
+                            continue
+                        # Messages stream returns (message, metadata)
+                        if not isinstance(data, tuple) or len(data) != 2:
+                            continue
+                        message, _metadata = data
+
+                        cls = type(message).__name__
+                        seen_types[cls] = seen_types.get(cls, 0) + 1
+
+                        # Track HTML file writes so we can fallback if the model writes a file but doesn't return text.
+                        if isinstance(message, ToolMessage):
+                            tool_name = getattr(message, "name", "") or ""
+                            tool_content = getattr(message, "content", "") or ""
+                            tool_call_id = getattr(message, "tool_call_id", "") or ""
+                            
+                            # Try to get tool args from cache using tool_call_id
+                            cached_tool_info = tool_call_args_cache.get(tool_call_id, {}) if tool_call_id else {}
+                            cached_args = cached_tool_info.get("args", {})
+                            if cached_tool_info.get("name"):
+                                tool_name = cached_tool_info["name"]  # Use cached name if available
+                            
+                            # Send progress update when tool execution completes
+                            if tool_name:
+                                # Try to extract file path from tool content or cached args
+                                file_path = None
+                                
+                                # First, try to get file_path from cached args (most reliable)
+                                if cached_args:
+                                    file_path = cached_args.get("file_path", "") or cached_args.get("path", "")
+                                
+                                # Fallback: try to extract from tool content
+                                if not file_path:
+                                    if tool_name == "write_file" and isinstance(tool_content, str):
+                                        # Filesystem tool returns: "Updated file <path>"
+                                        prefix = "Updated file "
+                                        if tool_content.startswith(prefix):
+                                            file_path = tool_content[len(prefix) :].strip()
+                                            if file_path.lower().endswith(".html"):
+                                                last_written_html_path = file_path
+                                    elif tool_name == "read_file" and isinstance(tool_content, str):
+                                        # Try to extract file path from read_file content
+                                        # read_file content might contain file path info, or we can look for patterns
+                                        # For now, try to find file path in the content if it's a short error message
+                                        if len(tool_content) < 200:
+                                            # Look for common patterns that might indicate file path
+                                            # Try to find absolute paths in the content
+                                            path_match = re.search(r'/(?:[^/\s]+/)*[^/\s]+', tool_content)
+                                            if path_match:
+                                                file_path = path_match.group(0)
+                                
+                                # Format completion message with file path if available
+                                if file_path:
+                                    progress_msg = f"Completed {tool_name}: {file_path}"
+                                else:
+                                    progress_msg = f"Completed {tool_name}"
+                                payload = {"type": "progress", "message": progress_msg}
+                                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                            continue
+
+                        # Ignore human echoes
+                        if isinstance(message, HumanMessage):
+                            continue
+
+                        # Stream assistant output: handle both full messages and streaming chunks
+                        if not isinstance(message, (AIMessage, AIMessageChunk)):
+                            # Some providers may not use these exact classes; fall back on type=="ai" when present.
+                            if getattr(message, "type", None) != "ai":
+                                continue
+
+                        # Extract token usage from AIMessage if available (messages stream has more complete metadata)
+                        if isinstance(message, (AIMessage, AIMessageChunk)) or getattr(message, "type", None) == "ai":
+                            # Try to extract token usage - this is often more complete in messages stream
+                            usage_metadata = getattr(message, "usage_metadata", None)
+                            response_metadata = getattr(message, "response_metadata", None)
+                            
+                            input_tokens = 0
+                            output_tokens = 0
+                            
+                            # Try usage_metadata first
+                            if usage_metadata:
+                                if isinstance(usage_metadata, dict):
+                                    input_tokens = usage_metadata.get("input_tokens") or usage_metadata.get("prompt_tokens") or 0
+                                    output_tokens = usage_metadata.get("output_tokens") or usage_metadata.get("completion_tokens") or 0
+                                else:
+                                    input_tokens = getattr(usage_metadata, "input_tokens", None) or getattr(usage_metadata, "prompt_tokens", None) or 0
+                                    output_tokens = getattr(usage_metadata, "output_tokens", None) or getattr(usage_metadata, "completion_tokens", None) or 0
+                            
+                            # Try response_metadata if usage_metadata didn't work
+                            if (not input_tokens and not output_tokens) and response_metadata:
+                                if isinstance(response_metadata, dict):
+                                    input_tokens = response_metadata.get("input_tokens") or response_metadata.get("prompt_tokens") or 0
+                                    output_tokens = response_metadata.get("output_tokens") or response_metadata.get("completion_tokens") or 0
+                                else:
+                                    input_tokens = getattr(response_metadata, "input_tokens", None) or getattr(response_metadata, "prompt_tokens", None) or 0
+                                    output_tokens = getattr(response_metadata, "output_tokens", None) or getattr(response_metadata, "completion_tokens", None) or 0
+                            
+                            # Log token usage if found
+                            if input_tokens or output_tokens:
+                                _logger.info(
+                                    "[LLM Call Stats from messages stream] input_tokens=%d, output_tokens=%d",
+                                    input_tokens,
+                                    output_tokens,
+                                )
+                        
+                        # Check for tool calls in AI messages and send progress updates
+                        tool_calls = getattr(message, "tool_calls", None)
+                        if tool_calls:
+                            for tc in tool_calls[:3]:  # Limit to first 3 tool calls
+                                if isinstance(tc, dict):
+                                    tool_name = tc.get("name", "")
+                                    tool_call_id = tc.get("id", "") or tc.get("tool_call_id", "")
+                                    # Try multiple ways to get args - different providers structure this differently
+                                    tool_args = tc.get("args", {}) or tc.get("arguments", {})
+                                    # Handle case where args might be nested under "function"
+                                    if not tool_args and "function" in tc:
+                                        func_data = tc.get("function", {})
+                                        if isinstance(func_data, dict):
+                                            args_str = func_data.get("arguments", "")
+                                            if isinstance(args_str, str):
+                                                try:
+                                                    tool_args = json.loads(args_str)
+                                                except Exception:
+                                                    tool_args = {}
+                                            else:
+                                                tool_args = func_data.get("arguments", {})
+                                    # If args is a string (JSON), parse it
+                                    elif isinstance(tool_args, str):
+                                        try:
+                                            tool_args = json.loads(tool_args)
+                                        except Exception:
+                                            tool_args = {}
+                                    
+                                    # Cache tool call args by ID for later use with ToolMessages
+                                    if tool_call_id and tool_name:
+                                        tool_call_args_cache[tool_call_id] = {"name": tool_name, "args": tool_args}
+                                    
+                                    # Debug logging if enabled
+                                    if _env_flag("BC_API_STREAM_DEBUG", default=False):
+                                        _logger.debug(
+                                            "Tool call in AI message: name=%s, id=%s, args=%s, tc_keys=%s",
+                                            tool_name,
+                                            tool_call_id,
+                                            tool_args,
+                                            list(tc.keys()) if isinstance(tc, dict) else [],
+                                        )
+                                    
+                                    if tool_name:
+                                        from pathlib import Path
+                                        docs_dir = _state.docs_dir if _state else None
+                                        backend_root_dir = str(Path.cwd()) if _state else None
+                                        progress_msg = _format_tool_call_progress(tool_name, tool_args, docs_dir, backend_root_dir)
+                                        payload = {"type": "progress", "message": progress_msg}
+                                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+                        for text in _extract_text_chunks_from_ai_message(message):
+                            final_parts.append(text)
+                            delta_count += 1
+                            payload = {"type": "delta", "text": text}
+                            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+                    final_text = "".join(final_parts).strip()
+
+                    # Fallback: if no text was streamed but an HTML file was written, read it and return its contents.
+                    if not final_text and last_written_html_path:
+                        try:
+                            from pathlib import Path
+
+                            pth = Path(last_written_html_path)
+                            if pth.exists() and pth.is_file() and pth.stat().st_size <= 2 * 1024 * 1024:
+                                final_text = pth.read_text(encoding="utf-8", errors="replace").strip()
+                        except Exception:  # noqa: BLE001
+                            pass
+
+                    if _env_flag("BC_API_STREAM_DEBUG", default=False):
+                        _logger.info(
+                            "chat_stream_debug thread_id=%s delta_count=%s seen_message_types=%s last_written_html=%s final_len=%s",
+                            tid,
+                            delta_count,
+                            seen_types,
+                            last_written_html_path,
+                            len(final_text),
+                        )
+                    _log_chat_io(
+                        user_id=req.user_id,
+                        conversation_id=req.conversation_id,
+                        thread_id=tid,
+                        user_message=req.message,
+                        reply=final_text,
+                    )
+                    yield f"data: {json.dumps({'type':'final','text':final_text}, ensure_ascii=False)}\n\n"
+                except Exception as fallback_error:  # noqa: BLE001
+                    _logger.error(
+                        "[ModelFallback] Fallback agent (deepseek) also failed during stream: %s: %s",
+                        type(fallback_error).__name__,
+                        str(fallback_error),
+                    )
+                    _logger.exception(
+                        "POST /chat/stream failed user_id=%s conversation_id=%s thread_id=%s error_type=%s error_message=%s",
+                        req.user_id,
+                        req.conversation_id,
+                        tid,
+                        type(fallback_error).__name__,
+                        str(fallback_error),
+                    )
+                    detail: dict[str, Any] = {
+                        "error_type": type(fallback_error).__name__,
+                        "error_message": str(fallback_error),
+                        "thread_id": tid,
+                    }
+                    if _env_flag("BC_API_RETURN_TRACEBACK", default=False):
+                        detail["traceback"] = traceback.format_exc()
+                    yield f"data: {json.dumps({'type':'error','detail':detail}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(_gen(), media_type="text/event-stream; charset=utf-8")
 

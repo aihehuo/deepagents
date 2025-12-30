@@ -5,6 +5,9 @@ from typing import Any
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware, InterruptOnConfig, TodoListMiddleware
+from langchain.agents.middleware.summarization import SummarizationMiddleware
+
+from deepagents.middleware.async_summarization import AsyncSummarizationMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.agents.structured_output import ResponseFormat
 from langchain.chat_models import init_chat_model
@@ -26,6 +29,9 @@ from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
 from deepagents.middleware.summarization import SummarizationMiddleware
+# from deepagents.middleware.summarization_logging import LoggingSummarizationMiddleware
+# Commented out: SummarizationMiddleware from langchain doesn't support async (no awrap_model_call),
+# so wrapping it causes NotImplementedError in async contexts
 
 BASE_AGENT_PROMPT = "In order to complete the objective that the user asks of you, you have access to a number of standard tools."
 
@@ -217,6 +223,35 @@ def create_deep_agent(
             PatchToolCallsMiddleware(),
         ]
     )
+        FilesystemMiddleware(backend=backend),
+        SubAgentMiddleware(
+            default_model=model,
+            default_tools=tools,
+            subagents=subagents if subagents is not None else [],
+            default_middleware=[
+                TodoListMiddleware(),
+                FilesystemMiddleware(backend=backend),
+                AsyncSummarizationMiddleware(
+                    model=model,
+                    trigger=trigger,
+                    keep=keep,
+                    trim_tokens_to_summarize=None,
+                ),
+                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+                PatchToolCallsMiddleware(),
+            ],
+            default_interrupt_on=interrupt_on,
+            general_purpose_agent=True,
+        ),
+        AsyncSummarizationMiddleware(
+            model=model,
+            trigger=trigger,
+            keep=keep,
+            trim_tokens_to_summarize=None,
+        ),
+        AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+        PatchToolCallsMiddleware(),
+    ]
     if middleware:
         deepagent_middleware.extend(middleware)
     if interrupt_on is not None:

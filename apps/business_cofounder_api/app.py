@@ -109,6 +109,105 @@ def _log_debug_state(*, result: dict[str, Any], thread_id: str) -> None:
     )
 
 
+async def _log_message_history_for_debugging(
+    agent: Any,
+    config: dict[str, Any],
+    thread_id: str,
+) -> None:
+    """Log detailed message history for debugging when errors occur.
+    
+    Args:
+        agent: The agent instance to get state from
+        config: The runtime config containing thread_id
+        thread_id: The thread ID for logging context
+    """
+    try:
+        current_state_snapshot = await agent.aget_state(config)
+        if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+            messages = current_state_snapshot.values.get("messages", [])
+            _logger.error(
+                "Error in async stream with callback thread_id=%s - Message history (count=%d):",
+                thread_id,
+                len(messages),
+            )
+            
+            # Check for duplicate consecutive human messages
+            for i in range(len(messages) - 1):
+                current_msg = messages[i]
+                next_msg = messages[i + 1]
+                current_type = getattr(current_msg, "type", None) or (current_msg.get("type") if isinstance(current_msg, dict) else "unknown")
+                next_type = getattr(next_msg, "type", None) or (next_msg.get("type") if isinstance(next_msg, dict) else "unknown")
+                
+                if current_type == "human" and next_type == "human":
+                    current_content = getattr(current_msg, "content", None) or (current_msg.get("content") if isinstance(current_msg, dict) else "")
+                    next_content = getattr(next_msg, "content", None) or (next_msg.get("content") if isinstance(next_msg, dict) else "")
+                    if current_content == next_content:
+                        _logger.error(
+                            "    ⚠️  DUPLICATE CONSECUTIVE HUMAN MESSAGES detected at Message[%d] and Message[%d]: %s",
+                            i,
+                            i + 1,
+                            str(current_content)[:100] if current_content else None,
+                        )
+            
+            for i, msg in enumerate(messages):
+                msg_type = getattr(msg, "type", None) or (msg.get("type") if isinstance(msg, dict) else "unknown")
+                msg_content = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "")
+                tool_calls = getattr(msg, "tool_calls", None) or (msg.get("tool_calls") if isinstance(msg, dict) else None)
+                tool_call_id = getattr(msg, "tool_call_id", None) or (msg.get("tool_call_id") if isinstance(msg, dict) else None)
+                
+                # Extract tool_call_ids from tool_calls if it's an AI message
+                tool_call_ids_in_msg = []
+                if tool_calls:
+                    if isinstance(tool_calls, list):
+                        for tc in tool_calls:
+                            if isinstance(tc, dict):
+                                tc_id = tc.get("id") or tc.get("tool_call_id")
+                                if tc_id:
+                                    tool_call_ids_in_msg.append(tc_id)
+                            elif hasattr(tc, "id"):
+                                tool_call_ids_in_msg.append(tc.id)
+                
+                _logger.error(
+                    "  Message[%d]: type=%s, tool_call_id=%s, tool_call_ids_in_tool_calls=%s, content_preview=%s",
+                    i,
+                    msg_type,
+                    tool_call_id,
+                    tool_call_ids_in_msg if tool_call_ids_in_msg else None,
+                    str(msg_content)[:100] if msg_content else None,
+                )
+                
+                # Check if this is an AI message with tool_calls - verify each has a response
+                if msg_type in ("ai", "AIMessage") and tool_calls:
+                    # Find all subsequent tool messages to see which tool_call_ids are covered
+                    subsequent_tool_call_ids = set()
+                    for j in range(i + 1, len(messages)):
+                        next_msg = messages[j]
+                        next_msg_type = getattr(next_msg, "type", None) or (next_msg.get("type") if isinstance(next_msg, dict) else "unknown")
+                        if next_msg_type == "tool":
+                            next_tool_call_id = getattr(next_msg, "tool_call_id", None) or (next_msg.get("tool_call_id") if isinstance(next_msg, dict) else None)
+                            if next_tool_call_id:
+                                subsequent_tool_call_ids.add(next_tool_call_id)
+                    
+                    # Check which tool_call_ids from this message don't have responses
+                    missing_responses = []
+                    for tc_id in tool_call_ids_in_msg:
+                        if tc_id not in subsequent_tool_call_ids:
+                            missing_responses.append(tc_id)
+                    
+                    if missing_responses:
+                        _logger.error(
+                            "    ⚠️  Message[%d] has tool_calls with missing responses: %s",
+                            i,
+                            missing_responses,
+                        )
+    except Exception as state_err:  # noqa: BLE001
+        _logger.error(
+            "Failed to get message history for debugging: %s: %s",
+            type(state_err).__name__,
+            str(state_err),
+        )
+
+
 def _extract_state_values_from_checkpoint(checkpoint: Any) -> dict[str, Any]:
     """Best-effort extraction of LangGraph 'values' from a checkpoint object."""
     if isinstance(checkpoint, dict):
@@ -768,6 +867,10 @@ def _run_async_stream_with_callback(
     
     try:
         async def _stream_and_callback():
+            # Initialize error variables at the start so they're always in scope
+            primary_error: Exception | None = None
+            original_error: Exception | None = None
+            
             # Heartbeat configuration
             HEARTBEAT_INTERVAL_SECONDS = 10  # Send heartbeat every 10 seconds
             heartbeat_task: asyncio.Task | None = None
@@ -1038,6 +1141,7 @@ def _run_async_stream_with_callback(
                 except Exception as e:  # noqa: BLE001
                     # Save the primary exception immediately so it's accessible even if error handling fails
                     primary_error = e
+                    original_error = e
                     
                     _logger.warning(
                         "[ModelFallback] Primary agent (qwen) failed during async stream: %s: %s",
@@ -1222,131 +1326,52 @@ def _run_async_stream_with_callback(
                             # Fall through to original error handling
                             # Use fallback_error as the original error since both agents failed
                             original_error = fallback_error
-                
-                # Original error handling (if no fallback agent or fallback also failed)
-                # Use the primary error if original_error wasn't set (i.e., no fallback was attempted)
-                if 'original_error' not in locals():
-                    original_error = primary_error
-                
-                # Get and print message history for debugging
-                try:
-                    current_state_snapshot = await agent.aget_state(config)
-                    if current_state_snapshot and hasattr(current_state_snapshot, "values"):
-                        messages = current_state_snapshot.values.get("messages", [])
-                        _logger.error(
-                            "Error in async stream with callback thread_id=%s - Message history (count=%d):",
-                            thread_id,
-                            len(messages),
-                        )
-                        
-                        # Check for duplicate consecutive human messages
-                        for i in range(len(messages) - 1):
-                            current_msg = messages[i]
-                            next_msg = messages[i + 1]
-                            current_type = getattr(current_msg, "type", None) or (current_msg.get("type") if isinstance(current_msg, dict) else "unknown")
-                            next_type = getattr(next_msg, "type", None) or (next_msg.get("type") if isinstance(next_msg, dict) else "unknown")
-                            
-                            if current_type == "human" and next_type == "human":
-                                current_content = getattr(current_msg, "content", None) or (current_msg.get("content") if isinstance(current_msg, dict) else "")
-                                next_content = getattr(next_msg, "content", None) or (next_msg.get("content") if isinstance(next_msg, dict) else "")
-                                if current_content == next_content:
-                                    _logger.error(
-                                        "    ⚠️  DUPLICATE CONSECUTIVE HUMAN MESSAGES detected at Message[%d] and Message[%d]: %s",
-                                        i,
-                                        i + 1,
-                                        str(current_content)[:100] if current_content else None,
-                                    )
-                        
-                        for i, msg in enumerate(messages):
-                            msg_type = getattr(msg, "type", None) or (msg.get("type") if isinstance(msg, dict) else "unknown")
-                            msg_content = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "")
-                            tool_calls = getattr(msg, "tool_calls", None) or (msg.get("tool_calls") if isinstance(msg, dict) else None)
-                            tool_call_id = getattr(msg, "tool_call_id", None) or (msg.get("tool_call_id") if isinstance(msg, dict) else None)
-                            
-                            # Extract tool_call_ids from tool_calls if it's an AI message
-                            tool_call_ids_in_msg = []
-                            if tool_calls:
-                                if isinstance(tool_calls, list):
-                                    for tc in tool_calls:
-                                        if isinstance(tc, dict):
-                                            tc_id = tc.get("id") or tc.get("tool_call_id")
-                                            if tc_id:
-                                                tool_call_ids_in_msg.append(tc_id)
-                                        elif hasattr(tc, "id"):
-                                            tool_call_ids_in_msg.append(tc.id)
-                            
-                            _logger.error(
-                                "  Message[%d]: type=%s, tool_call_id=%s, tool_call_ids_in_tool_calls=%s, content_preview=%s",
-                                i,
-                                msg_type,
-                                tool_call_id,
-                                tool_call_ids_in_msg if tool_call_ids_in_msg else None,
-                                str(msg_content)[:100] if msg_content else None,
-                            )
-                            
-                            # Check if this is an AI message with tool_calls - verify each has a response
-                            if msg_type in ("ai", "AIMessage") and tool_calls:
-                                # Find all subsequent tool messages to see which tool_call_ids are covered
-                                subsequent_tool_call_ids = set()
-                                for j in range(i + 1, len(messages)):
-                                    next_msg = messages[j]
-                                    next_msg_type = getattr(next_msg, "type", None) or (next_msg.get("type") if isinstance(next_msg, dict) else "unknown")
-                                    if next_msg_type == "tool":
-                                        next_tool_call_id = getattr(next_msg, "tool_call_id", None) or (next_msg.get("tool_call_id") if isinstance(next_msg, dict) else None)
-                                        if next_tool_call_id:
-                                            subsequent_tool_call_ids.add(next_tool_call_id)
-                                
-                                # Check which tool_call_ids from this message don't have responses
-                                missing_responses = []
-                                for tc_id in tool_call_ids_in_msg:
-                                    if tc_id not in subsequent_tool_call_ids:
-                                        missing_responses.append(tc_id)
-                                
-                                if missing_responses:
-                                    _logger.error(
-                                        "    ⚠️  Message[%d] has tool_calls with missing responses: %s",
-                                        i,
-                                        missing_responses,
-                                    )
-                except Exception as state_err:  # noqa: BLE001
-                    _logger.error(
-                        "Failed to get message history for debugging: %s: %s",
-                        type(state_err).__name__,
-                        str(state_err),
-                    )
-                
-                _logger.exception(
-                    "Error in async stream with callback thread_id=%s: %s: %s",
-                    thread_id,
-                    type(original_error).__name__,
-                    str(original_error),
-                )
-                
-                # Stop heartbeat on error
-                if heartbeat_task:
-                    _logger.debug(
-                        "_run_async_stream_with_callback - stopping heartbeat due to error (thread_id=%s)",
+                    
+                    # Original error handling (if no fallback agent or fallback also failed)
+                    # original_error should already be set to primary_error above
+                    
+                    # Get and print message history for debugging
+                    # await _log_message_history_for_debugging(agent, config, thread_id)
+                    
+                    _logger.exception(
+                        "Error in async stream with callback thread_id=%s: %s: %s",
                         thread_id,
+                        type(original_error).__name__,
+                        str(original_error),
                     )
-                    heartbeat_stop_event.set()
+                    
+                    # Stop heartbeat on error
+                    if heartbeat_task:
+                        _logger.debug(
+                            "_run_async_stream_with_callback - stopping heartbeat due to error (thread_id=%s)",
+                            thread_id,
+                        )
+                        heartbeat_stop_event.set()
+                        try:
+                            await asyncio.wait_for(heartbeat_task, timeout=2.0)
+                        except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+                            heartbeat_task.cancel()
+                    
+                    # Send error to callback as a status update (errors are not assistant messages)
                     try:
-                        await asyncio.wait_for(heartbeat_task, timeout=2.0)
-                    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
-                        heartbeat_task.cancel()
-                
-                # Send error to callback as a status update (errors are not assistant messages)
-                error_message = f"Error: {type(original_error).__name__}: {str(original_error)}"
-                if _env_flag("BC_API_RETURN_TRACEBACK", default=False):
-                    error_message += f"\n{traceback.format_exc()}"
-                _invoke_callback(
-                    callback_url,
-                    {
-                        "session_id": thread_id,
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                        "type": "status",
-                        "status": error_message,
-                    },
-                )
+                        error_message = f"Error: {type(original_error).__name__}: {str(original_error)}"
+                        if _env_flag("BC_API_RETURN_TRACEBACK", default=False):
+                            error_message += f"\n{traceback.format_exc()}"
+                        _invoke_callback(
+                            callback_url,
+                            {
+                                "session_id": thread_id,
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                                "type": "status",
+                                "status": error_message,
+                            },
+                        )
+                    except Exception as callback_error:  # noqa: BLE001
+                        _logger.error(
+                            "[ModelFallback] Failed to send error callback: %s: %s",
+                            type(callback_error).__name__,
+                            str(callback_error),
+                        )
             except Exception as outer_e:  # noqa: BLE001
                 # Handle any unexpected errors that occur outside the inner try/except blocks
                 # (e.g., during initialization, heartbeat setup, or in error handling code itself)

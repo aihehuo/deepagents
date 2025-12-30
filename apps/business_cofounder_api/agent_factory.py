@@ -30,6 +30,7 @@ from deepagents_cli.skills.middleware import SkillsMiddleware, SkillsState, Skil
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain_anthropic import ChatAnthropic
 from langgraph.runtime import Runtime
+from typing import TypedDict, NotRequired, cast
 
 from apps.business_cofounder_api.checkpointer import DiskBackedInMemorySaver
 
@@ -84,12 +85,371 @@ def _mask_url(url: str | None) -> str:
     return url
 
 
-def create_business_cofounder_agent(*, agent_id: str, provider: str = "qwen") -> tuple[object, Path]:
+def _get_user_memory_path(base_dir: Path, user_id: str) -> Path:
+    """Get the path to user-level memory file.
+    
+    Args:
+        base_dir: Base directory for the API (~/.deepagents/business_cofounder_api)
+        user_id: User identifier
+        
+    Returns:
+        Path to user memory file: base_dir/users/{user_id}/agent.md
+    """
+    user_dir = base_dir / "users" / user_id
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir / "agent.md"
+
+
+def _get_conversation_memory_path(base_dir: Path, user_id: str, conversation_id: str) -> Path:
+    """Get the path to conversation-level memory file.
+    
+    Args:
+        base_dir: Base directory for the API (~/.deepagents/business_cofounder_api)
+        user_id: User identifier
+        conversation_id: Conversation identifier
+        
+    Returns:
+        Path to conversation memory file: base_dir/users/{user_id}/conversations/{conversation_id}/agent.md
+    """
+    conversation_dir = base_dir / "users" / user_id / "conversations" / conversation_id
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    return conversation_dir / "agent.md"
+
+
+def _ensure_memory_directories_exist(base_dir: Path, user_id: str | None, conversation_id: str | None) -> None:
+    """Ensure memory directories exist for the given user and conversation.
+    
+    Args:
+        base_dir: Base directory for the API
+        user_id: User identifier (optional)
+        conversation_id: Conversation identifier (optional)
+    """
+    if user_id:
+        user_dir = base_dir / "users" / user_id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        
+        if conversation_id:
+            conversation_dir = user_dir / "conversations" / conversation_id
+            conversation_dir.mkdir(parents=True, exist_ok=True)
+
+
+class ApiMemoryState(AgentState):
+    """State for API memory middleware."""
+    
+    user_id: NotRequired[str]
+    """User identifier for memory paths."""
+    
+    conversation_id: NotRequired[str]
+    """Conversation identifier for memory paths."""
+
+
+def _build_memory_documentation(user_id: str | None, conversation_id: str | None) -> str:
+    """Build memory structure documentation for the system prompt.
+    
+    Args:
+        user_id: User identifier (optional)
+        conversation_id: Conversation identifier (optional)
+        
+    Returns:
+        Memory documentation string to include in system prompt
+    """
+    if not user_id:
+        # No user context, return minimal documentation
+        return ""
+    
+    # Build virtual paths (relative to base_dir, with leading /)
+    user_memory_path = f"/users/{user_id}/agent.md"
+    conversation_memory_path = f"/users/{user_id}/conversations/{conversation_id}/agent.md" if conversation_id else None
+    
+    memory_docs = f"""
+## Long-term Memory
+
+Your memory is organized in two tiers:
+
+**User Memory**: `{user_memory_path}`
+- Stores user preferences, communication style, general behavior
+- Shared across ALL conversations for this user
+- Update when user provides feedback or changes preferences
+
+"""
+    
+    if conversation_memory_path:
+        memory_docs += f"""**Conversation Memory**: `{conversation_memory_path}`
+- Stores business idea context, progress, decisions for THIS conversation
+- Isolated per conversation
+- Update as the business idea develops
+
+"""
+    
+    memory_docs += """**Accessing Memory**:
+- Read: Use `read_file` tool with the memory path (e.g., `read_file '/users/{user_id}/agent.md'`)
+- Update: Use `edit_file` or `write_file` tools with the memory path
+- Check what exists: Use `ls` tool to list directories (e.g., `ls '/users/{user_id}'`)
+
+**When to Read Memory**:
+- At conversation start: Check both user and conversation memory if available
+- When user asks about preferences: Read user memory
+- When continuing a business idea: Read conversation memory
+- When user references past work: Search conversation memory files
+
+**When to Update Memory**:
+- User feedback on style/behavior → Update user memory
+- Business idea progress → Update conversation memory
+- User preferences change → Update user memory
+- Important decisions or context → Update conversation memory
+
+**Memory File Format**:
+- Memory files are Markdown (`.md`) files
+- You can read and write them using standard filesystem tools
+- If a memory file doesn't exist, you can create it with `write_file`
+
+**Important Notes**:
+- User memory persists across all conversations for this user
+- Conversation memory is isolated per conversation
+- Always use absolute virtual paths starting with `/` when accessing memory files
+- The global agent.md at the API root provides default instructions, but user/conversation memory takes precedence for specific context
+
+"""
+    
+    return memory_docs
+
+
+class ApiMemoryMiddleware(AgentMiddleware):
+    """Middleware that injects user/conversation memory paths into system prompt dynamically.
+    
+    This middleware reads user_id and conversation_id from request metadata and injects
+    memory documentation into the system prompt so the agent knows where to find/update
+    user-level and conversation-level memory.
+    """
+    
+    state_schema = ApiMemoryState
+    
+    def __init__(self, base_dir: Path):
+        """Initialize the API memory middleware.
+        
+        Args:
+            base_dir: Base directory for the API (~/.deepagents/business_cofounder_api)
+        """
+        self.base_dir = base_dir
+        # Test memory file write/read during initialization to verify filesystem permissions
+        self._test_memory_file_access()
+    
+    def before_agent(
+        self,
+        state: ApiMemoryState,
+        runtime: Runtime,
+    ) -> dict[str, Any] | None:
+        """Extract user_id and conversation_id from runtime config metadata.
+        
+        Also ensures memory directories exist for the user and conversation.
+        
+        Args:
+            state: Current agent state
+            runtime: Runtime context with config
+            
+        Returns:
+            Updated state with user_id and conversation_id if available
+        """
+        updates: dict[str, Any] = {}
+        
+        # Extract metadata from config
+        config = runtime.config if hasattr(runtime, "config") else {}
+        metadata = config.get("metadata", {})
+        
+        user_id = metadata.get("user_id")
+        conversation_id = None
+        
+        if user_id and isinstance(user_id, str):
+            updates["user_id"] = user_id
+            # Extract conversation_id from thread_id if available
+            # thread_id format: "bc::{user_id}::{conversation_id}"
+            configurable = config.get("configurable", {})
+            thread_id = configurable.get("thread_id", "")
+            if thread_id.startswith("bc::") and "::" in thread_id[4:]:
+                parts = thread_id.split("::")
+                if len(parts) >= 3:
+                    conversation_id = parts[2]
+                    updates["conversation_id"] = conversation_id
+            
+            # Ensure memory directories exist
+            _ensure_memory_directories_exist(self.base_dir, user_id, conversation_id)
+        
+        return updates if updates else None
+    
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        """Inject memory documentation into system prompt based on user/conversation context.
+        
+        Args:
+            request: The model request being processed
+            handler: The handler function to call with the modified request
+            
+        Returns:
+            The model response from the handler
+        """
+        # Get user_id and conversation_id from state
+        state = cast("ApiMemoryState", request.state)
+        user_id = state.get("user_id")
+        conversation_id = state.get("conversation_id")
+        
+        # Build memory documentation if we have user context
+        memory_docs = _build_memory_documentation(user_id, conversation_id)
+        
+        if memory_docs:
+            # Append memory documentation to system prompt
+            if request.system_prompt:
+                system_prompt = request.system_prompt + memory_docs
+            else:
+                system_prompt = memory_docs
+            
+            return handler(request.override(system_prompt=system_prompt))
+        
+        # No user context, pass through unchanged
+        return handler(request)
+    
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        """Async version of wrap_model_call."""
+        # Get user_id and conversation_id from state
+        state = cast("ApiMemoryState", request.state)
+        user_id = state.get("user_id")
+        conversation_id = state.get("conversation_id")
+        
+        # Build memory documentation if we have user context
+        memory_docs = _build_memory_documentation(user_id, conversation_id)
+        
+        if memory_docs:
+            # Append memory documentation to system prompt
+            if request.system_prompt:
+                system_prompt = request.system_prompt + memory_docs
+            else:
+                system_prompt = memory_docs
+            
+            return await handler(request.override(system_prompt=system_prompt))
+        
+        # No user context, pass through unchanged
+        return await handler(request)
+    
+    def _test_memory_file_access(self) -> None:
+        """Test write/read functionality for memory files during initialization.
+        
+        This writes a temporary test memory file, reads it back, and verifies
+        that filesystem write permissions work correctly for memory files.
+        """
+        try:
+            # Create a test user directory
+            test_user_id = "__init_test__"
+            test_user_dir = self.base_dir / "users" / test_user_id
+            test_user_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Test file path
+            test_memory_file = test_user_dir / "agent.md"
+            
+            # Generate test content with timestamp
+            from datetime import datetime
+            timestamp = datetime.utcnow().isoformat() + "Z"
+            test_content = f"""# Memory File Access Test
+
+This is a test file created during ApiMemoryMiddleware initialization.
+
+Timestamp: {timestamp}
+
+This file verifies that:
+- Memory directories can be created
+- Memory files can be written
+- Memory files can be read
+- Filesystem permissions are correct
+
+This file will be automatically deleted after the test.
+"""
+            
+            _logger.info("[ApiMemoryMiddleware] Testing memory file write/read access...")
+            _logger.info("  Test memory file: %s", test_memory_file)
+            
+            # Test write
+            try:
+                test_memory_file.write_text(test_content, encoding="utf-8")
+                _logger.info("[ApiMemoryMiddleware] ✓ Write test passed")
+            except Exception as write_err:
+                _logger.error(
+                    "[ApiMemoryMiddleware] ❌ WRITE TEST FAILED: %s: %s",
+                    type(write_err).__name__,
+                    str(write_err),
+                )
+                return
+            
+            # Test read
+            try:
+                read_content = test_memory_file.read_text(encoding="utf-8")
+                if read_content == test_content:
+                    _logger.info("[ApiMemoryMiddleware] ✓ Read test passed")
+                    _logger.info("  Read content verified (%d bytes)", len(read_content))
+                    _logger.info("[ApiMemoryMiddleware] ✓ All memory file access tests passed")
+                else:
+                    _logger.warning(
+                        "[ApiMemoryMiddleware] ⚠️  READ TEST WARNING: Content mismatch"
+                    )
+                    _logger.warning("  Expected length: %d bytes", len(test_content))
+                    _logger.warning("  Actual length: %d bytes", len(read_content))
+            except Exception as read_err:
+                _logger.error(
+                    "[ApiMemoryMiddleware] ❌ READ TEST FAILED: %s: %s",
+                    type(read_err).__name__,
+                    str(read_err),
+                )
+                return
+            
+            # Clean up test file and directory
+            try:
+                test_memory_file.unlink(missing_ok=True)
+                # Only remove directory if it's empty (don't remove if user has other files)
+                try:
+                    test_user_dir.rmdir()
+                    _logger.info("[ApiMemoryMiddleware] ✓ Cleanup test passed")
+                except OSError:
+                    # Directory not empty or other error - that's fine, leave it
+                    pass
+            except Exception as cleanup_err:
+                _logger.warning(
+                    "[ApiMemoryMiddleware] ⚠️  Cleanup warning (non-fatal): %s: %s",
+                    type(cleanup_err).__name__,
+                    str(cleanup_err),
+                )
+                
+        except Exception as e:
+            _logger.error(
+                "[ApiMemoryMiddleware] ❌ MEMORY FILE TEST ERROR: %s: %s",
+                type(e).__name__,
+                str(e),
+            )
+            import traceback
+            _logger.debug("[ApiMemoryMiddleware] Traceback:\n%s", traceback.format_exc())
+
+
+def create_business_cofounder_agent(
+    *, 
+    agent_id: str, 
+    provider: str = "qwen",
+    user_id: str | None = None,  # Deprecated: kept for backward compatibility, not used (middleware handles it)
+    conversation_id: str | None = None,  # Deprecated: kept for backward compatibility, not used (middleware handles it)
+) -> tuple[object, Path]:
     """Create the Business Co-Founder deep agent (shared across users; state isolated by thread_id).
+
+    Memory paths are injected dynamically via ApiMemoryMiddleware based on user_id and
+    conversation_id from request metadata. The user_id and conversation_id parameters
+    are deprecated and kept only for backward compatibility.
 
     Args:
         agent_id: Identifier for the agent
         provider: Model provider to use ("qwen" or "deepseek", default: "qwen")
+        user_id: Deprecated - not used (middleware extracts from metadata)
+        conversation_id: Deprecated - not used (middleware extracts from thread_id)
 
     Returns:
         (agent_graph, checkpoints_path)
@@ -158,6 +518,8 @@ def create_business_cofounder_agent(*, agent_id: str, provider: str = "qwen") ->
 
     base_dir.mkdir(parents=True, exist_ok=True)
     docs_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Note: Memory directories are created on-demand by the middleware when needed
 
     # CLI-created agents typically have ~/.deepagents/<agent_id>/agent.md injected into prompts.
     # Our API runs without the CLI, so we support an API-local agent.md at:
@@ -185,7 +547,7 @@ def create_business_cofounder_agent(*, agent_id: str, provider: str = "qwen") ->
         )
 
     agent_md = agent_md_path.read_text(encoding="utf-8").strip()
-    memory_prefix = f"<agent_md>\\n{agent_md}\\n</agent_md>\\n\\n" if agent_md else ""
+    global_memory_prefix = f"<agent_md>\\n{agent_md}\\n</agent_md>\\n\\n" if agent_md else ""
 
     _copy_example_skills_if_missing(dest_skills_dir=skills_dir)
 
@@ -292,11 +654,15 @@ def create_business_cofounder_agent(*, agent_id: str, provider: str = "qwen") ->
     
     virtual_skills_middleware = VirtualPathSkillsMiddleware(base_skills_middleware, skills_dir)
     
+    # Create API memory middleware to inject user/conversation memory paths dynamically
+    api_memory_middleware = ApiMemoryMiddleware(base_dir=base_dir)
+    
     middleware = [
         LanguageDetectionMiddleware(),
         BusinessIdeaTrackerMiddleware(),
         BusinessIdeaDevelopmentMiddleware(strict_todo_sync=True),
         virtual_skills_middleware,
+        api_memory_middleware,  # Injects memory paths based on user_id/conversation_id from metadata
         AihehuoMiddleware(),  # Provides aihehuo_search_members and aihehuo_search_ideas tools
         AssetUploadMiddleware(
             backend_root=str(base_dir),  # Backend root is base_dir, not cwd
@@ -345,13 +711,21 @@ If the user is asking to **find co-founders, partners, investors, or search the 
     if routing_rules:
         middleware.append(SubagentRoutingMiddleware(rules=routing_rules))
 
+    # Build system prompt with global memory (user/conversation memory injected dynamically by middleware)
+    system_prompt_parts = []
+    if global_memory_prefix:
+        system_prompt_parts.append(global_memory_prefix)
+    system_prompt_parts.append("You are a business co-founder assistant helping entrepreneurs develop their startup ideas.")
+    
+    system_prompt = "\n".join(system_prompt_parts)
+
     agent = create_deep_agent(
         model=model,
         backend=backend,
         checkpointer=checkpointer,
         subagents=subagents,
         middleware=middleware,
-        system_prompt=memory_prefix + "You are a business co-founder assistant helping entrepreneurs develop their startup ideas.",
+        system_prompt=system_prompt,
     )
 
     return agent, checkpoints_path

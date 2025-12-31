@@ -734,7 +734,6 @@ def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
         
         # Print callback payload for debugging/monitoring
         callback_type = serialized_message.get("type", "unknown")
-        print(f"[_invoke_callback] Sending callback ({callback_type}): {serialized_message}")
         
         _logger.debug(
             "_invoke_callback - sending to %s (payload_keys=%s, message_id=%s)",
@@ -757,7 +756,7 @@ def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
         response.raise_for_status()
     except Exception as e:  # noqa: BLE001
         # Log error but don't raise - we don't want callback failures to stop the stream
-        _logger.warning(
+        _logger.error(
             "Failed to invoke callback URL %s: %s: %s (payload_keys=%s)",
             callback_url,
             type(e).__name__,
@@ -936,6 +935,37 @@ def _run_async_stream_with_callback(
                     "metadata": {"user_id": user_id, **metadata},
                 }
                 _logger.debug("_run_async_stream_with_callback - config: %s", config)
+                
+                # Get current state from checkpoint to see existing messages
+                try:
+                    current_state_snapshot = await agent.aget_state(config)
+                    if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+                        state_messages = current_state_snapshot.values.get("messages", [])
+                        message_count = len(state_messages) if isinstance(state_messages, list) else 0
+                        first_message = None
+                        if state_messages and isinstance(state_messages, list) and len(state_messages) > 0:
+                            first_msg = state_messages[0]
+                            if hasattr(first_msg, "content"):
+                                first_content = str(first_msg.content)
+                                first_message = first_content[:200] + ("..." if len(first_content) > 200 else "")
+                            else:
+                                first_message = str(first_msg)[:200]
+                        
+                        _logger.warning(
+                            "[State Check] Before agent.astream - State has %d messages. First message: %s",
+                            message_count,
+                            first_message if first_message else "N/A",
+                        )
+                    else:
+                        _logger.warning(
+                            "[State Check] Before agent.astream - Could not retrieve state from checkpoint"
+                        )
+                except Exception as state_err:  # noqa: BLE001
+                    _logger.warning(
+                        "[State Check] Before agent.astream - Error getting state: %s: %s",
+                        type(state_err).__name__,
+                        str(state_err),
+                    )
                 
                 chunk_count = 0
                 try:
@@ -1157,10 +1187,34 @@ def _run_async_stream_with_callback(
                     
                     if fallback_agent is not None:
                         try:
+                            # Get current state from checkpoint to use summarized messages if available
+                            # This ensures the fallback agent uses the same state as the primary agent
+                            try:
+                                current_state_snapshot = await agent.aget_state(config)
+                                if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+                                    fallback_state = current_state_snapshot.values
+                                    _logger.info(
+                                        "[ModelFallback] Using current state from checkpoint for fallback agent (messages: %d)",
+                                        len(fallback_state.get("messages", [])) if isinstance(fallback_state.get("messages"), list) else 0,
+                                    )
+                                else:
+                                    # Fallback to initial_state if we can't get current state
+                                    fallback_state = initial_state
+                                    _logger.warning(
+                                        "[ModelFallback] Could not get current state, using initial_state for fallback"
+                                    )
+                            except Exception as state_error:  # noqa: BLE001
+                                # If getting state fails, use initial_state
+                                _logger.warning(
+                                    "[ModelFallback] Error getting current state for fallback: %s, using initial_state",
+                                    str(state_error),
+                                )
+                                fallback_state = initial_state
+                            
                             # Reset chunk count for fallback stream
                             chunk_count = 0
                             async for chunk in fallback_agent.astream(
-                                initial_state,
+                                fallback_state,
                                 config=config,
                                 stream_mode=["messages", "updates"],
                                 subgraphs=True,

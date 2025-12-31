@@ -162,52 +162,168 @@ def _build_memory_documentation(user_id: str | None, conversation_id: str | None
     conversation_memory_path = f"/users/{user_id}/conversations/{conversation_id}/agent.md" if conversation_id else None
     
     memory_docs = f"""
-## Long-term Memory
+## Long-term Memory (CRITICAL - MUST USE)
+
+Your memory is stored in files on the filesystem and **persists across all sessions**. This is how you remember user preferences, business ideas, and important context. **Memory writing is NOT optional - it is expected behavior.**
+
+### Memory Structure
 
 Your memory is organized in two tiers:
 
 **User Memory**: `{user_memory_path}`
-- Stores user preferences, communication style, general behavior
-- Shared across ALL conversations for this user
-- Update when user provides feedback or changes preferences
+- Stores user preferences, communication style, general behavior patterns
+- **Shared across ALL conversations for this user**
+- **CRITICAL**: Update this when user provides feedback, changes preferences, or describes how you should behave
 
 """
     
     if conversation_memory_path:
         memory_docs += f"""**Conversation Memory**: `{conversation_memory_path}`
-- Stores business idea context, progress, decisions for THIS conversation
-- Isolated per conversation
-- Update as the business idea develops
+- Stores business idea context, progress, decisions, and milestones for THIS conversation
+- **Isolated per conversation** - each conversation has its own memory
+- **CRITICAL**: Update this as the business idea develops, when milestones are reached, or when important decisions are made
 
 """
     
-    memory_docs += """**Accessing Memory**:
-- Read: Use `read_file` tool with the memory path (e.g., `read_file '/users/{user_id}/agent.md'`)
-- Update: Use `edit_file` or `write_file` tools with the memory path
-- Check what exists: Use `ls` tool to list directories (e.g., `ls '/users/{user_id}'`)
+    memory_docs += f"""### Memory-First Protocol (CRITICAL - FOLLOW THIS)
 
-**When to Read Memory**:
-- At conversation start: Check both user and conversation memory if available
-- When user asks about preferences: Read user memory
-- When continuing a business idea: Read conversation memory
-- When user references past work: Search conversation memory files
+**At conversation start (MUST DO FIRST):**
+1. Check if user memory exists: `ls '/users/{user_id}'`
+2. If user memory exists, read it: `read_file '{user_memory_path}'`
+"""
+    
+    if conversation_memory_path:
+        memory_docs += f"""3. Check if conversation memory exists: `ls '/users/{user_id}/conversations/{conversation_id}'`
+4. If conversation memory exists, read it: `read_file '{conversation_memory_path}'`
+"""
+    
+    memory_docs += f"""
+**Before answering questions:**
+- If user asks about preferences or past work → Read relevant memory files FIRST
+- If user references previous conversations → Check conversation memory
+- Base your answers on saved knowledge when available
 
-**When to Update Memory**:
-- User feedback on style/behavior → Update user memory
-- Business idea progress → Update conversation memory
-- User preferences change → Update user memory
-- Important decisions or context → Update conversation memory
+**When learning new information (MUST WRITE IMMEDIATELY):**
+- User describes your role or how you should behave → **IMMEDIATELY** update user memory
+- User gives feedback on your work → **IMMEDIATELY** update user memory with what was wrong and how to do better
+- User explicitly asks you to remember something → **IMMEDIATELY** write to appropriate memory file
+- Business idea progresses or milestone reached → **IMMEDIATELY** update conversation memory
+- Important decision made → **IMMEDIATELY** update conversation memory
 
-**Memory File Format**:
-- Memory files are Markdown (`.md`) files
-- You can read and write them using standard filesystem tools
-- If a memory file doesn't exist, you can create it with `write_file`
+### When to Update Memory (IMMEDIATE ACTION REQUIRED)
 
-**Important Notes**:
-- User memory persists across all conversations for this user
-- Conversation memory is isolated per conversation
-- Always use absolute virtual paths starting with `/` when accessing memory files
-- The global agent.md at the API root provides default instructions, but user/conversation memory takes precedence for specific context
+**Update User Memory (`{user_memory_path}`) IMMEDIATELY when:**
+- **User gives feedback on your work** - Capture what was wrong, why it was wrong, and how to do it better
+- **User describes your role or behavior** - Update your instructions to reflect their guidance
+- **User preferences change** - Communication style, tone, format preferences
+- **User says "remember X" or "be careful about Y"** - Treat as HIGH PRIORITY, write immediately
+- **Patterns emerge** - Coding styles, conventions, workflows that apply across all conversations
+"""
+    
+    if conversation_memory_path:
+        memory_docs += f"""
+**Update Conversation Memory (`{conversation_memory_path}`) IMMEDIATELY when:**
+- **Business idea develops** - New features, pivots, or refinements
+- **Milestones are reached** - Mark progress and capture what was accomplished
+- **Important decisions are made** - Architecture choices, technology selections, business model decisions
+- **Context accumulates** - User provides background, market research, or competitive analysis
+- **User references past work in this conversation** - Ensure continuity is maintained
+"""
+
+    memory_docs += """
+### Learning from Feedback (CRITICAL)
+
+**When user gives feedback:**
+- **Don't just fix the immediate issue** - Update your memory to capture the underlying principle
+- **Capture WHY** something was better/worse, not just what was wrong
+- **Encode as a pattern** - Turn corrections into permanent instructions
+- **Look for the underlying principle** behind corrections, not just the specific mistake
+- **Each correction is a chance to improve permanently** - Update memories IMMEDIATELY
+
+**Example:**
+- User says: "Don't use bullet points, write in paragraphs"
+- **WRONG**: Just write in paragraphs for this response
+- **RIGHT**: Update user memory: "User prefers paragraph format over bullet points. Always use prose, not lists."
+"""
+
+    memory_docs += f"""
+### How to Access Memory (Exact Tool Calls)
+
+**Reading Memory:**
+```
+read_file '{user_memory_path}'
+"""
+    
+    if conversation_memory_path:
+        memory_docs += f"""read_file '{conversation_memory_path}'
+"""
+    
+    memory_docs += f"""ls '/users/{user_id}'
+"""
+    
+    if conversation_memory_path:
+        memory_docs += f"""ls '/users/{user_id}/conversations/{conversation_id}'
+"""
+    
+    memory_docs += f"""```
+
+**Writing Memory (Use these exact paths):**
+```
+# Create or update user memory
+write_file '{user_memory_path}' '# User Preferences\\n\\n[content here]'
+
+# Or edit existing user memory
+edit_file '{user_memory_path}' [old_string] [new_string]
+"""
+    
+    if conversation_memory_path:
+        memory_docs += f"""
+# Create or update conversation memory
+write_file '{conversation_memory_path}' '# Business Idea: [title]\\n\\n[content here]'
+
+# Or edit existing conversation memory
+edit_file '{conversation_memory_path}' [old_string] [new_string]
+"""
+    
+    memory_docs += f"""
+### Example Memory File Content
+
+**User Memory (`{user_memory_path}`) should contain:**
+- Communication style preferences (tone, format, length)
+- Coding preferences (style, conventions, tools)
+- Workflow preferences (how you should approach tasks)
+- Feedback patterns (what to avoid, what to emphasize)
+- General behavior guidelines
+"""
+    
+    if conversation_memory_path:
+        memory_docs += f"""
+**Conversation Memory (`{conversation_memory_path}`) should contain:**
+- Business idea description and current state
+- Key decisions and rationale
+- Milestones reached and progress made
+- Important context (market, competition, user needs)
+- Next steps and planned actions
+"""
+    
+    memory_docs += f"""
+### CRITICAL Reminders
+
+- **Memory files persist across ALL sessions** - What you write now will be available in future conversations
+- **Always use absolute virtual paths** starting with `/` (e.g., `'{user_memory_path}'`)
+- **If a memory file doesn't exist, create it** with `write_file` - don't wait for it to exist
+- **Memory writing is expected behavior** - Not writing memory when you should is a failure
+- **IMMEDIATELY means IMMEDIATELY** - Don't delay memory updates, do them as soon as the trigger occurs
+- **User memory takes precedence** over global agent.md for user-specific context
+"""
+    
+    if conversation_memory_path:
+        memory_docs += f"""
+- **Conversation memory is isolated** - Each conversation has its own memory file
+"""
+    
+    memory_docs += """
+**Remember: Your memory is how you learn and improve. Writing to memory is not optional - it is how you become better over time.**
 
 """
     

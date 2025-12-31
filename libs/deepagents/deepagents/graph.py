@@ -6,8 +6,6 @@ from typing import Any
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware, InterruptOnConfig, TodoListMiddleware
 from langchain.agents.middleware.summarization import SummarizationMiddleware
-
-from deepagents.middleware.async_summarization import AsyncSummarizationMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.agents.structured_output import ResponseFormat
 from langchain_anthropic import ChatAnthropic
@@ -24,8 +22,7 @@ from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
 # from deepagents.middleware.summarization_logging import LoggingSummarizationMiddleware
-# Commented out: SummarizationMiddleware from langchain doesn't support async (no awrap_model_call),
-# so wrapping it causes NotImplementedError in async contexts
+# Note: LangChain's SummarizationMiddleware now supports async calls (astream, ainvoke, etc.)
 
 BASE_AGENT_PROMPT = "In order to complete the objective that the user asks of you, you have access to a number of standard tools."
 
@@ -109,10 +106,12 @@ def create_deep_agent(
         and "max_input_tokens" in model.profile
         and isinstance(model.profile["max_input_tokens"], int)
     ):
-        trigger = ("fraction", 0.85)
+        # Use fraction-based trigger (50% for testing, can be changed to 0.85 for production)
+        trigger = ("fraction", 0.50)
         keep = ("fraction", 0.10)
     else:
-        trigger = ("tokens", 170000)
+        # Use absolute token trigger (50000 for testing, can be changed to 170000 for production)
+        trigger = ("tokens", 50000)
         keep = ("messages", 6)
 
     deepagent_middleware = [
@@ -125,11 +124,10 @@ def create_deep_agent(
             default_middleware=[
                 TodoListMiddleware(),
                 FilesystemMiddleware(backend=backend),
-                AsyncSummarizationMiddleware(
+                SummarizationMiddleware(
                     model=model,
                     trigger=trigger,
                     keep=keep,
-                    trim_tokens_to_summarize=None,
                 ),
                 AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
                 PatchToolCallsMiddleware(),
@@ -137,11 +135,10 @@ def create_deep_agent(
             default_interrupt_on=interrupt_on,
             general_purpose_agent=True,
         ),
-        AsyncSummarizationMiddleware(
+        SummarizationMiddleware(
             model=model,
             trigger=trigger,
             keep=keep,
-            trim_tokens_to_summarize=None,
         ),
         AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
         PatchToolCallsMiddleware(),

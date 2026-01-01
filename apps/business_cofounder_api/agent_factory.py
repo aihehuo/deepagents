@@ -164,7 +164,27 @@ def _build_memory_documentation(user_id: str | None, conversation_id: str | None
     memory_docs = f"""
 ## Long-term Memory (CRITICAL - MUST USE)
 
-Your memory is stored in files on the filesystem and **persists across all sessions**. This is how you remember user preferences, business ideas, and important context. **Memory writing is NOT optional - it is expected behavior.**
+Your memory is stored in files on the filesystem and **persists across all sessions**. This is how you remember user preferences, business ideas, and important context. **Memory writing is expected behavior when appropriate.**
+
+### When to Write to Memory
+
+**Use your judgment to determine when information should be written to memory. Consider writing to memory when:**
+
+**User Memory (`{user_memory_path}`) - Write when:**
+- User provides feedback on your work, style, or behavior
+- User expresses preferences about how you should communicate or respond
+- User describes how you should behave or what your role should be
+- User gives corrections or guidance that should apply to future conversations
+- Patterns emerge in user preferences that would be useful to remember
+
+**Conversation Memory (`{conversation_memory_path}`) - Write when:**
+- User shares a business idea or describes their startup concept
+- Business idea develops, pivots, or is refined
+- Important decisions are made about the business
+- User provides context, background, or market information relevant to the business idea
+- Milestones are reached or progress is made on the business idea
+
+**Key Principle**: If information would be valuable to remember for future interactions (user preferences) or for continuing this conversation (business context), write it to memory. Use your judgment to determine what's significant enough to remember.
 
 ### Memory Structure
 
@@ -198,52 +218,90 @@ Your memory is organized in two tiers:
 """
     
     memory_docs += f"""
-**Before answering questions:**
-- If user asks about preferences or past work → Read relevant memory files FIRST
-- If user references previous conversations → Check conversation memory
-- Base your answers on saved knowledge when available
+### Memory Writing Workflow
 
-**When learning new information (MUST WRITE IMMEDIATELY):**
-- User describes your role or how you should behave → **IMMEDIATELY** update user memory
-- User gives feedback on your work → **IMMEDIATELY** update user memory with what was wrong and how to do better
-- User explicitly asks you to remember something → **IMMEDIATELY** write to appropriate memory file
-- Business idea progresses or milestone reached → **IMMEDIATELY** update conversation memory
-- Important decision made → **IMMEDIATELY** update conversation memory
+**For each user message, consider:**
 
-### When to Update Memory (IMMEDIATE ACTION REQUIRED)
+1. **Read existing memory first** (if available):
+   - Check if user memory exists: `ls '/users/{user_id}'`
+   - If it exists, read it: `read_file '{user_memory_path}'`
+   - If conversation memory exists, read it: `read_file '{conversation_memory_path}'`
+   - Use this context to inform your response
 
-**Update User Memory (`{user_memory_path}`) IMMEDIATELY when:**
-- **User gives feedback on your work** - Capture what was wrong, why it was wrong, and how to do it better
-- **User describes your role or behavior** - Update your instructions to reflect their guidance
-- **User preferences change** - Communication style, tone, format preferences
-- **User says "remember X" or "be careful about Y"** - Treat as HIGH PRIORITY, write immediately
-- **Patterns emerge** - Coding styles, conventions, workflows that apply across all conversations
+2. **Evaluate if memory writing is needed**:
+   - Does the user message contain information that should be remembered?
+   - Is this a preference, feedback, or important context?
+   - Would this information be useful in future interactions?
+   - **If yes, you must write to the appropriate memory file using `write_file` or `edit_file` BEFORE responding to the user**
+
+3. **Then respond to the user** with your answer or action
+
+**Critical**: When you identify information worth remembering, you must actually call the `write_file` or `edit_file` tool. Simply acknowledging the information in your response is not sufficient - you need to persist it to memory files.
 """
     
-    if conversation_memory_path:
-        memory_docs += f"""
-**Update Conversation Memory (`{conversation_memory_path}`) IMMEDIATELY when:**
-- **Business idea develops** - New features, pivots, or refinements
-- **Milestones are reached** - Mark progress and capture what was accomplished
-- **Important decisions are made** - Architecture choices, technology selections, business model decisions
-- **Context accumulates** - User provides background, market research, or competitive analysis
-- **User references past work in this conversation** - Ensure continuity is maintained
+    memory_docs += f"""
+### Memory Writing Examples
+
+**Example 1: User Feedback**
+```
+User: "I've noticed your responses are quite long. I prefer shorter, more concise answers that get to the point quickly."
+Your Actions:
+1. Recognize this as user feedback about communication style that should be remembered
+2. IMMEDIATELY call the write_file tool: write_file('{user_memory_path}', '# User Preferences\\n\\nUser prefers shorter, more concise responses. Keep answers brief and to the point.')
+3. Wait for the tool call to complete
+4. Then respond to the user acknowledging the feedback
+
+Note: You MUST call the write_file tool - simply acknowledging the feedback in your response is not enough. The memory file must be created/updated.
+```
+
+**Example 2: Business Idea**
+```
+User: "I have an idea for a food delivery app that connects local restaurants with customers in underserved neighborhoods."
+Your Actions:
+1. Recognize this as a business idea that should be remembered
+2. IMMEDIATELY call the write_file tool: write_file('{conversation_memory_path}', '# Business Idea\\n\\nFood delivery app connecting local restaurants with customers in underserved neighborhoods. [Capture additional details from conversation]')
+3. Wait for the tool call to complete
+4. Then respond to the user
+
+Note: You MUST call the write_file tool to persist the business idea to memory.
+```
+
+**Example 3: User Preference**
+```
+User: "I find it easier to process information when it's in bullet points rather than long paragraphs. Please use that format going forward."
+Your Actions:
+1. Recognize this as a formatting preference that should be remembered
+2. IMMEDIATELY call the edit_file tool: edit_file('{user_memory_path}', '[old content]', '[old content]\\n\\nUser prefers bullet points over paragraph format. Use lists when presenting information.')
+3. Wait for the tool call to complete
+4. Then respond to the user
+
+Note: You MUST call the edit_file tool - simply saying you'll remember is not enough.
+```
 """
+    
+    memory_docs += f"""
+### Memory Writing Decision Process
 
-    memory_docs += """
-### Learning from Feedback (CRITICAL)
+**When processing a user message, think through:**
 
-**When user gives feedback:**
-- **Don't just fix the immediate issue** - Update your memory to capture the underlying principle
-- **Capture WHY** something was better/worse, not just what was wrong
-- **Encode as a pattern** - Turn corrections into permanent instructions
-- **Look for the underlying principle** behind corrections, not just the specific mistake
-- **Each correction is a chance to improve permanently** - Update memories IMMEDIATELY
+1. **Does this contain user preferences or feedback?**
+   - User expresses how they want you to communicate or behave
+   - User gives feedback on your work or style
+   - User describes preferences that should apply to future conversations
+   - **If yes**: Write to `'{user_memory_path}'` using `write_file` or `edit_file` to remember this for future conversations
 
-**Example:**
-- User says: "Don't use bullet points, write in paragraphs"
-- **WRONG**: Just write in paragraphs for this response
-- **RIGHT**: Update user memory: "User prefers paragraph format over bullet points. Always use prose, not lists."
+2. **Does this contain business idea information?**
+   - User shares a business idea or startup concept
+   - User describes progress on their business idea
+   - User makes decisions about their business
+   - **If yes**: Write to `'{conversation_memory_path}'` using `write_file` or `edit_file` to track the business idea development
+
+3. **Does this contain important context?**
+   - User provides background information relevant to the conversation
+   - User shares information that would help in future interactions
+   - **If yes**: Write to the appropriate memory file
+
+**Action Required**: When you identify information that should be remembered (preferences, feedback, business ideas, important context), you need to actually call the `write_file` or `edit_file` tool on the appropriate memory path. Simply acknowledging the information is not enough - you must write it to memory so it persists for future use.
 """
 
     memory_docs += f"""
@@ -263,10 +321,10 @@ read_file '{user_memory_path}'
     
     if conversation_memory_path:
         memory_docs += f"""ls '/users/{user_id}/conversations/{conversation_id}'
+```
 """
     
-    memory_docs += f"""```
-
+    memory_docs += f"""
 **Writing Memory (Use these exact paths):**
 ```
 # Create or update user memory
@@ -283,6 +341,7 @@ write_file '{conversation_memory_path}' '# Business Idea: [title]\\n\\n[content 
 
 # Or edit existing conversation memory
 edit_file '{conversation_memory_path}' [old_string] [new_string]
+```
 """
     
     memory_docs += f"""
@@ -342,11 +401,13 @@ class ApiMemoryMiddleware(AgentMiddleware):
     
     def __init__(self, base_dir: Path):
         """Initialize the API memory middleware.
-        
+
         Args:
             base_dir: Base directory for the API (~/.deepagents/business_cofounder_api)
         """
         self.base_dir = base_dir
+        # Store user_id and conversation_id per thread to avoid relying on state timing
+        self._thread_context: dict[str, dict[str, str | None]] = {}
         # Test memory file write/read during initialization to verify filesystem permissions
         self._test_memory_file_access()
     
@@ -356,40 +417,74 @@ class ApiMemoryMiddleware(AgentMiddleware):
         runtime: Runtime,
     ) -> dict[str, Any] | None:
         """Extract user_id and conversation_id from runtime config metadata.
-        
+
         Also ensures memory directories exist for the user and conversation.
-        
+        Stores the context in the middleware instance for use in wrap_model_call.
+
         Args:
             state: Current agent state
             runtime: Runtime context with config
-            
+
         Returns:
             Updated state with user_id and conversation_id if available
         """
         updates: dict[str, Any] = {}
-        
+
         # Extract metadata from config
-        config = runtime.config if hasattr(runtime, "config") else {}
-        metadata = config.get("metadata", {})
-        
+        # Try runtime.config first, then fallback to langgraph.config.get_config()
+        config = {}
+        if hasattr(runtime, "config") and runtime.config:
+            config = runtime.config
+        else:
+            # Fallback: try to get config from LangGraph's context
+            try:
+                from langgraph.config import get_config
+                config = get_config()
+            except Exception:
+                pass
+
+        metadata = config.get("metadata", {}) if isinstance(config, dict) else {}
+        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        thread_id = configurable.get("thread_id", "") if isinstance(configurable, dict) else ""
+
+        # Debug output
+        # print(f"\n[ApiMemoryMiddleware.before_agent] Config type: {type(config)}")
+        # print(f"[ApiMemoryMiddleware.before_agent] Config keys: {list(config.keys()) if isinstance(config, dict) else 'not a dict'}")
+        # print(f"[ApiMemoryMiddleware.before_agent] Metadata: {metadata}")
+        # print(f"[ApiMemoryMiddleware.before_agent] Configurable: {configurable}")
+        # print(f"[ApiMemoryMiddleware.before_agent] Thread ID: {thread_id}")
+
         user_id = metadata.get("user_id")
         conversation_id = None
-        
+
+        # print(f"[ApiMemoryMiddleware.before_agent] Extracted user_id: {user_id}")
+
         if user_id and isinstance(user_id, str):
             updates["user_id"] = user_id
             # Extract conversation_id from thread_id if available
             # thread_id format: "bc::{user_id}::{conversation_id}"
-            configurable = config.get("configurable", {})
-            thread_id = configurable.get("thread_id", "")
             if thread_id.startswith("bc::") and "::" in thread_id[4:]:
                 parts = thread_id.split("::")
                 if len(parts) >= 3:
                     conversation_id = parts[2]
                     updates["conversation_id"] = conversation_id
-            
+                    print(f"[ApiMemoryMiddleware.before_agent] Extracted conversation_id from thread_id: {conversation_id}")
+
+            # Store in middleware instance for use in wrap_model_call
+            # This ensures we have the context even if state isn't updated yet
+            self._thread_context[thread_id] = {
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+            }
+            # print(f"[ApiMemoryMiddleware.before_agent] Stored context for thread_id '{thread_id}': user_id={user_id}, conversation_id={conversation_id}")
+            # print(f"[ApiMemoryMiddleware.before_agent] Thread context keys after store: {list(self._thread_context.keys())}")
+
             # Ensure memory directories exist
             _ensure_memory_directories_exist(self.base_dir, user_id, conversation_id)
-        
+        else:
+            print(f"[ApiMemoryMiddleware.before_agent] No user_id found or user_id is not a string. user_id={user_id}, type={type(user_id)}")
+
+        # print(f"[ApiMemoryMiddleware.before_agent] Returning updates: {updates}")
         return updates if updates else None
     
     def wrap_model_call(
@@ -398,18 +493,40 @@ class ApiMemoryMiddleware(AgentMiddleware):
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
         """Inject memory documentation into system prompt based on user/conversation context.
-        
+
         Args:
             request: The model request being processed
             handler: The handler function to call with the modified request
-            
+
         Returns:
             The model response from the handler
         """
-        # Get user_id and conversation_id from state
+        # Try to get user_id and conversation_id from state first
         state = cast("ApiMemoryState", request.state)
         user_id = state.get("user_id")
         conversation_id = state.get("conversation_id")
+        
+        # Debug: Print state contents
+        # print(f"\n[ApiMemoryMiddleware.wrap_model_call] State keys: {list(state.keys())}")
+        # print(f"[ApiMemoryMiddleware.wrap_model_call] user_id from state: {user_id}")
+        # print(f"[ApiMemoryMiddleware.wrap_model_call] conversation_id from state: {conversation_id}")
+        # print(f"[ApiMemoryMiddleware.wrap_model_call] Thread context keys: {list(self._thread_context.keys())}")
+        
+        # Fallback: try to get from middleware instance context (set in before_agent)
+        # This handles cases where state hasn't been updated yet
+        if not user_id and self._thread_context:
+            # Use the first available context (for single-threaded tests)
+            if len(self._thread_context) == 1:
+                context = next(iter(self._thread_context.values()))
+                user_id = context.get("user_id")
+                conversation_id = context.get("conversation_id")
+                print(f"[ApiMemoryMiddleware.wrap_model_call] Using fallback context: user_id={user_id}, conversation_id={conversation_id}")
+        
+        # If still no user_id, try to extract from any available source
+        # This is a last resort for cases where before_agent didn't run or config wasn't available
+        if not user_id:
+            print(f"[ApiMemoryMiddleware.wrap_model_call] Still no user_id after all checks. Attempting to extract from state messages or other sources...")
+            # Could try to extract from messages or other state fields if needed
         
         # Build memory documentation if we have user context
         memory_docs = _build_memory_documentation(user_id, conversation_id)
@@ -421,9 +538,24 @@ class ApiMemoryMiddleware(AgentMiddleware):
             else:
                 system_prompt = memory_docs
             
+            # Log the complete system prompt for debugging (use print for pytest visibility)
+            # print("\n" + "=" * 80)
+            # print("COMPLETE SYSTEM PROMPT (with memory documentation) - SYNC")
+            # print("=" * 80)
+            # print(system_prompt)
+            # print("=" * 80)
+            # print("END OF SYSTEM PROMPT")
+            # print("=" * 80 + "\n")
+            _logger.info("System prompt with memory docs injected (user_id=%s, conversation_id=%s)", user_id, conversation_id)
+
             return handler(request.override(system_prompt=system_prompt))
         
         # No user context, pass through unchanged
+        # print("\n" + "=" * 80)
+        # print("SYSTEM PROMPT (no user context, no memory docs) - SYNC")
+        # print("=" * 80)
+        # print(request.system_prompt or "(empty)")
+        # print("=" * 80 + "\n")
         return handler(request)
     
     async def awrap_model_call(
@@ -432,10 +564,21 @@ class ApiMemoryMiddleware(AgentMiddleware):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
         """Async version of wrap_model_call."""
-        # Get user_id and conversation_id from state
+        # Try to get user_id and conversation_id from state first
         state = cast("ApiMemoryState", request.state)
         user_id = state.get("user_id")
         conversation_id = state.get("conversation_id")
+        
+        # Fallback: try to get from middleware instance context (set in before_agent)
+        # This handles cases where state hasn't been updated yet
+        if not user_id and hasattr(request, "config"):
+            config = getattr(request, "config", {})
+            configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+            thread_id = configurable.get("thread_id", "")
+            if thread_id in self._thread_context:
+                context = self._thread_context[thread_id]
+                user_id = context.get("user_id")
+                conversation_id = context.get("conversation_id")
         
         # Build memory documentation if we have user context
         memory_docs = _build_memory_documentation(user_id, conversation_id)
@@ -447,9 +590,24 @@ class ApiMemoryMiddleware(AgentMiddleware):
             else:
                 system_prompt = memory_docs
             
+            # Log the complete system prompt for debugging (use print for pytest visibility)
+            # print("\n" + "=" * 80)
+            # print("COMPLETE SYSTEM PROMPT (with memory documentation) - ASYNC")
+            # print("=" * 80)
+            # print(system_prompt)
+            # print("=" * 80)
+            # print("END OF SYSTEM PROMPT")
+            # print("=" * 80 + "\n")
+            _logger.info("System prompt with memory docs injected (user_id=%s, conversation_id=%s)", user_id, conversation_id)
+
             return await handler(request.override(system_prompt=system_prompt))
         
         # No user context, pass through unchanged
+        # print("\n" + "=" * 80)
+        # print("SYSTEM PROMPT (no user context, no memory docs) - ASYNC")
+        # print("=" * 80)
+        # print(request.system_prompt or "(empty)")
+        # print("=" * 80 + "\n")
         return await handler(request)
     
     def _test_memory_file_access(self) -> None:

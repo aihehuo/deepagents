@@ -719,12 +719,15 @@ def _serialize_for_json(obj: Any) -> Any:
     return str(obj)
 
 
-def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
+def _invoke_callback(callback_url: str, message: dict[str, Any]) -> bool:
     """Invoke the callback URL with the given message payload.
     
     Args:
         callback_url: The URL to POST to
         message: The message payload to send (will be JSON serialized)
+    
+    Returns:
+        True if interrupt signal was detected in response, False otherwise
     """
     try:
         import requests
@@ -735,11 +738,16 @@ def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
         # Print callback payload for debugging/monitoring
         callback_type = serialized_message.get("type", "unknown")
         
-        _logger.debug(
-            "_invoke_callback - sending to %s (payload_keys=%s, message_id=%s)",
+        _logger.info(
+            "_invoke_callback - sending to %s (type=%s, payload_keys=%s, message_id=%s)",
             callback_url,
+            callback_type,
             list(serialized_message.keys()),
             serialized_message.get("message_id"),
+        )
+        _logger.debug(
+            "_invoke_callback - request payload: %s",
+            serialized_message,
         )
         
         response = requests.post(
@@ -748,12 +756,56 @@ def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
             headers={"Content-Type": "application/json"},
             timeout=30,
         )
-        _logger.debug(
-            "_invoke_callback - response status=%d (callback_url=%s)",
+        
+        # Log response data - always print full response
+        response_text = response.text if hasattr(response, "text") else "N/A"
+        _logger.info(
+            "_invoke_callback - response received: status_code=%d, url=%s",
             response.status_code,
             callback_url,
         )
+        _logger.info(
+            "_invoke_callback - response text (full): %s",
+            response_text,
+        )
+        
+        # Try to parse and log response body, and check for interrupt signal
+        interrupted = False
+        try:
+            response_data = response.json()
+            _logger.info(
+                "_invoke_callback - response data (parsed JSON): %s",
+                response_data,
+            )
+            _logger.info(
+                "_invoke_callback - response data type: %s, keys: %s",
+                type(response_data).__name__,
+                list(response_data.keys()) if isinstance(response_data, dict) else "N/A",
+            )
+            
+            # Check for interrupt signal
+            if isinstance(response_data, dict) and response_data.get("action") == "interrupt":
+                interrupted = True
+                _logger.info(
+                    "_invoke_callback - Interrupt signal detected in callback response: url=%s",
+                    callback_url,
+                )
+        except (ValueError, json.JSONDecodeError) as json_err:
+            # Response is not JSON - log text instead
+            _logger.warning(
+                "_invoke_callback - response is not valid JSON: error=%s, response_text=%s",
+                str(json_err),
+                response_text,
+            )
+        except Exception as parse_err:  # noqa: BLE001
+            _logger.warning(
+                "_invoke_callback - error parsing response: error=%s, response_text=%s",
+                str(parse_err),
+                response_text,
+            )
+        
         response.raise_for_status()
+        return interrupted
     except Exception as e:  # noqa: BLE001
         # Log error but don't raise - we don't want callback failures to stop the stream
         _logger.error(
@@ -763,6 +815,7 @@ def _invoke_callback(callback_url: str, message: dict[str, Any]) -> None:
             str(e),
             list(message.keys()) if isinstance(message, dict) else "N/A",
         )
+        return False
 
 
 def _send_artifacts_callback(callback_url: str, session_id: str, artifacts: list[dict[str, Any]]) -> None:
@@ -783,7 +836,7 @@ def _send_artifacts_callback(callback_url: str, session_id: str, artifacts: list
         "artifacts": artifacts,
     }
     
-    _invoke_callback(callback_url, callback_payload)
+    _invoke_callback(callback_url, callback_payload)  # Ignore return value for artifacts callbacks
 
 
 def _send_heartbeat(callback_url: str, session_id: str) -> None:
@@ -968,6 +1021,7 @@ def _run_async_stream_with_callback(
                     )
                 
                 chunk_count = 0
+                interrupted_from_callback_response = False  # Track if we interrupted due to callback response
                 try:
                     async for chunk in agent.astream(
                         initial_state,
@@ -1126,11 +1180,213 @@ def _run_async_stream_with_callback(
                                 list(callback_payload.keys()),
                                 "message_id" in callback_payload,
                             )
-                            _invoke_callback(callback_url, callback_payload)
+                            interrupted_from_callback = _invoke_callback(callback_url, callback_payload)
+                            
+                            # If interrupt signal detected, update agent state and break
+                            if interrupted_from_callback:
+                                interrupted_from_callback_response = True
+                                _logger.info(
+                                    "_run_async_stream_with_callback - interrupt signal detected from callback (thread_id=%s), updating state and breaking stream loop",
+                                    thread_id,
+                                )
+                                try:
+                                    # Update agent state to set interrupted flag
+                                    await agent.aupdate_state(
+                                        config=config,
+                                        values={"interrupted": True},
+                                    )
+                                    _logger.info(
+                                        "_run_async_stream_with_callback - agent state updated with interrupted=True (thread_id=%s)",
+                                        thread_id,
+                                    )
+                                    break
+                                except Exception as e:  # noqa: BLE001
+                                    _logger.error(
+                                        "_run_async_stream_with_callback - failed to update agent state with interrupt: %s: %s (thread_id=%s)",
+                                        type(e).__name__,
+                                        str(e),
+                                        thread_id,
+                                    )
+                                    # Still break even if state update failed
+                                    break
                         else:
                             _logger.debug("_run_async_stream_with_callback - skipping callback (no message or status)")
+                        
+                        # Also check for interruption signal in state (from callback tool)
+                        try:
+                            current_state_snapshot = await agent.aget_state(config)
+                            if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+                                interrupted = current_state_snapshot.values.get("interrupted", False)
+                                if interrupted:
+                                    _logger.info(
+                                        "_run_async_stream_with_callback - interruption detected in state (thread_id=%s), breaking stream loop",
+                                        thread_id,
+                                    )
+                                    break
+                        except Exception as e:  # noqa: BLE001
+                            # If we can't get state, log but continue
+                            _logger.debug(
+                                "_run_async_stream_with_callback - could not check interruption state: %s: %s",
+                                type(e).__name__,
+                                str(e),
+                            )
                     
-                    _logger.info("_run_async_stream_with_callback - stream completed (thread_id=%s, total_chunks=%d)", thread_id, chunk_count)
+                    # Check if we exited due to interruption
+                    # Use both the direct flag and state check for reliability
+                    interrupted = interrupted_from_callback_response
+                    try:
+                        current_state_snapshot = await agent.aget_state(config)
+                        if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+                            state_interrupted = current_state_snapshot.values.get("interrupted", False)
+                            if state_interrupted:
+                                interrupted = True
+                    except Exception as e:  # noqa: BLE001
+                        _logger.debug(
+                            "_run_async_stream_with_callback - could not check final interruption state: %s: %s",
+                            type(e).__name__,
+                            str(e),
+                        )
+                    
+                    if interrupted:
+                        _logger.info(
+                            "_run_async_stream_with_callback - stream interrupted (thread_id=%s, from_callback_response=%s), preparing wrap-up",
+                            thread_id,
+                            interrupted_from_callback_response,
+                        )
+                        _logger.info("_run_async_stream_with_callback - stream interrupted (thread_id=%s), preparing wrap-up", thread_id)
+                        
+                        # Make a final model call for wrap-up
+                        try:
+                            # Get current state to see what todos exist
+                            current_state_snapshot = await agent.aget_state(config)
+                            todos_summary = ""
+                            if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+                                todos = current_state_snapshot.values.get("todos", [])
+                                if todos and isinstance(todos, list):
+                                    completed_todos = [t for t in todos if isinstance(t, dict) and t.get("status") == "completed"]
+                                    in_progress_todos = [t for t in todos if isinstance(t, dict) and t.get("status") == "in_progress"]
+                                    if completed_todos or in_progress_todos:
+                                        todos_summary = "\n\nCurrent todo list status:\n"
+                                        if completed_todos:
+                                            todos_summary += f"Completed ({len(completed_todos)}):\n"
+                                            for t in completed_todos:
+                                                content = t.get("content", "")
+                                                todos_summary += f"- {content}\n"
+                                        if in_progress_todos:
+                                            todos_summary += f"In progress ({len(in_progress_todos)}):\n"
+                                            for t in in_progress_todos:
+                                                content = t.get("content", "")
+                                                todos_summary += f"- {content}\n"
+                            
+                            wrap_up_prompt = f"""Your execution has been interrupted by the user. Please provide a brief wrap-up summary of what you have completed so far.
+
+Focus on:
+1. What tasks have been completed
+2. Any key findings or results from completed work
+3. What was in progress when interrupted
+4. Any important partial results or insights
+
+Be concise and focus on the most important completed work.{todos_summary}
+
+Provide your wrap-up summary now."""
+                            
+                            # Make final model call for wrap-up
+                            _logger.info(
+                                "_run_async_stream_with_callback - making wrap-up model call (thread_id=%s)",
+                                thread_id,
+                            )
+                            wrap_up_result = await agent.ainvoke(
+                                {"messages": [HumanMessage(content=wrap_up_prompt)]},
+                                config=config,
+                            )
+                            
+                            _logger.info(
+                                "_run_async_stream_with_callback - wrap-up model call completed (thread_id=%s), result_type=%s",
+                                thread_id,
+                                type(wrap_up_result).__name__,
+                            )
+                            
+                            # Extract wrap-up message from result - get the last AI message
+                            wrap_up_message = ""
+                            if isinstance(wrap_up_result, dict):
+                                messages = wrap_up_result.get("messages", [])
+                                _logger.debug(
+                                    "_run_async_stream_with_callback - wrap-up result has %d messages (thread_id=%s)",
+                                    len(messages),
+                                    thread_id,
+                                )
+                                
+                                # Find the last AI message (most recent response)
+                                for msg in reversed(messages):
+                                    msg_type = getattr(msg, "type", None) or (msg.get("type") if isinstance(msg, dict) else None)
+                                    
+                                    if msg_type == "ai" or isinstance(msg, AIMessage):
+                                        # Try multiple ways to get content
+                                        content = None
+                                        if hasattr(msg, "content"):
+                                            content = msg.content
+                                        elif hasattr(msg, "text"):
+                                            content = msg.text
+                                        elif isinstance(msg, dict):
+                                            content = msg.get("content") or msg.get("text")
+                                        
+                                        if content:
+                                            wrap_up_message = str(content).strip()
+                                            _logger.info(
+                                                "_run_async_stream_with_callback - extracted wrap-up message (length=%d, thread_id=%s)",
+                                                len(wrap_up_message),
+                                                thread_id,
+                                            )
+                                            break
+                            
+                            if wrap_up_message:
+                                # Send wrap-up callback with the final message
+                                wrap_up_callback_payload: dict[str, Any] = {
+                                    "session_id": thread_id,
+                                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                                    "type": "message",
+                                    "message": wrap_up_message,  # Don't prefix with [Interrupted] - let the model's message speak for itself
+                                }
+                                _logger.info(
+                                    "_run_async_stream_with_callback - sending wrap-up callback (thread_id=%s, message_length=%d)",
+                                    thread_id,
+                                    len(wrap_up_message),
+                                )
+                                _invoke_callback(callback_url, wrap_up_callback_payload)
+                            else:
+                                _logger.warning(
+                                    "_run_async_stream_with_callback - wrap-up call completed but no message found (thread_id=%s). Result keys: %s",
+                                    thread_id,
+                                    list(wrap_up_result.keys()) if isinstance(wrap_up_result, dict) else "N/A",
+                                )
+                                # Send a fallback message if we couldn't extract the wrap-up
+                                fallback_callback: dict[str, Any] = {
+                                    "session_id": thread_id,
+                                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                                    "type": "message",
+                                    "message": "Execution was interrupted. Unable to generate wrap-up summary.",
+                                }
+                                _invoke_callback(callback_url, fallback_callback)
+                        except Exception as e:  # noqa: BLE001
+                            _logger.error(
+                                "_run_async_stream_with_callback - error during wrap-up: %s: %s (thread_id=%s)",
+                                type(e).__name__,
+                                str(e),
+                                thread_id,
+                            )
+                            # Send a simple interruption notification even if wrap-up failed
+                            try:
+                                interruption_callback: dict[str, Any] = {
+                                    "session_id": thread_id,
+                                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                                    "type": "status",
+                                    "status": "Execution interrupted by user",
+                                }
+                                _invoke_callback(callback_url, interruption_callback)
+                            except Exception:  # noqa: BLE001
+                                pass
+                    else:
+                        _logger.info("_run_async_stream_with_callback - stream completed (thread_id=%s, total_chunks=%d)", thread_id, chunk_count)
                     
                     # Stop heartbeat before sending final callback
                     if heartbeat_task:
@@ -1329,7 +1585,7 @@ def _run_async_stream_with_callback(
                                         list(callback_payload.keys()),
                                         "message_id" in callback_payload,
                                     )
-                                    _invoke_callback(callback_url, callback_payload)
+                                    _invoke_callback(callback_url, callback_payload)  # Ignore return value for artifacts callbacks
                                 else:
                                     _logger.debug("_run_async_stream_with_callback - skipping callback (no message or status)")
                             

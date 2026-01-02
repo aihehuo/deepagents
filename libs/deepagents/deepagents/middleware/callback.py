@@ -4,6 +4,7 @@ This middleware provides a callback tool that the LLM can use to send intermedia
 and final results to a callback URL. The LLM decides when to send callbacks.
 """
 
+import json
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, Annotated, NotRequired, TypedDict, cast
@@ -29,6 +30,9 @@ class CallbackState(AgentState):
 
     session_id: NotRequired[str | None]
     """The session ID (thread_id) for this conversation."""
+
+    interrupted: NotRequired[bool]
+    """Flag indicating if execution was interrupted via callback response."""
 
 
 CALLBACK_TOOL_DESCRIPTION = """Send a callback to deliver intermediate or final results to the user.
@@ -84,7 +88,14 @@ You have access to a `callback` tool that allows you to send intermediate and fi
 - Use the `artifacts` parameter (set to True) to send the latest list of all uploaded artifacts
 - Use callbacks strategically to keep the user informed of progress without overwhelming them with every minor step
 - For final responses, always send a callback with the complete message before concluding
-- After uploading artifacts, use `artifacts=True` to notify the front end about the updated artifact list"""
+- After uploading artifacts, use `artifacts=True` to notify the front end about the updated artifact list
+
+**Interruption handling:**
+
+- The callback URL may respond with an interruption signal (`{"action": "interrupt"}`)
+- If you receive an interruption signal, you will be given an opportunity to wrap up your work
+- When interrupted, provide a summary of what has been completed and any partial results or findings
+- Be concise in your wrap-up message, focusing on the most important completed work"""
 
 
 def _get_callback_tool() -> StructuredTool:  # noqa: PLR0915
@@ -170,22 +181,91 @@ def _get_callback_tool() -> StructuredTool:  # noqa: PLR0915
             callback_payload["type"] = "status"
             callback_payload["status"] = status
         
-        # Invoke callback asynchronously (fire and forget)
+        # Invoke callback and wait for response to check for interruption
+        interrupted = False
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
-            # Print callback payload for debugging/monitoring
-            print(f"[CallbackMiddleware] Sending callback ({callback_payload.get('type', 'unknown')}): {callback_payload}")
+            # Log callback request
+            logger.info(
+                "[CallbackMiddleware] Sending callback request: url=%s, type=%s, session_id=%s",
+                callback_url,
+                callback_payload.get("type", "unknown"),
+                callback_payload.get("session_id"),
+            )
+            logger.debug(
+                "[CallbackMiddleware] Callback request payload: %s",
+                callback_payload,
+            )
             
             import requests
-            requests.post(
+            response = requests.post(
                 callback_url,
                 json=callback_payload,
                 headers={"Content-Type": "application/json"},
                 timeout=30,
             )
+            
+            # Log callback response - always print full response data
+            response_text = response.text if hasattr(response, "text") else "N/A"
+            logger.info(
+                "[CallbackMiddleware] Callback response received: status_code=%d, url=%s",
+                response.status_code,
+                callback_url,
+            )
+            logger.info(
+                "[CallbackMiddleware] Callback response text (full): %s",
+                response_text,
+            )
+            
+            # Check response for interruption signal
+            if response.status_code == 200:
+                try:
+                    response_data = response.json()
+                    logger.info(
+                        "[CallbackMiddleware] Callback response data (parsed JSON): %s",
+                        response_data,
+                    )
+                    logger.info(
+                        "[CallbackMiddleware] Callback response data type: %s, keys: %s",
+                        type(response_data).__name__,
+                        list(response_data.keys()) if isinstance(response_data, dict) else "N/A",
+                    )
+                    if isinstance(response_data, dict) and response_data.get("action") == "interrupt":
+                        interrupted = True
+                        logger.info(
+                            "[CallbackMiddleware] Interruption signal received from callback URL: url=%s, response_data=%s",
+                            callback_url,
+                            response_data,
+                        )
+                    else:
+                        logger.info(
+                            "[CallbackMiddleware] No interruption signal found in response. action field value: %s",
+                            response_data.get("action") if isinstance(response_data, dict) else "N/A",
+                        )
+                except (ValueError, json.JSONDecodeError) as json_err:
+                    # Response is not JSON - log the error and full text
+                    logger.warning(
+                        "[CallbackMiddleware] Callback response is not valid JSON: error=%s, response_text=%s",
+                        str(json_err),
+                        response_text,
+                    )
+                except Exception as parse_err:  # noqa: BLE001
+                    logger.warning(
+                        "[CallbackMiddleware] Error parsing callback response: error=%s, response_text=%s",
+                        str(parse_err),
+                        response_text,
+                    )
+            else:
+                logger.warning(
+                    "[CallbackMiddleware] Callback response non-200 status: status_code=%d, url=%s, response_text=%s",
+                    response.status_code,
+                    callback_url,
+                    response_text,
+                )
         except Exception as e:  # noqa: BLE001
             # Log error but don't fail the tool call
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning("Failed to invoke callback URL %s: %s", callback_url, str(e))
             return Command(
                 update={
@@ -198,6 +278,11 @@ def _get_callback_tool() -> StructuredTool:  # noqa: PLR0915
                 }
             )
         
+        # Prepare state update
+        state_update: dict[str, Any] = {}
+        if interrupted:
+            state_update["interrupted"] = True
+        
         # Return success message
         if artifacts and artifacts_list is not None:
             callback_type = "artifacts"
@@ -209,11 +294,31 @@ def _get_callback_tool() -> StructuredTool:  # noqa: PLR0915
             callback_type = "status"
             callback_value = status[:100] + "..." if status and len(status) > 100 else (status or "")
         
+        tool_message_content = f"Callback sent ({callback_type}): {callback_value}"
+        if interrupted:
+            tool_message_content += " [Interruption signal received]"
+        
+        # Log return data
+        return_data = {
+            **state_update,
+            "messages": [tool_message_content],
+        }
+        logger.info(
+            "[CallbackMiddleware] Callback tool returning: interrupted=%s, message=%s",
+            interrupted,
+            tool_message_content[:100] + "..." if len(tool_message_content) > 100 else tool_message_content,
+        )
+        logger.debug(
+            "[CallbackMiddleware] Callback tool return data: %s",
+            return_data,
+        )
+        
         return Command(
             update={
+                **state_update,
                 "messages": [
                     ToolMessage(
-                        content=f"Callback sent ({callback_type}): {callback_value}",
+                        content=tool_message_content,
                         tool_call_id=tool_call_id,
                     )
                 ]

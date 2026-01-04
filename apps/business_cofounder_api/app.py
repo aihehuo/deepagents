@@ -1163,7 +1163,7 @@ def _run_async_stream_with_callback(
                         
                         if concise_message.lower().startswith("assistant:"):
                             # Extract the actual message content after "Assistant:"
-                            message_content = concise_message[len("Assistant:"):].strip()
+                            message_content = concise_message[len("Assistant:"):]
                             if message_content:
                                 callback_payload["type"] = "message"
                                 callback_payload["message_id"] = message_id
@@ -1568,7 +1568,7 @@ Provide your wrap-up summary now."""
                                 
                                 if concise_message.lower().startswith("assistant:"):
                                     # Extract the actual message content after "Assistant:"
-                                    message_content = concise_message[len("Assistant:"):].strip()
+                                    message_content = concise_message[len("Assistant:"):]
                                     if message_content:
                                         callback_payload["type"] = "message"
                                         callback_payload["message_id"] = message_id

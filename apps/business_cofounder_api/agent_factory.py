@@ -7,6 +7,7 @@ from pathlib import Path
 
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
+from deepagents.middleware.accountant import AccountantMiddleware
 from deepagents.middleware.aihehuo import AihehuoMiddleware
 from deepagents.middleware.artifacts import ArtifactsMiddleware
 from deepagents.middleware.asset_upload import AssetUploadMiddleware
@@ -966,6 +967,7 @@ def create_business_cofounder_agent(
     api_memory_middleware = ApiMemoryMiddleware(base_dir=base_dir)
     
     middleware = [
+        AccountantMiddleware(),  # Enforces tool call limit (default: 25) and tracks token usage
         LanguageDetectionMiddleware(),
         BusinessIdeaTrackerMiddleware(),
         BusinessIdeaDevelopmentMiddleware(strict_todo_sync=True),

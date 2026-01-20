@@ -60,32 +60,32 @@ class BusinessIdeaDevelopmentState(AgentState):
 # Define the sequential todo items
 BUSINESS_IDEA_DEVELOPMENT_TODOS = [
     {
-        "content": "Evaluate the business idea using the business-idea-evaluation skill. Assess across painpoint, technology, and future vision perspectives. If complete, call mark_business_idea_complete tool.",
-        "milestone": "business_idea_complete",
+        "content": "Evaluate the business idea using the business-idea-evaluation skill. Assess across painpoint, technology, and future vision perspectives. If complete, you can directly call mark_business_idea_complete tool (no artifact delivery required for this first milestone).",
+        "milestone": "business_idea_complete"
     },
     {
-        "content": "Clarify the target user persona using the persona-clarification skill. Create a detailed persona with demographics, goals, pain points, and behaviors. Then call mark_persona_clarified tool.",
-        "milestone": "persona_clarified",
+        "content": "Clarify the target user persona using the persona-clarification skill. Create a detailed persona with demographics, goals, pain points, and behaviors. Generate an artifact (HTML document), upload it using upload_asset, record it with add_artifact, and notify the user with callback. WAIT for user confirmation. Only after user confirms (via their next message), then call mark_persona_clarified tool.",
+        "milestone": "persona_clarified"
     },
     {
-        "content": "Enhance the pain point using the painpoint-enhancement skill. Evaluate across six emotional-resonance dimensions (urgency, frequency, economic cost, universality, viral spread, regulatory pressure). Then call mark_painpoint_enhanced tool.",
-        "milestone": "painpoint_enhanced",
+        "content": "Enhance the pain point using the painpoint-enhancement skill. Evaluate across six emotional-resonance dimensions (urgency, frequency, economic cost, universality, viral spread, regulatory pressure). Generate an artifact (HTML document), upload it using upload_asset, record it with add_artifact, and notify the user with callback. WAIT for user confirmation. Only after user confirms (via their next message), then call mark_painpoint_enhanced tool.",
+        "milestone": "painpoint_enhanced"
     },
     {
-        "content": "Identify early adopters using the early-adopter-identification skill. Identify the first batch of customers who are value-sensitive, actively seeking solutions, and willing to try first-generation products. Include their characteristics, behaviors, and where to find them. Then call mark_early_adopter_identified tool.",
-        "milestone": "early_adopter_identified",
+        "content": "Identify early adopters using the early-adopter-identification skill. Identify the first batch of customers who are value-sensitive, actively seeking solutions, and willing to try first-generation products. Include their characteristics, behaviors, and where to find them. Generate an artifact (HTML document), upload it using upload_asset, record it with add_artifact, and notify the user with callback. WAIT for user confirmation. Only after user confirms (via their next message), then call mark_early_adopter_identified tool.",
+        "milestone": "early_adopter_identified"
     },
     {
-        "content": "Create a 60-second pitch using the 60s-pitch-creation skill. Include pain point resonance, team advantage statement, and call to action. Then call mark_pitch_created tool.",
-        "milestone": "pitch_created",
+        "content": "Create a 60-second pitch using the 60s-pitch-creation skill. Include pain point resonance, team advantage statement, and call to action. Generate an artifact (HTML document), upload it using upload_asset, record it with add_artifact, and notify the user with callback. WAIT for user confirmation. Only after user confirms (via their next message), then call mark_pitch_created tool.",
+        "milestone": "pitch_created"
     },
     {
-        "content": "Establish baseline pricing and optimization using the baseline-pricing-and-optimization skill. Apply 1/10 value rule, generate pricing tactics, and identify key partners. Then call mark_pricing_optimized tool.",
-        "milestone": "pricing_optimized",
+        "content": "Establish baseline pricing and optimization using the baseline-pricing-and-optimization skill. Apply 1/10 value rule, generate pricing tactics, and identify key partners. Generate an artifact (HTML document), upload it using upload_asset, record it with add_artifact, and notify the user with callback. WAIT for user confirmation. Only after user confirms (via their next message), then call mark_pricing_optimized tool.",
+        "milestone": "pricing_optimized"
     },
     {
-        "content": "Explore business model pivots using the business-model-pivot-exploration skill. Test-fit the product/service into seven business model archetypes and identify the most promising alternatives.",
-        "milestone": None,  # Final step, no milestone to mark
+        "content": "Explore business model pivots using the business-model-pivot-exploration skill. Test-fit the product/service into seven business model archetypes and identify the most promising alternatives. Generate an artifact (HTML document), upload it using upload_asset, record it with add_artifact, and notify the user with callback. WAIT for user confirmation. Only after user confirms (via their next message), then call mark_business_model_explored tool.",
+        "milestone": "business_model_explored"
     },
 ]
 
@@ -98,13 +98,31 @@ You are helping develop a business idea through a structured, sequential workflo
 - Work through the todos in order - each step unlocks the next
 - Complete each todo fully before moving to the next
 - Mark todos as completed immediately after finishing each step
-- Use the appropriate milestone marking tools after completing each skill:
-  - After business-idea-evaluation → call `mark_business_idea_complete`
-  - After persona-clarification → call `mark_persona_clarified`
-  - After painpoint-enhancement → call `mark_painpoint_enhanced`
-  - After early-adopter-identification → call `mark_early_adopter_identified`
-  - After 60s-pitch-creation → call `mark_pitch_created`
-  - After baseline-pricing-optimization → call `mark_pricing_optimized`
+
+**Milestone Marking Rules:**
+
+1. **First Milestone (business_idea_complete)**: 
+   - After business-idea-evaluation → you can **directly call** `mark_business_idea_complete` tool
+   - No artifact delivery or user confirmation required
+
+2. **All Other Milestones** (persona_clarified, painpoint_enhanced, early_adopter_identified, pitch_created, pricing_optimized, business_model_explored):
+   - **MUST follow this sequence:**
+     1. Complete the skill work (e.g., persona-clarification, painpoint-enhancement, etc.)
+     2. **Generate and deliver artifact to user:**
+        - Create a document using `write_file` (HTML or other format)
+        - Upload the file using `upload_asset` to cloud storage
+        - Record the artifact URL using `add_artifact`
+        - Notify the user using `callback` tool with the artifact list
+     3. **STOP and wait for user confirmation** - Do NOT call the mark tool yet
+     4. **After user confirms** (via their next message indicating satisfaction, approval, or "continue"), then call the appropriate mark tool:
+        - After persona-clarification → call `mark_persona_clarified`
+        - After painpoint-enhancement → call `mark_painpoint_enhanced`
+        - After early-adopter-identification → call `mark_early_adopter_identified`
+        - After 60s-pitch-creation → call `mark_pitch_created`
+        - After baseline-pricing-optimization → call `mark_pricing_optimized`
+        - After business-model-pivot-exploration → call `mark_business_model_explored`
+
+**Critical:** For milestones 2-7, you MUST deliver the artifact and wait for user confirmation before calling the mark tool. Do not proceed to the next step until the user has confirmed the current milestone.
 
 The todo list will automatically update as you complete each milestone. Focus on the current todo and complete it thoroughly before proceeding."""
 

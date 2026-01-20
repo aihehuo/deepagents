@@ -125,7 +125,17 @@ This tool updates the agent state to indicate that a complete business idea has 
 
 MARK_PERSONA_CLARIFIED_TOOL_DESCRIPTION = """Mark that the user persona has been clarified.
 
-Use this tool after using the persona-clarification skill to mark that the persona has been clarified. This unlocks the painpoint-enhancement skill.
+**IMPORTANT: This tool can ONLY be called after you have:**
+1. Completed the persona-clarification skill work
+2. Generated an artifact (HTML document) with the persona details
+3. Uploaded the artifact using `upload_asset`
+4. Recorded the artifact URL using `add_artifact`
+5. Notified the user using `callback` tool with the artifact list
+6. **WAITED for user confirmation** (user's next message indicating satisfaction, approval, or "continue")
+
+**DO NOT call this tool immediately after completing the skill work.** You MUST deliver the artifact and wait for user confirmation first.
+
+After user confirms, use this tool to mark that the persona has been clarified. This unlocks the painpoint-enhancement skill.
 
 Args:
     persona_content: The clarified persona details (demographics, background, goals, pain points, behaviors, etc.).
@@ -136,7 +146,17 @@ This tool updates the agent state to indicate that the persona has been clarifie
 
 MARK_PAINPOINT_ENHANCED_TOOL_DESCRIPTION = """Mark that the pain point has been enhanced.
 
-Use this tool after using the painpoint-enhancement skill to mark that the pain point has been enhanced. This unlocks the early-adopter-identification skill.
+**IMPORTANT: This tool can ONLY be called after you have:**
+1. Completed the painpoint-enhancement skill work
+2. Generated an artifact (HTML document) with the enhanced pain point details
+3. Uploaded the artifact using `upload_asset`
+4. Recorded the artifact URL using `add_artifact`
+5. Notified the user using `callback` tool with the artifact list
+6. **WAITED for user confirmation** (user's next message indicating satisfaction, approval, or "continue")
+
+**DO NOT call this tool immediately after completing the skill work.** You MUST deliver the artifact and wait for user confirmation first.
+
+After user confirms, use this tool to mark that the pain point has been enhanced. This unlocks the early-adopter-identification skill.
 
 Args:
     painpoint_content: The enhanced pain point details, including the six emotional-resonance dimensions.
@@ -147,7 +167,17 @@ This tool updates the agent state to indicate that the pain point has been enhan
 
 MARK_EARLY_ADOPTER_IDENTIFIED_TOOL_DESCRIPTION = """Mark that early adopters have been identified.
 
-Use this tool after using the early-adopter-identification skill to mark that early adopters have been identified. This, combined with persona_clarified and painpoint_enhanced, unlocks the 60s-pitch-creation skill.
+**IMPORTANT: This tool can ONLY be called after you have:**
+1. Completed the early-adopter-identification skill work
+2. Generated an artifact (HTML document) with the early adopter profile details
+3. Uploaded the artifact using `upload_asset`
+4. Recorded the artifact URL using `add_artifact`
+5. Notified the user using `callback` tool with the artifact list
+6. **WAITED for user confirmation** (user's next message indicating satisfaction, approval, or "continue")
+
+**DO NOT call this tool immediately after completing the skill work.** You MUST deliver the artifact and wait for user confirmation first.
+
+After user confirms, use this tool to mark that early adopters have been identified. This, combined with persona_clarified and painpoint_enhanced, unlocks the 60s-pitch-creation skill.
 
 Args:
     early_adopter_content: The early adopter profile and identification details, including characteristics, behaviors, and where to find them.
@@ -158,7 +188,17 @@ This tool updates the agent state to indicate that early adopters have been iden
 
 MARK_PITCH_CREATED_TOOL_DESCRIPTION = """Mark that a 60-second pitch has been created.
 
-Use this tool after using the 60s-pitch-creation skill to mark that the pitch has been created. This unlocks the baseline-pricing-and-optimization skill.
+**IMPORTANT: This tool can ONLY be called after you have:**
+1. Completed the 60s-pitch-creation skill work
+2. Generated an artifact (HTML document) with the pitch content
+3. Uploaded the artifact using `upload_asset`
+4. Recorded the artifact URL using `add_artifact`
+5. Notified the user using `callback` tool with the artifact list
+6. **WAITED for user confirmation** (user's next message indicating satisfaction, approval, or "continue")
+
+**DO NOT call this tool immediately after completing the skill work.** You MUST deliver the artifact and wait for user confirmation first.
+
+After user confirms, use this tool to mark that the pitch has been created. This unlocks the baseline-pricing-and-optimization skill.
 
 Args:
     pitch_content: The complete 60-second pitch content, including pain point resonance, team advantages, and call to action.
@@ -169,7 +209,17 @@ This tool updates the agent state to indicate that the pitch has been created an
 
 MARK_PRICING_OPTIMIZED_TOOL_DESCRIPTION = """Mark that baseline pricing and optimization has been completed.
 
-Use this tool after using the baseline-pricing-and-optimization skill to mark that pricing optimization has been completed. This unlocks the business-model-pivot-exploration skill.
+**IMPORTANT: This tool can ONLY be called after you have:**
+1. Completed the baseline-pricing-and-optimization skill work
+2. Generated an artifact (HTML document) with the pricing strategy details
+3. Uploaded the artifact using `upload_asset`
+4. Recorded the artifact URL using `add_artifact`
+5. Notified the user using `callback` tool with the artifact list
+6. **WAITED for user confirmation** (user's next message indicating satisfaction, approval, or "continue")
+
+**DO NOT call this tool immediately after completing the skill work.** You MUST deliver the artifact and wait for user confirmation first.
+
+After user confirms, use this tool to mark that pricing optimization has been completed. This unlocks the business-model-pivot-exploration skill.
 
 Args:
     pricing_content: The pricing strategy details, including baseline pricing, optimization tactics, and key partners.
@@ -180,7 +230,17 @@ This tool updates the agent state to indicate that pricing optimization has been
 
 MARK_BUSINESS_MODEL_EXPLORED_TOOL_DESCRIPTION = """Mark that business model pivot exploration has been completed.
 
-Use this tool after using the business-model-pivot-exploration skill to mark that business model exploration has been completed. This skill explores seven business model archetypes (Retail, Service, Brokerage, Transaction, Subscription, Usage-Based, Membership) and generates alternative business model options for the user's product or service.
+**IMPORTANT: This tool can ONLY be called after you have:**
+1. Completed the business-model-pivot-exploration skill work
+2. Generated an artifact (HTML document) with the exploration results
+3. Uploaded the artifact using `upload_asset`
+4. Recorded the artifact URL using `add_artifact`
+5. Notified the user using `callback` tool with the artifact list
+6. **WAITED for user confirmation** (user's next message indicating satisfaction, approval, or "continue")
+
+**DO NOT call this tool immediately after completing the skill work.** You MUST deliver the artifact and wait for user confirmation first.
+
+After user confirms, use this tool to mark that business model exploration has been completed. This skill explores seven business model archetypes (Retail, Service, Brokerage, Transaction, Subscription, Usage-Based, Membership) and generates alternative business model options for the user's product or service.
 
 Args:
     exploration_results: The business model exploration results, including analysis of each model archetype and recommendations.

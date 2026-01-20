@@ -7,11 +7,52 @@ them directly into `create_deep_agent(subagents=[...])`.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, Sequence
 
 from langchain_core.tools import BaseTool
 
 from deepagents.model_config import parse_model_config
+
+
+def _load_subagent_prompt(subagent_name: str, fallback: str) -> str:
+    """Load subagent system prompt from markdown file, with fallback to default.
+    
+    Args:
+        subagent_name: Name of the subagent (e.g., "coder", "aihehuo")
+        fallback: Default prompt to use if file cannot be loaded
+        
+    Returns:
+        System prompt string, either from file or fallback
+    """
+    try:
+        # Get the directory where this file is located
+        current_dir = Path(__file__).parent
+        prompt_file = current_dir / "subagent_prompts" / f"{subagent_name}.md"
+        
+        if prompt_file.exists():
+            content = prompt_file.read_text(encoding="utf-8")
+            # Remove markdown header if present (lines starting with #)
+            lines = content.split("\n")
+            # Skip lines that are just markdown headers
+            prompt_lines = []
+            skip_header = True
+            for line in lines:
+                if skip_header and line.strip().startswith("#"):
+                    continue
+                if skip_header and line.strip() == "":
+                    continue
+                skip_header = False
+                prompt_lines.append(line)
+            
+            prompt = "\n".join(prompt_lines).strip()
+            if prompt:
+                return prompt
+    except Exception:  # noqa: BLE001
+        # If anything goes wrong, fall back to default
+        pass
+    
+    return fallback
 
 
 def build_coder_subagent_from_env(
@@ -84,7 +125,8 @@ def build_coder_subagent_from_env(
 
         coder_model = ChatOpenAI(**kwargs)
 
-    system_prompt = """You are a coding-focused subagent.
+    # Load system prompt from file, with fallback to default
+    default_coder_prompt = """You are a coding-focused subagent.
 
 You specialize in:
 - Writing and editing code in existing repositories
@@ -96,6 +138,7 @@ Operating rules:
 - If multiple files are involved, be explicit about which ones you changed and why.
 - If you are unsure, ask for the missing detail *once* with the smallest set of clarifying questions.
 """
+    system_prompt = _load_subagent_prompt("coder", default_coder_prompt)
 
     return {
         "name": name,
@@ -193,7 +236,8 @@ def build_aihehuo_subagent_from_env(
         
         aihehuo_model = ChatOpenAI(**kwargs)
     
-    system_prompt = """You are an AI He Huo (爱合伙) search specialist subagent.
+    # Load system prompt from file, with fallback to default
+    default_aihehuo_prompt = """You are an AI He Huo (爱合伙) search specialist subagent.
 
 You specialize in:
 - Searching for co-founders, business partners, and team members on the AI He Huo platform
@@ -217,6 +261,7 @@ Operating rules:
 - For each candidate you recommend, you MUST include their profile page link/URL if it's available in the search results
 - Profile links are essential - always extract and include them from the search response data
 """
+    system_prompt = _load_subagent_prompt("aihehuo", default_aihehuo_prompt)
     
     # Import middleware
     from deepagents.middleware.aihehuo import AihehuoMiddleware

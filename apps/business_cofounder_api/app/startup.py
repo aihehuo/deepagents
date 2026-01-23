@@ -119,7 +119,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         
         # Create expert agent (analyzer)
         # Get default expertise type from env (can be overridden per conversation)
-        assigned_expertise = os.getenv("DEFAULT_EXPERTISE_TYPE", "prime_number")
+        assigned_expertise = os.getenv("DEFAULT_EXPERTISE_TYPE", "business_cofounder")
         print(f"DEFAULT_EXPERTISE_TYPE: {assigned_expertise}")
         
         expert_agent, expert_checkpoints = create_expert_agent(

@@ -56,6 +56,12 @@ You must produce a JSON object with:
 1. **expert_guidance** (string, 2-4 sentences):
    Strategic direction for the facilitator agent.
    This guidance will be injected into the facilitator's system prompt to guide upcoming conversations.
+   IMPORTANT: the guidance statement MUST be phrase from second-person perspective, talking directly to the facilitator.
+   Example: "You should focus on understanding the user's business idea through natural conversation.
+   Ask thoughtful questions to help them articulate their vision, challenges, and goals."
+   Example: "You should focus on understanding the user's business idea through natural conversation.
+   !!NOT from a third person perspective!!
+   WRONG EXAMPLE: "The facilitator should focus on understanding the user's business idea through natural conversation.
 
 2. **canvas** (JSON object):
    Structured assessment of current state.

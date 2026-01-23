@@ -167,48 +167,37 @@ class ExpertGuidanceMiddleware(AgentMiddleware):
         state = cast("ExpertGuidanceState", request.state)
         guidance = state.get("expert_guidance", "")
 
-        # Check if we have strategic guidance from expert (not default/empty)
-        has_strategic_guidance = guidance and guidance.strip() and guidance != DEFAULT_GUIDANCE
+        if guidance:
+            # Format the guidance section
+            guidance_section = self.system_prompt_template.format(
+                guidance_content=guidance
+            )
+            # Log the injected guidance
+            _logger.info("=" * 80)
+            _logger.info("[ExpertGuidanceMiddleware] Injecting expert guidance into facilitator prompt:")
+            _logger.info("-" * 80)
+            _logger.info("Raw Guidance: %s", guidance)
+            _logger.info("-" * 80)
+            _logger.info("Formatted Guidance Section:")
+            _logger.info("%s", guidance_section)
+            _logger.info("-" * 80)
+            if request.system_prompt:
+                _logger.info("Base System Prompt (first 200 chars): %s", request.system_prompt[:200])
+            _logger.info("=" * 80)
 
-        # Use default guidance if none provided yet
-        if not guidance:
-            guidance = DEFAULT_GUIDANCE
+            # Inject into system prompt
+            # If we have strategic guidance from expert, completely replace the base prompt
+            # Otherwise, append to the base prompt (default behavior)
+            if request.system_prompt:
+                # Default guidance or no guidance - append to base prompt
+                new_system_prompt = request.system_prompt + "\n\n" + guidance_section
+            else:
+                # No base prompt - use guidance only
+                new_system_prompt = guidance_section
 
-        # Format the guidance section
-        guidance_section = self.system_prompt_template.format(
-            guidance_content=guidance
-        )
-
-        # Log the injected guidance
-        _logger.info("=" * 80)
-        _logger.info("[ExpertGuidanceMiddleware] Injecting expert guidance into facilitator prompt:")
-        _logger.info("-" * 80)
-        _logger.info("Raw Guidance: %s", guidance)
-        _logger.info("-" * 80)
-        _logger.info("Has Strategic Guidance (replaces base prompt): %s", has_strategic_guidance)
-        _logger.info("-" * 80)
-        _logger.info("Formatted Guidance Section:")
-        _logger.info("%s", guidance_section)
-        _logger.info("-" * 80)
-        if request.system_prompt:
-            _logger.info("Base System Prompt (first 200 chars): %s", request.system_prompt[:200])
-        _logger.info("=" * 80)
-
-        # Inject into system prompt
-        # If we have strategic guidance from expert, completely replace the base prompt
-        # Otherwise, append to the base prompt (default behavior)
-        if has_strategic_guidance:
-            # Strategic guidance completely replaces the base system prompt
-            new_system_prompt = guidance_section
-            _logger.info("[ExpertGuidanceMiddleware] Strategic guidance detected - replacing base system prompt")
-        elif request.system_prompt:
-            # Default guidance or no guidance - append to base prompt
-            new_system_prompt = request.system_prompt + "\n\n" + guidance_section
+            return handler(request.override(system_prompt=new_system_prompt))
         else:
-            # No base prompt - use guidance only
-            new_system_prompt = guidance_section
-
-        return handler(request.override(system_prompt=new_system_prompt))
+            return handler(request)
 
     async def awrap_model_call(
         self,
@@ -228,16 +217,11 @@ class ExpertGuidanceMiddleware(AgentMiddleware):
         state = cast("ExpertGuidanceState", request.state)
         guidance = state.get("expert_guidance", "")
 
-        # Use default guidance if none provided yet
-        if not guidance:
-            guidance = DEFAULT_GUIDANCE
-
-        # Format the guidance section
-        guidance_section = self.system_prompt_template.format(
-            guidance_content=guidance
-        )
-
-        if guidance_section:
+        if guidance:
+            # Format the guidance section
+            guidance_section = self.system_prompt_template.format(
+                guidance_content=guidance
+            )
             # Log the injected guidance
             _logger.info("=" * 80)
             _logger.info("[ExpertGuidanceMiddleware] Injecting expert guidance into facilitator prompt (async):")
@@ -263,16 +247,7 @@ class ExpertGuidanceMiddleware(AgentMiddleware):
 
             # Create new request with overridden system prompt
             new_request = request.override(system_prompt=new_system_prompt)
-        
-        # Verify the override worked
-        if hasattr(new_request, "system_prompt"):
-            if new_request.system_prompt == new_system_prompt:
-                _logger.info("[ExpertGuidanceMiddleware] ✓ System prompt override verified - matches expected content")
-            else:
-                _logger.error("[ExpertGuidanceMiddleware] ✗ System prompt override FAILED - content mismatch!")
-                _logger.error("[ExpertGuidanceMiddleware] Expected length: %d, Got length: %d", 
-                            len(new_system_prompt), len(new_request.system_prompt) if new_request.system_prompt else 0)
         else:
-            _logger.error("[ExpertGuidanceMiddleware] ✗ System prompt attribute missing after override!")
+            new_request = request
         
         return await handler(new_request)

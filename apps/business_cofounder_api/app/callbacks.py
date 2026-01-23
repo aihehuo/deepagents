@@ -302,7 +302,7 @@ def invoke_callback(callback_url: str, message: dict[str, Any]) -> bool:
         # Print callback payload for debugging/monitoring
         callback_type = serialized_message.get("type", "unknown")
         
-        _logger.info(
+        _logger.debug(
             "_invoke_callback - sending to %s (type=%s, payload_keys=%s, message_id=%s)",
             callback_url,
             callback_type,
@@ -323,12 +323,12 @@ def invoke_callback(callback_url: str, message: dict[str, Any]) -> bool:
         
         # Log response data - always print full response
         response_text = response.text if hasattr(response, "text") else "N/A"
-        _logger.info(
+        _logger.debug(
             "_invoke_callback - response received: status_code=%d, url=%s",
             response.status_code,
             callback_url,
         )
-        _logger.info(
+        _logger.debug(
             "_invoke_callback - response text (full): %s",
             response_text,
         )
@@ -337,11 +337,11 @@ def invoke_callback(callback_url: str, message: dict[str, Any]) -> bool:
         interrupted = False
         try:
             response_data = response.json()
-            _logger.info(
+            _logger.debug(
                 "_invoke_callback - response data (parsed JSON): %s",
                 response_data,
             )
-            _logger.info(
+            _logger.debug(
                 "_invoke_callback - response data type: %s, keys: %s",
                 type(response_data).__name__,
                 list(response_data.keys()) if isinstance(response_data, dict) else "N/A",

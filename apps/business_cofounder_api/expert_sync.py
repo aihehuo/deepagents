@@ -45,7 +45,7 @@ def should_trigger_expert(state: DualAgentState) -> bool:
     _logger.info(f"[ExpertSync] should_trigger_expert: current_round: {current_round}, last_sync: {last_sync}")
     
     # Default sync interval is 3 rounds
-    sync_interval = 3
+    sync_interval = 1
     
     should_sync = current_round - last_sync >= sync_interval
     
@@ -192,6 +192,25 @@ async def trigger_expert_analysis(
     current_guidance = state.get("expert_guidance", "None")
     current_canvas = state.get("canvas")
     
+    # Get detected language from state (default to English)
+    detected_language = state.get("detected_language", "en")
+    _logger.info("  Detected language: %s", detected_language)
+    
+    # Language name mapping for prompt
+    language_names = {
+        "en": "English",
+        "zh": "Chinese",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "pt": "Portuguese",
+        "ru": "Russian",
+        "it": "Italian",
+    }
+    language_name = language_names.get(detected_language, "English")
+    
     # Build analysis prompt for expert
     analysis_prompt = f"""Analyze this conversation using your expertise.
 
@@ -215,6 +234,15 @@ Analyze this conversation and provide:
 2. **Canvas Data** (structured JSON following the template):
    Use the canvas template structure below to assess the current state.
 
+3. **Canvas Update Summary** (2-3 sentences in {language_name}):
+   A brief summary of what was updated in the canvas, written in {language_name} (language code: {detected_language}).
+   This summary will be sent directly to the user, so make it clear, friendly, and informative.
+   Focus on what new information was added or what changed in the Business Model Canvas.
+   Examples:
+   - "We've updated your Business Model Canvas with new information about your customer segments and value propositions."
+   - "Your canvas now includes details about your revenue streams and key partners."
+   - "The canvas has been updated with information about your channels and customer relationships."
+
 ## Canvas Template
 
 {canvas_template}
@@ -228,14 +256,16 @@ Provide your analysis as a JSON object with this exact structure:
   "expert_guidance": "Your 2-4 sentence strategic guidance here...",
   "canvas": {{
     ... follow the template structure above ...
-  }}
+  }},
+  "canvas_update_summary": "A 2-3 sentence summary in {language_name} describing what was updated in the canvas. This will be sent directly to the user."
 }}
 ```
 
 **Important**: 
 - Return ONLY the JSON object, no additional text before or after
 - Follow the canvas template structure
-- Include only "expert_guidance" and "canvas" fields
+- The canvas_update_summary MUST be written in {language_name} (language code: {detected_language})
+- Include all three fields: "expert_guidance", "canvas", and "canvas_update_summary"
 """
     
     # MOCK MODE: Set this to True to test if the issue is with async structure or the agent itself
@@ -448,6 +478,11 @@ def parse_expert_response(response: dict[str, Any]) -> dict[str, Any]:
                 "message": "Canvas data not provided by expert"
             }
     
+    # Handle optional canvas_update_summary field
+    if "canvas_update_summary" not in analysis:
+        _logger.debug("[ExpertSync] No canvas_update_summary provided, will use default")
+        # Don't set a default - let it be None if not provided
+    
     # Validate canvas is a dict (but don't validate its internal structure - it's opaque)
     canvas = analysis["canvas"]
     if not isinstance(canvas, dict):
@@ -549,7 +584,7 @@ async def trigger_and_update_expert(
     checkpointer,
     expertise_dir: Path | None = None,
     facilitator_agent=None,
-) -> None:
+) -> dict[str, Any]:
     """Trigger expert analysis and update state (convenience function).
     
     This combines trigger_expert_analysis and update_state_with_analysis
@@ -562,6 +597,9 @@ async def trigger_and_update_expert(
         checkpointer: Checkpointer instance (from facilitator agent)
         expertise_dir: Directory containing expertise templates (optional)
         facilitator_agent: Optional facilitator agent to use for state updates (preferred)
+        
+    Returns:
+        The analysis dict containing canvas, expert_guidance, and related fields
     """
     _logger.info("[ExpertSync] Starting expert sync for thread %s", thread_id)
     
@@ -588,3 +626,6 @@ async def trigger_and_update_expert(
     )
     
     _logger.info("[ExpertSync] Expert sync completed for thread %s", thread_id)
+    _logger.info("[ExpertSync] Returning analysis with canvas: %s", "canvas" in analysis)
+    
+    return analysis

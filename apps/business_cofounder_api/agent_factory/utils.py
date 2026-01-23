@@ -37,9 +37,10 @@ def copy_example_skills_if_missing(*, dest_skills_dir: Path) -> None:
 
 
 def copy_default_expertise_if_missing(*, dest_expertise_dir: Path) -> None:
-    """Copy all expertise templates from source directory if missing.
+    """Copy all expertise templates from source directory, always overwriting existing files.
     
-    This ensures all expertise files are available in the runtime directory.
+    This ensures all expertise files in the runtime directory are up-to-date with the
+    source files. Always overwrites existing files to ensure updates are reflected.
     Copies from apps/business_cofounder_api/expertise/ to the destination directory.
     """
     dest_expertise_dir.mkdir(parents=True, exist_ok=True)
@@ -51,20 +52,27 @@ def copy_default_expertise_if_missing(*, dest_expertise_dir: Path) -> None:
         _logger.warning("[Expertise] Source expertise directory not found at %s", source_expertise_dir)
         return
     
-    # Copy all .md files from source to destination (if they don't already exist)
+    # Copy all .md files from source to destination (always overwrite existing files)
     copied_count = 0
+    overwritten_count = 0
     for source_file in source_expertise_dir.glob("*.md"):
         dest_file = dest_expertise_dir / source_file.name
         
-        if not dest_file.exists():
-            shutil.copy2(source_file, dest_file)
-            _logger.info("[Expertise] Copied expertise template: %s -> %s", source_file.name, dest_file)
+        if dest_file.exists():
+            overwritten_count += 1
+            _logger.info("[Expertise] Overwriting expertise template: %s -> %s", source_file.name, dest_file)
+        else:
             copied_count += 1
+            _logger.info("[Expertise] Copying new expertise template: %s -> %s", source_file.name, dest_file)
+        
+        shutil.copy2(source_file, dest_file)
     
+    if overwritten_count > 0:
+        _logger.info("[Expertise] Overwrote %d existing expertise template(s) in %s", overwritten_count, dest_expertise_dir)
     if copied_count > 0:
-        _logger.info("[Expertise] Copied %d expertise template(s) to %s", copied_count, dest_expertise_dir)
-    else:
-        _logger.debug("[Expertise] All expertise templates already exist in %s", dest_expertise_dir)
+        _logger.info("[Expertise] Copied %d new expertise template(s) to %s", copied_count, dest_expertise_dir)
+    if overwritten_count == 0 and copied_count == 0:
+        _logger.debug("[Expertise] No expertise templates found in source directory")
 
 
 def mask_sensitive_value(value: str | None, show_chars: int = 8) -> str:

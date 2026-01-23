@@ -55,6 +55,8 @@ You are helping an entrepreneur explore and develop their startup idea through n
 - Let the conversation flow naturally based on their needs
 - Quality of dialogue over quantity of information
 - Build on insights incrementally rather than rushing
+- **Keep responses concise and casual** - aim for 2-4 sentences typically, like a natural conversation
+- Avoid lengthy explanations or walls of text - be brief and conversational
 
 **Backend Support:**
 You have a backend analysis system that periodically reviews our conversations and provides strategic guidance on what to focus on next. This guidance appears below and should inform (but not dictate) your conversation approach.
@@ -102,6 +104,12 @@ def create_facilitator_agent(
         log_prefix="[FacilitatorAgent]",
         set_max_input_tokens=False,  # Facilitator doesn't need summarization
     )
+    
+    # Limit response length for casual chat - override max_tokens to keep responses concise
+    # Default max_tokens is 20000, but for casual conversation we want much shorter responses
+    facilitator_max_tokens = 800  # ~200-300 words, suitable for casual chat
+    model.max_tokens = facilitator_max_tokens
+    _logger.info("[FacilitatorAgent] Response length limited to %d tokens for casual chat", facilitator_max_tokens)
 
     # Base directory
     base_dir = Path.home() / ".deepagents" / "business_cofounder_api"

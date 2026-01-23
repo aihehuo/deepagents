@@ -403,6 +403,176 @@ def send_artifacts_callback(callback_url: str, session_id: str, artifacts: list[
     invoke_callback(callback_url, callback_payload)  # Ignore return value for artifacts callbacks
 
 
+def send_canvas_callback(
+    callback_url: str,
+    session_id: str,
+    canvas: dict[str, Any] | None,
+    expert_guidance: str | None = None,
+    canvas_update_summary: str | None = None,
+    current_round: int = 0,
+    last_sync_round: int = 0,
+    analysis_timestamp: str | None = None,
+) -> None:
+    """Send a canvas data callback to notify the frontend about updated canvas data.
+    
+    This callback is sent when the expert agent synchronizes and updates the canvas.
+    
+    Args:
+        callback_url: The callback URL to POST to
+        session_id: The session ID (thread_id)
+        canvas: Canvas data dictionary (domain-agnostic JSON structure)
+        expert_guidance: Strategic guidance from expert agent (optional)
+        canvas_update_summary: Summary of canvas updates in user's language (optional)
+        current_round: Current conversation round number
+        last_sync_round: Round number when expert last performed analysis
+        analysis_timestamp: ISO 8601 timestamp of last expert analysis (optional)
+    """
+    if not callback_url:
+        return
+    
+    callback_payload: dict[str, Any] = {
+        "session_id": session_id,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "type": "canvas",
+        "canvas": canvas,
+        "current_round": current_round,
+        "last_sync_round": last_sync_round,
+    }
+    
+    # Add optional fields if provided
+    if expert_guidance is not None:
+        callback_payload["expert_guidance"] = expert_guidance
+    if canvas_update_summary is not None:
+        callback_payload["canvas_update_summary"] = canvas_update_summary
+    if analysis_timestamp is not None:
+        callback_payload["analysis_timestamp"] = analysis_timestamp
+    
+    _logger.info(
+        "send_canvas_callback - sending canvas update (session_id=%s, has_canvas=%s, has_summary=%s, round=%d)",
+        session_id,
+        canvas is not None,
+        canvas_update_summary is not None,
+        current_round,
+    )
+    
+    invoke_callback(callback_url, callback_payload)  # Ignore return value for canvas callbacks
+
+
+async def fetch_and_send_canvas_callback(
+    callback_url: str,
+    session_id: str,
+    agent: Any,
+    config: dict[str, Any],
+    analysis: dict[str, Any] | None = None,
+) -> None:
+    """Fetch canvas data from agent state and send callback to frontend.
+    
+    This helper function is called after expert sync completes to send the updated
+    canvas data to the frontend via callback.
+    
+    Args:
+        callback_url: The callback URL to POST to
+        session_id: The session ID (thread_id)
+        agent: The agent instance to fetch state from
+        config: Agent configuration dict with thread_id
+        analysis: Optional analysis dict from expert sync (preferred - avoids state read timing issues)
+    """
+    if not callback_url:
+        return
+    
+    try:
+        # Prefer using analysis dict directly if provided (avoids state read timing issues)
+        if analysis is not None:
+            canvas = analysis.get("canvas")
+            expert_guidance = analysis.get("expert_guidance")
+            canvas_update_summary = analysis.get("canvas_update_summary")
+            current_round = analysis.get("last_expert_sync", 0)  # Use last_sync_round as current_round
+            last_sync_round = analysis.get("last_expert_sync", 0)
+            analysis_timestamp = analysis.get("analysis_timestamp")
+            
+            # Get current round from state if available
+            try:
+                current_state_snapshot = await agent.aget_state(config)
+                if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+                    current_round = current_state_snapshot.values.get("conversation_round", current_round)
+            except Exception:  # noqa: BLE001
+                pass  # Use last_sync_round as fallback
+            
+            if canvas is not None:
+                _logger.info(
+                    "[CanvasCallback] Sending canvas update from analysis dict (session_id=%s, round=%d, has_summary=%s)",
+                    session_id,
+                    current_round,
+                    canvas_update_summary is not None,
+                )
+                send_canvas_callback(
+                    callback_url=callback_url,
+                    session_id=session_id,
+                    canvas=canvas,
+                    expert_guidance=expert_guidance,
+                    canvas_update_summary=canvas_update_summary,
+                    current_round=current_round,
+                    last_sync_round=last_sync_round,
+                    analysis_timestamp=analysis_timestamp,
+                )
+            else:
+                _logger.info(
+                    "[CanvasCallback] No canvas in analysis dict (session_id=%s), skipping callback",
+                    session_id,
+                )
+            return
+        
+        # Fallback: Fetch from state (may have timing issues)
+        current_state_snapshot = await agent.aget_state(config)
+        if current_state_snapshot and hasattr(current_state_snapshot, "values"):
+            state_values = current_state_snapshot.values
+            
+            # Extract canvas-related fields
+            canvas = state_values.get("canvas")
+            expert_guidance = state_values.get("expert_guidance")
+            canvas_update_summary = state_values.get("canvas_update_summary")
+            current_round = state_values.get("conversation_round", 0)
+            last_sync_round = state_values.get("last_expert_sync", 0)
+            analysis_timestamp = state_values.get("analysis_timestamp")
+            
+            # Only send callback if canvas exists (expert sync has occurred)
+            if canvas is not None:
+                _logger.info(
+                    "[CanvasCallback] Sending canvas update from state (session_id=%s, round=%d, has_summary=%s)",
+                    session_id,
+                    current_round,
+                    canvas_update_summary is not None,
+                )
+                send_canvas_callback(
+                    callback_url=callback_url,
+                    session_id=session_id,
+                    canvas=canvas,
+                    expert_guidance=expert_guidance,
+                    canvas_update_summary=canvas_update_summary,
+                    current_round=current_round,
+                    last_sync_round=last_sync_round,
+                    analysis_timestamp=analysis_timestamp,
+                )
+            else:
+                _logger.info(
+                    "[CanvasCallback] No canvas data found in state (session_id=%s), skipping callback",
+                    session_id,
+                )
+        else:
+            _logger.info(
+                "[CanvasCallback] Could not retrieve state snapshot (session_id=%s), skipping callback",
+                session_id,
+            )
+    except Exception as e:  # noqa: BLE001
+        # Log error but don't fail - canvas callback is not critical
+        _logger.warning(
+            "[CanvasCallback] Error fetching/sending canvas callback (session_id=%s): %s: %s",
+            session_id,
+            type(e).__name__,
+            str(e),
+        )
+
+
 def send_heartbeat(callback_url: str, session_id: str) -> None:
     """Send a heartbeat to the Rails server.
     
@@ -591,7 +761,7 @@ def run_async_stream_with_callback(
                                 
                                 # Run expert sync synchronously (wait for it) so facilitator has fresh guidance
                                 try:
-                                    await asyncio.wait_for(
+                                    analysis = await asyncio.wait_for(
                                         trigger_and_update_expert(
                                             thread_id=thread_id,
                                             state=current_state,
@@ -603,6 +773,15 @@ def run_async_stream_with_callback(
                                         timeout=60.0,  # 60 second timeout
                                     )
                                     _logger.info("[DualAgent] Expert sync completed BEFORE facilitator call (async callback)")
+                                    
+                                    # Send canvas callback after expert sync completes (pass analysis directly to avoid state read timing issues)
+                                    await fetch_and_send_canvas_callback(
+                                        callback_url=callback_url,
+                                        session_id=thread_id,
+                                        agent=agent,
+                                        config=config,
+                                        analysis=analysis,  # Pass analysis directly
+                                    )
                                 except asyncio.TimeoutError:
                                     _logger.error("[DualAgent] Expert sync timed out before facilitator call (async callback, continuing anyway)")
                                 except Exception as e:
@@ -1102,7 +1281,7 @@ Provide your wrap-up summary now."""
                                     expertise_dir_path = Path(expertise_dir) if expertise_dir else None
                                     
                                     try:
-                                        await asyncio.wait_for(
+                                        analysis = await asyncio.wait_for(
                                             trigger_and_update_expert(
                                                 thread_id=thread_id,
                                                 state=result_state,
@@ -1114,6 +1293,15 @@ Provide your wrap-up summary now."""
                                             timeout=60.0,  # 60 second timeout for the entire expert sync
                                         )
                                         _logger.info("[DualAgent] Expert sync completed successfully (async, callback)")
+                                        
+                                        # Send canvas callback after expert sync completes (pass analysis directly to avoid state read timing issues)
+                                        await fetch_and_send_canvas_callback(
+                                            callback_url=callback_url,
+                                            session_id=thread_id,
+                                            agent=agent,
+                                            config=config,
+                                            analysis=analysis,  # Pass analysis directly
+                                        )
                                     except asyncio.TimeoutError:
                                         _logger.error("[DualAgent] Expert sync timed out after 60s (async, callback)")
                                     except Exception as e:
@@ -1377,7 +1565,7 @@ Provide your wrap-up summary now."""
                                             expertise_dir_path = Path(expertise_dir) if expertise_dir else None
                                             
                                             try:
-                                                await asyncio.wait_for(
+                                                analysis = await asyncio.wait_for(
                                                     trigger_and_update_expert(
                                                         thread_id=thread_id,
                                                         state=result_state,
@@ -1389,6 +1577,15 @@ Provide your wrap-up summary now."""
                                                     timeout=60.0,  # 60 second timeout for the entire expert sync
                                                 )
                                                 _logger.info("[DualAgent] Expert sync completed successfully (async, callback, fallback, after final)")
+                                                
+                                                # Send canvas callback after expert sync completes (pass analysis directly to avoid state read timing issues)
+                                                await fetch_and_send_canvas_callback(
+                                                    callback_url=callback_url,
+                                                    session_id=thread_id,
+                                                    agent=agent,
+                                                    config=config,
+                                                    analysis=analysis,  # Pass analysis directly
+                                                )
                                             except asyncio.TimeoutError:
                                                 _logger.error("[DualAgent] Expert sync timed out after 60s (async, callback, fallback, after final)")
                                             except Exception as e:

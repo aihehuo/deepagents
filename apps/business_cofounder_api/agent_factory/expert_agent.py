@@ -84,6 +84,7 @@ You must produce a JSON object with:
 - **Build on progress**: Acknowledge what's been achieved and what's next
 - **Quality over quantity**: Fewer great insights better than many mediocre ones
 - **Guide, don't dictate**: Provide direction while respecting natural flow
+- **Match user's language**: Always respond in the same language the user is using. If the user writes in Chinese, respond in Chinese. If they write in English, respond in English. This applies to ALL output including expert_guidance, canvas content, and summaries.
 
 {expertise_content}
 """

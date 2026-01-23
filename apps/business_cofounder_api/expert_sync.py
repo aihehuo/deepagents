@@ -214,6 +214,17 @@ async def trigger_expert_analysis(
     # Build analysis prompt for expert
     analysis_prompt = f"""Analyze this conversation using your expertise.
 
+## Language Requirement
+
+**CRITICAL**: The user is communicating in {language_name} (language code: {detected_language}).
+**YOU MUST respond in {language_name} for ALL output**, including:
+- Expert guidance text
+- Canvas data content (all text fields, descriptions, labels)
+- Canvas update summary
+- Any other text in your response
+
+**DO NOT use English** - use {language_name} throughout your entire response.
+
 ## Conversation History (Last 10 Rounds)
 
 {conversation_text}
@@ -227,21 +238,24 @@ async def trigger_expert_analysis(
 
 Analyze this conversation and provide:
 
-1. **Expert Guidance** (2-4 sentences):
+1. **Expert Guidance** (2-4 sentences in {language_name}):
    Strategic direction for the facilitator. What should they focus on in upcoming conversations?
    Be specific and actionable.
+   **MUST be written in {language_name}**.
 
 2. **Canvas Data** (structured JSON following the template):
    Use the canvas template structure below to assess the current state.
+   **ALL text content in the canvas (array items, descriptions, etc.) MUST be in {language_name}**.
+   For example, if the canvas has customer segments like ["Small business owners"], translate them to {language_name}.
 
 3. **Canvas Update Summary** (2-3 sentences in {language_name}):
    A brief summary of what was updated in the canvas, written in {language_name} (language code: {detected_language}).
    This summary will be sent directly to the user, so make it clear, friendly, and informative.
    Focus on what new information was added or what changed in the Business Model Canvas.
-   Examples:
-   - "We've updated your Business Model Canvas with new information about your customer segments and value propositions."
-   - "Your canvas now includes details about your revenue streams and key partners."
-   - "The canvas has been updated with information about your channels and customer relationships."
+   Examples in {language_name}:
+   - "我们已更新了您的商业模式画布，添加了关于客户细分和价值主张的新信息。"
+   - "您的画布现在包含了关于收入流和关键合作伙伴的详细信息。"
+   - "画布已更新，包含了关于渠道和客户关系的信息。"
 
 ## Canvas Template
 
@@ -253,19 +267,20 @@ Provide your analysis as a JSON object with this exact structure:
 
 ```json
 {{
-  "expert_guidance": "Your 2-4 sentence strategic guidance here...",
+  "expert_guidance": "Your 2-4 sentence strategic guidance in {language_name}...",
   "canvas": {{
-    ... follow the template structure above ...
+    ... follow the template structure above, with ALL text content in {language_name} ...
   }},
-  "canvas_update_summary": "A 2-3 sentence summary in {language_name} describing what was updated in the canvas. This will be sent directly to the user."
+  "canvas_update_summary": "A 2-3 sentence summary in {language_name} describing what was updated in the canvas."
 }}
 ```
 
 **Important**: 
 - Return ONLY the JSON object, no additional text before or after
 - Follow the canvas template structure
-- The canvas_update_summary MUST be written in {language_name} (language code: {detected_language})
+- **ALL text content MUST be in {language_name}** - expert_guidance, canvas content, and canvas_update_summary
 - Include all three fields: "expert_guidance", "canvas", and "canvas_update_summary"
+- **DO NOT use English** - use {language_name} for everything
 """
     
     # MOCK MODE: Set this to True to test if the issue is with async structure or the agent itself
@@ -333,12 +348,26 @@ Provide your analysis as a JSON object with this exact structure:
         _logger.info("[ExpertSync] Starting expert agent invocation (thread_id=%s)...", expert_thread_id)
         _logger.info("[ExpertSync] About to call ainvoke at %s", datetime.utcnow().isoformat())
         
-        # Create the input dict
-        input_dict = {"messages": [HumanMessage(content=analysis_prompt)]}
+        # Create the input dict with conversation history so LanguageDetectionMiddleware can detect language
+        # Include conversation history in messages so the expert agent can detect language from user messages
+        expert_messages = []
+        # Add conversation history first (so language can be detected)
+        for msg in conversation_history[-5:]:  # Include last 5 messages for language detection
+            expert_messages.append(msg)
+        # Then add the analysis prompt
+        expert_messages.append(HumanMessage(content=analysis_prompt))
+        
+        input_dict = {"messages": expert_messages}
+        # Explicitly set detected_language in initial state if we have it (helps ensure language is used)
+        if detected_language:
+            input_dict["detected_language"] = detected_language
+            _logger.info("[ExpertSync] Setting detected_language=%s in initial state", detected_language)
+        
         config_dict = {
             "configurable": {"thread_id": expert_thread_id},
         }
-        _logger.info("[ExpertSync] Input prepared: messages=%d, config=%s", len(input_dict["messages"]), config_dict)
+        _logger.info("[ExpertSync] Input prepared: messages=%d (including %d conversation messages for language detection), detected_language=%s, config=%s", 
+                     len(input_dict["messages"]), len(conversation_history[-5:]), detected_language, config_dict)
         
         # Use ainvoke with timeout
         _logger.info("[ExpertSync] Starting ainvoke with timeout (30s)...")

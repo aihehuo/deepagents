@@ -137,12 +137,11 @@ class TestUserAgentInitialization:
     def test_user_agent_initialization(
         self, app_client: TestClient, test_simulation_id: str
     ) -> None:
-        """First message returns is_initialization=true, startup idea, success, correct thread_id."""
+        """First message returns startup idea, success, correct thread_id."""
         assignment = SAMPLE_ASSIGNMENTS[0]
         data = call_user_agent(app_client, test_simulation_id, assignment)
 
         assert data["success"] is True
-        assert data["is_initialization"] is True
         assert data["thread_id"] == f"sim_user::{test_simulation_id}"
         assert "reply" in data and len(data["reply"].strip()) > 0
         # Response should look like a rough idea (even if vague)
@@ -156,13 +155,12 @@ class TestUserAgentFollowUp:
     def test_user_agent_follow_up(
         self, app_client: TestClient, test_simulation_id: str
     ) -> None:
-        """Follow-up returns is_initialization=false, conversational reply, same thread_id."""
+        """Follow-up returns conversational reply, same thread_id."""
         # Initialize first
         init_data = call_user_agent(
             app_client, test_simulation_id, SAMPLE_ASSIGNMENTS[0]
         )
         assert init_data["success"] is True
-        assert init_data["is_initialization"] is True
         thread_id = init_data["thread_id"]
 
         # Follow-up
@@ -170,7 +168,6 @@ class TestUserAgentFollowUp:
             app_client, test_simulation_id, SAMPLE_FACILITATOR_MESSAGES[0]
         )
         assert followup_data["success"] is True
-        assert followup_data["is_initialization"] is False
         assert followup_data["thread_id"] == thread_id
         assert "reply" in followup_data and len(followup_data["reply"].strip()) > 0
         # Should be conversational, not generating a new idea
@@ -228,7 +225,6 @@ class TestConversationLoop:
             app_client, test_simulation_id, SAMPLE_ASSIGNMENTS[0]
         )
         assert init_data["success"] is True
-        assert init_data["is_initialization"] is True
         idea = init_data["reply"]
         user_thread = init_data["thread_id"]
 
@@ -245,7 +241,6 @@ class TestConversationLoop:
             app_client, test_simulation_id, fac_data_1["reply"], user_id=fac_user_id
         )
         assert user_data_2["success"] is True
-        assert user_data_2["is_initialization"] is False
         assert user_data_2["thread_id"] == user_thread
 
         # 4. Send user reply to facilitator
@@ -335,11 +330,11 @@ class TestSimulatedUserEdgeCases:
     def test_response_structure(
         self, app_client: TestClient, test_simulation_id: str
     ) -> None:
-        """Response has required keys: simulation_id, user_id, thread_id, reply, is_initialization, success."""
+        """Response has required keys: thread_id, reply, success."""
         data = call_user_agent(
             app_client, test_simulation_id, SAMPLE_ASSIGNMENTS[0]
         )
-        for key in ("simulation_id", "user_id", "thread_id", "reply", "is_initialization", "success"):
+        for key in ("thread_id", "reply", "success"):
             assert key in data, f"Missing key: {key}"
 
     def test_thread_id_format(self, app_client: TestClient, test_simulation_id: str) -> None:

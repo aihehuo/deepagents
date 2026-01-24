@@ -100,17 +100,29 @@ class SimulatedUserChatRequest(BaseModel):
     This endpoint handles both initialization (first message with assignment) 
     and follow-up conversation messages. The endpoint auto-detects which case it is.
     """
-    simulation_id: str = Field(..., description="Unique identifier for this simulation")
+    simulation_id: str = Field(..., description="Unique identifier for this simulation (accepts int or str, coerced to str)")
     message: str = Field(..., description="Message from instructor/facilitator (could be initial assignment or follow-up)")
-    user_id: str = Field("simulated_user", description="User ID for tracking (defaults to 'simulated_user')")
+    user_id: str = Field("simulated_user", description="User ID for tracking (accepts int or str, coerced to str, defaults to 'simulated_user')")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Optional metadata")
+
+    @field_validator("simulation_id", mode="before")
+    @classmethod
+    def coerce_simulation_id_to_str(cls, v: Any) -> str:
+        """Coerce simulation_id to string."""
+        return str(v)
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def coerce_user_id_to_str(cls, v: Any) -> str:
+        """Coerce user_id to string."""
+        if v is None:
+            return "simulated_user"
+        return str(v)
 
 
 class SimulatedUserChatResponse(BaseModel):
     """Response from the simulated user agent."""
-    simulation_id: str
-    user_id: str
-    thread_id: str
-    reply: str = Field(..., description="User agent's response (startup idea on first message, regular reply on follow-ups)")
-    is_initialization: bool = Field(..., description="True if this was the first message (startup idea), False for follow-ups")
     success: bool
+    session_id: str = Field(..., description="Session ID (same as thread_id)")
+    thread_id: str = Field(..., description="Thread ID (same as session_id)")
+    reply: str = Field(..., description="User agent's response message")

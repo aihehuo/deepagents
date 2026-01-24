@@ -92,3 +92,25 @@ class CallDeepAgentAsyncResponse(BaseModel):
     success: bool
     session_id: str = Field(..., description="Session ID (same as thread_id)")
     message: str = Field(..., description="Success or error message")
+
+
+class SimulatedUserChatRequest(BaseModel):
+    """Request to send a message to the simulated user agent.
+    
+    This endpoint handles both initialization (first message with assignment) 
+    and follow-up conversation messages. The endpoint auto-detects which case it is.
+    """
+    simulation_id: str = Field(..., description="Unique identifier for this simulation")
+    message: str = Field(..., description="Message from instructor/facilitator (could be initial assignment or follow-up)")
+    user_id: str = Field("simulated_user", description="User ID for tracking (defaults to 'simulated_user')")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Optional metadata")
+
+
+class SimulatedUserChatResponse(BaseModel):
+    """Response from the simulated user agent."""
+    simulation_id: str
+    user_id: str
+    thread_id: str
+    reply: str = Field(..., description="User agent's response (startup idea on first message, regular reply on follow-ups)")
+    is_initialization: bool = Field(..., description="True if this was the first message (startup idea), False for follow-ups")
+    success: bool

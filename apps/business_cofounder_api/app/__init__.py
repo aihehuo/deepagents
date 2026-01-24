@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from apps.business_cofounder_api.app.endpoints import canvas, chat, deep_agent, health, reset, state
+from apps.business_cofounder_api.app.endpoints import canvas, chat, deep_agent, health, reset, simulated_user, state
 from apps.business_cofounder_api.app.models import (
     CallDeepAgentAsyncRequest,
     CallDeepAgentAsyncResponse,
@@ -19,6 +19,8 @@ from apps.business_cofounder_api.app.models import (
     KanbanRequest,
     ResetRequest,
     ResetResponse,
+    SimulatedUserChatRequest,
+    SimulatedUserChatResponse,
 )
 from apps.business_cofounder_api.app.startup import startup
 from apps.business_cofounder_api.app.state import AppState
@@ -107,6 +109,12 @@ def create_app() -> FastAPI:
     async def deep_agent_async_endpoint(req: CallDeepAgentAsyncRequest) -> CallDeepAgentAsyncResponse:
         assert _state is not None
         return await deep_agent.call_deep_agent_async(req, _state)
+    
+    # Simulated user agent endpoint
+    @app.post("/simulated_user/chat", response_model=SimulatedUserChatResponse)
+    async def simulated_user_chat_endpoint(req: SimulatedUserChatRequest) -> SimulatedUserChatResponse:
+        assert _state is not None
+        return await simulated_user.simulated_user_chat(req, _state)
     
     return app
 

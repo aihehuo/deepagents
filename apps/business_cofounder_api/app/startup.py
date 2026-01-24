@@ -12,6 +12,7 @@ from apps.business_cofounder_api.agent_factory import (
     create_business_cofounder_agent,
     create_expert_agent,
     create_facilitator_agent,
+    create_user_agent,
 )
 
 from apps.business_cofounder_api.app.state import AppState
@@ -141,6 +142,14 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         # Set expertise directory
         expertise_dir_path = str(Path(backend_root) / "expertise")
         
+        # Create simulated user agent (for testing/simulation)
+        user_agent, user_agent_checkpoints = create_user_agent(
+            agent_id="simulated_user",
+            provider="qwen",
+        )
+        _logger.info("  ✓ Simulated User Agent initialized")
+        _logger.info("    Checkpoints: %s", user_agent_checkpoints)
+        
         state_ref["state"] = AppState(
             agent=primary_agent,
             fallback_agent=fallback_agent,
@@ -154,6 +163,8 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
             facilitator_checkpoints_path=str(facilitator_checkpoints),
             expertise_dir=expertise_dir_path,
             use_dual_agent=True,
+            user_agent=user_agent,
+            user_agent_checkpoints_path=str(user_agent_checkpoints),
         )
         _logger.info("=" * 80)
         _logger.info("Dual-Agent Architecture: READY")
@@ -171,6 +182,14 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
             provider="deepseek"
         )
         
+        # Create simulated user agent (for testing/simulation)
+        user_agent, user_agent_checkpoints = create_user_agent(
+            agent_id="simulated_user",
+            provider="qwen",
+        )
+        _logger.info("  ✓ Simulated User Agent initialized")
+        _logger.info("    Checkpoints: %s", user_agent_checkpoints)
+        
         state_ref["state"] = AppState(
             agent=primary_agent,
             fallback_agent=fallback_agent,
@@ -179,6 +198,8 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
             backend_root=backend_root,
             docs_dir=docs_dir,
             use_dual_agent=False,
+            user_agent=user_agent,
+            user_agent_checkpoints_path=str(user_agent_checkpoints),
         )
         _logger.info("  ✓ Single Agent initialized")
         _logger.info("=" * 80)

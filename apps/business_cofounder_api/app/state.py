@@ -29,3 +29,6 @@ class AppState:
     expertise_dir: str | None = None  # Directory containing expertise templates
     # Flag to enable dual-agent mode
     use_dual_agent: bool = False
+    # Simulated user agent (for testing/simulation)
+    user_agent: Any | None = None  # simulated user agent
+    user_agent_checkpoints_path: str | None = None

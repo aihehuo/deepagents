@@ -22,10 +22,111 @@ from typing import Any
 from deepagents.state.dual_agent_state import DualAgentState
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
+from langdetect import LangDetectException, detect
+
+
 # Use uvicorn's configured logger
 _logger = logging.getLogger("uvicorn.error")
 
 
+# -----------------------------------------------------------------------------
+# Language evaluation helpers (code-based, no LLM)
+# -----------------------------------------------------------------------------
+
+
+def extract_text_from_canvas(canvas: dict[str, Any]) -> str:
+    """Recursively collect all string values from the canvas for language detection.
+
+    Skips metadata keys (status, message) when they look like error/fallback content.
+    Ignores very short strings (length < 3) to reduce noise.
+
+    Args:
+        canvas: Domain-agnostic canvas dict (nested dicts/lists of strings).
+
+    Returns:
+        Concatenated non-empty strings joined by spaces.
+    """
+    SKIP_KEYS = {"status", "message"}
+    MIN_STR_LEN = 3
+    chunks: list[str] = []
+
+    def _walk(obj: Any) -> None:
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k in SKIP_KEYS and isinstance(v, str):
+                    s = (v or "").strip().lower()
+                    if s in (
+                        "analysis_unavailable",
+                        "incomplete",
+                        "invalid",
+                        "mock",
+                        "not a dict",
+                    ) or "unavailable" in s or "error" in s:
+                        continue
+                _walk(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                _walk(v)
+        elif isinstance(obj, str):
+            t = obj.strip()
+            if len(t) >= MIN_STR_LEN:
+                chunks.append(t)
+
+    _walk(canvas)
+    return " ".join(chunks)
+
+
+def detect_canvas_language(canvas: dict[str, Any], min_length: int = 50) -> str | None:
+    """Detect language of canvas text using langdetect (code-only, no LLM).
+
+    Args:
+        canvas: Canvas dict from expert analysis.
+        min_length: Minimum total text length to run detection.
+
+    Returns:
+        Detected language code (e.g. 'en', 'zh') or None if too little text or detection fails.
+    """
+    text = extract_text_from_canvas(canvas)
+    if len(text) < min_length:
+        return None
+    if detect is None:
+        return None
+    try:
+        return detect(text)
+    except LangDetectException:
+        return None
+
+
+def languages_match(user_lang: str, canvas_lang: str | None) -> bool:
+    """Check if user language and canvas language match (base codes).
+
+    Normalizes e.g. 'zh-cn' -> 'zh'. Treats canvas_lang None as 'no check' (match).
+
+    Args:
+        user_lang: User's detected language code.
+        canvas_lang: Detected canvas language or None.
+
+    Returns:
+        True if same base language or canvas_lang is None.
+    """
+    if canvas_lang is None:
+        return True
+    base_user = (user_lang or "").split("-")[0].lower()
+    base_canvas = (canvas_lang or "").split("-")[0].lower()
+    return base_user == base_canvas
+
+
+def _should_skip_language_eval(canvas: Any) -> bool:
+    """Return True if we should skip language evaluation (missing, empty, or non-content blob)."""
+    if canvas is None or not isinstance(canvas, dict):
+        return True
+    keys = set(canvas.keys())
+    if keys <= {"status", "message"}:
+        return True
+    return False
+
+
+STATE_EXPERT_SYNC_INTERVAL = 3  # Default sync interval is 3 rounds
 def should_trigger_expert(state: DualAgentState) -> bool:
     """Check if expert sync should be triggered based on conversation rounds.
     
@@ -43,9 +144,8 @@ def should_trigger_expert(state: DualAgentState) -> bool:
     current_round = state.get("conversation_round", 0)
     last_sync = state.get("last_expert_sync", 0)
     _logger.info(f"[ExpertSync] should_trigger_expert: current_round: {current_round}, last_sync: {last_sync}")
-    
-    # Default sync interval is 3 rounds
-    sync_interval = 1
+     
+    sync_interval =  STATE_EXPERT_SYNC_INTERVAL
     
     should_sync = current_round - last_sync >= sync_interval
     
@@ -296,7 +396,6 @@ Provide your analysis as a JSON object with this exact structure:
         # Test 1: Basic async operation
         _logger.info("[ExpertSync] MOCK: Testing basic async sleep...")
         start_test = datetime.utcnow()
-        import asyncio
         await asyncio.sleep(0.5)
         elapsed_test = (datetime.utcnow() - start_test).total_seconds()
         _logger.info("[ExpertSync] MOCK: Async sleep completed in %.2fs", elapsed_test)
@@ -341,9 +440,6 @@ Provide your analysis as a JSON object with this exact structure:
         
         # Use an expert-specific thread ID to keep expert analysis separate
         expert_thread_id = f"expert_analysis_{thread_id}"
-        
-        # Use HumanMessage format (consistent with other agent invocations)
-        import asyncio
         
         _logger.info("[ExpertSync] Starting expert agent invocation (thread_id=%s)...", expert_thread_id)
         _logger.info("[ExpertSync] About to call ainvoke at %s", datetime.utcnow().isoformat())
@@ -397,19 +493,59 @@ Provide your analysis as a JSON object with this exact structure:
         
         # Parse expert response
         analysis = parse_expert_response(response)
-        
+
+        # Language evaluation: if canvas language != user language, ask expert to re-output in user's language
+        canvas = analysis.get("canvas")
+        if not _should_skip_language_eval(canvas):
+            canvas_lang = detect_canvas_language(canvas)
+            user_lang = detected_language
+            if not languages_match(user_lang, canvas_lang):
+                _logger.info(
+                    "[ExpertSync] Canvas language %s != user language %s, requesting expert to re-output in user language.",
+                    canvas_lang,
+                    user_lang,
+                )
+                user_lang_base = (user_lang or "en").split("-")[0]
+                lang_name = language_names.get(
+                    user_lang_base, language_names.get(user_lang, "English")
+                )
+                fix_prompt = f"""The previous expert output (expert_guidance, canvas, canvas_update_summary) was in {canvas_lang} but the user uses {user_lang} ({lang_name}).
+Re-output the exact same analysis as a single JSON object with the same structure, but with ALL text translated into {lang_name} ({user_lang}).
+Return ONLY the JSON object, no markdown or extra text. Use the same keys: "expert_guidance", "canvas", "canvas_update_summary"."""
+
+                fix_input: dict[str, Any] = {
+                    "messages": [HumanMessage(content=fix_prompt)]
+                }
+                if detected_language:
+                    fix_input["detected_language"] = detected_language
+
+                try:
+                    response2 = await asyncio.wait_for(
+                        expert_agent.ainvoke(fix_input, config=config_dict),
+                        timeout=30.0,
+                    )
+                    analysis = parse_expert_response(response2)
+                    _logger.info(
+                        "[ExpertSync] Language-fix re-invoke succeeded, using updated analysis"
+                    )
+                except (asyncio.TimeoutError, ValueError) as e:
+                    _logger.warning(
+                        "[ExpertSync] Language-fix re-invoke failed (%s), keeping original analysis",
+                        str(e),
+                    )
+
         # Add timestamp
         analysis["analysis_timestamp"] = datetime.utcnow().isoformat() + "Z"
-        
+
         # Update last sync round
         analysis["last_expert_sync"] = state.get("conversation_round", 0)
         analysis["needs_expert_sync"] = False
-        
+
         _logger.info("[ExpertSync] Analysis parsed successfully")
         _logger.info("  Guidance: %s", analysis.get("expert_guidance", "")[:100])
         canvas = analysis.get("canvas", {})
         _logger.info("  Canvas keys: %s", list(canvas.keys()) if canvas else "[]")
-        
+
         return analysis
         
     except Exception as e:

@@ -9,8 +9,12 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from apps.business_cofounder_api.expert_sync import (
+    _should_skip_language_eval,
+    detect_canvas_language,
     extract_recent_rounds,
+    extract_text_from_canvas,
     format_conversation_history,
+    languages_match,
     parse_expert_response,
     should_trigger_expert,
 )
@@ -362,3 +366,70 @@ class TestParseExpertResponse:
 
         # Should have fallback for None guidance (or allow None)
         assert "expert_guidance" in result
+
+
+class TestLanguageEvaluationHelpers:
+    """Unit tests for language evaluation helpers (extract_text_from_canvas, detect_canvas_language, languages_match)."""
+
+    def test_extract_text_from_canvas_nested(self) -> None:
+        """Should recursively collect string values from nested dict/list."""
+        canvas: dict[str, Any] = {
+            "key_partners": ["Partner A", "Partner B"],
+            "value_propositions": ["Value X Y Z"],
+            "nested": {"inner": ["item one", "item two"]},
+        }
+        result = extract_text_from_canvas(canvas)
+        assert "Partner A" in result
+        assert "Partner B" in result
+        assert "Value X Y Z" in result
+        assert "item one" in result
+        assert "item two" in result
+
+    def test_extract_text_from_canvas_skips_error_metadata(self) -> None:
+        """Should skip status/message when they look like error/fallback."""
+        canvas = {"status": "analysis_unavailable", "message": "error"}
+        assert extract_text_from_canvas(canvas) == ""
+
+    def test_extract_text_from_canvas_empty(self) -> None:
+        """Should return empty string for empty canvas."""
+        assert extract_text_from_canvas({}) == ""
+
+    def test_extract_text_from_canvas_ignores_short_strings(self) -> None:
+        """Should ignore strings shorter than 3 chars."""
+        canvas = {"a": "x", "b": "ab", "c": "abc"}
+        result = extract_text_from_canvas(canvas)
+        assert result == "abc"
+
+    def test_detect_canvas_language_too_short(self) -> None:
+        """Should return None when text below min_length."""
+        canvas = {"x": "hi"}
+        assert detect_canvas_language(canvas, min_length=50) is None
+
+    def test_detect_canvas_language_empty(self) -> None:
+        """Should return None for empty canvas."""
+        assert detect_canvas_language({}, min_length=50) is None
+
+    def test_languages_match_none(self) -> None:
+        """None canvas_lang means no check -> match."""
+        assert languages_match("en", None) is True
+        assert languages_match("zh", None) is True
+
+    def test_languages_match_same_base(self) -> None:
+        """Same base code should match."""
+        assert languages_match("zh", "zh") is True
+        assert languages_match("zh-cn", "zh") is True
+        assert languages_match("zh", "zh-cn") is True
+        assert languages_match("en", "en") is True
+
+    def test_languages_match_different(self) -> None:
+        """Different languages should not match."""
+        assert languages_match("en", "zh") is False
+        assert languages_match("zh", "ja") is False
+
+    def test_should_skip_language_eval(self) -> None:
+        """Should skip when missing, empty, or non-content blob."""
+        assert _should_skip_language_eval(None) is True
+        assert _should_skip_language_eval({}) is True
+        assert _should_skip_language_eval({"status": "x", "message": "y"}) is True
+        assert _should_skip_language_eval({"key_partners": []}) is False
+        assert _should_skip_language_eval({"value_propositions": ["a", "b"]}) is False

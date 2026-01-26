@@ -498,7 +498,16 @@ async def fetch_and_send_canvas_callback(
             except Exception:  # noqa: BLE001
                 pass  # Use last_sync_round as fallback
             
+            # Check if canvas indicates an error/fallback state - don't send callback in that case
             if canvas is not None:
+                # Skip callback if canvas indicates expert analysis failed (fallback/error state)
+                if isinstance(canvas, dict) and canvas.get("status") == "analysis_unavailable":
+                    _logger.info(
+                        "[CanvasCallback] Expert sync failed (analysis_unavailable), skipping canvas callback (session_id=%s)",
+                        session_id,
+                    )
+                    return
+                
                 _logger.info(
                     "[CanvasCallback] Sending canvas update from analysis dict (session_id=%s, round=%d, has_summary=%s)",
                     session_id,
@@ -537,6 +546,14 @@ async def fetch_and_send_canvas_callback(
             
             # Only send callback if canvas exists (expert sync has occurred)
             if canvas is not None:
+                # Skip callback if canvas indicates expert analysis failed (fallback/error state)
+                if isinstance(canvas, dict) and canvas.get("status") == "analysis_unavailable":
+                    _logger.info(
+                        "[CanvasCallback] Expert sync failed (analysis_unavailable), skipping canvas callback (session_id=%s)",
+                        session_id,
+                    )
+                    return
+                
                 _logger.info(
                     "[CanvasCallback] Sending canvas update from state (session_id=%s, round=%d, has_summary=%s)",
                     session_id,

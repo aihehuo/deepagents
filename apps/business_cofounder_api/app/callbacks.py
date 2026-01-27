@@ -452,14 +452,56 @@ def send_canvas_callback(
         callback_payload["analysis_timestamp"] = analysis_timestamp
     if partner_query is not None:
         callback_payload["partner_query"] = partner_query
+        _logger.info(
+            "[CanvasCallback] Partner query: %s",
+            partner_query,
+        )
+    
+    # Always printout partner search results status (even if None)
     if partner_search_results is not None:
         callback_payload["partner_search_results"] = partner_search_results
+        # Printout partner search results for debugging
+        _logger.info(
+            "[CanvasCallback] Partner search results (session_id=%s, count=%d)",
+            session_id,
+            len(partner_search_results),
+        )
+        for idx, result in enumerate(partner_search_results, 1):
+            user = result.get("user", {})
+            proposal = result.get("proposal_statement", "")
+            _logger.info(
+                "[CanvasCallback] Partner result %d/%d: user_id=%s, avatar=%s, proposal_length=%d",
+                idx,
+                len(partner_search_results),
+                user.get("id", "N/A"),
+                user.get("avatar", "")[:50] + "..." if len(user.get("avatar", "")) > 50 else user.get("avatar", ""),
+                len(proposal),
+            )
+            # Print full proposal for first result as example
+            if idx == 1 and proposal:
+                _logger.info(
+                    "[CanvasCallback] Sample proposal (first result): %s",
+                    proposal[:200] + "..." if len(proposal) > 200 else proposal,
+                )
+        # Print full JSON structure for first result
+        if partner_search_results and len(partner_search_results) > 0:
+            import json
+            _logger.info(
+                "[CanvasCallback] Full first result structure: %s",
+                json.dumps(partner_search_results[0], ensure_ascii=False, indent=2),
+            )
+    else:
+        _logger.info(
+            "[CanvasCallback] Partner search results: None (no results found or search not executed)",
+        )
     
     _logger.info(
-        "send_canvas_callback - sending canvas update (session_id=%s, has_canvas=%s, has_summary=%s, round=%d)",
+        "send_canvas_callback - sending canvas update (session_id=%s, has_canvas=%s, has_summary=%s, has_partner_query=%s, has_partner_results=%s, round=%d)",
         session_id,
         canvas is not None,
         canvas_update_summary is not None,
+        partner_query is not None,
+        partner_search_results is not None,
         current_round,
     )
     

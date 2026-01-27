@@ -86,13 +86,6 @@ def _search_members_api(
         api_base, api_key = _get_api_config()
         url = f"{api_base}/users/search"
         
-        # Check if API key is available
-        if not api_key:
-            return {
-                "error": "API key not configured",
-                "message": "AIHEHUO_API_KEY not found in environment variables",
-                "hint": "Please set AIHEHUO_API_KEY environment variable"
-            }
         
         # Build query parameters
         paginate_obj = {

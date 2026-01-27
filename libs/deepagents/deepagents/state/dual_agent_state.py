@@ -119,17 +119,24 @@ class DualAgentState(AgentState):
     """List of partner search results from AI He Huo platform.
     
     Each result contains:
-    - User information from the search API
+    - User information with only essential fields (id and avatar)
     - proposal_statement: Short proposal statement for connection (1-2 sentences in Chinese)
     
     Example structure:
     [
         {
-            "user": {...user_data...},
+            "user": {
+                "id": "17081",
+                "avatar": "https://example.com/avatar/17081.jpg"
+            },
             "proposal_statement": "基于您的AI技术背景，我们相信您可能是我们教育科技项目的理想合作伙伴..."
         },
         ...
     ]
+    
+    Note: Each user object MUST include:
+    - "id": User ID (required)
+    - "avatar": Avatar/profile image URL (required, empty string if not available)
     """
     
     # ========== Domain-Specific State (Backward Compatibility) ==========

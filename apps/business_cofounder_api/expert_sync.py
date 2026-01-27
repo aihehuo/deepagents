@@ -308,7 +308,9 @@ Parse the user information above (which may be in formatted text or JSON format)
 ## Output Format
 
 Return a JSON array where each element corresponds to a user (in the same order as they appear) and contains:
-- A "user" object with key user information (at minimum: id, name, and other relevant fields you extracted)
+- A "user" object with ONLY these fields:
+  - id: User ID (required)
+  - avatar: Avatar/profile image URL (required - extract from user data, use empty string if not available)
 - A "proposal_statement" field with the proposal text in {language_name}
 
 Example structure:
@@ -317,10 +319,7 @@ Example structure:
   {{
     "user": {{
       "id": "17081",
-      "name": "周先生",
-      "city": "南阳",
-      "industry": "整合营销传播",
-      ...
+      "avatar": "https://example.com/avatar/17081.jpg"
     }},
     "proposal_statement": "基于您的AI技术背景，我们相信您可能是我们教育科技项目的理想合作伙伴..."
   }},
@@ -333,6 +332,10 @@ Example structure:
 - Include ALL users from the input (same order)
 - Each proposal must be in {language_name}
 - Keep proposals concise (1-2 sentences each)
+- **MUST include ONLY these fields in each user object**:
+  - "id": User ID (required)
+  - "avatar": extract from user data if available, use empty string "" if not found
+- Do NOT include any other fields in the user object (no name, city, industry, work_experience, education_experience, etc.)
 """
     
     try:
@@ -347,7 +350,7 @@ Example structure:
         _logger.info("[ExpertSync] Invoking expert agent for proposal generation...")
         response = await asyncio.wait_for(
             expert_agent.ainvoke(input_dict, config=config_dict),
-            timeout=30.0,
+            timeout=60.0,
         )
         
         # Parse response
@@ -395,18 +398,40 @@ Example structure:
             user_blocks = [block.strip() for block in user_blocks if block.strip() and block.strip() != "---"]
             fallback_users = []
             for block in user_blocks:
-                # Extract basic info
-                user_obj = {"raw_text": block}
+                # Extract only id and avatar
+                user_obj = {
+                    "id": "N/A",
+                    "avatar": ""
+                }
                 for line in block.split("\n"):
                     if line.startswith("用户ID:") or line.startswith("用户创业号:"):
                         user_obj["id"] = line.split(":", 1)[1].strip() if ":" in line else "N/A"
-                    elif line.startswith("用户名:") or line.startswith("认证实名:"):
-                        if "name" not in user_obj:
-                            user_obj["name"] = line.split(":", 1)[1].strip() if ":" in line else "N/A"
+                    # Look for avatar/profile image fields (common patterns)
+                    elif "avatar" in line.lower() or "头像" in line or "profile" in line.lower() and "image" in line.lower() or "photo" in line.lower():
+                        if ":" in line:
+                            user_obj["avatar"] = line.split(":", 1)[1].strip()
                 fallback_users.append({"user": user_obj, "proposal_statement": ""})
             return fallback_users
         elif isinstance(users, list):
-            return [{"user": user, "proposal_statement": ""} for user in users]
+            # Extract only id and avatar from each user
+            fallback_users = []
+            for user in users:
+                if isinstance(user, dict):
+                    # Extract only id and avatar
+                    user_simple = {
+                        "id": str(user.get("id", user.get("user_id", "N/A"))),
+                        "avatar": user.get("avatar") or user.get("avatar_url") or user.get("profile_image") or user.get("photo") or ""
+                    }
+                    fallback_users.append({"user": user_simple, "proposal_statement": ""})
+                else:
+                    fallback_users.append({
+                        "user": {
+                            "id": "N/A",
+                            "avatar": ""
+                        },
+                        "proposal_statement": ""
+                    })
+            return fallback_users
         else:
             return []
 
@@ -420,35 +445,26 @@ def _parse_user_string(user_text: str) -> dict[str, Any]:
     Returns:
         Dictionary with user information
     """
-    user_data = {"raw_text": user_text}
+    user_data = {
+        "id": "N/A",
+        "avatar": ""
+    }
     
-    # Extract key fields using simple pattern matching
+    # Extract only id and avatar using simple pattern matching
     lines = user_text.split("\n")
+    
     for line in lines:
         line = line.strip()
         if not line or line == "---":
             continue
         
         # Extract user ID
-        if line.startswith("用户ID:"):
-            user_data["id"] = line.split(":", 1)[1].strip()
-        elif line.startswith("用户创业号:"):
-            user_data["user_id"] = line.split(":", 1)[1].strip()
-        elif line.startswith("用户名:"):
-            user_data["name"] = line.split(":", 1)[1].strip()
-        elif line.startswith("认证实名:"):
-            user_data["real_name"] = line.split(":", 1)[1].strip()
-        elif line.startswith("城市:"):
-            user_data["city"] = line.split(":", 1)[1].strip()
-        elif line.startswith("行业:"):
-            user_data["industry"] = line.split(":", 1)[1].strip()
-        elif line.startswith("个人主页:"):
-            user_data["profile_url"] = line.split(":", 1)[1].strip()
-        elif "个人简介:" in line or "具体介绍:" in line or "合伙需求:" in line:
-            # Extract longer text fields
-            key = line.split(":")[0].strip()
-            value = line.split(":", 1)[1].strip() if ":" in line else ""
-            user_data[key] = value
+        if line.startswith("用户ID:") or line.startswith("用户创业号:"):
+            user_data["id"] = line.split(":", 1)[1].strip() if ":" in line else "N/A"
+        # Extract avatar (look for common patterns)
+        elif "avatar" in line.lower() or "头像" in line or ("profile" in line.lower() and "image" in line.lower()) or "photo" in line.lower() or "image" in line.lower():
+            if ":" in line:
+                user_data["avatar"] = line.split(":", 1)[1].strip()
     
     return user_data
 
@@ -987,6 +1003,14 @@ Provide your analysis as a JSON object with this exact structure:
 
         # Language evaluation: if canvas language != user language, ask expert to re-output in user's language
         canvas = analysis.get("canvas")
+        # Preserve partner_query before language fix (it will be lost in re-invoke)
+        preserved_partner_query = analysis.get("partner_query")
+        if preserved_partner_query:
+            _logger.info(
+                "[ExpertSync] Preserving partner_query before language fix: %s",
+                preserved_partner_query[:100] + "..." if len(preserved_partner_query) > 100 else preserved_partner_query,
+            )
+        
         if not _should_skip_language_eval(canvas):
             canvas_lang = detect_canvas_language(canvas)
             user_lang = detected_language
@@ -1016,6 +1040,12 @@ Return ONLY the JSON object, no markdown or extra text. Use the same keys: "expe
                         timeout=120.0,
                     )
                     analysis = parse_expert_response(response2)
+                    # Restore preserved partner_query after language fix
+                    if preserved_partner_query:
+                        analysis["partner_query"] = preserved_partner_query
+                        _logger.info(
+                            "[ExpertSync] Restored partner_query after language fix"
+                        )
                     _logger.info(
                         "[ExpertSync] Language-fix re-invoke succeeded, using updated analysis"
                     )
@@ -1027,6 +1057,12 @@ Return ONLY the JSON object, no markdown or extra text. Use the same keys: "expe
 
         # Partner search: if partner_query exists, search for partners with retry loop
         partner_query = analysis.get("partner_query")
+        _logger.info(
+            "[ExpertSync] Partner query check: exists=%s, value=%s, length=%s",
+            partner_query is not None,
+            partner_query[:100] + "..." if partner_query and len(partner_query) > 100 else partner_query,
+            len(partner_query) if partner_query else 0,
+        )
         if partner_query and len(partner_query.strip()) > 5:
             _logger.info("[ExpertSync] Partner query found, executing search with refinement loop...")
             
@@ -1163,6 +1199,19 @@ Return ONLY the JSON object, no markdown or extra text. Use the same keys: "expe
                     "[ExpertSync] Partner search completed: %d proposals generated",
                     len(proposals) if isinstance(proposals, list) else 0
                 )
+                # Printout partner search results structure
+                if proposals and isinstance(proposals, list) and len(proposals) > 0:
+                    _logger.info(
+                        "[ExpertSync] Partner search results structure (first result): user_id=%s, avatar=%s, has_proposal=%s",
+                        proposals[0].get("user", {}).get("id", "N/A"),
+                        proposals[0].get("user", {}).get("avatar", "N/A"),
+                        bool(proposals[0].get("proposal_statement")),
+                    )
+                    import json
+                    _logger.info(
+                        "[ExpertSync] Full partner_search_results (first result): %s",
+                        json.dumps(proposals[0], ensure_ascii=False, indent=2),
+                    )
             else:
                 _logger.warning(
                     "[ExpertSync] No users found after %d attempts with queries: %s",
@@ -1171,6 +1220,9 @@ Return ONLY the JSON object, no markdown or extra text. Use the same keys: "expe
                 analysis["partner_search_results"] = []
                 # Keep the last attempted query in partner_query field
                 analysis["partner_query"] = current_query
+                _logger.info(
+                    "[ExpertSync] Partner search results set to empty list (no users found after retries)"
+                )
         else:
             _logger.debug("[ExpertSync] No partner query or query too short, skipping search")
             # Don't set partner_search_results if no query

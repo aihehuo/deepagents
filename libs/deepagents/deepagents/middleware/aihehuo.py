@@ -143,7 +143,82 @@ def _search_members_api(
             return error_result
         
         resp.encoding = 'utf-8'
-        return resp.json()
+        result = resp.json()
+        
+        # Print search results summary
+        print(f"[AihehuoMiddleware] Member search completed")
+        print(f"  Query: {query}")
+        print(f"  Max results requested: {max_results}, Page: {page}")
+        if investor is not None:
+            print(f"  Investor filter: {investor}")
+        if wechat_reachable_only:
+            print(f"  WeChat reachable only: True")
+        
+        # Extract and print result count
+        if "error" in result:
+            print(f"  Error: {result.get('message', 'Unknown error')}")
+        else:
+            users = []
+            user_count = 0
+            
+            # Check if "data" is a string (formatted text for LLM)
+            if "data" in result and isinstance(result["data"], str):
+                data_string = result["data"]
+                # Count users by splitting on "---"
+                user_blocks = data_string.split("\n---\n")
+                user_blocks = [block.strip() for block in user_blocks if block.strip() and block.strip() != "---"]
+                user_count = len(user_blocks)
+                
+                # Extract sample user info from first block
+                if user_count > 0:
+                    first_user = user_blocks[0]
+                    # Try to extract user ID and name from the text
+                    user_id = "N/A"
+                    name = "N/A"
+                    for line in first_user.split("\n"):
+                        if line.startswith("用户ID:") or line.startswith("用户创业号:"):
+                            user_id = line.split(":", 1)[1].strip() if ":" in line else "N/A"
+                        elif line.startswith("用户名:") or line.startswith("认证实名:"):
+                            name = line.split(":", 1)[1].strip() if ":" in line else "N/A"
+                            if name != "N/A":
+                                break
+                    
+                    print(f"  Results found: {user_count} users (formatted string)")
+                    print(f"  Sample user: ID: {user_id}, Name: {name}")
+            else:
+                # Structured format
+                if "users" in result:
+                    users = result["users"]
+                elif "data" in result and isinstance(result["data"], dict):
+                    if "users" in result["data"]:
+                        users = result["data"]["users"]
+                elif isinstance(result, list):
+                    users = result
+                elif "results" in result:
+                    users = result["results"]
+                
+                user_count = len(users) if isinstance(users, list) else 0
+                print(f"  Results found: {user_count} users")
+                
+                # Print first few user names/IDs if available
+                if user_count > 0 and isinstance(users, list):
+                    print(f"  Sample users (first 3):")
+                    for i, user in enumerate(users[:3]):
+                        user_id = user.get("id") or user.get("user_id") or "N/A"
+                        name = user.get("name") or user.get("username") or user.get("nickname") or "N/A"
+                        print(f"    [{i+1}] ID: {user_id}, Name: {name}")
+            
+            # Print pagination info if available
+            if "meta" in result and isinstance(result["meta"], str):
+                print(f"  Meta: {result['meta']}")
+            elif "pagination" in result:
+                pagination = result["pagination"]
+                print(f"  Pagination: page {pagination.get('page', '?')} of {pagination.get('total_pages', '?')}, total: {pagination.get('total', '?')}")
+            elif "data" in result and isinstance(result["data"], dict) and "pagination" in result["data"]:
+                pagination = result["data"]["pagination"]
+                print(f"  Pagination: page {pagination.get('page', '?')} of {pagination.get('total_pages', '?')}, total: {pagination.get('total', '?')}")
+        
+        return result
         
     except requests.exceptions.RequestException as e:
         # Network errors, timeouts, etc.
@@ -232,7 +307,48 @@ def _search_ideas_api(
             return error_result
         
         resp.encoding = 'utf-8'
-        return resp.json()
+        result = resp.json()
+        
+        # Print search results summary
+        print(f"[AihehuoMiddleware] Idea search completed")
+        print(f"  Query: {query}")
+        print(f"  Max results requested: {max_results}, Page: {page}")
+        
+        # Extract and print result count
+        if "error" in result:
+            print(f"  Error: {result.get('message', 'Unknown error')}")
+        else:
+            ideas = []
+            if "ideas" in result:
+                ideas = result["ideas"]
+            elif "data" in result and isinstance(result["data"], dict):
+                if "ideas" in result["data"]:
+                    ideas = result["data"]["ideas"]
+            elif isinstance(result, list):
+                ideas = result
+            elif "results" in result:
+                ideas = result["results"]
+            
+            idea_count = len(ideas) if isinstance(ideas, list) else 0
+            print(f"  Results found: {idea_count} ideas")
+            
+            # Print pagination info if available
+            if "pagination" in result:
+                pagination = result["pagination"]
+                print(f"  Pagination: page {pagination.get('page', '?')} of {pagination.get('total_pages', '?')}, total: {pagination.get('total', '?')}")
+            elif "data" in result and isinstance(result["data"], dict) and "pagination" in result["data"]:
+                pagination = result["data"]["pagination"]
+                print(f"  Pagination: page {pagination.get('page', '?')} of {pagination.get('total_pages', '?')}, total: {pagination.get('total', '?')}")
+            
+            # Print first few idea titles if available
+            if idea_count > 0 and isinstance(ideas, list):
+                print(f"  Sample ideas (first 3):")
+                for i, idea in enumerate(ideas[:3]):
+                    idea_id = idea.get("id") or idea.get("idea_id") or "N/A"
+                    title = idea.get("title") or idea.get("name") or "N/A"
+                    print(f"    [{i+1}] ID: {idea_id}, Title: {title}")
+        
+        return result
         
     except requests.exceptions.RequestException as e:
         # Network errors, timeouts, etc.

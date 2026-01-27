@@ -67,13 +67,22 @@ You must produce a JSON object with:
    Structured assessment of current state.
    The canvas structure is defined by your specific expertise template.
 
+3. **partner_query** (optional, string in Chinese, 10-20 words):
+   When analyzing business ideas, if the idea is sufficiently developed and you have enough information
+   about the business needs, generate a partner search query. This should be a natural Chinese sentence/phrase
+   (10-20 words) describing the ideal partner based on the business idea, target market, and specific needs.
+   The query will be used to search for potential partners on the AI He Huo platform.
+   Only include this if you have enough information to create a meaningful search query.
+   Example: "寻找有AI技术背景的创业者，希望合作开发教育科技产品"
+
 **Output Format:**
 ```json
 {{
   "expert_guidance": "Your 2-4 sentence strategic guidance here...",
   "canvas": {{
     ... structure defined by your expertise ...
-  }}
+  }},
+  "partner_query": "Optional: 10-20 word Chinese sentence describing ideal partner (only if business idea is sufficiently developed)"
 }}
 ```
 

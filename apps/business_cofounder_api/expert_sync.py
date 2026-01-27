@@ -118,7 +118,7 @@ def languages_match(user_lang: str, canvas_lang: str | None) -> bool:
 
 def _should_skip_language_eval(canvas: Any) -> bool:
     """Return True if we should skip language evaluation (missing, empty, or non-content blob)."""
-    if canvas is None or not isinstance(canvas, dict):
+    if canvas is None or not isinstance(canvas, dict): 
         return True
     keys = set(canvas.keys())
     if keys <= {"status", "message"}:
@@ -126,7 +126,7 @@ def _should_skip_language_eval(canvas: Any) -> bool:
     return False
 
 
-STATE_EXPERT_SYNC_INTERVAL = 3  # Default sync interval is 3 rounds
+STATE_EXPERT_SYNC_INTERVAL = 1  # Default sync interval is 3 rounds
 def should_trigger_expert(state: DualAgentState) -> bool:
     """Check if expert sync should be triggered based on conversation rounds.
     
@@ -201,6 +201,485 @@ def extract_recent_rounds(
     )
     
     return recent_messages
+
+
+async def generate_proposal_statements(
+    expert_agent,
+    users: list[dict[str, Any]] | str,
+    conversation_history: list[BaseMessage],
+    partner_query: str,
+    detected_language: str = "zh",
+    thread_id: str = "proposal_generation",
+) -> list[dict[str, Any]]:
+    """Generate proposal statements for each user from partner search results.
+    
+    Args:
+        expert_agent: The expert agent instance
+        users: Either a list of user dictionaries OR a formatted string from search API
+        conversation_history: Recent conversation messages for context
+        partner_query: The partner query that was used for search
+        detected_language: Language code (default: "zh" for Chinese)
+        thread_id: Thread ID for expert agent invocation
+        
+    Returns:
+        List of dictionaries, each containing user data and proposal_statement
+    """
+    # Handle string format (LLM-friendly formatted text)
+    if isinstance(users, str):
+        users_text = users
+        # Count users by splitting on "---"
+        user_blocks = users_text.split("\n---\n")
+        user_blocks = [block.strip() for block in user_blocks if block.strip() and block.strip() != "---"]
+        user_count = len(user_blocks)
+        _logger.info("[ExpertSync] Generating proposal statements for %d users (from formatted string)", user_count)
+    else:
+        if not users:
+            _logger.info("[ExpertSync] No users to generate proposals for")
+            return []
+        user_count = len(users)
+        _logger.info("[ExpertSync] Generating proposal statements for %d users", user_count)
+    
+    # Language name mapping
+    language_names = {
+        "en": "English",
+        "zh": "Chinese",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "pt": "Portuguese",
+        "ru": "Russian",
+        "it": "Italian",
+    }
+    language_name = language_names.get(detected_language, "Chinese")
+    
+    # Format conversation history for context
+    conversation_text = format_conversation_history(conversation_history[-10:])  # Last 10 messages
+    # Limit conversation text to avoid token limits
+    if len(conversation_text) > 2000:
+        conversation_text = conversation_text[:2000] + "..."
+    
+    # Format users for prompt
+    if isinstance(users, str):
+        # Already in formatted string format - use directly (limit length)
+        users_text = users
+        if len(users_text) > 10000:  # Limit to avoid token limits
+            users_text = users_text[:10000] + "\n\n... (truncated)"
+    else:
+        # Convert list of dicts to JSON
+        users_text = json.dumps(users[:10], ensure_ascii=False, indent=2)
+    
+    proposal_prompt = f"""Generate short proposal statements for connecting with potential partners.
+
+## Language Requirement
+
+**CRITICAL**: Generate proposals in {language_name} (language code: {detected_language}).
+**YOU MUST write all proposals in {language_name}**.
+
+## Context
+
+Partner Search Query: {partner_query}
+
+## Conversation History (for context)
+
+{conversation_text}
+
+## Users Found
+
+{users_text}
+
+## Your Task
+
+Parse the user information above (which may be in formatted text or JSON format) and for each user, generate a short proposal statement (1-2 sentences in {language_name}) that:
+1. Explains why this user might be a good fit as a partner
+2. References the business idea/needs from the conversation
+3. Is personalized based on the user's profile/background
+4. Is friendly and professional
+
+**If the users are in formatted text (separated by "---"):**
+- Parse each user block (separated by "---")
+- Extract key information: user ID, name, location, industry, background, etc.
+- Create a structured user object for each
+
+**If the users are in JSON format:**
+- Use the existing structure directly
+
+## Output Format
+
+Return a JSON array where each element corresponds to a user (in the same order as they appear) and contains:
+- A "user" object with key user information (at minimum: id, name, and other relevant fields you extracted)
+- A "proposal_statement" field with the proposal text in {language_name}
+
+Example structure:
+```json
+[
+  {{
+    "user": {{
+      "id": "17081",
+      "name": "周先生",
+      "city": "南阳",
+      "industry": "整合营销传播",
+      ...
+    }},
+    "proposal_statement": "基于您的AI技术背景，我们相信您可能是我们教育科技项目的理想合作伙伴..."
+  }},
+  ...
+]
+```
+
+**Important**:
+- Return ONLY the JSON array, no additional text
+- Include ALL users from the input (same order)
+- Each proposal must be in {language_name}
+- Keep proposals concise (1-2 sentences each)
+"""
+    
+    try:
+        expert_thread_id = f"proposal_gen_{thread_id}"
+        config_dict = {"configurable": {"thread_id": expert_thread_id}}
+        
+        input_dict = {
+            "messages": [HumanMessage(content=proposal_prompt)],
+            "detected_language": detected_language,
+        }
+        
+        _logger.info("[ExpertSync] Invoking expert agent for proposal generation...")
+        response = await asyncio.wait_for(
+            expert_agent.ainvoke(input_dict, config=config_dict),
+            timeout=30.0,
+        )
+        
+        # Parse response
+        messages = response.get("messages", [])
+        if not messages:
+            raise ValueError("No messages in proposal generation response")
+        
+        # Find the last AI message
+        last_ai_message = None
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage):
+                last_ai_message = msg
+                break
+        
+        if not last_ai_message:
+            raise ValueError("No AI message in proposal generation response")
+        
+        content = last_ai_message.content
+        if not isinstance(content, str):
+            content = str(content)
+        
+        # Extract JSON from content
+        json_str = content.strip()
+        if json_str.startswith("```json"):
+            json_str = json_str[7:]
+        elif json_str.startswith("```"):
+            json_str = json_str[3:]
+        if json_str.endswith("```"):
+            json_str = json_str[:-3]
+        json_str = json_str.strip()
+        
+        proposals = json.loads(json_str)
+        if not isinstance(proposals, list):
+            raise ValueError("Proposal response is not a list")
+        
+        _logger.info("[ExpertSync] Generated %d proposal statements", len(proposals))
+        return proposals
+        
+    except Exception as e:
+        _logger.error("[ExpertSync] Error generating proposals: %s", str(e), exc_info=True)
+        # Return users without proposals as fallback
+        if isinstance(users, str):
+            # Parse string format to create basic user objects
+            user_blocks = users.split("\n---\n")
+            user_blocks = [block.strip() for block in user_blocks if block.strip() and block.strip() != "---"]
+            fallback_users = []
+            for block in user_blocks:
+                # Extract basic info
+                user_obj = {"raw_text": block}
+                for line in block.split("\n"):
+                    if line.startswith("用户ID:") or line.startswith("用户创业号:"):
+                        user_obj["id"] = line.split(":", 1)[1].strip() if ":" in line else "N/A"
+                    elif line.startswith("用户名:") or line.startswith("认证实名:"):
+                        if "name" not in user_obj:
+                            user_obj["name"] = line.split(":", 1)[1].strip() if ":" in line else "N/A"
+                fallback_users.append({"user": user_obj, "proposal_statement": ""})
+            return fallback_users
+        elif isinstance(users, list):
+            return [{"user": user, "proposal_statement": ""} for user in users]
+        else:
+            return []
+
+
+def _parse_user_string(user_text: str) -> dict[str, Any]:
+    """Parse a single user's text block into a structured dictionary.
+    
+    Args:
+        user_text: Text block for a single user (separated by "---")
+        
+    Returns:
+        Dictionary with user information
+    """
+    user_data = {"raw_text": user_text}
+    
+    # Extract key fields using simple pattern matching
+    lines = user_text.split("\n")
+    for line in lines:
+        line = line.strip()
+        if not line or line == "---":
+            continue
+        
+        # Extract user ID
+        if line.startswith("用户ID:"):
+            user_data["id"] = line.split(":", 1)[1].strip()
+        elif line.startswith("用户创业号:"):
+            user_data["user_id"] = line.split(":", 1)[1].strip()
+        elif line.startswith("用户名:"):
+            user_data["name"] = line.split(":", 1)[1].strip()
+        elif line.startswith("认证实名:"):
+            user_data["real_name"] = line.split(":", 1)[1].strip()
+        elif line.startswith("城市:"):
+            user_data["city"] = line.split(":", 1)[1].strip()
+        elif line.startswith("行业:"):
+            user_data["industry"] = line.split(":", 1)[1].strip()
+        elif line.startswith("个人主页:"):
+            user_data["profile_url"] = line.split(":", 1)[1].strip()
+        elif "个人简介:" in line or "具体介绍:" in line or "合伙需求:" in line:
+            # Extract longer text fields
+            key = line.split(":")[0].strip()
+            value = line.split(":", 1)[1].strip() if ":" in line else ""
+            user_data[key] = value
+    
+    return user_data
+
+
+def extract_users_from_response(search_results: dict[str, Any]) -> list[dict[str, Any]] | str | None:
+    """Extract users from search API response.
+    
+    Handles various response formats from the AI He Huo search API.
+    The API may return:
+    - A dictionary with "data" as a formatted string (LLM-friendly format) - returns the string
+    - A dictionary with "users" as a list - returns the list
+    - A dictionary with "data" containing a "users" list - returns the list
+    - A list directly - returns the list
+    
+    Args:
+        search_results: Response dictionary from _search_members_api
+        
+    Returns:
+        - If "data" is a string: returns the string (for LLM parsing)
+        - Otherwise: list of user dictionaries, or empty list if no users found
+        - None if error or no data
+    """
+    # Check if "data" is a string (formatted text for LLM)
+    if "data" in search_results and isinstance(search_results["data"], str):
+        data_string = search_results["data"]
+        # Return the string as-is for LLM to parse
+        # But check if it's empty or just whitespace
+        if data_string.strip():
+            return data_string
+        return []
+    
+    # Check for structured formats
+    users = []
+    if "users" in search_results:
+        users = search_results["users"]
+    elif "data" in search_results and isinstance(search_results["data"], dict):
+        if "users" in search_results["data"]:
+            users = search_results["data"]["users"]
+    elif isinstance(search_results, list):
+        users = search_results
+    elif "results" in search_results:
+        users = search_results["results"]
+    
+    return users if isinstance(users, list) else []
+
+
+async def refine_partner_query(
+    expert_agent,
+    original_query: str,
+    previous_queries: list[str],
+    conversation_history: list[BaseMessage],
+    detected_language: str = "zh",
+    thread_id: str = "query_refinement",
+) -> str | None:
+    """Ask expert agent to refine a partner query that returned no results.
+    
+    When a partner search query returns no results, it typically means the query
+    is too specific. This function asks the expert agent to generate a broader,
+    less specific query.
+    
+    Args:
+        expert_agent: The expert agent instance
+        original_query: The query that returned no results
+        previous_queries: List of all queries attempted so far (to avoid repetition)
+        conversation_history: Recent conversation messages for context
+        detected_language: Language code (default: "zh" for Chinese)
+        thread_id: Thread ID for expert agent invocation
+        
+    Returns:
+        New refined query string, or None if refinement failed
+    """
+    _logger.info("[ExpertSync] Refining partner query: %s", original_query)
+    
+    # Language name mapping
+    language_names = {
+        "en": "English",
+        "zh": "Chinese",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "pt": "Portuguese",
+        "ru": "Russian",
+        "it": "Italian",
+    }
+    language_name = language_names.get(detected_language, "Chinese")
+    
+    # Format conversation history for context
+    conversation_text = format_conversation_history(conversation_history[-10:])
+    # Limit conversation text to avoid token limits
+    if len(conversation_text) > 2000:
+        conversation_text = conversation_text[:2000] + "..."
+    
+    # Format previous queries
+    previous_queries_text = "\n".join(f"- {q}" for q in previous_queries)
+    
+    refinement_prompt = f"""The partner search query you generated returned zero results, which means the query is TOO SPECIFIC and needs to be SIGNIFICANTLY BROADENED.
+
+## Original Query (No Results - Too Specific)
+
+{original_query}
+
+## Previous Queries Attempted (All Returned Zero Results)
+
+{previous_queries_text}
+
+## Conversation History (for context)
+
+{conversation_text[:2000]}
+
+## Your Task - SIGNIFICANTLY BROADEN THE QUERY
+
+Generate a NEW, MUCH BROADER partner search query by AGGRESSIVELY REMOVING specific details:
+
+**CRITICAL: You MUST remove or generalize:**
+1. **Specific locations** (e.g., "上海" → remove entirely, "虹口" → remove entirely, "老城区" → remove or generalize to "城市")
+2. **Very specific skill sets** (e.g., "合规验证与微改造" → "商业运营" or remove)
+3. **Specific business models** (e.g., "非咖啡业态监管先例数据库" → "商业创新" or remove)
+4. **Specific industries** (e.g., "社区商业" → "商业" or "创业")
+5. **Overly detailed requirements** - keep only the core need
+
+**Examples of aggressive simplification:**
+- "寻找有上海老城区社区商业落地经验的创业者，熟悉虹口老公房沿街铺位合规验证与微改造"
+  → "寻找有商业运营经验的创业者" (removed location, specific skills, specific area)
+  
+- "寻找有AI技术背景的创业者，希望合作开发教育科技产品"
+  → "寻找有技术背景的创业者" (removed specific tech, specific industry)
+  
+- "寻找对教育科技领域感兴趣的投资人，有相关行业经验"
+  → "寻找对创业项目感兴趣的投资人" (removed specific industry)
+
+**Requirements:**
+1. Make it MUCH simpler and broader than previous queries
+2. Remove ALL specific locations if present
+3. Remove very specific technical terms or niche skills
+4. Keep only the most general core need (e.g., "创业者", "投资人", "合作伙伴")
+5. Still 10-20 words in Chinese
+6. Natural sentence/phrase suitable for semantic search
+7. Must be meaningfully different from all previous queries
+
+**If the query is still too specific after removing details, make it even more general.**
+**The goal is to find ANY relevant users, not perfect matches.**
+
+## Output Format
+
+Return ONLY a JSON object with this structure:
+```json
+{{
+  "refined_query": "Your new MUCH BROADER query in Chinese (10-20 words)"
+}}
+```
+
+**Important**:
+- Return ONLY the JSON object, no additional text
+- The refined_query must be in Chinese
+- It must be 10-20 words
+- It must be SIGNIFICANTLY broader than previous queries
+- Remove specific locations, specific skills, specific industries
+- Make it as general as possible while still being relevant
+"""
+    
+    try:
+        expert_thread_id = f"query_refinement_{thread_id}"
+        config_dict = {"configurable": {"thread_id": expert_thread_id}}
+        
+        input_dict = {
+            "messages": [HumanMessage(content=refinement_prompt)],
+            "detected_language": detected_language,
+        }
+        
+        _logger.info("[ExpertSync] Invoking expert agent for query refinement...")
+        response = await asyncio.wait_for(
+            expert_agent.ainvoke(input_dict, config=config_dict),
+            timeout=120.0,
+        )
+        
+        # Parse response
+        messages = response.get("messages", [])
+        if not messages:
+            raise ValueError("No messages in query refinement response")
+        
+        # Find the last AI message
+        last_ai_message = None
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage):
+                last_ai_message = msg
+                break
+        
+        if not last_ai_message:
+            raise ValueError("No AI message in query refinement response")
+        
+        content = last_ai_message.content
+        if not isinstance(content, str):
+            content = str(content)
+        
+        # Extract JSON from content
+        json_str = content.strip()
+        if json_str.startswith("```json"):
+            json_str = json_str[7:]
+        elif json_str.startswith("```"):
+            json_str = json_str[3:]
+        if json_str.endswith("```"):
+            json_str = json_str[:-3]
+        json_str = json_str.strip()
+        
+        result = json.loads(json_str)
+        if not isinstance(result, dict) or "refined_query" not in result:
+            raise ValueError("Invalid response format: missing 'refined_query' field")
+        
+        refined_query = result["refined_query"]
+        if not isinstance(refined_query, str):
+            raise ValueError("Invalid response format: 'refined_query' is not a string")
+        
+        refined_query = refined_query.strip()
+        
+        # Validate query length
+        if len(refined_query) < 6:
+            _logger.warning("[ExpertSync] Refined query too short (%d chars), rejecting", len(refined_query))
+            return None
+        
+        if len(refined_query) > 100:
+            _logger.warning("[ExpertSync] Refined query too long (%d chars), truncating", len(refined_query))
+            refined_query = refined_query[:100]
+        
+        _logger.info("[ExpertSync] Query refined successfully: %s", refined_query)
+        return refined_query
+        
+    except Exception as e:
+        _logger.error("[ExpertSync] Error refining partner query: %s", str(e), exc_info=True)
+        return None
 
 
 def format_conversation_history(messages: list[BaseMessage]) -> str:
@@ -357,6 +836,16 @@ Analyze this conversation and provide:
    - "您的画布现在包含了关于收入流和关键合作伙伴的详细信息。"
    - "画布已更新，包含了关于渠道和客户关系的信息。"
 
+4. **Partner Query** (optional, string in Chinese, 10-20 words):
+   If the business idea is sufficiently developed and you have enough information about the business needs,
+   generate a partner search query. This should be a natural Chinese sentence/phrase describing the ideal partner
+   based on the business idea, target market, and specific needs identified in the conversation.
+   The query will be used to search for potential partners on the AI He Huo platform.
+   Only include this field if you have enough information to create a meaningful search query.
+   Example: "寻找有AI技术背景的创业者，希望合作开发教育科技产品"
+   Example: "寻找对教育科技领域感兴趣的投资人，有相关行业经验"
+   If the business idea is not yet developed enough, omit this field.
+
 ## Canvas Template
 
 {canvas_template}
@@ -371,7 +860,8 @@ Provide your analysis as a JSON object with this exact structure:
   "canvas": {{
     ... follow the template structure above, with ALL text content in {language_name} ...
   }},
-  "canvas_update_summary": "A 2-3 sentence summary in {language_name} describing what was updated in the canvas."
+  "canvas_update_summary": "A 2-3 sentence summary in {language_name} describing what was updated in the canvas.",
+  "partner_query": "Optional: 10-20 word Chinese sentence describing ideal partner (only if business idea is sufficiently developed)"
 }}
 ```
 
@@ -379,8 +869,9 @@ Provide your analysis as a JSON object with this exact structure:
 - Return ONLY the JSON object, no additional text before or after
 - Follow the canvas template structure
 - **ALL text content MUST be in {language_name}** - expert_guidance, canvas content, and canvas_update_summary
-- Include all three fields: "expert_guidance", "canvas", and "canvas_update_summary"
-- **DO NOT use English** - use {language_name} for everything
+- Include required fields: "expert_guidance", "canvas", and "canvas_update_summary"
+- Include "partner_query" only if the business idea is sufficiently developed (10-20 words in Chinese)
+- **DO NOT use English** - use {language_name} for everything (except partner_query which should always be in Chinese)
 """
     
     # MOCK MODE: Set this to True to test if the issue is with async structure or the agent itself
@@ -466,14 +957,14 @@ Provide your analysis as a JSON object with this exact structure:
                      len(input_dict["messages"]), len(conversation_history[-5:]), detected_language, config_dict)
         
         # Use ainvoke with timeout
-        _logger.info("[ExpertSync] Starting ainvoke with timeout (30s)...")
+        _logger.info("[ExpertSync] Starting ainvoke with timeout (120s)...")
         start_time = datetime.utcnow()
         
         try:
             # Use wait_for with timeout
             response = await asyncio.wait_for(
                 expert_agent.ainvoke(input_dict, config=config_dict),
-                timeout=30.0,  # 30 second timeout
+                timeout=120.0,  # 120 second timeout
             )
             end_time = datetime.utcnow()
             elapsed = (end_time - start_time).total_seconds()
@@ -522,7 +1013,7 @@ Return ONLY the JSON object, no markdown or extra text. Use the same keys: "expe
                 try:
                     response2 = await asyncio.wait_for(
                         expert_agent.ainvoke(fix_input, config=config_dict),
-                        timeout=30.0,
+                        timeout=120.0,
                     )
                     analysis = parse_expert_response(response2)
                     _logger.info(
@@ -533,6 +1024,156 @@ Return ONLY the JSON object, no markdown or extra text. Use the same keys: "expe
                         "[ExpertSync] Language-fix re-invoke failed (%s), keeping original analysis",
                         str(e),
                     )
+
+        # Partner search: if partner_query exists, search for partners with retry loop
+        partner_query = analysis.get("partner_query")
+        if partner_query and len(partner_query.strip()) > 5:
+            _logger.info("[ExpertSync] Partner query found, executing search with refinement loop...")
+            
+            # Import search API function
+            from deepagents.middleware.aihehuo import _search_members_api
+            
+            # Initialize retry loop variables
+            current_query = partner_query
+            max_retries = int(os.getenv("PARTNER_SEARCH_MAX_RETRIES", "3"))
+            retry_count = 0
+            users = None  # Can be list, string, or None
+            attempted_queries = [partner_query]
+            
+            def _has_users(users_data: list[dict[str, Any]] | str | None) -> bool:
+                """Check if users_data contains any users."""
+                if users_data is None:
+                    return False
+                if isinstance(users_data, str):
+                    # Count users in string format
+                    user_blocks = users_data.split("\n---\n")
+                    user_blocks = [block.strip() for block in user_blocks if block.strip() and block.strip() != "---"]
+                    return len(user_blocks) > 0
+                if isinstance(users_data, list):
+                    return len(users_data) > 0
+                return False
+            
+            while not _has_users(users) and retry_count < max_retries:
+                try:
+                    _logger.info(
+                        "[ExpertSync] Partner search attempt %d/%d with query: %s",
+                        retry_count + 1, max_retries, current_query
+                    )
+                    
+                    # Call search API
+                    search_results = _search_members_api(
+                        query=current_query,
+                        max_results=10,
+                        page=1,
+                    )
+                    
+                    # Check for API errors
+                    if "error" in search_results:
+                        _logger.warning(
+                            "[ExpertSync] Partner search API error: %s",
+                            search_results.get("message", "Unknown error")
+                        )
+                        # Don't retry on API errors - they're not about query specificity
+                        break
+                    
+                    # Extract users from response
+                    users_data = extract_users_from_response(search_results)
+                    
+                    # Check if we got users (string format or list format)
+                    if isinstance(users_data, str):
+                        # String format - count users by splitting
+                        user_blocks = users_data.split("\n---\n")
+                        user_blocks = [block.strip() for block in user_blocks if block.strip() and block.strip() != "---"]
+                        user_count = len(user_blocks)
+                        if user_count > 0:
+                            users = users_data  # Keep as string for LLM parsing
+                            _logger.info(
+                                "[ExpertSync] Found %d users (string format) after %d retry(ies) with query: %s",
+                                user_count, retry_count, current_query
+                            )
+                            break
+                    elif isinstance(users_data, list) and len(users_data) > 0:
+                        users = users_data
+                        _logger.info(
+                            "[ExpertSync] Found %d users after %d retry(ies) with query: %s",
+                            len(users), retry_count, current_query
+                        )
+                        break
+                    
+                    # No users found - refine query if we have retries left
+                    if retry_count < max_retries - 1:
+                        _logger.info(
+                            "[ExpertSync] No users found with query '%s', refining query (attempt %d/%d)...",
+                            current_query, retry_count + 1, max_retries
+                        )
+                        new_query = await refine_partner_query(
+                            expert_agent=expert_agent,
+                            original_query=current_query,
+                            previous_queries=attempted_queries,
+                            conversation_history=conversation_history,
+                            detected_language=detected_language,
+                            thread_id=thread_id,
+                        )
+                        
+                        if new_query and new_query.strip() and new_query not in attempted_queries:
+                            current_query = new_query
+                            attempted_queries.append(new_query)
+                            retry_count += 1
+                        else:
+                            _logger.warning(
+                                "[ExpertSync] Query refinement failed or produced duplicate/invalid query, stopping retries"
+                            )
+                            break
+                    else:
+                        # Max retries reached
+                        break
+                        
+                except Exception as e:
+                    _logger.error(
+                        "[ExpertSync] Error during partner search retry: %s",
+                        str(e),
+                        exc_info=True
+                    )
+                    break
+            
+            # Generate proposals if users found
+            if _has_users(users):
+                if isinstance(users, str):
+                    # Count users in string format for logging
+                    user_blocks = users.split("\n---\n")
+                    user_blocks = [block.strip() for block in user_blocks if block.strip() and block.strip() != "---"]
+                    user_count = len(user_blocks)
+                    _logger.info("[ExpertSync] Found %d users (string format) from partner search", user_count)
+                else:
+                    user_count = len(users) if isinstance(users, list) else 0
+                    _logger.info("[ExpertSync] Found %d users from partner search", user_count)
+                
+                # Generate proposal statements for each user
+                proposals = await generate_proposal_statements(
+                    expert_agent=expert_agent,
+                    users=users,
+                    conversation_history=conversation_history,
+                    partner_query=current_query,  # Use the final query that succeeded
+                    detected_language=detected_language,
+                    thread_id=thread_id,
+                )
+                analysis["partner_search_results"] = proposals
+                analysis["partner_query"] = current_query  # Update with final query used
+                _logger.info(
+                    "[ExpertSync] Partner search completed: %d proposals generated",
+                    len(proposals) if isinstance(proposals, list) else 0
+                )
+            else:
+                _logger.warning(
+                    "[ExpertSync] No users found after %d attempts with queries: %s",
+                    retry_count + 1, attempted_queries
+                )
+                analysis["partner_search_results"] = []
+                # Keep the last attempted query in partner_query field
+                analysis["partner_query"] = current_query
+        else:
+            _logger.debug("[ExpertSync] No partner query or query too short, skipping search")
+            # Don't set partner_search_results if no query
 
         # Add timestamp
         analysis["analysis_timestamp"] = datetime.utcnow().isoformat() + "Z"
@@ -646,6 +1287,30 @@ def parse_expert_response(response: dict[str, Any]) -> dict[str, Any]:
     # Handle optional canvas_update_summary field
     if "canvas_update_summary" not in analysis:
         _logger.debug("[ExpertSync] No canvas_update_summary provided, will use default")
+        # Don't set a default - let it be None if not provided
+    
+    # Handle optional partner_query field
+    if "partner_query" in analysis:
+        partner_query = analysis["partner_query"]
+        if isinstance(partner_query, str):
+            partner_query = partner_query.strip()
+            # Validate query length (should be 10-20 words approximately)
+            # For Chinese, we can count characters (roughly 1-2 chars per word)
+            # So 10-20 words ≈ 10-40 characters
+            if len(partner_query) < 6:  # Minimum 6 chars (API requirement is 5, but we want meaningful queries)
+                _logger.warning("[ExpertSync] Partner query too short (%d chars), ignoring", len(partner_query))
+                analysis["partner_query"] = None
+            elif len(partner_query) > 100:  # Too long, likely not 10-20 words
+                _logger.warning("[ExpertSync] Partner query too long (%d chars), truncating", len(partner_query))
+                analysis["partner_query"] = partner_query[:100]
+            else:
+                analysis["partner_query"] = partner_query
+                _logger.info("[ExpertSync] Partner query extracted: %s", partner_query[:50])
+        else:
+            _logger.warning("[ExpertSync] Partner query is not a string, ignoring")
+            analysis["partner_query"] = None
+    else:
+        _logger.debug("[ExpertSync] No partner_query provided")
         # Don't set a default - let it be None if not provided
     
     # Validate canvas is a dict (but don't validate its internal structure - it's opaque)

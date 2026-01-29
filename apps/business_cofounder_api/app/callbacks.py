@@ -1350,6 +1350,53 @@ Provide your wrap-up summary now."""
                                     **state_values,
                                 }
                                 
+                                # Facilitator post-hoc language fix (same idea as expert canvas language fix)
+                                from apps.business_cofounder_api.expert_sync import (
+                                    facilitator_reply_needs_language_fix,
+                                    trigger_facilitator_language_fix,
+                                )
+                                detected_language = state_values.get("detected_language", "en")
+                                needs_lang_fix, _ = facilitator_reply_needs_language_fix(
+                                    state_values, detected_language
+                                )
+                                if needs_lang_fix:
+                                    try:
+                                        config_with_metadata = {
+                                            "configurable": {"thread_id": thread_id},
+                                            "metadata": metadata,
+                                        }
+                                        corrected_reply = await asyncio.wait_for(
+                                            trigger_facilitator_language_fix(
+                                                agent=agent,
+                                                checkpointer=checkpointer,
+                                                thread_id=thread_id,
+                                                state_values=state_values,
+                                                user_lang=detected_language,
+                                                config=config_with_metadata,
+                                                facilitator_agent=agent,
+                                            ),
+                                            timeout=30.0,
+                                        )
+                                        if corrected_reply:
+                                            lang_corrected_payload = {
+                                                "session_id": thread_id,
+                                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                                                "type": "message",
+                                                "language_corrected": True,
+                                                "message": corrected_reply,
+                                            }
+                                            invoke_callback(callback_url, lang_corrected_payload)
+                                    except asyncio.TimeoutError:
+                                        _logger.warning(
+                                            "[DualAgent] Facilitator language fix timed out (thread_id=%s)",
+                                            thread_id,
+                                        )
+                                    except Exception as e:  # noqa: BLE001
+                                        _logger.warning(
+                                            "[DualAgent] Facilitator language fix error: %s",
+                                            str(e),
+                                        )
+                                
                                 # Import here to avoid circular dependency
                                 from apps.business_cofounder_api.expert_sync import should_trigger_expert, trigger_and_update_expert
                                 
@@ -1634,6 +1681,53 @@ Provide your wrap-up summary now."""
                                             "expertise_type": expertise_type,
                                             **state_values,
                                         }
+                                        
+                                        # Facilitator post-hoc language fix (fallback path)
+                                        from apps.business_cofounder_api.expert_sync import (
+                                            facilitator_reply_needs_language_fix,
+                                            trigger_facilitator_language_fix,
+                                        )
+                                        detected_language_fb = state_values.get("detected_language", "en")
+                                        needs_lang_fix_fb, _ = facilitator_reply_needs_language_fix(
+                                            state_values, detected_language_fb
+                                        )
+                                        if needs_lang_fix_fb:
+                                            try:
+                                                config_with_metadata_fb = {
+                                                    "configurable": {"thread_id": thread_id},
+                                                    "metadata": metadata,
+                                                }
+                                                corrected_reply_fb = await asyncio.wait_for(
+                                                    trigger_facilitator_language_fix(
+                                                        agent=fallback_agent,
+                                                        checkpointer=checkpointer,
+                                                        thread_id=thread_id,
+                                                        state_values=state_values,
+                                                        user_lang=detected_language_fb,
+                                                        config=config_with_metadata_fb,
+                                                        facilitator_agent=fallback_agent,
+                                                    ),
+                                                    timeout=30.0,
+                                                )
+                                                if corrected_reply_fb:
+                                                    lang_corrected_payload_fb = {
+                                                        "session_id": thread_id,
+                                                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                                                        "type": "message",
+                                                        "language_corrected": True,
+                                                        "message": corrected_reply_fb,
+                                                    }
+                                                    invoke_callback(callback_url, lang_corrected_payload_fb)
+                                            except asyncio.TimeoutError:
+                                                _logger.warning(
+                                                    "[DualAgent] Facilitator language fix timed out (fallback, thread_id=%s)",
+                                                    thread_id,
+                                                )
+                                            except Exception as e:  # noqa: BLE001
+                                                _logger.warning(
+                                                    "[DualAgent] Facilitator language fix error (fallback): %s",
+                                                    str(e),
+                                                )
                                         
                                         # Import here to avoid circular dependency
                                         from apps.business_cofounder_api.expert_sync import should_trigger_expert, trigger_and_update_expert

@@ -37,14 +37,18 @@ Extract meaningful information from conversations and populate the Business Mode
 - Look for partnerships, collaborations, or external dependencies
 - Leave empty array `[]` if no information provided
 
-**Key Activities** (What key activities does our value proposition require?):
-- Extract core activities needed to deliver value (e.g., production, problem solving, platform/network)
-- Look for mentions of what they need to do to make the business work
+**Key Activities** (What key activities are needed to develop the product and acquire customers?):
+- These are **activities to build and run the business**, not features or content of the product itself.
+- Extract: product development, marketing, sales, customer support, operations, partnerships—i.e. what the team must *do* to create the product and get/keep customers.
+- **Good examples:** "Software development and releases", "Content marketing and SEO", "Outbound sales", "Customer onboarding", "Platform operations and moderation".
+- **Bad examples (do not put here):** "AI-powered recommendations" (that's a product feature → value proposition), "Users can filter by category" (product behavior), "The app sends notifications" (product capability). Put product capabilities in value propositions, not key activities.
 - Leave empty array `[]` if no information provided
 
-**Key Resources** (What key resources does our value proposition require?):
-- Extract physical, intellectual, human, or financial resources mentioned
-- Look for assets, capabilities, technologies, or people needed
+**Key Resources** (What key resources are needed to develop the product and serve customers?):
+- These are **resources the company needs to build and deliver**, not what the product contains or does.
+- Extract: team, capital, technology/tools, IP, infrastructure, data, partnerships—i.e. what the company must *have* to develop the product and reach customers.
+- **Good examples:** "Development team", "Cloud infrastructure (AWS)", "Proprietary algorithm / IP", "Seed funding", "User research and feedback pipeline", "Brand and marketing assets".
+- **Bad examples (do not put here):** "Recommendation engine" (product component → describe as capability in value prop or product), "In-app dashboard" (product feature), "User profiles" (product content). Put product components in value propositions; put company assets here.
 - Leave empty array `[]` if no information provided
 
 **Value Propositions** (What value do we deliver to the customer?):
@@ -53,9 +57,11 @@ Extract meaningful information from conversations and populate the Business Mode
 - Look for pain relievers or gain creators mentioned
 - Leave empty array `[]` if no information provided
 
-**Customer Relationships** (What type of relationship do we establish with customers?):
-- Extract relationship types (personal assistance, self-service, communities, co-creation)
-- Look for how they plan to interact with customers
+**Customer Relationships** (How do we maintain and develop relations with customers?):
+- These are **how the company builds and keeps relationships** with customers—not product features or in-product UI.
+- Extract: relationship approach (personal assistance, self-service, communities, co-creation), retention and engagement tactics, support model, how they stay in touch and develop the relationship over time.
+- **Good examples:** "Personal onboarding calls for new customers", "Email nurture and check-ins", "Community forum or user group", "Dedicated account manager for enterprise", "Self-service help center plus live chat for support", "Quarterly business reviews with key accounts".
+- **Bad examples (do not put here):** "In-app chat" (product feature → value prop if it's a benefit; channels if it's how you reach them), "User notification preferences" (product setting), "Profile page in the app" (product content). Put relationship strategy and touchpoints here; put product capabilities in value propositions.
 - Leave empty array `[]` if no information provided
 
 **Channels** (Through which channels do we reach our customer segments?):
@@ -80,10 +86,11 @@ Extract meaningful information from conversations and populate the Business Mode
 
 ### 2. Information Extraction Principles
 - **Extract only what was explicitly mentioned or clearly implied** in the conversation
-- **Use concise phrases or short sentences** for each item (not full paragraphs)
+- **Use middle-length phrases for each canvas note**: Aim for phrases that are specific and readable (roughly 5–15 words). Avoid 2–3 word fragments (e.g. "Software development" → prefer "Software development and continuous deployment"; "Small businesses" → prefer "Small business owners and freelancers"). Do not use full sentences or paragraphs.
 - **Leave blocks empty** if no relevant information was discussed
 - **Don't make assumptions** - only populate with information from the conversation
 - **Group related items** when appropriate (e.g., multiple customer segments)
+- **Key Activities, Key Resources, Customer Relationships**: Populate with what the company does/has to *develop* the product and *acquire* and *maintain* customers—not with product features or product content (those belong in value propositions). Customer Relationships = how to maintain and develop relations with customers, not what to build in the product.
 
 ## Canvas Structure
 
@@ -164,7 +171,7 @@ Generate a Business Model Canvas with the following structure. Each block should
 
 **Important:**
 - Only include information that was actually discussed in the conversation
-- Use clear, concise phrases (not full sentences or paragraphs)
+- Use middle-length phrases for each note (specific, ~5–15 words)—avoid 2–3 word labels; avoid full sentences or paragraphs
 - Leave blocks as empty arrays `[]` when no information is available
 - Don't invent or assume information - only extract what was mentioned
 
@@ -208,7 +215,7 @@ You have access to all 7 entrepreneurial methodology skills:
 2. **Extract Business Model Canvas data**: For each of the 9 blocks, extract relevant information mentioned in the conversation
    - Populate blocks with items that were explicitly discussed
    - Leave blocks as empty arrays `[]` if no relevant information was provided
-   - Use concise phrases, not full paragraphs
+   - Use middle-length phrases for each note (~5–15 words), not 2–3 word fragments or full paragraphs
 3. **Identify gaps**: Which Business Model Canvas blocks are empty or unclear?
 4. **Determine next focus**: Which empty blocks are most critical to explore next?
 5. **Generate guidance**: Tell the facilitator which Business Model Canvas areas to explore in upcoming conversations

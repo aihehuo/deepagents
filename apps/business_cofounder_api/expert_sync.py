@@ -126,6 +126,173 @@ def _should_skip_language_eval(canvas: Any) -> bool:
     return False
 
 
+# Language names for facilitator/expert language-fix prompts (shared)
+LANGUAGE_NAMES = {
+    "en": "English",
+    "zh": "Chinese",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "it": "Italian",
+}
+
+
+def detect_text_language(text: str, min_length: int = 20) -> str | None:
+    """Detect language of a text string using langdetect (code-only, no LLM).
+
+    Args:
+        text: Plain text (e.g. facilitator reply).
+        min_length: Minimum length to run detection.
+
+    Returns:
+        Detected language code (e.g. 'en', 'zh') or None if too short or detection fails.
+    """
+    if not text or len(text.strip()) < min_length:
+        return None
+    if detect is None:
+        return None
+    try:
+        return detect(text)
+    except LangDetectException:
+        return None
+
+
+def _should_skip_facilitator_language_eval(reply_text: str, min_length: int = 20) -> bool:
+    """Return True if we should skip facilitator reply language evaluation."""
+    return not reply_text or len(reply_text.strip()) < min_length
+
+
+def facilitator_reply_needs_language_fix(
+    state_values: dict[str, Any],
+    user_lang: str,
+    min_reply_length: int = 20,
+) -> tuple[bool, str]:
+    """Check if the facilitator's last reply is in a different language than the user.
+
+    Args:
+        state_values: Channel values from facilitator checkpoint (must include "messages").
+        user_lang: User's detected language code (e.g. from detected_language).
+        min_reply_length: Minimum reply length to run detection.
+
+    Returns:
+        (needs_fix, last_ai_content): True if reply language != user language and we should re-invoke;
+        last_ai_content is the last AI message content (for logging or replacement).
+    """
+    messages = state_values.get("messages") or []
+    if not messages:
+        return False, ""
+    last = messages[-1]
+    if not isinstance(last, AIMessage) and (not hasattr(last, "type") or getattr(last, "type") != "ai"):
+        return False, ""
+    content = getattr(last, "content", None) or ""
+    reply_text = content if isinstance(content, str) else (str(content) if content else "")
+    if _should_skip_facilitator_language_eval(reply_text, min_reply_length):
+        return False, reply_text
+    reply_lang = detect_text_language(reply_text, min_reply_length)
+    if languages_match(user_lang, reply_lang):
+        return False, reply_text
+    return True, reply_text
+
+
+async def trigger_facilitator_language_fix(
+    agent: Any,
+    checkpointer: Any,
+    thread_id: str,
+    state_values: dict[str, Any],
+    user_lang: str,
+    config: dict[str, Any],
+    facilitator_agent: Any | None = None,
+) -> str | None:
+    """Re-invoke facilitator to get a reply in the user's language; update checkpoint and return new reply.
+
+    Call this when the facilitator's last reply was detected in a different language than the user.
+    Appends a system instruction to rephrase in the target language, then replaces the wrong reply
+    and the instruction message in the checkpoint with the corrected reply only.
+
+    Args:
+        agent: Facilitator agent (used for ainvoke).
+        checkpointer: Checkpointer instance for the facilitator.
+        thread_id: Thread ID.
+        state_values: Channel values from checkpoint (with messages including the wrong AI reply).
+        user_lang: User's language code.
+        config: Config dict (configurable.thread_id, etc.).
+        facilitator_agent: Optional facilitator agent for aupdate_state (preferred).
+
+    Returns:
+        Corrected reply text in user's language, or None on failure.
+    """
+    user_lang_base = (user_lang or "en").split("-")[0].lower()
+    lang_name = LANGUAGE_NAMES.get(user_lang_base, LANGUAGE_NAMES.get(user_lang, "English"))
+    instruction = (
+        f"[Critical: You must respond only in {lang_name}. "
+        f"Rephrase your previous response entirely in {lang_name}.]"
+    )
+    configurable = dict(config.get("configurable", {}))
+    configurable["thread_id"] = thread_id
+    fix_config = {"configurable": configurable, "metadata": config.get("metadata", {})}
+
+    # Ensure detected_language stays the user's language for the fix invoke. Otherwise
+    # LanguageDetectionMiddleware would re-detect from our English instruction and inject
+    # "respond in English", overriding the Chinese rephrase request.
+    try:
+        await (facilitator_agent or agent).aupdate_state(
+            config=fix_config,
+            values={"detected_language": user_lang},
+        )
+    except Exception as e:
+        _logger.debug(
+            "[ExpertSync] Could not set detected_language before fix invoke: %s",
+            str(e),
+        )
+
+    try:
+        result = await agent.ainvoke(
+            {"messages": [HumanMessage(content=instruction)]},
+            config=fix_config,
+        )
+    except Exception as e:
+        _logger.warning(
+            "[ExpertSync] Facilitator language-fix re-invoke failed: %s: %s",
+            type(e).__name__,
+            str(e),
+        )
+        return None
+
+    result_messages = result.get("messages", [])
+    ai_in_result = [m for m in result_messages if isinstance(m, AIMessage) or (hasattr(m, "type") and getattr(m, "type") == "ai")]
+    if not ai_in_result:
+        _logger.warning("[ExpertSync] Facilitator language-fix re-invoke returned no AI message")
+        return None
+
+    new_ai = ai_in_result[-1]
+    new_content = getattr(new_ai, "content", None) or ""
+    corrected_reply = new_content if isinstance(new_content, str) else str(new_content)
+
+    # Replace checkpoint messages: remove wrong AI and the instruction human message, keep corrected AI only
+    # After ainvoke, result_messages are [... prev, user_msg, ai_wrong, human_instruction, ai_correct]
+    # We want [... prev, user_msg, ai_correct]
+    new_messages = result_messages[:-3] + [new_ai]
+
+    await update_state_with_analysis(
+        thread_id=thread_id,
+        analysis={"messages": new_messages},
+        checkpointer=checkpointer,
+        agent=facilitator_agent or agent,
+    )
+
+    _logger.info(
+        "[ExpertSync] Facilitator language-fix applied (thread_id=%s, user_lang=%s), reply length=%d",
+        thread_id,
+        user_lang,
+        len(corrected_reply),
+    )
+    return corrected_reply
+
+
 STATE_EXPERT_SYNC_INTERVAL = 1  # Default sync interval is 3 rounds
 def should_trigger_expert(state: DualAgentState) -> bool:
     """Check if expert sync should be triggered based on conversation rounds.

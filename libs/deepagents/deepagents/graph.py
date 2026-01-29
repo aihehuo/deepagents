@@ -175,21 +175,21 @@ def create_deep_agent(
 
     if skills is not None:
         subagent_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
-    subagent_middleware.extend(
-        [
-            FilesystemMiddleware(backend=backend),
-            SummarizationMiddleware(
-                model=model,
-                backend=backend,
-                trigger=trigger,
-                keep=keep,
-                trim_tokens_to_summarize=None,
-                truncate_args_settings=truncate_args_settings,
-            ),
-            AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-            PatchToolCallsMiddleware(),
-        ]
-    )
+        subagent_middleware.extend(
+            [
+                FilesystemMiddleware(backend=backend),
+                SummarizationMiddleware(
+                    model=model,
+                    backend=backend,
+                    trigger=trigger,
+                    keep=keep,
+                    trim_tokens_to_summarize=None,
+                    truncate_args_settings=truncate_args_settings,
+                ),
+                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+                PatchToolCallsMiddleware(),
+            ]
+        )
 
     # Build main agent middleware stack
     deepagent_middleware: list[AgentMiddleware] = [
@@ -199,56 +199,29 @@ def create_deep_agent(
         deepagent_middleware.append(MemoryMiddleware(backend=backend, sources=memory))
     if skills is not None:
         deepagent_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
-    deepagent_middleware.extend(
-        [
-            FilesystemMiddleware(backend=backend),
-            SubAgentMiddleware(
-                default_model=model,
-                default_tools=tools,
-                subagents=subagents if subagents is not None else [],
-                default_middleware=subagent_middleware,
-                default_interrupt_on=interrupt_on,
-                general_purpose_agent=True,
-            ),
-            SummarizationMiddleware(
-                model=model,
-                backend=backend,
-                trigger=trigger,
-                keep=keep,
-                trim_tokens_to_summarize=None,
-                truncate_args_settings=truncate_args_settings,
-            ),
-            AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-            PatchToolCallsMiddleware(),
-        ]
-    )
-        FilesystemMiddleware(backend=backend),
-        SubAgentMiddleware(
-            default_model=model,
-            default_tools=tools,
-            subagents=subagents if subagents is not None else [],
-            default_middleware=[
-                TodoListMiddleware(),
+        deepagent_middleware.extend(
+            [
                 FilesystemMiddleware(backend=backend),
+                SubAgentMiddleware(
+                    default_model=model,
+                    default_tools=tools,
+                    subagents=subagents if subagents is not None else [],
+                    default_middleware=subagent_middleware,
+                    default_interrupt_on=interrupt_on,
+                    general_purpose_agent=True,
+                ),
                 SummarizationMiddleware(
                     model=model,
+                    backend=backend,
                     trigger=trigger,
                     keep=keep,
+                    trim_tokens_to_summarize=None,
+                    truncate_args_settings=truncate_args_settings,
                 ),
                 AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
                 PatchToolCallsMiddleware(),
-            ],
-            default_interrupt_on=interrupt_on,
-            general_purpose_agent=True,
-        ),
-        SummarizationMiddleware(
-            model=model,
-            trigger=trigger,
-            keep=keep,
-        ),
-        AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-        PatchToolCallsMiddleware(),
-    ]
+            ]
+        )
     if middleware:
         deepagent_middleware.extend(middleware)
     if interrupt_on is not None:

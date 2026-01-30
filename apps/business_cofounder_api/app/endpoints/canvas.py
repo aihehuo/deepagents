@@ -73,6 +73,8 @@ async def get_canvas(req: KanbanRequest, state: AppState) -> CanvasResponse:
                 current_round=0,
                 last_sync_round=0,
                 analysis_timestamp=None,
+                partner_query=None,
+                partner_search_results=None,
             )
         
         # Extract state from checkpoint
@@ -84,13 +86,17 @@ async def get_canvas(req: KanbanRequest, state: AppState) -> CanvasResponse:
         current_round = state_values.get("conversation_round", 0)
         last_sync = state_values.get("last_expert_sync", 0)
         timestamp = state_values.get("analysis_timestamp")
+        partner_query = state_values.get("partner_query")
+        partner_search_results = state_values.get("partner_search_results")
         
         _logger.info(
-            "[Canvas] Retrieved for thread %s: round=%d, last_sync=%d, has_canvas=%s",
+            "[Canvas] Retrieved for thread %s: round=%d, last_sync=%d, has_canvas=%s, has_partner_query=%s, partner_results=%s",
             tid,
             current_round,
             last_sync,
             canvas is not None,
+            partner_query is not None,
+            len(partner_search_results) if isinstance(partner_search_results, list) else 0,
         )
         
         return CanvasResponse(
@@ -102,6 +108,8 @@ async def get_canvas(req: KanbanRequest, state: AppState) -> CanvasResponse:
             current_round=current_round,
             last_sync_round=last_sync,
             analysis_timestamp=timestamp,
+            partner_query=partner_query,
+            partner_search_results=partner_search_results,
         )
         
     except Exception as e:  # noqa: BLE001

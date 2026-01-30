@@ -43,6 +43,10 @@ class CanvasResponse(BaseModel):
     current_round: int = 0
     last_sync_round: int = 0
     analysis_timestamp: str | None = None
+    partner_query: str | None = None
+    """Partner search query from expert (e.g. Chinese sentence for ideal partner). Shown in recommended partner section."""
+    partner_search_results: list[dict[str, Any]] | None = None
+    """List of recommended partners with proposal_statement per user. Shown in recommended partner section."""
 
 
 class ResetRequest(BaseModel):

@@ -118,12 +118,55 @@ def languages_match(user_lang: str, canvas_lang: str | None) -> bool:
 
 def _should_skip_language_eval(canvas: Any) -> bool:
     """Return True if we should skip language evaluation (missing, empty, or non-content blob)."""
-    if canvas is None or not isinstance(canvas, dict): 
+    if canvas is None or not isinstance(canvas, dict):
         return True
     keys = set(canvas.keys())
     if keys <= {"status", "message"}:
         return True
     return False
+
+
+# Max items per canvas block (Business Model Canvas: each block = one array, max 5 items)
+MAX_ITEMS_PER_CANVAS_BLOCK = 5
+
+# Keys that are not canvas "blocks" (arrays of posts/items) - skip for cap enforcement
+_CANVAS_NON_BLOCK_KEYS = frozenset({"status", "message"})
+
+
+def enforce_canvas_block_cap(
+    canvas: dict[str, Any],
+    max_per_block: int = MAX_ITEMS_PER_CANVAS_BLOCK,
+) -> tuple[dict[str, Any], list[str]]:
+    """Enforce max items per canvas block; truncate excess and return names of truncated blocks.
+
+    Each top-level key in the canvas that has a list value is a "block". If a block has
+    more than max_per_block items, it is truncated to max_per_block. Used so that
+    Business Model Canvas (and similar) blocks never exceed the limit (e.g. 5 posts per block).
+
+    Args:
+        canvas: Domain-agnostic canvas dict (top-level values may be lists = blocks).
+        max_per_block: Maximum number of items allowed per block (default 5).
+
+    Returns:
+        (updated_canvas, list of block names that were truncated).
+    """
+    if not canvas or not isinstance(canvas, dict):
+        return canvas if isinstance(canvas, dict) else {}, []
+    out: dict[str, Any] = {}
+    truncated_blocks: list[str] = []
+    for key, value in canvas.items():
+        if key in _CANVAS_NON_BLOCK_KEYS:
+            out[key] = value
+            continue
+        if isinstance(value, list):
+            if len(value) > max_per_block:
+                out[key] = value[:max_per_block]
+                truncated_blocks.append(key)
+            else:
+                out[key] = value
+        else:
+            out[key] = value
+    return out, truncated_blocks
 
 
 # Language names for facilitator/expert language-fix prompts (shared)
@@ -1221,6 +1264,26 @@ Return ONLY the JSON object, no markdown or extra text. Use the same keys: "expe
                         "[ExpertSync] Language-fix re-invoke failed (%s), keeping original analysis",
                         str(e),
                     )
+
+        # Enforce max items per canvas block (e.g. 5 posts per block); truncate and feedback
+        canvas = analysis.get("canvas")
+        if canvas is not None and isinstance(canvas, dict):
+            capped_canvas, truncated_blocks = enforce_canvas_block_cap(
+                canvas, max_per_block=MAX_ITEMS_PER_CANVAS_BLOCK
+            )
+            analysis["canvas"] = capped_canvas
+            if truncated_blocks:
+                _logger.warning(
+                    "[ExpertSync] Canvas blocks exceeded max items (%d), truncated: %s",
+                    MAX_ITEMS_PER_CANVAS_BLOCK,
+                    truncated_blocks,
+                )
+                summary = analysis.get("canvas_update_summary") or ""
+                note = (
+                    f"（系统已自动将以下画布区块的条目数限制为最多{MAX_ITEMS_PER_CANVAS_BLOCK}条："
+                    f"{'、'.join(truncated_blocks)}）"
+                )
+                analysis["canvas_update_summary"] = (summary.strip() + " " + note).strip()
 
         # Partner search: if partner_query exists, search for partners with retry loop
         partner_query = analysis.get("partner_query")

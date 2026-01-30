@@ -460,16 +460,25 @@ def send_canvas_callback(
         callback_payload["canvas_update_summary"] = canvas_update_summary
     if analysis_timestamp is not None:
         callback_payload["analysis_timestamp"] = analysis_timestamp
+
+    # Always include partner_query in raw payload (null when absent) so frontend can show "搜索词" etc.
+    callback_payload["partner_query"] = partner_query
     if partner_query is not None:
-        callback_payload["partner_query"] = partner_query
         _logger.info(
             "[CanvasCallback] Partner query: %s",
             partner_query,
         )
-    
-    # Always printout partner search results status (even if None)
+
+    # Always include recommended_partners block with partner_query + partner_search_results for display
+    callback_payload["recommended_partners"] = {
+        "partner_query": partner_query,
+        "partner_search_results": partner_search_results if partner_search_results is not None else [],
+    }
+
+    # Always include partner_search_results in raw payload (null when absent)
+    callback_payload["partner_search_results"] = partner_search_results
+
     if partner_search_results is not None:
-        callback_payload["partner_search_results"] = partner_search_results
         # Printout partner search results for debugging
         _logger.info(
             "[CanvasCallback] Partner search results (session_id=%s, count=%d)",

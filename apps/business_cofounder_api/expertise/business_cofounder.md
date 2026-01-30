@@ -94,7 +94,7 @@ Extract meaningful information from conversations and populate the Business Mode
 
 ## Canvas Structure
 
-Generate a Business Model Canvas with the following structure. Each block should contain an array of items extracted from the conversation. Leave blocks as empty arrays `[]` if no relevant information was discussed.
+Generate a Business Model Canvas with the following structure. Each block should contain an array of items extracted from the conversation. **Each block must have at most 5 items** (if more are discussed, keep only the 5 most relevant). Leave blocks as empty arrays `[]` if no relevant information was discussed.
 
 **Example Canvas (partially filled):**
 

@@ -320,7 +320,12 @@ def invoke_callback(callback_url: str, message: dict[str, Any]) -> bool:
             headers={"Content-Type": "application/json"},
             timeout=30,
         )
-        
+        _logger.info(
+            "invoke_callback POST done type=%s status_code=%d url=%s",
+            callback_type,
+            response.status_code,
+            callback_url,
+        )
         # Log response data - always print full response
         response_text = response.text if hasattr(response, "text") else "N/A"
         _logger.debug(
@@ -333,29 +338,34 @@ def invoke_callback(callback_url: str, message: dict[str, Any]) -> bool:
             response_text,
         )
         
-        # Try to parse and log response body, and check for interrupt signal
+        # Try to parse response body and check for interrupt signal.
+        # Empty body (e.g. Rails 200 with no content) is normal; only warn if body is non-empty but not JSON.
         interrupted = False
+        response_text_stripped = (response_text or "").strip()
         try:
-            response_data = response.json()
-            _logger.debug(
-                "_invoke_callback - response data (parsed JSON): %s",
-                response_data,
-            )
-            _logger.debug(
-                "_invoke_callback - response data type: %s, keys: %s",
-                type(response_data).__name__,
-                list(response_data.keys()) if isinstance(response_data, dict) else "N/A",
-            )
-            
-            # Check for interrupt signal
-            if isinstance(response_data, dict) and response_data.get("action") == "interrupt":
-                interrupted = True
-                _logger.info(
-                    "_invoke_callback - Interrupt signal detected in callback response: url=%s",
-                    callback_url,
+            if not response_text_stripped:
+                # 200 with empty body is success; no interrupt to parse
+                _logger.debug("_invoke_callback - empty response body (normal for many callback endpoints)")
+            else:
+                response_data = response.json()
+                _logger.debug(
+                    "_invoke_callback - response data (parsed JSON): %s",
+                    response_data,
                 )
+                _logger.debug(
+                    "_invoke_callback - response data type: %s, keys: %s",
+                    type(response_data).__name__,
+                    list(response_data.keys()) if isinstance(response_data, dict) else "N/A",
+                )
+                # Check for interrupt signal
+                if isinstance(response_data, dict) and response_data.get("action") == "interrupt":
+                    interrupted = True
+                    _logger.info(
+                        "_invoke_callback - Interrupt signal detected in callback response: url=%s",
+                        callback_url,
+                    )
         except (ValueError, json.JSONDecodeError) as json_err:
-            # Response is not JSON - log text instead
+            # Non-empty body that isn't valid JSON
             _logger.warning(
                 "_invoke_callback - response is not valid JSON: error=%s, response_text=%s",
                 str(json_err),
@@ -734,6 +744,13 @@ def run_async_stream_with_callback(
         use_dual_agent: Whether dual-agent mode is enabled
         expertise_dir: Directory containing expertise templates
     """
+    _logger.info(
+        "run_async_stream_with_callback ENTRY thread_id=%s callback_url=%s use_dual_agent=%s has_expert_agent=%s",
+        thread_id,
+        callback_url,
+        use_dual_agent,
+        expert_agent is not None,
+    )
     # Create a new event loop for this thread
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -816,6 +833,12 @@ def run_async_stream_with_callback(
                 
                 # Check if expert sync is needed BEFORE calling facilitator agent (dual-agent mode only)
                 # This ensures the facilitator has fresh expert guidance when it processes the request
+                _logger.info(
+                    "run_async_stream_with_callback - before expert check use_dual_agent=%s has_expert=%s (thread_id=%s)",
+                    use_dual_agent,
+                    expert_agent is not None,
+                    thread_id,
+                )
                 if use_dual_agent and expert_agent is not None:
                     try:
                         # Get current state to check if expert sync is needed
@@ -834,7 +857,13 @@ def run_async_stream_with_callback(
                             # Import here to avoid circular dependency
                             from apps.business_cofounder_api.expert_sync import should_trigger_expert, trigger_and_update_expert
                             
-                            if should_trigger_expert(current_state):
+                            need_expert = should_trigger_expert(current_state)
+                            _logger.info(
+                                "run_async_stream_with_callback - expert check: checkpoint=yes should_trigger_expert=%s (thread_id=%s)",
+                                need_expert,
+                                thread_id,
+                            )
+                            if need_expert:
                                 _logger.info("[DualAgent] Expert sync needed BEFORE facilitator call (async callback, thread_id=%s)", thread_id)
                                 expertise_dir_path = Path(expertise_dir) if expertise_dir else None
                                 
@@ -866,6 +895,11 @@ def run_async_stream_with_callback(
                                 except Exception as e:
                                     _logger.error("[DualAgent] Expert sync error before facilitator call (async callback): %s", str(e), exc_info=True)
                                     # Continue anyway - don't block the request
+                        else:
+                            _logger.info(
+                                "run_async_stream_with_callback - expert check: no checkpoint (thread_id=%s)",
+                                thread_id,
+                            )
                     except Exception as e:  # noqa: BLE001
                         _logger.error("[DualAgent] Error checking/triggering expert sync before facilitator (async callback): %s", str(e))
                         # Continue anyway - don't block the request
@@ -903,6 +937,10 @@ def run_async_stream_with_callback(
                 
                 chunk_count = 0
                 interrupted_from_callback_response = False  # Track if we interrupted due to callback response
+                _logger.info(
+                    "run_async_stream_with_callback - ENTERING agent.astream (thread_id=%s)",
+                    thread_id,
+                )
                 try:
                     async for chunk in agent.astream(
                         initial_state,
@@ -914,10 +952,31 @@ def run_async_stream_with_callback(
                         chunk_count += 1
                         # Chunks are tuples: (namespace, stream_mode, data)
                         if not isinstance(chunk, tuple) or len(chunk) != 3:
-                            _logger.debug("run_async_stream_with_callback - skipping invalid chunk (not tuple or wrong length): %s", type(chunk))
+                            _logger.info(
+                                "run_async_stream_with_callback - INVALID chunk #%d (not tuple or len!=3) chunk_type=%s (thread_id=%s)",
+                                chunk_count,
+                                type(chunk).__name__,
+                                thread_id,
+                            )
                             continue
                         
                         namespace, stream_mode, data = chunk
+                        if chunk_count == 1:
+                            _logger.info(
+                                "run_async_stream_with_callback - FIRST chunk #1 namespace=%s stream_mode=%s data_type=%s (thread_id=%s)",
+                                namespace,
+                                stream_mode,
+                                type(data).__name__,
+                                thread_id,
+                            )
+                        elif chunk_count <= 5 or chunk_count % 20 == 0:
+                            _logger.info(
+                                "run_async_stream_with_callback - chunk #%d namespace=%s stream_mode=%s (thread_id=%s)",
+                                chunk_count,
+                                namespace,
+                                stream_mode,
+                                thread_id,
+                            )
                         _logger.debug(
                             "run_async_stream_with_callback - chunk #%d (namespace=%s, stream_mode=%s, data_type=%s)",
                             chunk_count,
@@ -990,6 +1049,14 @@ def run_async_stream_with_callback(
                         # Skip None messages (e.g., intermediate streaming chunks we want to filter out)
                         if concise_message is None:
                             # Log the raw chunk data structure for debugging (especially for DeepSeek compatibility)
+                            _logger.info(
+                                "run_async_stream_with_callback - SKIP chunk #%d concise_message=None stream_mode=%s namespace=%s data_type=%s (thread_id=%s)",
+                                chunk_count,
+                                stream_mode,
+                                namespace,
+                                type(data).__name__,
+                                thread_id,
+                            )
                             _logger.debug(
                                 "run_async_stream_with_callback - skipping None concise_message (stream_mode=%s, namespace=%s, data_type=%s)",
                                 stream_mode,
@@ -1056,13 +1123,26 @@ def run_async_stream_with_callback(
                         
                         # Only invoke callback if we have a message or status
                         if "message" in callback_payload or "status" in callback_payload:
+                            payload_type = callback_payload.get("type", "?")
+                            msg_len = len(callback_payload.get("message", "") or callback_payload.get("status", "") or "")
+                            _logger.info(
+                                "run_async_stream_with_callback - CALLBACK POST chunk#=%d type=%s message_len=%d (thread_id=%s)",
+                                chunk_count,
+                                payload_type,
+                                msg_len,
+                                thread_id,
+                            )
                             _logger.debug(
                                 "run_async_stream_with_callback - invoking callback (payload_keys=%s, has_message_id=%s)",
                                 list(callback_payload.keys()),
                                 "message_id" in callback_payload,
                             )
                             interrupted_from_callback = invoke_callback(callback_url, callback_payload)
-                            
+                            _logger.info(
+                                "run_async_stream_with_callback - callback returned interrupted=%s (thread_id=%s)",
+                                interrupted_from_callback,
+                                thread_id,
+                            )
                             # If interrupt signal detected, update agent state and break
                             if interrupted_from_callback:
                                 interrupted_from_callback_response = True
@@ -1112,6 +1192,11 @@ def run_async_stream_with_callback(
                                 str(e),
                             )
                     
+                    _logger.info(
+                        "run_async_stream_with_callback - ASTREAM LOOP EXITED chunk_count=%d (thread_id=%s)",
+                        chunk_count,
+                        thread_id,
+                    )
                     # Check if we exited due to interruption
                     # Use both the direct flag and state check for reliability
                     interrupted = interrupted_from_callback_response
@@ -1441,7 +1526,13 @@ Provide your wrap-up summary now."""
                     # Save the primary exception immediately so it's accessible even if error handling fails
                     primary_error = e
                     original_error = e
-                    
+                    _logger.info(
+                        "run_async_stream_with_callback - EXCEPTION in astream loop chunk_count=%s (thread_id=%s) %s: %s",
+                        chunk_count,
+                        thread_id,
+                        type(e).__name__,
+                        str(e),
+                    )
                     _logger.warning(
                         "[ModelFallback] Primary agent (qwen) failed during async stream: %s: %s",
                         type(e).__name__,
@@ -1874,6 +1965,13 @@ Provide your wrap-up summary now."""
                 )
         
         loop.run_until_complete(_stream_and_callback())
-    
+        _logger.info(
+            "run_async_stream_with_callback EXIT thread_id=%s (loop completed)",
+            thread_id,
+        )
     finally:
         loop.close()
+        _logger.info(
+            "run_async_stream_with_callback FINALLY thread_id=%s (loop closed)",
+            thread_id,
+        )

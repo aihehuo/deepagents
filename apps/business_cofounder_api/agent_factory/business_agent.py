@@ -14,17 +14,14 @@ from deepagents.middleware.asset_upload import AssetUploadMiddleware
 from deepagents.middleware.business_idea_development import BusinessIdeaDevelopmentMiddleware
 from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
+from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.subagent_presets import (
     build_aihehuo_subagent_from_env,
     build_coder_subagent_from_env,
 )
-from deepagents_cli.skills.middleware import SkillsMiddleware
 
 from apps.business_cofounder_api.agent_factory.memory import ApiMemoryMiddleware
-from apps.business_cofounder_api.agent_factory.middleware_builder import (
-    VirtualPathSkillsMiddleware,
-    build_routing_middleware,
-)
+from apps.business_cofounder_api.agent_factory.middleware_builder import build_routing_middleware
 from apps.business_cofounder_api.agent_factory.model_builder import create_model
 from apps.business_cofounder_api.agent_factory.utils import copy_example_skills_if_missing
 from apps.business_cofounder_api.checkpointer import DiskBackedInMemorySaver
@@ -134,26 +131,18 @@ def create_business_cofounder_agent(
     if aihehuo_subagent is not None:
         subagents.append(aihehuo_subagent)
     
-    # Create SkillsMiddleware with path conversion wrapper
-    # This converts absolute skill paths to virtual paths (/skills/{skill_name}/SKILL.md)
-    # so they work with virtual_mode=True backend (rooted at base_dir)
-    base_skills_middleware = SkillsMiddleware(
-        skills_dir=skills_dir,
-        assistant_id=agent_id,
-        project_skills_dir=None,
-    )
-    
-    virtual_skills_middleware = VirtualPathSkillsMiddleware(base_skills_middleware, skills_dir)
-    
+    # Skills loaded from backend at /skills/ (virtual path under base_dir)
+    skills_middleware = SkillsMiddleware(backend=backend, sources=["/skills/"])
+
     # Create API memory middleware to inject user/conversation memory paths dynamically
     api_memory_middleware = ApiMemoryMiddleware(base_dir=base_dir)
-    
+
     middleware = [
         AccountantMiddleware(),  # Enforces tool call limit (default: 25) and tracks token usage
         LanguageDetectionMiddleware(),
         BusinessIdeaTrackerMiddleware(),
         BusinessIdeaDevelopmentMiddleware(strict_todo_sync=True),
-        virtual_skills_middleware,
+        skills_middleware,
         api_memory_middleware,  # Injects memory paths based on user_id/conversation_id from metadata
         AihehuoMiddleware(),  # Provides aihehuo_search_members and aihehuo_search_ideas tools
         AssetUploadMiddleware(

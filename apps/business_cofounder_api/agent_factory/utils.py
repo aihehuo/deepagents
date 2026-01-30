@@ -11,16 +11,16 @@ _logger = logging.getLogger("uvicorn.error")
 
 
 def copy_example_skills_if_missing(*, dest_skills_dir: Path) -> None:
-    """Copy deepagents-cli packaged example skills into dest_skills_dir (no overwrite)."""
-    # deepagents_cli/... -> deepagents-cli root -> examples/skills
-    # Use find_spec to avoid importing the full CLI package (which may pull optional deps).
-    import importlib.util
+    """Copy example skills into dest_skills_dir (no overwrite).
 
-    spec = importlib.util.find_spec("deepagents_cli")
-    if spec is None or not spec.origin:
-        return
-    cli_root = Path(spec.origin).resolve().parent.parent
-    src = cli_root / "examples" / "skills"
+    Looks for libs/deepagents-cli/examples/skills relative to repo root
+    (resolved from this file: apps/business_cofounder_api/agent_factory -> repo root).
+    If not in a monorepo or path missing, skips without error.
+    """
+    # Path(__file__) = .../apps/business_cofounder_api/agent_factory/utils.py
+    # -> parent.parent.parent.parent = repo root
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    src = repo_root / "libs" / "deepagents-cli" / "examples" / "skills"
     if not src.exists():
         return
 

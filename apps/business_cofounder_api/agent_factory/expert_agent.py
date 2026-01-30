@@ -15,9 +15,8 @@ from deepagents.middleware.asset_upload import AssetUploadMiddleware
 from deepagents.middleware.business_idea_development import BusinessIdeaDevelopmentMiddleware
 from deepagents.middleware.business_idea_tracker import BusinessIdeaTrackerMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
-from deepagents_cli.skills.middleware import SkillsMiddleware
+from deepagents.middleware.skills import SkillsMiddleware
 
-from apps.business_cofounder_api.agent_factory.middleware_builder import VirtualPathSkillsMiddleware
 from apps.business_cofounder_api.agent_factory.model_builder import create_model
 from apps.business_cofounder_api.agent_factory.utils import (
     copy_default_expertise_if_missing,
@@ -168,16 +167,8 @@ def create_expert_agent(
 
     checkpointer = DiskBackedInMemorySaver(file_path=checkpoints_path)
 
-    # Create SkillsMiddleware with path conversion wrapper
-    base_skills_middleware = SkillsMiddleware(
-        skills_dir=skills_dir,
-        assistant_id=agent_id,
-        project_skills_dir=None,
-    )
-
-    virtual_skills_middleware = VirtualPathSkillsMiddleware(
-        base_skills_middleware, skills_dir
-    )
+    # Skills loaded from backend at /skills/ (virtual path under base_dir)
+    skills_middleware = SkillsMiddleware(backend=backend_fs, sources=["/skills/"])
 
     # Full middleware stack for backend analysis
     middleware = [
@@ -187,7 +178,7 @@ def create_expert_agent(
         LanguageDetectionMiddleware(),
         BusinessIdeaTrackerMiddleware(),
         BusinessIdeaDevelopmentMiddleware(strict_todo_sync=True),
-        virtual_skills_middleware,
+        skills_middleware,
         AihehuoMiddleware(),  # For market/co-founder research
         AssetUploadMiddleware(
             backend_root=str(base_dir), docs_dir=str(docs_dir)
@@ -200,7 +191,7 @@ def create_expert_agent(
     _logger.info("  - LanguageDetectionMiddleware")
     _logger.info("  - BusinessIdeaTrackerMiddleware")
     _logger.info("  - BusinessIdeaDevelopmentMiddleware")
-    _logger.info("  - VirtualPathSkillsMiddleware")
+    _logger.info("  - SkillsMiddleware")
     _logger.info("  - AihehuoMiddleware")
     _logger.info("  - AssetUploadMiddleware")
     _logger.info("  - ArtifactsMiddleware")

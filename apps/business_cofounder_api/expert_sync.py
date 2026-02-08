@@ -336,29 +336,69 @@ async def trigger_facilitator_language_fix(
     return corrected_reply
 
 
-STATE_EXPERT_SYNC_INTERVAL = 1  # Default sync interval is 3 rounds
-def should_trigger_expert(state: DualAgentState) -> bool:
-    """Check if expert sync should be triggered based on conversation rounds.
-    
+STATE_EXPERT_SYNC_INTERVAL = 5  # Sync interval: every 5 rounds of conversation
+
+
+def get_expert_sync_status(state: DualAgentState) -> dict[str, Any]:
+    """Get structured expert sync status for callbacks (triggered or not, rounds remaining).
+
     Args:
         state: Current shared state
-        
+
+    Returns:
+        Dict with: should_trigger (bool), rounds_remaining (int), current_round (int),
+        last_sync (int), sync_interval (int). When should_trigger is True, rounds_remaining is 0.
+    """
+    current_round = state.get("conversation_round", 0)
+    last_sync = state.get("last_expert_sync", 0)
+    sync_interval = STATE_EXPERT_SYNC_INTERVAL
+
+    if state.get("needs_expert_sync", False):
+        return {
+            "should_trigger": True,
+            "rounds_remaining": 0,
+            "current_round": current_round,
+            "last_sync_round": last_sync,
+            "sync_interval": sync_interval,
+        }
+
+    rounds_since_sync = current_round - last_sync
+    should_sync = rounds_since_sync >= sync_interval
+    rounds_remaining = max(0, sync_interval - rounds_since_sync) if not should_sync else 0
+
+    return {
+        "should_trigger": should_sync,
+        "rounds_remaining": rounds_remaining,
+        "current_round": current_round,
+        "last_sync_round": last_sync,
+        "sync_interval": sync_interval,
+    }
+
+
+def should_trigger_expert(state: DualAgentState) -> bool:
+    """Check if expert sync should be triggered based on conversation rounds.
+
+    Args:
+        state: Current shared state
+
     Returns:
         True if expert analysis should be triggered, False otherwise
     """
-    # Check if explicitly flagged for sync
-    if state.get("needs_expert_sync", False):
-        return True
-    
-    # Check round-based trigger
-    current_round = state.get("conversation_round", 0)
-    last_sync = state.get("last_expert_sync", 0)
-    _logger.info(f"[ExpertSync] should_trigger_expert: current_round: {current_round}, last_sync: {last_sync}")
-     
-    sync_interval =  STATE_EXPERT_SYNC_INTERVAL
-    
-    should_sync = current_round - last_sync >= sync_interval
-    
+    status = get_expert_sync_status(state)
+    should_sync = status["should_trigger"]
+    current_round = status["current_round"]
+    last_sync = status["last_sync_round"]
+    sync_interval = status["sync_interval"]
+
+    _logger.info(
+        "[ExpertSync] should_trigger_expert: current_round=%d, last_sync=%d, sync_interval=%d -> %s (rounds_remaining=%d)",
+        current_round,
+        last_sync,
+        sync_interval,
+        should_sync,
+        status["rounds_remaining"],
+    )
+
     if should_sync:
         _logger.info(
             "[ExpertSync] Trigger condition met: round %d (last sync: %d, interval: %d)",
@@ -366,7 +406,7 @@ def should_trigger_expert(state: DualAgentState) -> bool:
             last_sync,
             sync_interval,
         )
-    
+
     return should_sync
 
 
@@ -974,7 +1014,7 @@ async def trigger_expert_analysis(
     _logger.info("  Current round: %d", state.get("conversation_round", 0))
     
     # Get expertise type from state (default to business_cofounder)
-    expertise_type = state.get("expertise_type", "business_cofounder")
+    expertise_type = state.get("expertise_type", "pitch_expert")
     _logger.info("  Expertise type: %s", expertise_type)
     
     # Load expertise template if expertise_dir provided

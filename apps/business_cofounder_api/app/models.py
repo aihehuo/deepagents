@@ -12,7 +12,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="User message")
     conversation_id: str = Field("default", description="Conversation id (defaults to 'default')")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Optional metadata from upstream")
-    expertise_type: str = Field("business_cofounder", description="Type of expertise to use for expert analysis (default: 'business_cofounder')")
+    expertise_type: str = Field("pitch_expert", description="Type of expertise to use for expert analysis (default: 'pitch_expert')")
 
 
 class ChatResponse(BaseModel):
@@ -68,7 +68,7 @@ class CallDeepAgentAsyncRequest(BaseModel):
     callback: str | None = Field(None, description="Callback URL to receive update messages (alias: callback_url)")
     callback_url: str | None = Field(None, alias="callback_url", description="Callback URL to receive update messages")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Optional metadata from upstream")
-    expertise_type: str = Field("business_cofounder", description="Type of expertise to use for expert analysis (default: 'business_cofounder')")
+    expertise_type: str = Field("pitch_expert", description="Type of expertise to use for expert analysis (default: 'pitch_expert')")
     
     @field_validator("user_id", mode="before")
     @classmethod

@@ -424,9 +424,10 @@ def send_canvas_callback(
     analysis_timestamp: str | None = None,
     partner_query: str | None = None,
     partner_search_results: list[dict[str, Any]] | None = None,
+    expert_sync_status: dict[str, Any] | None = None,
 ) -> None:
     """Send a canvas data callback to notify the frontend about updated canvas data.
-    
+
     This callback is sent when the expert agent synchronizes and updates the canvas.
     
     Args:
@@ -478,6 +479,16 @@ def send_canvas_callback(
     # Always include partner_search_results in raw payload (null when absent)
     callback_payload["partner_search_results"] = partner_search_results
 
+    if expert_sync_status is not None:
+        triggered = expert_sync_status.get("should_trigger", expert_sync_status.get("triggered", True))
+        callback_payload["expert_sync_status"] = {
+            "triggered": triggered,
+            "rounds_remaining_until_sync": expert_sync_status.get("rounds_remaining", expert_sync_status.get("rounds_remaining_until_sync", 0)),
+            "current_round": expert_sync_status.get("current_round", current_round),
+            "last_sync_round": expert_sync_status.get("last_sync_round", last_sync_round),
+            "sync_interval": expert_sync_status.get("sync_interval", 5),
+        }
+
     if partner_search_results is not None:
         # Printout partner search results for debugging
         _logger.info(
@@ -504,7 +515,6 @@ def send_canvas_callback(
                 )
         # Print full JSON structure for first result
         if partner_search_results and len(partner_search_results) > 0:
-            import json
             _logger.info(
                 "[CanvasCallback] Full first result structure: %s",
                 json.dumps(partner_search_results[0], ensure_ascii=False, indent=2),
@@ -523,8 +533,67 @@ def send_canvas_callback(
         partner_search_results is not None,
         current_round,
     )
-    
+    # Print sent canvas data for debugging
+    try:
+        _logger.info(
+            "[CanvasCallback] Sent canvas data: %s",
+            json.dumps(callback_payload, ensure_ascii=False, indent=2, default=str),
+        )
+    except Exception as e:  # noqa: BLE001
+        _logger.warning("[CanvasCallback] Could not serialize payload for log: %s", e)
+
     invoke_callback(callback_url, callback_payload)  # Ignore return value for canvas callbacks
+
+
+def send_canvas_callback_rounds_remaining(
+    callback_url: str,
+    session_id: str,
+    state_values: dict[str, Any],
+    sync_status: dict[str, Any],
+) -> None:
+    """Send the same canvas callback (type=canvas) with existing canvas data and summary = remaining rounds.
+
+    Frontend can keep using the same display logic: summary/canvas_update_summary shows
+    \"Next expert sync in N round(s).\" when sync did not run.
+    """
+    if not callback_url:
+        return
+    rounds = sync_status.get("rounds_remaining", 0)
+    if rounds == 1:
+        summary = "Next expert sync in 1 round."
+    else:
+        summary = f"Next expert sync in {rounds} rounds."
+
+    canvas = state_values.get("canvas")
+    expert_guidance = state_values.get("expert_guidance")
+    current_round = state_values.get("conversation_round", sync_status.get("current_round", 0))
+    last_sync_round = state_values.get("last_expert_sync", sync_status.get("last_sync_round", 0))
+    analysis_timestamp = state_values.get("analysis_timestamp")
+    partner_query = state_values.get("partner_query")
+    partner_search_results = state_values.get("partner_search_results")
+
+    # expert_sync_status for this payload: triggered=False, rounds_remaining_until_sync=N
+    expert_sync_status_payload = {
+        "should_trigger": False,
+        "rounds_remaining": rounds,
+        "current_round": current_round,
+        "last_sync_round": last_sync_round,
+        "sync_interval": sync_status.get("sync_interval", 5),
+    }
+
+    send_canvas_callback(
+        callback_url=callback_url,
+        session_id=session_id,
+        canvas=canvas,
+        expert_guidance=expert_guidance,
+        canvas_update_summary=summary,
+        current_round=current_round,
+        last_sync_round=last_sync_round,
+        analysis_timestamp=analysis_timestamp,
+        partner_query=partner_query,
+        partner_search_results=partner_search_results,
+        expert_sync_status=expert_sync_status_payload,
+    )
 
 
 async def fetch_and_send_canvas_callback(
@@ -587,6 +656,12 @@ async def fetch_and_send_canvas_callback(
                     partner_query is not None,
                     partner_search_results is not None,
                 )
+                # Include expert_sync_status so frontend has consistent shape (triggered=True, rounds_remaining=0)
+                expert_sync_status_for_canvas = {
+                    "current_round": current_round,
+                    "last_sync_round": last_sync_round,
+                    "sync_interval": 5,
+                }
                 send_canvas_callback(
                     callback_url=callback_url,
                     session_id=session_id,
@@ -598,6 +673,7 @@ async def fetch_and_send_canvas_callback(
                     analysis_timestamp=analysis_timestamp,
                     partner_query=partner_query,
                     partner_search_results=partner_search_results,
+                    expert_sync_status=expert_sync_status_for_canvas,
                 )
             else:
                 _logger.info(
@@ -639,6 +715,11 @@ async def fetch_and_send_canvas_callback(
                     partner_query is not None,
                     partner_search_results is not None,
                 )
+                expert_sync_status_from_state = {
+                    "current_round": current_round,
+                    "last_sync_round": last_sync_round,
+                    "sync_interval": 5,
+                }
                 send_canvas_callback(
                     callback_url=callback_url,
                     session_id=session_id,
@@ -650,6 +731,7 @@ async def fetch_and_send_canvas_callback(
                     analysis_timestamp=analysis_timestamp,
                     partner_query=partner_query,
                     partner_search_results=partner_search_results,
+                    expert_sync_status=expert_sync_status_from_state,
                 )
             else:
                 _logger.info(
@@ -859,12 +941,16 @@ def run_async_stream_with_callback(
                             current_state = {
                                 "messages": state_values.get("messages", []),
                                 "conversation_round": state_values.get("conversation_round", 0),
-                                "expertise_type": metadata.get("expertise_type", "business_cofounder"),
+                                "expertise_type": metadata.get("expertise_type", "pitch_expert"),
                                 **state_values,
                             }
                             
                             # Import here to avoid circular dependency
-                            from apps.business_cofounder_api.expert_sync import should_trigger_expert, trigger_and_update_expert
+                            from apps.business_cofounder_api.expert_sync import (
+                                get_expert_sync_status,
+                                should_trigger_expert,
+                                trigger_and_update_expert,
+                            )
                             
                             need_expert = should_trigger_expert(current_state)
                             _logger.info(
@@ -904,6 +990,15 @@ def run_async_stream_with_callback(
                                 except Exception as e:
                                     _logger.error("[DualAgent] Expert sync error before facilitator call (async callback): %s", str(e), exc_info=True)
                                     # Continue anyway - don't block the request
+                            else:
+                                # Not triggering: send same canvas callback with summary = "Next expert sync in N rounds."
+                                sync_status = get_expert_sync_status(current_state)
+                                send_canvas_callback_rounds_remaining(
+                                    callback_url=callback_url,
+                                    session_id=thread_id,
+                                    state_values=current_state,
+                                    sync_status=sync_status,
+                                )
                         else:
                             _logger.info(
                                 "run_async_stream_with_callback - expert check: no checkpoint (thread_id=%s)",
@@ -1415,7 +1510,7 @@ Provide your wrap-up summary now."""
                                 if not expertise_type:
                                     expertise_type = state_values.get("expertise_type")
                                 if not expertise_type:
-                                    expertise_type = "business_cofounder"
+                                    expertise_type = "pitch_expert"
                                 
                                 # Ensure expertise_type is persisted in state for future expert syncs
                                 # Instead of updating checkpoint directly, just ensure it's in the result_state
@@ -1492,7 +1587,11 @@ Provide your wrap-up summary now."""
                                         )
                                 
                                 # Import here to avoid circular dependency
-                                from apps.business_cofounder_api.expert_sync import should_trigger_expert, trigger_and_update_expert
+                                from apps.business_cofounder_api.expert_sync import (
+                                    get_expert_sync_status,
+                                    should_trigger_expert,
+                                    trigger_and_update_expert,
+                                )
                                 
                                 if should_trigger_expert(result_state):
                                     _logger.info("[DualAgent] Expert sync needed for thread %s (async callback)", thread_id)
@@ -1527,6 +1626,15 @@ Provide your wrap-up summary now."""
                                     except Exception as e:
                                         _logger.error("[DualAgent] Expert sync error (async, callback): %s", str(e), exc_info=True)
                                         # Continue anyway - don't block the request
+                                else:
+                                    # Not triggering: send same canvas callback with summary = "Next expert sync in N rounds."
+                                    sync_status = get_expert_sync_status(result_state)
+                                    send_canvas_callback_rounds_remaining(
+                                        callback_url=callback_url,
+                                        session_id=thread_id,
+                                        state_values=result_state,
+                                        sync_status=sync_status,
+                                    )
                         except Exception as e:  # noqa: BLE001
                             _logger.error("[DualAgent] Error checking/triggering expert sync in async callback: %s", str(e))
                             # Don't fail the request if expert sync fails
@@ -1753,7 +1861,7 @@ Provide your wrap-up summary now."""
                                         if not expertise_type:
                                             expertise_type = state_values.get("expertise_type")
                                         if not expertise_type:
-                                            expertise_type = "business_cofounder"
+                                            expertise_type = "pitch_expert"
                                         
                                         # Ensure expertise_type is persisted in state for future expert syncs
                                         # Instead of updating checkpoint directly, just ensure it's in the result_state
@@ -1830,7 +1938,11 @@ Provide your wrap-up summary now."""
                                                 )
                                         
                                         # Import here to avoid circular dependency
-                                        from apps.business_cofounder_api.expert_sync import should_trigger_expert, trigger_and_update_expert
+                                        from apps.business_cofounder_api.expert_sync import (
+                                            get_expert_sync_status,
+                                            should_trigger_expert,
+                                            trigger_and_update_expert,
+                                        )
                                         
                                         if should_trigger_expert(result_state):
                                             _logger.info("[DualAgent] Expert sync needed for thread %s (async callback, fallback, after final)", thread_id)
@@ -1864,6 +1976,14 @@ Provide your wrap-up summary now."""
                                             except Exception as e:
                                                 _logger.error("[DualAgent] Expert sync error (async, callback, fallback, after final): %s", str(e), exc_info=True)
                                                 # Continue anyway - don't block the request
+                                        else:
+                                            sync_status = get_expert_sync_status(result_state)
+                                            send_canvas_callback_rounds_remaining(
+                                                callback_url=callback_url,
+                                                session_id=thread_id,
+                                                state_values=result_state,
+                                                sync_status=sync_status,
+                                            )
                                 except Exception as e:  # noqa: BLE001
                                     _logger.error("[DualAgent] Error checking/triggering expert sync in async callback (fallback, after final): %s", str(e))
                                     # Don't fail the request if expert sync fails

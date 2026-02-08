@@ -113,14 +113,14 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         facilitator_agent, facilitator_checkpoints = create_facilitator_agent(
             agent_id="facilitator",
             provider="qwen",
-            sync_interval=10,
+            sync_interval=5,
         )
         _logger.info("  ✓ Facilitator Agent initialized")
         _logger.info("    Checkpoints: %s", facilitator_checkpoints)
         
         # Create expert agent (analyzer)
         # Get default expertise type from env (can be overridden per conversation)
-        assigned_expertise = os.getenv("DEFAULT_EXPERTISE_TYPE", "business_cofounder")
+        assigned_expertise = os.getenv("DEFAULT_EXPERTISE_TYPE", "pitch_expert")
         print(f"DEFAULT_EXPERTISE_TYPE: {assigned_expertise}")
         
         expert_agent, expert_checkpoints = create_expert_agent(

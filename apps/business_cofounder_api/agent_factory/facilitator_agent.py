@@ -90,7 +90,7 @@ def create_facilitator_agent(
     *,
     agent_id: str,
     provider: str = "qwen",
-    sync_interval: int = 10,
+    sync_interval: int = 5,
 ) -> tuple[object, Path]:
     """Create an idea-bouncer facilitator agent.
 
@@ -107,7 +107,7 @@ def create_facilitator_agent(
     Args:
         agent_id: Identifier for the agent
         provider: Model provider to use ("qwen" or "deepseek", default: "qwen")
-        sync_interval: Number of conversation rounds between backend syncs (default: 10)
+        sync_interval: Number of conversation rounds between backend syncs (default: 5)
 
     Returns:
         (agent_graph, checkpoints_path)

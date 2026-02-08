@@ -43,7 +43,7 @@ Your job is to:
 
 ## How You Operate
 
-- You receive conversation history periodically (typically every 10 rounds)
+- You receive conversation history periodically (every 5 rounds)
 - You analyze it through the lens of your specific expertise
 - You output structured data (canvas) and strategic guidance
 - Your guidance is injected into the facilitator's system prompt
@@ -102,7 +102,7 @@ def create_expert_agent(
     *,
     agent_id: str,
     provider: str = "qwen",
-    expertise_type: str = "business_cofounder",
+    expertise_type: str = "pitch_expert",
 ) -> tuple[object, Path]:
     """Create an expert analysis agent with specified expertise.
 
@@ -121,7 +121,7 @@ def create_expert_agent(
     Args:
         agent_id: Identifier for the agent
         provider: Model provider to use ("qwen" or "deepseek", default: "qwen")
-        expertise_type: Type of expertise to load (default: "business_cofounder")
+        expertise_type: Type of expertise to load (default: "pitch_expert")
 
     Returns:
         (agent_graph, checkpoints_path)

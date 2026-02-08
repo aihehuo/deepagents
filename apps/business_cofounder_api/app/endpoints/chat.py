@@ -66,12 +66,13 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                 
                 if checkpoint:
                     state_values = checkpoint.get("channel_values", {})
-                    # Build state dict for should_trigger_expert check
+                    # Build state dict for should_trigger_expert check.
+                    # Request expertise_type overrides persisted state (so new default applies to existing threads).
                     current_state = {
                         "messages": state_values.get("messages", []),
                         "conversation_round": state_values.get("conversation_round", 0),
-                        "expertise_type": req.expertise_type,
                         **state_values,
+                        "expertise_type": req.expertise_type,
                     }
                     
                     if should_trigger_expert(current_state):
@@ -253,12 +254,13 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                     
                     if checkpoint:
                         state_values = checkpoint.get("channel_values", {})
-                        # Build state dict for should_trigger_expert check
+                        # Build state dict for should_trigger_expert check.
+                        # Request expertise_type overrides persisted state (so new default applies to existing threads).
                         current_state = {
                             "messages": state_values.get("messages", []),
                             "conversation_round": state_values.get("conversation_round", 0),
-                            "expertise_type": req.expertise_type,
                             **state_values,
+                            "expertise_type": req.expertise_type,
                         }
                         
                         if should_trigger_expert(current_state):

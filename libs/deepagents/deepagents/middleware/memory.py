@@ -1,3 +1,4 @@
+# ruff: noqa: E501  # Long prompt strings in MEMORY_SYSTEM_PROMPT
 """Middleware for loading agent memory/context from AGENTS.md files.
 
 This module implements support for the AGENTS.md specification (https://agents.md/),
@@ -50,23 +51,28 @@ Common sections include:
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Annotated, NotRequired, TypedDict
 
-from langchain_core.runnables import RunnableConfig
-
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from langchain_core.runnables import RunnableConfig
+    from langgraph.runtime import Runtime
+
     from deepagents.backends.protocol import BACKEND_TYPES, BackendProtocol
 
 from langchain.agents.middleware.types import (
     AgentMiddleware,
     AgentState,
+    ContextT,
     ModelRequest,
     ModelResponse,
     PrivateStateAttr,
+    ResponseT,
 )
 from langchain.tools import ToolRuntime
-from langgraph.runtime import Runtime
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import ContentBlock, SystemMessage
 
 from deepagents.middleware._utils import append_to_system_message
 
@@ -141,18 +147,18 @@ MEMORY_SYSTEM_PROMPT = """<agent_memory>
     Agent: Sure, I'll write you an example for creating a deep agent in LangChain <example code in Python>
     User: Can you do this in JavaScript
     Agent: Let me save this to my memory.
-    Tool Call: edit_file(...) -> remembers that the user prefers to get LangChaincode examples in JavaScript
+    Tool Call: edit_file(...) -> remembers that the user prefers to get LangChain code examples in JavaScript
     Agent: Sure, here is the JavaScript example<example code in JavaScript>
 
     Example 3 (do not remember transient information):
     User: I'm going to play basketball tonight so I will be offline for a few hours.
-    Agent: Okay I'll add a black to your calendar.
+    Agent: Okay I'll add a block to your calendar.
     Tool Call: create_calendar_event(...) -> just calls a tool, does not commit anything to memory, as it is transient information
 </memory_guidelines>
 """
 
 
-class MemoryMiddleware(AgentMiddleware):
+class MemoryMiddleware(AgentMiddleware[MemoryState, ContextT, ResponseT]):
     """Middleware for loading agent memory from `AGENTS.md` files.
 
     Loads memory content from configured sources and injects into the system prompt.
@@ -171,21 +177,37 @@ class MemoryMiddleware(AgentMiddleware):
         *,
         backend: BACKEND_TYPES,
         sources: list[str],
+        add_cache_control: bool = False,
     ) -> None:
         """Initialize the memory middleware.
 
         Args:
             backend: Backend instance or factory function that takes runtime
-                     and returns a backend. Use a factory for StateBackend.
+                and returns a backend.
+
+                Use a factory for StateBackend.
             sources: List of memory file paths to load (e.g., `["~/.deepagents/AGENTS.md",
-                     "./.deepagents/AGENTS.md"]`).
+                "./.deepagents/AGENTS.md"]`).
 
-                     Display names are automatically derived from the paths.
+                Display names are automatically derived from the paths.
 
-                     Sources are loaded in order.
+                Sources are loaded in order.
+            add_cache_control: If `True`, tag the last system-message
+                content block with `cache_control: {"type": "ephemeral"}`
+                when the request model is `ChatAnthropic`.
+
+                This creates a second prompt-cache breakpoint that pairs with
+                `AnthropicPromptCachingMiddleware`'s breakpoint on the static
+                system prompt, keeping the memory block boundary cached across
+                turns (memory content would otherwise shift after every update
+                and invalidate the prefix cache).
+
+                No-ops on non-Anthropic models; Bedrock and Vertex wrappers do
+                not qualify.
         """
         self._backend = backend
         self.sources = sources
+        self._add_cache_control = add_cache_control
 
     def _get_backend(self, state: MemoryState, runtime: Runtime, config: RunnableConfig) -> BackendProtocol:
         """Resolve backend from instance or factory.
@@ -208,7 +230,7 @@ class MemoryMiddleware(AgentMiddleware):
                 config=config,
                 tool_call_id=None,
             )
-            return self._backend(tool_runtime)
+            return self._backend(tool_runtime)  # ty: ignore[call-top-callable, invalid-argument-type]
         return self._backend
 
     def _format_agent_memory(self, contents: dict[str, str]) -> str:
@@ -223,10 +245,7 @@ class MemoryMiddleware(AgentMiddleware):
         if not contents:
             return MEMORY_SYSTEM_PROMPT.format(agent_memory="(No memory loaded)")
 
-        sections = []
-        for path in self.sources:
-            if contents.get(path):
-                sections.append(f"{path}\n{contents[path]}")
+        sections = [f"{path}\n{contents[path]}" for path in self.sources if contents.get(path)]
 
         if not sections:
             return MEMORY_SYSTEM_PROMPT.format(agent_memory="(No memory loaded)")
@@ -234,73 +253,7 @@ class MemoryMiddleware(AgentMiddleware):
         memory_body = "\n\n".join(sections)
         return MEMORY_SYSTEM_PROMPT.format(agent_memory=memory_body)
 
-    async def _load_memory_from_backend(
-        self,
-        backend: BackendProtocol,
-        path: str,
-    ) -> str | None:
-        """Load memory content from a backend path.
-
-        Args:
-            backend: Backend to load from.
-            path: Path to the AGENTS.md file.
-
-        Returns:
-            File content if found, None otherwise.
-        """
-        results = await backend.adownload_files([path])
-        # Should get exactly one response for one path
-        if len(results) != 1:
-            raise AssertionError(f"Expected 1 response for path {path}, got {len(results)}")
-        response = results[0]
-
-        if response.error is not None:
-            # For now, memory files are treated as optional. file_not_found is expected
-            # and we skip silently to allow graceful degradation.
-            if response.error == "file_not_found":
-                return None
-            # Other errors should be raised
-            raise ValueError(f"Failed to download {path}: {response.error}")
-
-        if response.content is not None:
-            return response.content.decode("utf-8")
-
-        return None
-
-    def _load_memory_from_backend_sync(
-        self,
-        backend: BackendProtocol,
-        path: str,
-    ) -> str | None:
-        """Load memory content from a backend path synchronously.
-
-        Args:
-            backend: Backend to load from.
-            path: Path to the AGENTS.md file.
-
-        Returns:
-            File content if found, None otherwise.
-        """
-        results = backend.download_files([path])
-        # Should get exactly one response for one path
-        if len(results) != 1:
-            raise AssertionError(f"Expected 1 response for path {path}, got {len(results)}")
-        response = results[0]
-
-        if response.error is not None:
-            # For now, memory files are treated as optional. file_not_found is expected
-            # and we skip silently to allow graceful degradation.
-            if response.error == "file_not_found":
-                return None
-            # Other errors should be raised
-            raise ValueError(f"Failed to download {path}: {response.error}")
-
-        if response.content is not None:
-            return response.content.decode("utf-8")
-
-        return None
-
-    def before_agent(self, state: MemoryState, runtime: Runtime, config: RunnableConfig) -> MemoryStateUpdate | None:
+    def before_agent(self, state: MemoryState, runtime: Runtime, config: RunnableConfig) -> MemoryStateUpdate | None:  # ty: ignore[invalid-method-override]
         """Load memory content before agent execution (synchronous).
 
         Loads memory from all configured sources and stores in state.
@@ -321,15 +274,20 @@ class MemoryMiddleware(AgentMiddleware):
         backend = self._get_backend(state, runtime, config)
         contents: dict[str, str] = {}
 
-        for path in self.sources:
-            content = self._load_memory_from_backend_sync(backend, path)
-            if content:
-                contents[path] = content
-                logger.debug(f"Loaded memory from: {path}")
+        results = backend.download_files(list(self.sources))
+        for path, response in zip(self.sources, results, strict=True):
+            if response.error is not None:
+                if response.error == "file_not_found":
+                    continue
+                msg = f"Failed to download {path}: {response.error}"
+                raise ValueError(msg)
+            if response.content is not None:
+                contents[path] = response.content.decode("utf-8")
+                logger.debug("Loaded memory from: %s", path)
 
         return MemoryStateUpdate(memory_contents=contents)
 
-    async def abefore_agent(self, state: MemoryState, runtime: Runtime, config: RunnableConfig) -> MemoryStateUpdate | None:
+    async def abefore_agent(self, state: MemoryState, runtime: Runtime, config: RunnableConfig) -> MemoryStateUpdate | None:  # ty: ignore[invalid-method-override]
         """Load memory content before agent execution.
 
         Loads memory from all configured sources and stores in state.
@@ -350,15 +308,20 @@ class MemoryMiddleware(AgentMiddleware):
         backend = self._get_backend(state, runtime, config)
         contents: dict[str, str] = {}
 
-        for path in self.sources:
-            content = await self._load_memory_from_backend(backend, path)
-            if content:
-                contents[path] = content
-                logger.debug(f"Loaded memory from: {path}")
+        results = await backend.adownload_files(list(self.sources))
+        for path, response in zip(self.sources, results, strict=True):
+            if response.error is not None:
+                if response.error == "file_not_found":
+                    continue
+                msg = f"Failed to download {path}: {response.error}"
+                raise ValueError(msg)
+            if response.content is not None:
+                contents[path] = response.content.decode("utf-8")
+                logger.debug("Loaded memory from: %s", path)
 
         return MemoryStateUpdate(memory_contents=contents)
 
-    def modify_request(self, request: ModelRequest) -> ModelRequest:
+    def modify_request(self, request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:
         """Inject memory content into the system message.
 
         Args:
@@ -372,13 +335,24 @@ class MemoryMiddleware(AgentMiddleware):
 
         new_system_message = append_to_system_message(request.system_message, agent_memory)
 
+        # Runtime check uses `request.model` (not a flag captured at init) so
+        # the breakpoint correctly follows middleware-level model overrides.
+        if self._add_cache_control and isinstance(request.model, ChatAnthropic) and new_system_message.content_blocks:
+            blocks: list[ContentBlock] = list(new_system_message.content_blocks)
+            last = blocks[-1]
+            base = last if isinstance(last, dict) else {}
+            # Merged dict is structurally a ContentBlock with an extra
+            # provider-specific key; ty can't discriminate the union.
+            blocks[-1] = {**base, "cache_control": {"type": "ephemeral"}}  # ty: ignore[invalid-assignment]
+            new_system_message = SystemMessage(content_blocks=blocks)
+
         return request.override(system_message=new_system_message)
 
     def wrap_model_call(
         self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], ModelResponse],
-    ) -> ModelResponse:
+        request: ModelRequest[ContextT],
+        handler: Callable[[ModelRequest[ContextT]], ModelResponse[ResponseT]],
+    ) -> ModelResponse[ResponseT]:
         """Wrap model call to inject memory into system prompt.
 
         Args:
@@ -393,9 +367,9 @@ class MemoryMiddleware(AgentMiddleware):
 
     async def awrap_model_call(
         self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
-    ) -> ModelResponse:
+        request: ModelRequest[ContextT],
+        handler: Callable[[ModelRequest[ContextT]], Awaitable[ModelResponse[ResponseT]]],
+    ) -> ModelResponse[ResponseT]:
         """Async wrap model call to inject memory into system prompt.
 
         Args:

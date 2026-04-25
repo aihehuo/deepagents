@@ -4,14 +4,25 @@ This module tests the memory middleware using end-to-end tests with fake chat mo
 and temporary directories with the FilesystemBackend in normal (non-virtual) mode.
 """
 
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.runnables import RunnableConfig
+from langchain.agents.middleware.types import ModelRequest
+from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables.config import var_child_runnable_config
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.constants import CONF
+from langgraph.runtime import CONFIG_KEY_RUNTIME, Runtime, ServerInfo
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
 from langgraph.store.memory import InMemoryStore
 
 from deepagents.backends.filesystem import FilesystemBackend
@@ -20,6 +31,26 @@ from deepagents.backends.store import StoreBackend
 from deepagents.graph import create_deep_agent
 from deepagents.middleware.memory import MemoryMiddleware
 from tests.unit_tests.chat_model import GenericFakeChatModel
+
+
+def _assistant_id_namespace(rt: Runtime) -> tuple[str, ...]:
+    """Namespace factory: scope by assistant_id when running under LangGraph server."""
+    assistant_id = rt.server_info.assistant_id if rt.server_info else None
+    if assistant_id:
+        return (assistant_id, "filesystem")
+    return ("filesystem",)
+
+
+@contextmanager
+def _runtime_context(assistant_id: str | None = None):
+    """Set a LangGraph Runtime in the current context so ``get_runtime()`` resolves."""
+    server_info = ServerInfo(assistant_id=assistant_id, graph_id="test") if assistant_id is not None else None
+    runtime = Runtime(server_info=server_info)
+    token = var_child_runnable_config.set({CONF: {CONFIG_KEY_RUNTIME: runtime}})
+    try:
+        yield
+    finally:
+        var_child_runnable_config.reset(token)
 
 
 def make_memory_content(title: str, content: str) -> str:
@@ -45,11 +76,12 @@ def create_store_memory_item(content: str) -> dict:
         content: Memory content string
 
     Returns:
-        Dict with content (as list of lines), created_at, and modified_at
+        Dict with content as str, encoding, created_at, and modified_at
     """
     timestamp = datetime.now(UTC).isoformat()
     return {
-        "content": content.split("\n"),
+        "content": content,
+        "encoding": "utf-8",
         "created_at": timestamp,
         "modified_at": timestamp,
     }
@@ -58,7 +90,7 @@ def create_store_memory_item(content: str) -> dict:
 def test_format_agent_memory_empty() -> None:
     """Test formatting with no contents shows 'No memory loaded'."""
     middleware = MemoryMiddleware(
-        backend=None,  # type: ignore
+        backend=None,  # type: ignore[arg-type]
         sources=["/test/AGENTS.md"],
     )
     result = middleware._format_agent_memory({})
@@ -71,7 +103,7 @@ def test_format_agent_memory_empty() -> None:
 def test_format_agent_memory_empty_sources() -> None:
     """Test formatting with no sources configured."""
     middleware = MemoryMiddleware(
-        backend=None,  # type: ignore
+        backend=None,  # type: ignore[arg-type]
         sources=[],
     )
     result = middleware._format_agent_memory({})
@@ -84,7 +116,7 @@ def test_format_agent_memory_empty_sources() -> None:
 def test_format_agent_memory_single() -> None:
     """Test formatting with single source shows location and content paired."""
     middleware = MemoryMiddleware(
-        backend=None,  # type: ignore
+        backend=None,  # type: ignore[arg-type]
         sources=["/user/AGENTS.md"],
     )
     contents = {"/user/AGENTS.md": "# User Memory\nBe helpful."}
@@ -105,7 +137,7 @@ def test_format_agent_memory_single() -> None:
 def test_format_agent_memory_multiple() -> None:
     """Test formatting with multiple sources shows each location with its content."""
     middleware = MemoryMiddleware(
-        backend=None,  # type: ignore
+        backend=None,  # type: ignore[arg-type]
         sources=[
             "/user/AGENTS.md",
             "/project/AGENTS.md",
@@ -129,7 +161,7 @@ def test_format_agent_memory_multiple() -> None:
 def test_format_agent_memory_preserves_order() -> None:
     """Test that content order matches sources order."""
     middleware = MemoryMiddleware(
-        backend=None,  # type: ignore
+        backend=None,  # type: ignore[arg-type]
         sources=[
             "/first/AGENTS.md",
             "/second/AGENTS.md",
@@ -150,7 +182,7 @@ def test_format_agent_memory_preserves_order() -> None:
 def test_format_agent_memory_skips_missing_sources() -> None:
     """Test that sources without content are skipped entirely."""
     middleware = MemoryMiddleware(
-        backend=None,  # type: ignore
+        backend=None,  # type: ignore[arg-type]
         sources=[
             "/user/AGENTS.md",
             "/project/AGENTS.md",
@@ -170,7 +202,7 @@ def test_format_agent_memory_skips_missing_sources() -> None:
 def test_format_agent_memory_location_content_pairing() -> None:
     """Test that each location is immediately followed by its content."""
     middleware = MemoryMiddleware(
-        backend=None,  # type: ignore
+        backend=None,  # type: ignore[arg-type]
         sources=[
             "/first/AGENTS.md",
             "/second/AGENTS.md",
@@ -214,7 +246,7 @@ def test_load_memory_from_backend_single_source(tmp_path: Path) -> None:
     middleware = MemoryMiddleware(backend=backend, sources=sources)
 
     # Test before_agent loads the memory
-    result = middleware.before_agent({}, None, {})  # type: ignore
+    result = middleware.before_agent({}, None, {})  # type: ignore[arg-type]
 
     assert result is not None
     assert "memory_contents" in result
@@ -250,7 +282,7 @@ def test_load_memory_from_backend_multiple_sources(tmp_path: Path) -> None:
     middleware = MemoryMiddleware(backend=backend, sources=sources)
 
     # Test before_agent loads all memory
-    result = middleware.before_agent({}, None, {})  # type: ignore
+    result = middleware.before_agent({}, None, {})  # type: ignore[arg-type]
 
     assert result is not None
     assert "memory_contents" in result
@@ -279,7 +311,7 @@ def test_load_memory_handles_missing_file(tmp_path: Path) -> None:
     middleware = MemoryMiddleware(backend=backend, sources=sources)
 
     # Test before_agent loads only existing memory
-    result = middleware.before_agent({}, None, {})  # type: ignore
+    result = middleware.before_agent({}, None, {})  # type: ignore[arg-type]
     assert result is not None
     assert missing_path not in result["memory_contents"]
     assert user_path in result["memory_contents"]
@@ -298,7 +330,7 @@ def test_before_agent_skips_if_already_loaded(tmp_path: Path) -> None:
 
     # Pre-populate state
     state = {"memory_contents": {user_path: "Already loaded content"}}
-    result = middleware.before_agent(state, None, {})  # type: ignore
+    result = middleware.before_agent(state, None, {})  # type: ignore[arg-type]
 
     # Should return None (no update needed)
     assert result is None
@@ -310,7 +342,7 @@ def test_load_memory_with_empty_sources(tmp_path: Path) -> None:
 
     middleware = MemoryMiddleware(backend=backend, sources=[])
 
-    result = middleware.before_agent({}, None, {})  # type: ignore
+    result = middleware.before_agent({}, None, {})  # type: ignore[arg-type]
 
     assert result is not None
     assert result["memory_contents"] == {}
@@ -336,7 +368,7 @@ def test_memory_content_with_special_characters(tmp_path: Path) -> None:
         sources=[memory_path],
     )
 
-    result = middleware.before_agent({}, None, {})  # type: ignore
+    result = middleware.before_agent({}, None, {})  # type: ignore[arg-type]
 
     assert result is not None
     content = result["memory_contents"][memory_path]
@@ -356,7 +388,7 @@ def test_memory_content_with_unicode(tmp_path: Path) -> None:
         """- 日本語 (Japanese)
 - 中文 (Chinese)
 - Emoji: 🚀 🎉 ✨
-- Math: ∀x∈ℝ, x² ≥ 0""",
+- Math: ∀x∈ℝ, x² ≥ 0""",  # noqa: RUF001  # Intentional unicode test data
     )
 
     backend.upload_files([(memory_path, memory_content.encode("utf-8"))])
@@ -366,14 +398,14 @@ def test_memory_content_with_unicode(tmp_path: Path) -> None:
         sources=[memory_path],
     )
 
-    result = middleware.before_agent({}, None, {})  # type: ignore
+    result = middleware.before_agent({}, None, {})  # type: ignore[arg-type]
 
     assert result is not None
     content = result["memory_contents"][memory_path]
     assert "日本語" in content
     assert "中文" in content
     assert "🚀" in content
-    assert "∀x∈ℝ" in content
+    assert "∀x∈ℝ" in content  # noqa: RUF001  # Intentional unicode test data
 
 
 def test_memory_content_with_large_file(tmp_path: Path) -> None:
@@ -391,7 +423,7 @@ def test_memory_content_with_large_file(tmp_path: Path) -> None:
         sources=[memory_path],
     )
 
-    result = middleware.before_agent({}, None, {})  # type: ignore
+    result = middleware.before_agent({}, None, {})  # type: ignore[arg-type]
 
     assert result is not None
     content = result["memory_contents"][memory_path]
@@ -567,17 +599,17 @@ async def test_agent_with_memory_middleware_async(tmp_path: Path) -> None:
     assert "Test async loading" in content
 
 
-def test_memory_middleware_with_state_backend_factory() -> None:
-    """Test that MemoryMiddleware can be initialized with StateBackend factory."""
+def test_memory_middleware_with_state_backend() -> None:
+    """Test that MemoryMiddleware can be initialized with StateBackend instance."""
     sources: list[str] = ["/memory/AGENTS.md"]
     middleware = MemoryMiddleware(
-        backend=lambda rt: StateBackend(rt),
+        backend=StateBackend(),
         sources=sources,
     )
 
     # Verify the middleware was created successfully
     assert middleware is not None
-    assert callable(middleware._backend)
+    assert isinstance(middleware._backend, StateBackend)
     assert len(middleware.sources) == 1
     assert middleware.sources[0] == "/memory/AGENTS.md"
 
@@ -589,45 +621,32 @@ def test_memory_middleware_with_state_backend_factory() -> None:
         stream_writer=lambda _: None,
     )
 
-    backend = middleware._get_backend(state, runtime, {})  # type: ignore
+    backend = middleware._get_backend(state, runtime, {})  # type: ignore[arg-type]
     assert isinstance(backend, StateBackend)
-    assert backend.runtime is not None
 
 
-def test_memory_middleware_with_store_backend_factory() -> None:
-    """Test that MemoryMiddleware can be initialized with StoreBackend factory."""
+def test_memory_middleware_with_store_backend_instance() -> None:
+    """Test that MemoryMiddleware can be initialized with StoreBackend instance."""
+    store = InMemoryStore()
     sources: list[str] = ["/memory/AGENTS.md"]
     middleware = MemoryMiddleware(
-        backend=lambda rt: StoreBackend(rt),
+        backend=StoreBackend(store=store, namespace=_assistant_id_namespace),
         sources=sources,
     )
 
     # Verify the middleware was created successfully
     assert middleware is not None
-    assert callable(middleware._backend)
-
-    # Create a mock Runtime with store
-    store = InMemoryStore()
-    state = {"messages": []}
-    runtime = SimpleNamespace(
-        context=None,
-        store=store,
-        stream_writer=lambda _: None,
-    )
-
-    backend = middleware._get_backend(state, runtime, {})  # type: ignore
-    assert isinstance(backend, StoreBackend)
-    assert backend.runtime is not None
+    assert isinstance(middleware._backend, StoreBackend)
 
 
 def test_memory_middleware_with_store_backend_assistant_id() -> None:
     """Test namespace isolation: each assistant_id gets its own memory namespace."""
     # Setup
+    store = InMemoryStore()
     middleware = MemoryMiddleware(
-        backend=lambda rt: StoreBackend(rt),
+        backend=StoreBackend(store=store, namespace=_assistant_id_namespace),
         sources=["/memory/AGENTS.md"],
     )
-    store = InMemoryStore()
     runtime = SimpleNamespace(context=None, store=store, stream_writer=lambda _: None)
 
     # Add memory for assistant-123 with namespace (assistant-123, filesystem)
@@ -639,16 +658,16 @@ def test_memory_middleware_with_store_backend_assistant_id() -> None:
     )
 
     # Test: assistant-123 can read its own memory
-    config_1 = {"metadata": {"assistant_id": "assistant-123"}}
-    result_1 = middleware.before_agent({}, runtime, config_1)  # type: ignore
+    with _runtime_context("assistant-123"):
+        result_1 = middleware.before_agent({}, runtime, {})  # type: ignore[arg-type]
 
     assert result_1 is not None
     assert "/memory/AGENTS.md" in result_1["memory_contents"]
     assert "Context for assistant 1" in result_1["memory_contents"]["/memory/AGENTS.md"]
 
     # Test: assistant-456 cannot see assistant-123's memory (different namespace)
-    config_2 = {"metadata": {"assistant_id": "assistant-456"}}
-    result_2 = middleware.before_agent({}, runtime, config_2)  # type: ignore
+    with _runtime_context("assistant-456"):
+        result_2 = middleware.before_agent({}, runtime, {})  # type: ignore[arg-type]
     assert result_2 is not None
     assert len(result_2["memory_contents"]) == 0
 
@@ -661,7 +680,8 @@ def test_memory_middleware_with_store_backend_assistant_id() -> None:
     )
 
     # Test: assistant-456 can read its own memory
-    result_3 = middleware.before_agent({}, runtime, config_2)  # type: ignore
+    with _runtime_context("assistant-456"):
+        result_3 = middleware.before_agent({}, runtime, {})  # type: ignore[arg-type]
 
     assert result_3 is not None
     assert "/memory/AGENTS.md" in result_3["memory_contents"]
@@ -669,7 +689,8 @@ def test_memory_middleware_with_store_backend_assistant_id() -> None:
     assert "Context for assistant 1" not in result_3["memory_contents"]["/memory/AGENTS.md"]
 
     # Test: assistant-123 still only sees its own memory (no cross-contamination)
-    result_4 = middleware.before_agent({}, runtime, config_1)  # type: ignore
+    with _runtime_context("assistant-123"):
+        result_4 = middleware.before_agent({}, runtime, {})  # type: ignore[arg-type]
 
     assert result_4 is not None
     assert "/memory/AGENTS.md" in result_4["memory_contents"]
@@ -680,11 +701,11 @@ def test_memory_middleware_with_store_backend_assistant_id() -> None:
 def test_memory_middleware_with_store_backend_no_assistant_id() -> None:
     """Test default namespace: when no assistant_id is provided, uses (filesystem,) namespace."""
     # Setup
+    store = InMemoryStore()
     middleware = MemoryMiddleware(
-        backend=lambda rt: StoreBackend(rt),
+        backend=StoreBackend(store=store, namespace=_assistant_id_namespace),
         sources=["/memory/AGENTS.md"],
     )
-    store = InMemoryStore()
     runtime = SimpleNamespace(context=None, store=store, stream_writer=lambda _: None)
 
     # Add memory to default namespace (filesystem,) - no assistant_id
@@ -695,16 +716,17 @@ def test_memory_middleware_with_store_backend_no_assistant_id() -> None:
         create_store_memory_item(shared_content),
     )
 
-    # Test: empty config accesses default namespace
-    result_1 = middleware.before_agent({}, runtime, {})  # type: ignore
+    # Test: runtime without server_info accesses default namespace
+    with _runtime_context(None):
+        result_1 = middleware.before_agent({}, runtime, {})  # type: ignore[arg-type]
 
     assert result_1 is not None
     assert "/memory/AGENTS.md" in result_1["memory_contents"]
     assert "Default namespace context" in result_1["memory_contents"]["/memory/AGENTS.md"]
 
-    # Test: config with metadata but no assistant_id also uses default namespace
-    config_with_other_metadata = {"metadata": {"some_other_key": "value"}}
-    result_2 = middleware.before_agent({}, runtime, config_with_other_metadata)  # type: ignore
+    # Test: runtime with server_info but empty assistant_id also uses default namespace
+    with _runtime_context(""):
+        result_2 = middleware.before_agent({}, runtime, {})  # type: ignore[arg-type]
 
     assert result_2 is not None
     assert "/memory/AGENTS.md" in result_2["memory_contents"]
@@ -829,7 +851,7 @@ def test_memory_middleware_order_matters(tmp_path: Path) -> None:
     agent = create_agent(model=fake_model, middleware=[middleware])
 
     # Invoke
-    result = agent.invoke({"messages": [HumanMessage(content="Test")]})
+    agent.invoke({"messages": [HumanMessage(content="Test")]})
 
     # Verify order in system prompt with new format
     first_call = fake_model.call_history[0]
@@ -846,3 +868,165 @@ def test_memory_middleware_order_matters(tmp_path: Path) -> None:
     assert first_pos > 0
     assert second_pos > 0
     assert first_pos < second_pos
+
+
+class _SpyBackend(FilesystemBackend):
+    """FilesystemBackend that counts download_files calls."""
+
+    def __init__(self, root_dir: str) -> None:
+        super().__init__(root_dir=root_dir, virtual_mode=False)
+        self.download_files_call_count = 0
+
+    def download_files(self, paths: list[str]) -> list:
+        self.download_files_call_count += 1
+        return super().download_files(paths)
+
+
+def test_before_agent_batches_download_into_single_call(tmp_path: Path) -> None:
+    """Verify that before_agent calls download_files exactly once for all sources."""
+    backend = _SpyBackend(root_dir=str(tmp_path))
+
+    path_a = str(tmp_path / "a" / "AGENTS.md")
+    path_b = str(tmp_path / "b" / "AGENTS.md")
+    path_c = str(tmp_path / "c" / "AGENTS.md")
+
+    backend.upload_files(
+        [
+            (path_a, b"# Memory A\nContent A"),
+            (path_b, b"# Memory B\nContent B"),
+            (path_c, b"# Memory C\nContent C"),
+        ]
+    )
+
+    middleware = MemoryMiddleware(backend=backend, sources=[path_a, path_b, path_c])
+    result = middleware.before_agent({}, None, {})  # type: ignore[arg-type]
+
+    assert result is not None
+    assert len(result["memory_contents"]) == 3
+    assert backend.download_files_call_count == 1
+
+
+def test_before_agent_batch_skips_missing_keeps_found(tmp_path: Path) -> None:
+    """Verify that missing files are skipped while found files are loaded in batch mode."""
+    backend = _SpyBackend(root_dir=str(tmp_path))
+
+    existing_path = str(tmp_path / "exists" / "AGENTS.md")
+    missing_path = str(tmp_path / "missing" / "AGENTS.md")
+
+    backend.upload_files([(existing_path, b"# Exists\nSome content")])
+
+    middleware = MemoryMiddleware(backend=backend, sources=[existing_path, missing_path])
+    result = middleware.before_agent({}, None, {})  # type: ignore[arg-type]
+
+    assert result is not None
+    assert existing_path in result["memory_contents"]
+    assert missing_path not in result["memory_contents"]
+    assert backend.download_files_call_count == 1
+
+
+def _build_model_request(model: BaseChatModel, system_message: SystemMessage | None) -> ModelRequest:
+    """Construct a minimal `ModelRequest` for direct `modify_request` tests."""
+    return ModelRequest(
+        model=model,
+        messages=[HumanMessage(content="hi")],
+        system_message=system_message,
+        state={"messages": [], "memory_contents": {}},  # type: ignore[typeddict-unknown-key]
+    )
+
+
+def _fake_anthropic() -> ChatAnthropic:
+    """Build a `ChatAnthropic` instance with a dummy key."""
+    return ChatAnthropic(model_name="claude-sonnet-4-6", anthropic_api_key="fake")  # type: ignore[call-arg]
+
+
+def _system_blocks(message: SystemMessage | None) -> list:
+    """Extract content blocks from a required system message; fails test if absent."""
+    assert message is not None, "modify_request must return a SystemMessage"
+    return list(message.content_blocks)
+
+
+def test_modify_request_tags_last_block_when_enabled_and_anthropic() -> None:
+    """Cache breakpoint is applied when flag is on and request model is Anthropic."""
+    middleware = MemoryMiddleware(
+        backend=StateBackend(),
+        sources=[],
+        add_cache_control=True,
+    )
+    request = _build_model_request(_fake_anthropic(), SystemMessage(content="base"))
+
+    result = middleware.modify_request(request)
+    blocks = _system_blocks(result.system_message)
+
+    assert blocks[-1].get("cache_control") == {"type": "ephemeral"}
+    assert all("cache_control" not in block for block in blocks[:-1])
+
+
+def test_modify_request_no_tag_when_add_cache_control_false() -> None:
+    """Default (flag off) leaves content blocks untouched."""
+    middleware = MemoryMiddleware(backend=StateBackend(), sources=[])
+    request = _build_model_request(_fake_anthropic(), SystemMessage(content="base"))
+
+    result = middleware.modify_request(request)
+    blocks = _system_blocks(result.system_message)
+
+    assert all("cache_control" not in block for block in blocks)
+
+
+def test_modify_request_skips_tagging_on_non_anthropic_model() -> None:
+    """Flag on + non-Anthropic model silently no-ops (avoids shipping Anthropic-only key)."""
+    middleware = MemoryMiddleware(
+        backend=StateBackend(),
+        sources=[],
+        add_cache_control=True,
+    )
+    fake_model = GenericFakeChatModel(messages=iter([AIMessage(content="ok")]))
+    request = _build_model_request(fake_model, SystemMessage(content="base"))
+
+    result = middleware.modify_request(request)
+    blocks = _system_blocks(result.system_message)
+
+    assert all("cache_control" not in block for block in blocks)
+
+
+def test_modify_request_preserves_existing_block_fields() -> None:
+    """Merging cache_control preserves the existing block's type/text keys."""
+    middleware = MemoryMiddleware(
+        backend=StateBackend(),
+        sources=[],
+        add_cache_control=True,
+    )
+    request = _build_model_request(_fake_anthropic(), SystemMessage(content="important base prompt"))
+
+    result = middleware.modify_request(request)
+    last = _system_blocks(result.system_message)[-1]
+
+    assert last.get("type") == "text"
+    assert "agent_memory" in last.get("text", "")
+    assert last.get("cache_control") == {"type": "ephemeral"}
+
+
+def test_create_deep_agent_wires_cache_control_for_anthropic_memory(tmp_path: Path) -> None:
+    """`create_deep_agent(memory=[...])` produces a cache breakpoint on the memory block for Anthropic."""
+    backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=False)
+    memory_path = str(tmp_path / "AGENTS.md")
+    backend.upload_files([(memory_path, b"# Memory\nBe concise.")])
+
+    captured_system_messages: list[SystemMessage] = []
+
+    class _FakeAnthropic(ChatAnthropic):
+        def _generate(self, messages: list, *args: object, **kwargs: object) -> ChatResult:
+            captured_system_messages.extend(m for m in messages if isinstance(m, SystemMessage))
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="ok"))])
+
+    fake_anthropic = _FakeAnthropic(model_name="claude-sonnet-4-6", anthropic_api_key="fake")  # type: ignore[call-arg]
+
+    agent = create_deep_agent(
+        backend=backend,
+        memory=[memory_path],
+        model=fake_anthropic,
+    )
+    agent.invoke({"messages": [HumanMessage(content="hi")]})
+
+    assert captured_system_messages, "Model never received a SystemMessage"
+    last_block = captured_system_messages[0].content_blocks[-1]
+    assert last_block.get("cache_control") == {"type": "ephemeral"}

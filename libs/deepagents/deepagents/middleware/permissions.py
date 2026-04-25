@@ -185,7 +185,7 @@ def _all_paths_scoped_to_routes(
     return True
 
 
-class _PermissionMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
+class _PermissionMiddleware(AgentMiddleware[ContextT, ResponseT]):
     """Middleware enforcing filesystem permission rules.
 
     Intercepts each tool call via ``wrap_tool_call`` / ``awrap_tool_call``.

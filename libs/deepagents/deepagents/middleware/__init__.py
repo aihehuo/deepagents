@@ -16,7 +16,10 @@ from deepagents.middleware.routing import (
     build_default_coder_routing_middleware,
 )
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
-from deepagents.middleware.summarization import SummarizationMiddleware
+try:
+    from deepagents.middleware.summarization import SummarizationMiddleware
+except ImportError:
+    SummarizationMiddleware = None
 
 __all__ = [
     "AccountantMiddleware",
@@ -35,5 +38,7 @@ __all__ = [
     "build_default_coder_routing_middleware",
     "SubAgent",
     "SubAgentMiddleware",
-    "SummarizationMiddleware",
 ]
+
+if SummarizationMiddleware is not None:
+    __all__.append("SummarizationMiddleware")

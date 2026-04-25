@@ -26,7 +26,6 @@ from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
-from deepagents.middleware.summarization import SummarizationMiddleware
 # from deepagents.middleware.summarization_logging import LoggingSummarizationMiddleware
 # Note: LangChain's SummarizationMiddleware now supports async calls (astream, ainvoke, etc.)
 

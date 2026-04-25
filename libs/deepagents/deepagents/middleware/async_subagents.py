@@ -859,7 +859,7 @@ def _build_async_subagent_tools(
     ]
 
 
-class AsyncSubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
+class AsyncSubAgentMiddleware(AgentMiddleware[ContextT, ResponseT]):
     """Middleware for async subagents running on remote Agent Protocol servers.
 
     This middleware adds tools for launching, monitoring, and updating
@@ -929,9 +929,9 @@ class AsyncSubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
 
     def wrap_model_call(
         self,
-        request: ModelRequest[ContextT],
-        handler: Callable[[ModelRequest[ContextT]], ModelResponse[ResponseT]],
-    ) -> ModelResponse[ResponseT]:
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
         """Update the system message to include async subagent instructions."""
         if self.system_prompt is not None:
             new_system_message = append_to_system_message(request.system_message, self.system_prompt)
@@ -940,9 +940,9 @@ class AsyncSubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
 
     async def awrap_model_call(
         self,
-        request: ModelRequest[ContextT],
-        handler: Callable[[ModelRequest[ContextT]], Awaitable[ModelResponse[ResponseT]]],
-    ) -> ModelResponse[ResponseT]:
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
         """(async) Update the system message to include async subagent instructions."""
         if self.system_prompt is not None:
             new_system_message = append_to_system_message(request.system_message, self.system_prompt)

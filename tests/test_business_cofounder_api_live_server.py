@@ -61,7 +61,7 @@ def test_live_server_health_chat_reset() -> None:
         msg = (
             f"Live server not reachable at {base} ({e}).\n\n"
             "Start it in another terminal, e.g.:\n"
-            '  PYTHONPATH="libs/deepagents:libs/deepagents-cli" '
+            '  PYTHONPATH="libs/deepagents:libs/cli" '
             "uvicorn apps.business_cofounder_api.app:app --host 0.0.0.0 --port 8001\n\n"
             "Or set BC_API_BASE_URL to point at the running server."
         )

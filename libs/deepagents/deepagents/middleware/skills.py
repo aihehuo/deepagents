@@ -697,7 +697,7 @@ Remember: Skills make you more capable and consistent. When in doubt, check if a
 """
 
 
-class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
+class SkillsMiddleware(AgentMiddleware[ContextT, ResponseT]):
     """Middleware for loading and exposing agent skills to the system prompt.
 
     Loads skills from backend sources and injects them into the system prompt
@@ -825,7 +825,7 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
 
         return "\n".join(lines)
 
-    def modify_request(self, request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:
+    def modify_request(self, request: ModelRequest) -> ModelRequest:
         """Inject skills documentation into a model request's system message.
 
         Args:
@@ -921,9 +921,9 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
 
     def wrap_model_call(
         self,
-        request: ModelRequest[ContextT],
-        handler: Callable[[ModelRequest[ContextT]], ModelResponse[ResponseT]],
-    ) -> ModelResponse[ResponseT]:
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
         """Inject skills documentation into the system prompt.
 
         Args:
@@ -938,9 +938,9 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
 
     async def awrap_model_call(
         self,
-        request: ModelRequest[ContextT],
-        handler: Callable[[ModelRequest[ContextT]], Awaitable[ModelResponse[ResponseT]]],
-    ) -> ModelResponse[ResponseT]:
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
         """Inject skills documentation into the system prompt (async version).
 
         Args:

@@ -24,7 +24,7 @@ cd /Users/yc/workspace/deepagents
 
 Or manually:
 ```bash
-export PYTHONPATH="libs/deepagents:libs/deepagents-cli:$PYTHONPATH"
+export PYTHONPATH="libs/deepagents:libs/cli:$PYTHONPATH"
 export CELERY_BROKER_URL="redis://host.docker.internal:6379/0"  # or your redis
 celery -A apps.business_cofounder_worker.celery_app worker --loglevel=info --pool=solo
 ```

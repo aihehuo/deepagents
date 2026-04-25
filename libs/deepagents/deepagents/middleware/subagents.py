@@ -455,7 +455,7 @@ def _build_task_tool(  # noqa: C901
     )
 
 
-class SubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
+class SubAgentMiddleware(AgentMiddleware[ContextT, ResponseT]):
     """Middleware for providing subagents to an agent via a `task` tool.
 
     This middleware adds a `task` tool to the agent that can be used to invoke subagents.
@@ -586,9 +586,9 @@ class SubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
 
     def wrap_model_call(
         self,
-        request: ModelRequest[ContextT],
-        handler: Callable[[ModelRequest[ContextT]], ModelResponse[ResponseT]],
-    ) -> ModelResponse[ResponseT]:
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
         """Update the system message to include instructions on using subagents."""
         if self.system_prompt is not None:
             new_system_message = append_to_system_message(request.system_message, self.system_prompt)
@@ -597,9 +597,9 @@ class SubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
 
     async def awrap_model_call(
         self,
-        request: ModelRequest[ContextT],
-        handler: Callable[[ModelRequest[ContextT]], Awaitable[ModelResponse[ResponseT]]],
-    ) -> ModelResponse[ResponseT]:
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
         """(async) Update the system message to include instructions on using subagents."""
         if self.system_prompt is not None:
             new_system_message = append_to_system_message(request.system_message, self.system_prompt)

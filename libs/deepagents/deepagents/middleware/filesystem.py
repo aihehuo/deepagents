@@ -310,6 +310,15 @@ def _supports_execution(backend: BackendProtocol) -> bool:
     return isinstance(backend, SandboxBackendProtocol)
 
 
+def supports_execution(backend: BackendProtocol) -> bool:
+    """Backwards-compatible public execution capability helper.
+
+    Some modules import `supports_execution` from this module directly.
+    Keep this thin wrapper so older imports keep working after refactors.
+    """
+    return _supports_execution(backend)
+
+
 # Tools that should be excluded from the large result eviction logic.
 #
 # This tuple contains tools that should NOT have their results evicted to the filesystem
@@ -1310,16 +1319,16 @@ class FilesystemMiddleware(AgentMiddleware):
             if isinstance(read_result, str) and read_result.startswith("Error"):
                 print(f"[FilesystemMiddleware] ❌ READ TEST FAILED: {read_result}")
                 return
-            
+
             # read() returns formatted content with line numbers, so we need to extract the actual content
             # The format is: "     1  line1\n     2  line2\n..."
             # We'll check if our test content lines appear in the result
             read_content = read_result
             test_lines = test_content.splitlines()
-            
+
             # Check if all test content lines are present in the read result
             all_lines_found = all(any(test_line in line for line in read_content.splitlines()) for test_line in test_lines)
-            
+
             if all_lines_found:
                 print(f"[FilesystemMiddleware] ✓ Read test passed")
                 print(f"  Read content verified ({len(read_content)} bytes)")

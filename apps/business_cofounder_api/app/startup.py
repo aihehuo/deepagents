@@ -84,72 +84,72 @@ async def configure_asyncio_default_executor() -> None:
 
 async def startup(state_ref: dict[str, AppState | None]) -> None:
     """FastAPI startup event handler - initializes agents and application state.
-    
+
     Args:
         state_ref: Dictionary with 'state' key to store the initialized AppState
     """
     await configure_asyncio_default_executor()
     patch_openai_no_thread()
-    
+
     # Check if dual-agent mode is enabled
     use_dual_agent = env_flag("BC_API_USE_DUAL_AGENT", default=True)
-    
+
     _logger.info("=" * 80)
     _logger.info("API Startup - Agent Configuration")
     _logger.info("=" * 80)
     _logger.info("  Dual-Agent Mode: %s", "ENABLED" if use_dual_agent else "DISABLED")
-    
+
     # Extract backend_root from agent configuration
     # With virtual_mode=True, all file operations are sandboxed to backend_root
     backend_root = str(Path.home() / ".deepagents" / "business_cofounder_api")
     docs_dir = str(Path.home() / ".deepagents" / "business_cofounder_api" / "docs")
-    
+
     if use_dual_agent:
         _logger.info("  Initializing DUAL-AGENT architecture...")
         _logger.info("  - Frontend: Facilitator Agent (natural conversation)")
         _logger.info("  - Expert: Analyzer Agent (methodology & analysis)")
-        
+
         # Create facilitator agent (frontend)
         facilitator_agent, facilitator_checkpoints = create_facilitator_agent(
             agent_id="facilitator",
-            provider="qwen",
+            provider="deepseek",
             sync_interval=5,
         )
         _logger.info("  ✓ Facilitator Agent initialized")
         _logger.info("    Checkpoints: %s", facilitator_checkpoints)
-        
+
         # Create expert agent (analyzer)
         # Get default expertise type from env (can be overridden per conversation)
         assigned_expertise = os.getenv("DEFAULT_EXPERTISE_TYPE", "pitch_expert")
         print(f"DEFAULT_EXPERTISE_TYPE: {assigned_expertise}")
-        
+
         expert_agent, expert_checkpoints = create_expert_agent(
             agent_id="expert_analyzer",
-            provider="qwen",
+            provider="deepseek",
             expertise_type=assigned_expertise,
         )
         _logger.info("  ✓ Expert Agent initialized")
         _logger.info("    Checkpoints: %s", expert_checkpoints)
         _logger.info("    Assigned expertise: %s", assigned_expertise)
-        
+
         # Use facilitator as primary agent for backward compatibility
         primary_agent = facilitator_agent
         checkpoints_path = facilitator_checkpoints
-        
+
         # Create fallback (use facilitator as fallback too, or could create a fallback expert)
         fallback_agent = facilitator_agent
-        
+
         # Set expertise directory
         expertise_dir_path = str(Path(backend_root) / "expertise")
-        
+
         # Create simulated user agent (for testing/simulation)
         user_agent, user_agent_checkpoints = create_user_agent(
             agent_id="simulated_user",
-            provider="qwen",
+            provider="deepseek",
         )
         _logger.info("  ✓ Simulated User Agent initialized")
         _logger.info("    Checkpoints: %s", user_agent_checkpoints)
-        
+
         state_ref["state"] = AppState(
             agent=primary_agent,
             fallback_agent=fallback_agent,
@@ -171,25 +171,25 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         _logger.info("=" * 80)
     else:
         _logger.info("  Initializing SINGLE-AGENT architecture (legacy mode)...")
-        
+
         # Legacy single-agent mode
         primary_agent, checkpoints_path = create_business_cofounder_agent(
             agent_id="business_cofounder_agent",
-            provider="qwen"
+            provider="deepseek"
         )
         fallback_agent, _ = create_business_cofounder_agent(
             agent_id="business_cofounder_agent",
             provider="deepseek"
         )
-        
+
         # Create simulated user agent (for testing/simulation)
         user_agent, user_agent_checkpoints = create_user_agent(
             agent_id="simulated_user",
-            provider="qwen",
+            provider="deepseek",
         )
         _logger.info("  ✓ Simulated User Agent initialized")
         _logger.info("    Checkpoints: %s", user_agent_checkpoints)
-        
+
         state_ref["state"] = AppState(
             agent=primary_agent,
             fallback_agent=fallback_agent,

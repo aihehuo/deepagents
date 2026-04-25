@@ -10,7 +10,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONPATH="/app/libs/deepagents:/app/libs/deepagents-cli"
+    PYTHONPATH="/app/libs/deepagents:/app/libs/cli"
 
 # System deps
 # NOTE: Avoid apt-get in this image because some environments cannot validate Debian repo signatures
@@ -30,9 +30,9 @@ COPY apps/business_cofounder_api/requirements.txt /app/apps/business_cofounder_a
 
 RUN pip install -r /app/apps/business_cofounder_api/requirements.txt
 
-# Copy deepagents + deepagents-cli source (imported via PYTHONPATH; no pip editable install)
+# Copy deepagents + cli source (imported via PYTHONPATH; no pip editable install)
 COPY libs/deepagents /app/libs/deepagents
-COPY libs/deepagents-cli /app/libs/deepagents-cli
+COPY libs/cli /app/libs/cli
 
 # Copy application code
 COPY apps/business_cofounder_api /app/apps/business_cofounder_api

@@ -158,7 +158,7 @@ MEMORY_SYSTEM_PROMPT = """<agent_memory>
 """
 
 
-class MemoryMiddleware(AgentMiddleware[MemoryState, ContextT, ResponseT]):
+class MemoryMiddleware(AgentMiddleware[ContextT, ResponseT]):
     """Middleware for loading agent memory from `AGENTS.md` files.
 
     Loads memory content from configured sources and injects into the system prompt.
@@ -321,7 +321,7 @@ class MemoryMiddleware(AgentMiddleware[MemoryState, ContextT, ResponseT]):
 
         return MemoryStateUpdate(memory_contents=contents)
 
-    def modify_request(self, request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:
+    def modify_request(self, request: ModelRequest) -> ModelRequest:
         """Inject memory content into the system message.
 
         Args:
@@ -350,9 +350,9 @@ class MemoryMiddleware(AgentMiddleware[MemoryState, ContextT, ResponseT]):
 
     def wrap_model_call(
         self,
-        request: ModelRequest[ContextT],
-        handler: Callable[[ModelRequest[ContextT]], ModelResponse[ResponseT]],
-    ) -> ModelResponse[ResponseT]:
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
         """Wrap model call to inject memory into system prompt.
 
         Args:
@@ -367,9 +367,9 @@ class MemoryMiddleware(AgentMiddleware[MemoryState, ContextT, ResponseT]):
 
     async def awrap_model_call(
         self,
-        request: ModelRequest[ContextT],
-        handler: Callable[[ModelRequest[ContextT]], Awaitable[ModelResponse[ResponseT]]],
-    ) -> ModelResponse[ResponseT]:
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
         """Async wrap model call to inject memory into system prompt.
 
         Args:

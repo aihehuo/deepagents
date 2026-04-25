@@ -28,7 +28,7 @@ def _tool_name(tool: BaseTool | dict[str, str]) -> str | None:
     return name if isinstance(name, str) else None
 
 
-class _ToolExclusionMiddleware(AgentMiddleware[Any, Any, Any]):
+class _ToolExclusionMiddleware(AgentMiddleware[Any, Any]):
     """Middleware that filters excluded tools from the model request.
 
     Should be placed late in the middleware stack (after all
@@ -44,9 +44,9 @@ class _ToolExclusionMiddleware(AgentMiddleware[Any, Any, Any]):
 
     def wrap_model_call(
         self,
-        request: ModelRequest[Any],
-        handler: Callable[[ModelRequest[Any]], ModelResponse[Any]],
-    ) -> ModelResponse[Any]:
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
         """Filter excluded tools before they reach the model."""
         if self._excluded:
             filtered = [t for t in request.tools if _tool_name(t) not in self._excluded]
@@ -55,9 +55,9 @@ class _ToolExclusionMiddleware(AgentMiddleware[Any, Any, Any]):
 
     async def awrap_model_call(
         self,
-        request: ModelRequest[Any],
-        handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[ResponseT]]],
-    ) -> ModelResponse[ResponseT] | AIMessage | ExtendedModelResponse[ResponseT]:
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse | AIMessage | ExtendedModelResponse[ResponseT]:
         """Async variant of `wrap_model_call`."""
         if self._excluded:
             filtered = [t for t in request.tools if _tool_name(t) not in self._excluded]

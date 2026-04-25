@@ -252,7 +252,7 @@ def _setup_required_skills(repo_root: Path, skills_dir: Path) -> list[str]:
     """Copy required skills into tmp skills_dir and assert discovery."""
     skills_dir.mkdir(parents=True, exist_ok=True)
 
-    example_skills_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills"
+    example_skills_dir = repo_root / "libs" / "cli" / "examples" / "skills"
     required_skills = [
         "business-idea-evaluation",
         "persona-clarification",

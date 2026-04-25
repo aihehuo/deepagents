@@ -36,7 +36,7 @@ def test_persona_clarification_skill_discovery(tmp_path: Path) -> None:
     """
     # Get the example skill directory
     repo_root = Path(__file__).parent.parent
-    example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "persona-clarification"
+    example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "persona-clarification"
     
     if not example_skill_dir.exists():
         pytest.skip(f"Example skill directory not found: {example_skill_dir}")
@@ -103,7 +103,7 @@ def test_persona_clarification_skill_usage_and_outcome(tmp_path: Path) -> None:
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy persona-clarification skill from examples
-        example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "persona-clarification"
+        example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "persona-clarification"
         if not example_skill_dir.exists():
             pytest.skip(f"Example skill directory not found: {example_skill_dir}")
         
@@ -397,7 +397,7 @@ def test_persona_clarification_with_vague_idea(tmp_path: Path) -> None:
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir(parents=True, exist_ok=True)
         
-        example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "persona-clarification"
+        example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "persona-clarification"
         if not example_skill_dir.exists():
             pytest.skip(f"Example skill directory not found: {example_skill_dir}")
         
@@ -507,7 +507,7 @@ def test_persona_clarification_with_chinese_input(tmp_path: Path) -> None:
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy persona-clarification skill from examples
-        example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "persona-clarification"
+        example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "persona-clarification"
         if not example_skill_dir.exists():
             pytest.skip(f"Example skill directory not found: {example_skill_dir}")
         

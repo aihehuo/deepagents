@@ -43,7 +43,7 @@ def test_baseline_pricing_optimization_skill_discovery(tmp_path: Path) -> None:
     skills_dir.mkdir(parents=True, exist_ok=True)
     
     # Copy baseline-pricing-and-optimization skill from examples
-    example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "baseline-pricing-and-optimization"
+    example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "baseline-pricing-and-optimization"
     if not example_skill_dir.exists():
         pytest.skip(f"Example skill directory not found: {example_skill_dir}")
     
@@ -105,8 +105,8 @@ def test_baseline_pricing_optimization_with_complete_idea(tmp_path: Path) -> Non
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy business-idea-evaluation and baseline-pricing-and-optimization skills
-        example_business_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
-        example_pricing_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "baseline-pricing-and-optimization"
+        example_business_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+        example_pricing_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "baseline-pricing-and-optimization"
         
         if not example_business_skill_dir.exists():
             pytest.skip(f"Example business-idea-evaluation skill directory not found: {example_business_skill_dir}")
@@ -367,8 +367,8 @@ def test_baseline_pricing_optimization_with_chinese_input(tmp_path: Path) -> Non
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy both skills
-        example_business_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
-        example_pricing_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "baseline-pricing-and-optimization"
+        example_business_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+        example_pricing_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "baseline-pricing-and-optimization"
         
         if not example_business_skill_dir.exists():
             pytest.skip(f"Example business-idea-evaluation skill directory not found: {example_business_skill_dir}")

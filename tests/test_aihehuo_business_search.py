@@ -66,7 +66,7 @@ def test_aihehuo_business_search_with_todos_and_datetime(tmp_path: Path) -> None
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy aihehuo-member-search skill from examples
-        example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "aihehuo-member-search"
+        example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "aihehuo-member-search"
         if not example_skill_dir.exists():
             pytest.skip(f"Example skill directory not found: {example_skill_dir}")
         

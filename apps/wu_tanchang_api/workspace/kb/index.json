@@ -1,0 +1,2415 @@
+[
+  {
+    "id": "wu-template",
+    "title": "吴探长商业探店笔记 · 内容拆解模版",
+    "series": "方法论",
+    "brand": null,
+    "city": null,
+    "categories": [],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [
+      "写作模版",
+      "拆解方法论",
+      "语态规范"
+    ],
+    "dimensions": [
+      "标题",
+      "探店动机",
+      "核心概述",
+      "正文拆解",
+      "商业洞察",
+      "思考题"
+    ],
+    "consult_for": [
+      "所有餐饮咨询回答的结构基准"
+    ],
+    "keywords": [
+      "模版",
+      "思维模型",
+      "商业分析"
+    ],
+    "raw_file": "kb/raw/“吴探长商业探店笔记” 的内容拆解模版.md",
+    "skip_chunk": true,
+    "chunks": []
+  },
+  {
+    "id": "wu-bake-no-title",
+    "title": "Bake No Title——老破小弄堂里的非标顶流",
+    "series": "商业探店笔记",
+    "brand": "Bake No Title",
+    "city": "上海",
+    "categories": [
+      "烘焙",
+      "Brunch",
+      "Bistro",
+      "日咖夜酒"
+    ],
+    "price_band": "中高价",
+    "avg_ticket": "498+（晚市Chef's Table）",
+    "topics": [
+      "反选址",
+      "场景制造",
+      "日咖夜酒",
+      "社群运营",
+      "主理人文化"
+    ],
+    "dimensions": [
+      "场景",
+      "经营时段",
+      "产品",
+      "用户运营"
+    ],
+    "consult_for": [
+      "非标选址",
+      "社区店",
+      "日咖夜酒",
+      "烘焙+餐酒"
+    ],
+    "keywords": [
+      "番禺路",
+      "工业风",
+      "社群",
+      "打卡"
+    ],
+    "raw_file": "kb/raw/吴探长·探店商业笔记：Bake No Title——如何在“老破小”弄堂里，把“非标”做成“顶流”？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-bake-no-title/motivation.md",
+      "kb/chunks/brands/wu-bake-no-title/overview.md",
+      "kb/chunks/brands/wu-bake-no-title/insight.md",
+      "kb/chunks/brands/wu-bake-no-title/dimension-场景制造-用-工厂感-对抗-精致感.md",
+      "kb/chunks/brands/wu-bake-no-title/dimension-经营时段-日咖夜酒的-时空折叠.md",
+      "kb/chunks/brands/wu-bake-no-title/dimension-产品能力-从-好吃-到-好拍.md",
+      "kb/chunks/brands/wu-bake-no-title/dimension-用户运营-从-流量-到-留量.md"
+    ]
+  },
+  {
+    "id": "wu-punch-monday",
+    "title": "Punch Monday——6.9元在面包红海杀出血路",
+    "series": "商业探店笔记",
+    "brand": "Punch Monday",
+    "city": "上海",
+    "categories": [
+      "烘焙",
+      "面包"
+    ],
+    "price_band": "6.9-19.9",
+    "avg_ticket": "35-50",
+    "topics": [
+      "低价锚定",
+      "恰巴塔",
+      "性价比",
+      "消费降级"
+    ],
+    "dimensions": [
+      "定价策略",
+      "选品策略",
+      "选址策略"
+    ],
+    "consult_for": [
+      "开烘焙店",
+      "平价策略",
+      "商场店",
+      "高频低价"
+    ],
+    "keywords": [
+      "面包界瑞幸",
+      "新天地",
+      "恰巴塔"
+    ],
+    "raw_file": "kb/raw/吴探长·探店商业笔记：Punch Monday——如何用“6.9元”在面包红海里杀出一条血路？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-punch-monday/motivation.md",
+      "kb/chunks/brands/wu-punch-monday/overview.md",
+      "kb/chunks/brands/wu-punch-monday/insight.md",
+      "kb/chunks/brands/wu-punch-monday/dimension-定价策略-用-6-9元-做锚-用-12-9元-走量.md",
+      "kb/chunks/brands/wu-punch-monday/dimension-选品策略-恰巴塔是-天选之子.md",
+      "kb/chunks/brands/wu-punch-monday/dimension-选址策略-在-高势能-商圈做-降维打击.md"
+    ]
+  },
+  {
+    "id": "wu-gooolden",
+    "title": "GOOOLDEN——颜值经济撬动38元高客单",
+    "series": "商业探店笔记",
+    "brand": "GOOOLDEN",
+    "city": "上海",
+    "categories": [
+      "轻食",
+      "酸奶碗"
+    ],
+    "price_band": "26-42",
+    "avg_ticket": "38",
+    "topics": [
+      "颜值经济",
+      "希腊酸奶",
+      "档口店",
+      "轻资产"
+    ],
+    "dimensions": [
+      "选品逻辑",
+      "产品设计",
+      "定价策略"
+    ],
+    "consult_for": [
+      "酸奶碗",
+      "轻食专门店",
+      "高客单档口",
+      "子品牌"
+    ],
+    "keywords": [
+      "丰盛里",
+      "茉酸奶",
+      "奶昔",
+      "Ins风"
+    ],
+    "raw_file": "kb/raw/吴探长·探店商业笔记：GOOOLDEN——酸奶碗如何靠“颜值经济”撬动38元高客单？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-gooolden/motivation.md",
+      "kb/chunks/brands/wu-gooolden/overview.md",
+      "kb/chunks/brands/wu-gooolden/insight.md",
+      "kb/chunks/brands/wu-gooolden/dimension-选品逻辑-在-红海-里找-蓝海.md",
+      "kb/chunks/brands/wu-gooolden/dimension-产品设计-面子是流量-里子是复购.md",
+      "kb/chunks/brands/wu-gooolden/dimension-定价策略-在-夹缝-中求生存.md"
+    ]
+  },
+  {
+    "id": "wu-toaster-toastee",
+    "title": "Toaster&Toastee——9.9元高配低价收割长乐路流量",
+    "series": "商业探店笔记",
+    "brand": "Toaster&Toastee",
+    "city": "上海",
+    "categories": [
+      "小吃",
+      "多士",
+      "咖啡"
+    ],
+    "price_band": "9.9-20",
+    "avg_ticket": "20上下",
+    "topics": [
+      "旅游商圈",
+      "价值反差",
+      "高价值食材",
+      "首店营销"
+    ],
+    "dimensions": [
+      "游客心理",
+      "产品策略",
+      "种草策略"
+    ],
+    "consult_for": [
+      "街铺档口",
+      "网红街",
+      "小吃大做",
+      "引流款"
+    ],
+    "keywords": [
+      "长乐路",
+      "新加坡多士",
+      "松露",
+      "鳗鱼"
+    ],
+    "raw_file": "kb/raw/吴探长·探店商业笔记：Toaster&Toastee——9.9元的新加坡多士，如何用“高配低价”收割长乐路流量？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-toaster-toastee/motivation.md",
+      "kb/chunks/brands/wu-toaster-toastee/overview.md",
+      "kb/chunks/brands/wu-toaster-toastee/insight.md",
+      "kb/chunks/brands/wu-toaster-toastee/dimension-游客心理-情绪价值大于营养价值.md",
+      "kb/chunks/brands/wu-toaster-toastee/dimension-产品策略-用-米其林食材-降维打击街头小吃.md",
+      "kb/chunks/brands/wu-toaster-toastee/dimension-种草策略-花钱买-首店-光环.md"
+    ]
+  },
+  {
+    "id": "wu-suxiaoliu",
+    "title": "苏小柳——江南腔调重塑小笼包价值天花板",
+    "series": "商业探店笔记",
+    "brand": "苏小柳",
+    "city": "上海",
+    "categories": [
+      "中式点心",
+      "小笼包"
+    ],
+    "price_band": "人均60-70",
+    "avg_ticket": "180-280（桌单）",
+    "topics": [
+      "轻正餐",
+      "明档现制",
+      "连锁直营",
+      "江南美学"
+    ],
+    "dimensions": [
+      "动线布局",
+      "经营定位",
+      "宣传阵地"
+    ],
+    "consult_for": [
+      "中式快餐升级",
+      "商场店",
+      "手工现制",
+      "品类价值提升"
+    ],
+    "keywords": [
+      "明档",
+      "A3菜单",
+      "不时不食"
+    ],
+    "raw_file": "kb/raw/吴探长·探店商业笔记：苏小柳——如何用“江南腔调”重塑小笼包的价值天花板？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-suxiaoliu/motivation.md",
+      "kb/chunks/brands/wu-suxiaoliu/overview.md",
+      "kb/chunks/brands/wu-suxiaoliu/insight.md",
+      "kb/chunks/brands/wu-suxiaoliu/dimension-动线布局-把厨房变成-舞台-烟火气就是流量.md",
+      "kb/chunks/brands/wu-suxiaoliu/dimension-经营定位-卡位-轻社交-用菜单讲完一个故事.md",
+      "kb/chunks/brands/wu-suxiaoliu/dimension-宣传阵地-一张a3纸里的-江南美学.md"
+    ]
+  },
+  {
+    "id": "wu-bagel-museum",
+    "title": "纽约贝果博物馆——单品店模型拆解",
+    "series": "探店记",
+    "brand": "纽约贝果博物馆",
+    "city": "上海",
+    "categories": [
+      "烘焙",
+      "贝果",
+      "单品店"
+    ],
+    "price_band": "10-40",
+    "avg_ticket": "60",
+    "topics": [
+      "单品店",
+      "主题概念",
+      "动线设计",
+      "模型复制"
+    ],
+    "dimensions": [
+      "选品定价",
+      "用户体验",
+      "跑模型"
+    ],
+    "consult_for": [
+      "单品店",
+      "烘焙赛道",
+      "网红店复制",
+      "SKU精简"
+    ],
+    "keywords": [
+      "新天地",
+      "博物馆主题",
+      "回字型动线",
+      "跑马制"
+    ],
+    "raw_file": "kb/raw/吴探长·探店记｜从3点拆解魔都网红「纽约贝果博物馆」.md",
+    "chunks": [
+      "kb/chunks/brands/wu-bagel-museum/motivation.md",
+      "kb/chunks/brands/wu-bagel-museum/overview.md",
+      "kb/chunks/brands/wu-bagel-museum/insight.md",
+      "kb/chunks/brands/wu-bagel-museum/think.md",
+      "kb/chunks/brands/wu-bagel-museum/dimension-如何选品定价-单品切入-场景覆盖-价格锚定.md",
+      "kb/chunks/brands/wu-bagel-museum/dimension-如何设计用户体验-主题营造-动线闭环-心理暗示.md",
+      "kb/chunks/brands/wu-bagel-museum/dimension-如何正确跑模型-自测三关-强管强训-品牌增值.md",
+      "kb/chunks/brands/wu-bagel-museum/dimension-产品制作层面-从配方-到工艺工序的标准化-能不能精细化生产-实现降本增效.md",
+      "kb/chunks/brands/wu-bagel-museum/dimension-产品研发层面-从选材-到口味-展示的程序化-能不能和地方需求匹配和确保上新率.md",
+      "kb/chunks/brands/wu-bagel-museum/dimension-就是品牌输出-从品牌vi-si-ip内容等设计-到品牌知名度-认知和口碑等热度和势能-能不能截流叫客-运营管理层面要强管.md"
+    ]
+  },
+  {
+    "id": "wu-rongjia-huangyu",
+    "title": "荣家黄鱼面——米其林旗下小店模型",
+    "series": "探店记",
+    "brand": "荣家黄鱼面",
+    "city": "上海",
+    "categories": [
+      "面馆",
+      "海鲜面"
+    ],
+    "price_band": "78-368",
+    "avg_ticket": "高客单",
+    "topics": [
+      "大餐饮轻餐化",
+      "品牌势能下沉",
+      "主品阶梯定价"
+    ],
+    "dimensions": [
+      "消费场景",
+      "菜单结构",
+      "产品体验"
+    ],
+    "consult_for": [
+      "高端子品牌小店",
+      "高客单快餐",
+      "米其林背书"
+    ],
+    "keywords": [
+      "新荣记",
+      "前滩太古里",
+      "黄鱼面",
+      "改善型快餐"
+    ],
+    "raw_file": "kb/raw/吴探长·探店记｜从3点拆解上海米其林三星新荣记旗下小店模型「荣家黄鱼面」.md",
+    "chunks": [
+      "kb/chunks/brands/wu-rongjia-huangyu/motivation.md",
+      "kb/chunks/brands/wu-rongjia-huangyu/overview.md",
+      "kb/chunks/brands/wu-rongjia-huangyu/insight.md",
+      "kb/chunks/brands/wu-rongjia-huangyu/think.md",
+      "kb/chunks/brands/wu-rongjia-huangyu/dimension-消费场景定位-大餐饮轻餐化-快餐社交化.md",
+      "kb/chunks/brands/wu-rongjia-huangyu/dimension-菜单结构设计-主品驱动-副品延展-工艺复用.md",
+      "kb/chunks/brands/wu-rongjia-huangyu/dimension-限量款-选用新鲜东海小黄鱼-368元-份.md",
+      "kb/chunks/brands/wu-rongjia-huangyu/dimension-特色招牌-选用新鲜大陈岛大黄鱼-138元-份.md",
+      "kb/chunks/brands/wu-rongjia-huangyu/dimension-产品体验细节-汤底见真章-体验定口碑.md"
+    ]
+  },
+  {
+    "id": "wu-xiaoyang-shengjian",
+    "title": "小杨生煎——品牌焕新深度解析",
+    "series": "案例说",
+    "brand": "小杨生煎",
+    "city": "上海",
+    "categories": [
+      "中式快餐",
+      "生煎"
+    ],
+    "price_band": "12元/4只起",
+    "avg_ticket": "40-50",
+    "topics": [
+      "品牌焕新",
+      "连锁标准化",
+      "机器换人",
+      "一汤多品"
+    ],
+    "dimensions": [
+      "品牌设计",
+      "产品策略",
+      "体验设计"
+    ],
+    "consult_for": [
+      "老字号年轻化",
+      "全国连锁",
+      "中式快餐标准化"
+    ],
+    "keywords": [
+      "玫红色",
+      "生来煎强",
+      "送餐到桌",
+      "机器生煎"
+    ],
+    "raw_file": "kb/raw/吴探长·案例说031｜深度解析上海生煎代表品牌「小杨生煎」品牌焕新.md",
+    "chunks": [
+      "kb/chunks/brands/wu-xiaoyang-shengjian/insight.md",
+      "kb/chunks/brands/wu-xiaoyang-shengjian/think.md",
+      "kb/chunks/brands/wu-xiaoyang-shengjian/dimension-服务流程重构-从-自取-到-送餐到桌.md",
+      "kb/chunks/brands/wu-xiaoyang-shengjian/dimension-细节触点-教育用户的-吃包口诀.md"
+    ]
+  },
+  {
+    "id": "wu-dayuecheng-tea",
+    "title": "大悦城茶饮市场调查——爆品趋势拆解",
+    "series": "市场调查",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "茶饮",
+      "新茶饮"
+    ],
+    "price_band": "多品牌",
+    "avg_ticket": null,
+    "topics": [
+      "炒冰趋势",
+      "抄vs偷",
+      "头部跟进",
+      "特调茶"
+    ],
+    "dimensions": [
+      "趋势跟进",
+      "新品牌破局",
+      "泛特调"
+    ],
+    "consult_for": [
+      "茶饮选品",
+      "赛道趋势",
+      "创新方向",
+      "竞品分析"
+    ],
+    "keywords": [
+      "喜茶",
+      "茉酸奶",
+      "yee3",
+      "静安大悦城",
+      "gelato"
+    ],
+    "raw_file": "kb/raw/吴探长大悦城茶饮市场调查：拆解近期茶饮圈爆品真相.md",
+    "chunks": [
+      "kb/chunks/brands/wu-dayuecheng-tea/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-aokka",
+    "title": "AOKKA——荒野美学在万店咖啡红海中突围",
+    "series": "商业探店笔记",
+    "brand": "AOKKA",
+    "city": "上海",
+    "categories": [
+      "咖啡",
+      "精品咖啡"
+    ],
+    "price_band": "多价格带",
+    "avg_ticket": null,
+    "topics": [
+      "荒野美学",
+      "露营风",
+      "场景差异化",
+      "产品分层"
+    ],
+    "dimensions": [
+      "市场定位",
+      "产品策略",
+      "全域运营"
+    ],
+    "consult_for": [
+      "开咖啡店",
+      "咖啡差异化",
+      "场景概念店"
+    ],
+    "keywords": [
+      "荒野俱乐部",
+      "City Walk",
+      "工业风"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：AOKKA如何用“荒野美学”在万店红海中突围.md",
+    "chunks": [
+      "kb/chunks/brands/wu-aokka/motivation.md",
+      "kb/chunks/brands/wu-aokka/overview.md",
+      "kb/chunks/brands/wu-aokka/insight.md",
+      "kb/chunks/brands/wu-aokka/think.md",
+      "kb/chunks/brands/wu-aokka/dimension-市场定位-在-想做-与-能做-之间找到最大公约数.md",
+      "kb/chunks/brands/wu-aokka/dimension-产品策略-拒绝执念-用-中配版-扛起营收大旗.md",
+      "kb/chunks/brands/wu-aokka/dimension-用户运营-全域协同-把咖啡做成-连接物.md"
+    ]
+  },
+  {
+    "id": "wu-bc-butter-bread",
+    "title": "B&C黄油与面包——奢侈品零售逻辑",
+    "series": "商业探店笔记",
+    "brand": "B&C",
+    "city": "上海",
+    "categories": [
+      "烘焙",
+      "面包"
+    ],
+    "price_band": "中高端",
+    "avg_ticket": null,
+    "topics": [
+      "奢侈品零售逻辑",
+      "排队营销",
+      "品牌势能"
+    ],
+    "dimensions": [
+      "品牌定位",
+      "空间体验",
+      "产品策略"
+    ],
+    "consult_for": [
+      "烘焙网红店",
+      "高端面包",
+      "商场店"
+    ],
+    "keywords": [
+      "黄油与面包",
+      "排队",
+      "零售逻辑"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：B&C「黄油与面包」的奢侈品零售逻辑.md",
+    "chunks": [
+      "kb/chunks/brands/wu-bc-butter-bread/motivation.md",
+      "kb/chunks/brands/wu-bc-butter-bread/overview.md",
+      "kb/chunks/brands/wu-bc-butter-bread/insight.md",
+      "kb/chunks/brands/wu-bc-butter-bread/think.md",
+      "kb/chunks/brands/wu-bc-butter-bread/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-coffee-0566",
+    "title": "0566——上海高端咖啡深度拆解",
+    "series": "商业洞察",
+    "brand": "0566",
+    "city": "上海",
+    "categories": [
+      "咖啡",
+      "高端咖啡"
+    ],
+    "price_band": "高端",
+    "avg_ticket": null,
+    "topics": [
+      "高端咖啡",
+      "空间体验",
+      "客单提升"
+    ],
+    "dimensions": [
+      "定位",
+      "产品",
+      "运营"
+    ],
+    "consult_for": [
+      "精品咖啡",
+      "高客单咖啡",
+      "上海咖啡市场"
+    ],
+    "keywords": [
+      "0566",
+      "高端咖啡"
+    ],
+    "raw_file": "kb/raw/吴探长商业洞察：上海高端咖啡0566深度拆解.md",
+    "chunks": [
+      "kb/chunks/brands/wu-coffee-0566/motivation.md",
+      "kb/chunks/brands/wu-coffee-0566/overview.md"
+    ]
+  },
+  {
+    "id": "wu-ginza-nishikawa",
+    "title": "银座仁志川——98元生吐司排队逻辑",
+    "series": "商业探店笔记",
+    "brand": "银座仁志川",
+    "city": "上海",
+    "categories": [
+      "烘焙",
+      "生吐司"
+    ],
+    "price_band": "98元/条",
+    "avg_ticket": null,
+    "topics": [
+      "高价吐司",
+      "单品溢价",
+      "排队经济"
+    ],
+    "dimensions": [
+      "定价",
+      "产品",
+      "品牌"
+    ],
+    "consult_for": [
+      "烘焙溢价",
+      "日式吐司",
+      "单品高价"
+    ],
+    "keywords": [
+      "生吐司",
+      "98元",
+      "排队"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：98元一条的生吐司，银座仁志川凭什么让上海人排队？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-ginza-nishikawa/motivation.md",
+      "kb/chunks/brands/wu-ginza-nishikawa/overview.md",
+      "kb/chunks/brands/wu-ginza-nishikawa/insight.md",
+      "kb/chunks/brands/wu-ginza-nishikawa/think.md",
+      "kb/chunks/brands/wu-ginza-nishikawa/dimension-定价策略-跳出红海-用高价做-筛选器.md",
+      "kb/chunks/brands/wu-ginza-nishikawa/dimension-产品价值-硬价值筑基-软价值溢价.md",
+      "kb/chunks/brands/wu-ginza-nishikawa/dimension-品牌经营-内外兼修-抢占心智高地.md"
+    ]
+  },
+  {
+    "id": "wu-h2-western",
+    "title": "H2西式简餐——极致性价比与3分差异心法",
+    "series": "商业探店笔记",
+    "brand": "H2",
+    "city": "上海",
+    "categories": [
+      "西式简餐",
+      "快餐"
+    ],
+    "price_band": "性价比",
+    "avg_ticket": null,
+    "topics": [
+      "极致性价比",
+      "单店模型",
+      "3分差异"
+    ],
+    "dimensions": [
+      "定位",
+      "产品",
+      "运营"
+    ],
+    "consult_for": [
+      "西式简餐",
+      "街头店",
+      "性价比模型"
+    ],
+    "keywords": [
+      "H2",
+      "简餐",
+      "单店模型"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：H2西式简餐如何靠“极致性价比”称霸上海街头？拆解单店模型的“3分差异”心法.md",
+    "chunks": [
+      "kb/chunks/brands/wu-h2-western/motivation.md",
+      "kb/chunks/brands/wu-h2-western/overview.md",
+      "kb/chunks/brands/wu-h2-western/insight.md",
+      "kb/chunks/brands/wu-h2-western/think.md",
+      "kb/chunks/brands/wu-h2-western/dimension-硬条件卡位-7分选对位-错位即是生机.md",
+      "kb/chunks/brands/wu-h2-western/dimension-软实力构建-3分作差异-产品与运营的-君臣佐使.md"
+    ]
+  },
+  {
+    "id": "wu-five-guys",
+    "title": "Five Guys——反效率盈利模型与顾客旅程",
+    "series": "商业探店笔记",
+    "brand": "Five Guys",
+    "city": "上海",
+    "categories": [
+      "汉堡",
+      "西式快餐"
+    ],
+    "price_band": "中高端快餐",
+    "avg_ticket": null,
+    "topics": [
+      "反效率",
+      "顾客旅程",
+      "美式汉堡"
+    ],
+    "dimensions": [
+      "盈利模型",
+      "体验设计",
+      "运营"
+    ],
+    "consult_for": [
+      "汉堡店",
+      "外资品牌",
+      "体验溢价"
+    ],
+    "keywords": [
+      "Five Guys",
+      "顾客旅程"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：Five Guys的“反效率”盈利模型与顾客旅程设计.md",
+    "chunks": [
+      "kb/chunks/brands/wu-five-guys/motivation.md",
+      "kb/chunks/brands/wu-five-guys/overview.md",
+      "kb/chunks/brands/wu-five-guys/insight.md",
+      "kb/chunks/brands/wu-five-guys/think.md",
+      "kb/chunks/brands/wu-five-guys/dimension-购前阶段-店面效率与-货架思维.md",
+      "kb/chunks/brands/wu-five-guys/dimension-购中阶段-做减法的菜单与做加法的客单.md",
+      "kb/chunks/brands/wu-five-guys/dimension-购后体验-快餐动线与社交场景的混搭.md"
+    ]
+  },
+  {
+    "id": "wu-fufuland",
+    "title": "Fufuland——舒芙蕾连锁模型",
+    "series": "商业探店笔记",
+    "brand": "Fufuland",
+    "city": "上海",
+    "categories": [
+      "烘焙",
+      "舒芙蕾",
+      "甜品"
+    ],
+    "price_band": "中端",
+    "avg_ticket": null,
+    "topics": [
+      "舒芙蕾",
+      "连锁复制",
+      "单品甜品"
+    ],
+    "dimensions": [
+      "产品",
+      "模型",
+      "扩张"
+    ],
+    "consult_for": [
+      "甜品专门店",
+      "舒芙蕾",
+      "连锁化"
+    ],
+    "keywords": [
+      "Fufuland",
+      "舒芙蕾",
+      "连锁"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：Fufuland如何用“软乎乎”的舒芙蕾，跑出“硬碰硬”的连锁模型？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-fufuland/motivation.md",
+      "kb/chunks/brands/wu-fufuland/overview.md",
+      "kb/chunks/brands/wu-fufuland/insight.md",
+      "kb/chunks/brands/wu-fufuland/think.md",
+      "kb/chunks/brands/wu-fufuland/dimension-产品策略-小店大连锁-用-价格锚点-做厚利润.md",
+      "kb/chunks/brands/wu-fufuland/dimension-流量运营-一切围绕-客群-做功-从-流量-到-留量.md",
+      "kb/chunks/brands/wu-fufuland/dimension-品牌形象-品类即品牌-用-视觉符号-占领心智.md"
+    ]
+  },
+  {
+    "id": "wu-luckin-fresh-fruit",
+    "title": "瑞幸鲜切水果——万店巨头品质突围",
+    "series": "品牌真探",
+    "brand": "瑞幸",
+    "city": "深圳/成都",
+    "categories": [
+      "咖啡",
+      "茶饮"
+    ],
+    "price_band": "大众",
+    "avg_ticket": null,
+    "topics": [
+      "鲜切水果",
+      "供应链",
+      "价值战",
+      "万店标准化"
+    ],
+    "dimensions": [
+      "体验升级",
+      "供应链",
+      "行业趋势"
+    ],
+    "consult_for": [
+      "连锁饮品",
+      "供应链",
+      "品质升级",
+      "瑞幸对标"
+    ],
+    "keywords": [
+      "瑞幸",
+      "鲜切",
+      "干净配方",
+      "SOP"
+    ],
+    "raw_file": "kb/raw/吴探长品牌真探｜瑞幸“动刀”鲜果，万店巨头的品质突围战.md",
+    "chunks": [
+      "kb/chunks/brands/wu-luckin-fresh-fruit/motivation.md",
+      "kb/chunks/brands/wu-luckin-fresh-fruit/overview.md",
+      "kb/chunks/brands/wu-luckin-fresh-fruit/insight.md",
+      "kb/chunks/brands/wu-luckin-fresh-fruit/think.md",
+      "kb/chunks/brands/wu-luckin-fresh-fruit/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-matcha-tokyo",
+    "title": "THE MATCHA TOKYO——抹茶双轨制野心",
+    "series": "品牌真探",
+    "brand": "THE MATCHA TOKYO",
+    "city": "上海",
+    "categories": [
+      "茶饮",
+      "抹茶"
+    ],
+    "price_band": "中高端",
+    "avg_ticket": null,
+    "topics": [
+      "抹茶专门店",
+      "双轨制",
+      "高端定位"
+    ],
+    "dimensions": [
+      "品牌",
+      "产品",
+      "扩张"
+    ],
+    "consult_for": [
+      "抹茶赛道",
+      "日式茶饮",
+      "专门店"
+    ],
+    "keywords": [
+      "MATCHA TOKYO",
+      "爱马仕",
+      "抹茶"
+    ],
+    "raw_file": "kb/raw/吴探长品牌真探：“抹茶界爱马仕”THE MATCHA TOKYO的双轨制野心.md",
+    "chunks": [
+      "kb/chunks/brands/wu-matcha-tokyo/motivation.md",
+      "kb/chunks/brands/wu-matcha-tokyo/overview.md",
+      "kb/chunks/brands/wu-matcha-tokyo/insight.md",
+      "kb/chunks/brands/wu-matcha-tokyo/think.md",
+      "kb/chunks/brands/wu-matcha-tokyo/dimension-品牌差异定位-从-卖茶-到-卖生活方式.md",
+      "kb/chunks/brands/wu-matcha-tokyo/dimension-选址策略-双轨并行-场景适配.md",
+      "kb/chunks/brands/wu-matcha-tokyo/dimension-面积与店型-空间即产品.md",
+      "kb/chunks/brands/wu-matcha-tokyo/dimension-菜单对比-从-标准化-到-食材叙事.md",
+      "kb/chunks/brands/wu-matcha-tokyo/dimension-产品价值主张-有机-纯净-仪式感.md"
+    ]
+  },
+  {
+    "id": "wu-tea-vs-coffee",
+    "title": "茶饮VS咖啡——解渴与提神的商业版图博弈",
+    "series": "洞察",
+    "brand": null,
+    "city": "全国",
+    "categories": [
+      "茶饮",
+      "咖啡"
+    ],
+    "price_band": "多品牌",
+    "avg_ticket": null,
+    "topics": [
+      "赛道对比",
+      "下沉市场",
+      "消费场景",
+      "店型"
+    ],
+    "dimensions": [
+      "市场格局",
+      "场景逻辑",
+      "店型密码"
+    ],
+    "consult_for": [
+      "选赛道",
+      "茶饮vs咖啡",
+      "店型选择",
+      "市场趋势"
+    ],
+    "keywords": [
+      "白皮书",
+      "下沉",
+      "第三空间",
+      "坪效"
+    ],
+    "raw_file": "kb/raw/吴探长洞察｜茶饮VS咖啡：一场关于“解渴”与“提神”的商业版图博弈.md",
+    "chunks": [
+      "kb/chunks/brands/wu-tea-vs-coffee/motivation.md",
+      "kb/chunks/brands/wu-tea-vs-coffee/overview.md",
+      "kb/chunks/brands/wu-tea-vs-coffee/insight.md",
+      "kb/chunks/brands/wu-tea-vs-coffee/think.md",
+      "kb/chunks/brands/wu-tea-vs-coffee/dimension-市场格局-下沉之王与高线精英的对决.md",
+      "kb/chunks/brands/wu-tea-vs-coffee/dimension-场景逻辑-冲动消费vs功能刚需.md",
+      "kb/chunks/brands/wu-tea-vs-coffee/dimension-店型密码-效率与体验的平衡术.md"
+    ]
+  },
+  {
+    "id": "wu-jessy-jerry如何把蛋糕做成-美术馆级-生意-拆解颜值背后的4笔商业账",
+    "title": "Jessy & Jerry如何把蛋糕做成“美术馆级”生意？拆解颜值背后的4笔商业账",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "烘焙"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "烘焙"
+    ],
+    "keywords": [
+      "Jessy",
+      "Jerry如何把蛋糕做成“美术馆级”生意？拆解颜值背后的4笔商业账"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：Jessy & Jerry如何把蛋糕做成“美术馆级”生意？拆解颜值背后的4笔商业账.md",
+    "chunks": [
+      "kb/chunks/brands/wu-jessy-jerry如何把蛋糕做成-美术馆级-生意-拆解颜值背后的4笔商业账/motivation.md",
+      "kb/chunks/brands/wu-jessy-jerry如何把蛋糕做成-美术馆级-生意-拆解颜值背后的4笔商业账/overview.md",
+      "kb/chunks/brands/wu-jessy-jerry如何把蛋糕做成-美术馆级-生意-拆解颜值背后的4笔商业账/insight.md",
+      "kb/chunks/brands/wu-jessy-jerry如何把蛋糕做成-美术馆级-生意-拆解颜值背后的4笔商业账/think.md",
+      "kb/chunks/brands/wu-jessy-jerry如何把蛋糕做成-美术馆级-生意-拆解颜值背后的4笔商业账/dimension-流量账-颜值即钩子-解决-进店率-问题.md",
+      "kb/chunks/brands/wu-jessy-jerry如何把蛋糕做成-美术馆级-生意-拆解颜值背后的4笔商业账/dimension-变现账-颜值即溢价-解决-利润率-问题.md",
+      "kb/chunks/brands/wu-jessy-jerry如何把蛋糕做成-美术馆级-生意-拆解颜值背后的4笔商业账/dimension-用户账-颜值即场景-解决-复购与圈层-问题.md",
+      "kb/chunks/brands/wu-jessy-jerry如何把蛋糕做成-美术馆级-生意-拆解颜值背后的4笔商业账/dimension-品牌账-颜值即符号-解决-护城河-问题.md"
+    ]
+  },
+  {
+    "id": "wu-pho-viethin",
+    "title": "Pho VieThin——58元一碗的“北派粉”，如何在网红街区撕开流量口子？",
+    "series": "商业探店笔记",
+    "brand": "Pho VieThin",
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "Pho VieThin",
+      "Pho",
+      "VieThin",
+      "58元一碗的“北派粉”",
+      "如何在网红街区撕开流量口子？"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：Pho VieThin——58元一碗的“北派粉”，如何在网红街区撕开流量口子？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-pho-viethin/motivation.md",
+      "kb/chunks/brands/wu-pho-viethin/overview.md",
+      "kb/chunks/brands/wu-pho-viethin/insight.md",
+      "kb/chunks/brands/wu-pho-viethin/think.md",
+      "kb/chunks/brands/wu-pho-viethin/dimension-产品策略-北派与南派的博弈-一碗粉的-质价比-考验.md",
+      "kb/chunks/brands/wu-pho-viethin/dimension-选址与定位-金角银边-做-显眼-的异类.md",
+      "kb/chunks/brands/wu-pho-viethin/dimension-店铺设计-瓦楞钢板下的-街头美学.md",
+      "kb/chunks/brands/wu-pho-viethin/dimension-经营测算-58元的粉-能不能撑起150平的店.md"
+    ]
+  },
+  {
+    "id": "wu-popeyes如何用-美式放纵-在炸鸡红海突围",
+    "title": "Popeyes如何用“美式放纵”在炸鸡红海突围",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "快餐"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "快餐"
+    ],
+    "keywords": [
+      "Popeyes如何用“美式放纵”在炸鸡红海突围"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：Popeyes如何用“美式放纵”在炸鸡红海突围.md",
+    "chunks": [
+      "kb/chunks/brands/wu-popeyes如何用-美式放纵-在炸鸡红海突围/motivation.md",
+      "kb/chunks/brands/wu-popeyes如何用-美式放纵-在炸鸡红海突围/overview.md",
+      "kb/chunks/brands/wu-popeyes如何用-美式放纵-在炸鸡红海突围/insight.md",
+      "kb/chunks/brands/wu-popeyes如何用-美式放纵-在炸鸡红海突围/think.md",
+      "kb/chunks/brands/wu-popeyes如何用-美式放纵-在炸鸡红海突围/dimension-选址策略-顺势而为-锁定-游逛型-年轻流量.md",
+      "kb/chunks/brands/wu-popeyes如何用-美式放纵-在炸鸡红海突围/dimension-店型逻辑-打造-合理纵情-的轻社交场域.md",
+      "kb/chunks/brands/wu-popeyes如何用-美式放纵-在炸鸡红海突围/dimension-产品矩阵-用-高热量组合-构建极致爽感.md"
+    ]
+  },
+  {
+    "id": "wu-shake-shack的-高举高打-与-精益算账",
+    "title": "Shake Shack的“高举高打”与“精益算账”",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "Shake",
+      "Shack的“高举高打”与“精益算账”"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：Shake Shack的“高举高打”与“精益算账”.md",
+    "chunks": [
+      "kb/chunks/brands/wu-shake-shack的-高举高打-与-精益算账/motivation.md",
+      "kb/chunks/brands/wu-shake-shack的-高举高打-与-精益算账/overview.md",
+      "kb/chunks/brands/wu-shake-shack的-高举高打-与-精益算账/insight.md",
+      "kb/chunks/brands/wu-shake-shack的-高举高打-与-精益算账/think.md",
+      "kb/chunks/brands/wu-shake-shack的-高举高打-与-精益算账/dimension-选址定位-a类商圈的-流量收割机.md",
+      "kb/chunks/brands/wu-shake-shack的-高举高打-与-精益算账/dimension-消费场景-工业风下的-社交剧场.md",
+      "kb/chunks/brands/wu-shake-shack的-高举高打-与-精益算账/dimension-产品策略与定价设计-锚定效应与组合拳.md"
+    ]
+  },
+  {
+    "id": "wu-trifle揣福",
+    "title": "Trifle揣福——无Logo的“反骨”与结构化的“网红公式”",
+    "series": "商业探店笔记",
+    "brand": "Trifle揣福",
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "Trifle揣福",
+      "无Logo的“反骨”与结构化的“网红公式”"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：Trifle揣福——无Logo的“反骨”与结构化的“网红公式”.md",
+    "chunks": [
+      "kb/chunks/brands/wu-trifle揣福/motivation.md",
+      "kb/chunks/brands/wu-trifle揣福/overview.md",
+      "kb/chunks/brands/wu-trifle揣福/insight.md",
+      "kb/chunks/brands/wu-trifle揣福/think.md",
+      "kb/chunks/brands/wu-trifle揣福/dimension-品牌定位与视觉策略-无logo的-反骨-与-松弛感.md",
+      "kb/chunks/brands/wu-trifle揣福/dimension-选址与空间运营-极致的-借势-哲学.md",
+      "kb/chunks/brands/wu-trifle揣福/dimension-产品组合与定价逻辑-质价比与全时段.md"
+    ]
+  },
+  {
+    "id": "wu-一家全球50佳咖啡馆的-反效率-生存法则",
+    "title": "一家全球50佳咖啡馆的“反效率”生存法则",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "咖啡"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "咖啡"
+    ],
+    "keywords": [
+      "一家全球50佳咖啡馆的“反效率”生存法则"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：一家全球50佳咖啡馆的“反效率”生存法则.md",
+    "chunks": [
+      "kb/chunks/brands/wu-一家全球50佳咖啡馆的-反效率-生存法则/motivation.md",
+      "kb/chunks/brands/wu-一家全球50佳咖啡馆的-反效率-生存法则/overview.md",
+      "kb/chunks/brands/wu-一家全球50佳咖啡馆的-反效率-生存法则/insight.md",
+      "kb/chunks/brands/wu-一家全球50佳咖啡馆的-反效率-生存法则/think.md",
+      "kb/chunks/brands/wu-一家全球50佳咖啡馆的-反效率-生存法则/dimension-选址策略-七分选对位-借势-梧桐区-的天然流量.md",
+      "kb/chunks/brands/wu-一家全球50佳咖啡馆的-反效率-生存法则/dimension-体验设计-三分做差异-把吧台变成-剧场.md",
+      "kb/chunks/brands/wu-一家全球50佳咖啡馆的-反效率-生存法则/dimension-财务模型-反效率的-高客单-逻辑.md"
+    ]
+  },
+  {
+    "id": "wu-一根薯条凭什么让上海人排队1小时-拆解potato-corner的-暴利-模型",
+    "title": "一根薯条凭什么让上海人排队1小时？拆解Potato Corner的“暴利”模型",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "快餐"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "快餐"
+    ],
+    "keywords": [
+      "一根薯条凭什么让上海人排队1小时？拆解Potato",
+      "Corner的“暴利”模型"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：一根薯条凭什么让上海人排队1小时？拆解Potato Corner的“暴利”模型.md",
+    "chunks": [
+      "kb/chunks/brands/wu-一根薯条凭什么让上海人排队1小时-拆解potato-corner的-暴利-模型/motivation.md",
+      "kb/chunks/brands/wu-一根薯条凭什么让上海人排队1小时-拆解potato-corner的-暴利-模型/overview.md",
+      "kb/chunks/brands/wu-一根薯条凭什么让上海人排队1小时-拆解potato-corner的-暴利-模型/insight.md",
+      "kb/chunks/brands/wu-一根薯条凭什么让上海人排队1小时-拆解potato-corner的-暴利-模型/think.md",
+      "kb/chunks/brands/wu-一根薯条凭什么让上海人排队1小时-拆解potato-corner的-暴利-模型/dimension-选址策略-流量为王-截杀核心商圈.md",
+      "kb/chunks/brands/wu-一根薯条凭什么让上海人排队1小时-拆解potato-corner的-暴利-模型/dimension-产品策略-一颗土豆的-排列组合-艺术.md",
+      "kb/chunks/brands/wu-一根薯条凭什么让上海人排队1小时-拆解potato-corner的-暴利-模型/dimension-营收模型-高客单-高翻台-坪效惊人.md",
+      "kb/chunks/brands/wu-一根薯条凭什么让上海人排队1小时-拆解potato-corner的-暴利-模型/dimension-品牌力-神形兼备的-洋品牌-降维打击.md"
+    ]
+  },
+  {
+    "id": "wu-荣先森-福建小馆",
+    "title": "上海「荣先森·福建小馆」菜单背后的策略",
+    "series": "商业探店笔记",
+    "brand": "荣先森·福建小馆",
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "荣先森·福建小馆",
+      "上海「荣先森·福建小馆」菜单背后的策略"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：上海「荣先森·福建小馆」菜单背后的策略.md",
+    "chunks": [
+      "kb/chunks/brands/wu-荣先森-福建小馆/motivation.md",
+      "kb/chunks/brands/wu-荣先森-福建小馆/overview.md",
+      "kb/chunks/brands/wu-荣先森-福建小馆/insight.md",
+      "kb/chunks/brands/wu-荣先森-福建小馆/think.md",
+      "kb/chunks/brands/wu-荣先森-福建小馆/dimension-定主品-推爆品.md",
+      "kb/chunks/brands/wu-荣先森-福建小馆/dimension-选大将-地方军上.md",
+      "kb/chunks/brands/wu-荣先森-福建小馆/dimension-定价格-定客单.md"
+    ]
+  },
+  {
+    "id": "wu-上海本帮面退守街边-杭帮面-椿芽-凭啥攻占商场",
+    "title": "上海本帮面退守街边，杭帮面“椿芽”凭啥攻占商场？",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "上海本帮面退守街边",
+      "杭帮面“椿芽”凭啥攻占商场？"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：上海本帮面退守街边，杭帮面“椿芽”凭啥攻占商场？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-上海本帮面退守街边-杭帮面-椿芽-凭啥攻占商场/motivation.md",
+      "kb/chunks/brands/wu-上海本帮面退守街边-杭帮面-椿芽-凭啥攻占商场/overview.md",
+      "kb/chunks/brands/wu-上海本帮面退守街边-杭帮面-椿芽-凭啥攻占商场/insight.md",
+      "kb/chunks/brands/wu-上海本帮面退守街边-杭帮面-椿芽-凭啥攻占商场/think.md",
+      "kb/chunks/brands/wu-上海本帮面退守街边-杭帮面-椿芽-凭啥攻占商场/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-裕莲茶楼",
+    "title": "上海网红「裕莲茶楼」小店模型背后的商业设计逻辑",
+    "series": "商业探店笔记",
+    "brand": "裕莲茶楼",
+    "city": "上海",
+    "categories": [
+      "茶饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "茶饮"
+    ],
+    "keywords": [
+      "裕莲茶楼",
+      "上海网红「裕莲茶楼」小店模型背后的商业设计逻辑"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：上海网红「裕莲茶楼」小店模型背后的商业设计逻辑.md",
+    "chunks": [
+      "kb/chunks/brands/wu-裕莲茶楼/motivation.md",
+      "kb/chunks/brands/wu-裕莲茶楼/overview.md",
+      "kb/chunks/brands/wu-裕莲茶楼/insight.md",
+      "kb/chunks/brands/wu-裕莲茶楼/think.md",
+      "kb/chunks/brands/wu-裕莲茶楼/dimension-产品策略.md",
+      "kb/chunks/brands/wu-裕莲茶楼/dimension-制造爆款.md",
+      "kb/chunks/brands/wu-裕莲茶楼/dimension-组合销售.md"
+    ]
+  },
+  {
+    "id": "wu-上海首家网红欧洲石窑面包paper-stone-bakery",
+    "title": "上海首家网红欧洲石窑面包Paper Stone Bakery",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "烘焙",
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "烘焙",
+      "餐饮"
+    ],
+    "keywords": [
+      "上海首家网红欧洲石窑面包Paper",
+      "Stone",
+      "Bakery"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：上海首家网红欧洲石窑面包Paper Stone Bakery.md",
+    "chunks": [
+      "kb/chunks/brands/wu-上海首家网红欧洲石窑面包paper-stone-bakery/motivation.md",
+      "kb/chunks/brands/wu-上海首家网红欧洲石窑面包paper-stone-bakery/overview.md",
+      "kb/chunks/brands/wu-上海首家网红欧洲石窑面包paper-stone-bakery/insight.md",
+      "kb/chunks/brands/wu-上海首家网红欧洲石窑面包paper-stone-bakery/think.md",
+      "kb/chunks/brands/wu-上海首家网红欧洲石窑面包paper-stone-bakery/dimension-产品设计.md",
+      "kb/chunks/brands/wu-上海首家网红欧洲石窑面包paper-stone-bakery/dimension-售卖设计.md",
+      "kb/chunks/brands/wu-上海首家网红欧洲石窑面包paper-stone-bakery/dimension-品牌设计.md"
+    ]
+  },
+  {
+    "id": "wu-九十葉凭什么让上海人排队1小时-拆解抹茶赛道的-浓度-生意经",
+    "title": "九十葉凭什么让上海人排队1小时？拆解抹茶赛道的“浓度”生意经",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "茶饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "茶饮"
+    ],
+    "keywords": [
+      "九十葉凭什么让上海人排队1小时？拆解抹茶赛道的“浓度”生意经"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：九十葉凭什么让上海人排队1小时？拆解抹茶赛道的“浓度”生意经.md",
+    "chunks": [
+      "kb/chunks/brands/wu-九十葉凭什么让上海人排队1小时-拆解抹茶赛道的-浓度-生意经/motivation.md",
+      "kb/chunks/brands/wu-九十葉凭什么让上海人排队1小时-拆解抹茶赛道的-浓度-生意经/overview.md",
+      "kb/chunks/brands/wu-九十葉凭什么让上海人排队1小时-拆解抹茶赛道的-浓度-生意经/insight.md",
+      "kb/chunks/brands/wu-九十葉凭什么让上海人排队1小时-拆解抹茶赛道的-浓度-生意经/think.md",
+      "kb/chunks/brands/wu-九十葉凭什么让上海人排队1小时-拆解抹茶赛道的-浓度-生意经/dimension-品牌与招牌-用-浓度分级-重新定义抹茶冰淇淋.md",
+      "kb/chunks/brands/wu-九十葉凭什么让上海人排队1小时-拆解抹茶赛道的-浓度-生意经/dimension-菜单结构-一帅九将-的排兵布阵.md",
+      "kb/chunks/brands/wu-九十葉凭什么让上海人排队1小时-拆解抹茶赛道的-浓度-生意经/dimension-运营交付-去-人化-的标准化sop.md",
+      "kb/chunks/brands/wu-九十葉凭什么让上海人排队1小时-拆解抹茶赛道的-浓度-生意经/dimension-竞争格局-在巨头缝隙中寻找生态位.md"
+    ]
+  },
+  {
+    "id": "wu-从-网红-到-长红-拆解单品烘焙店的连锁化底层逻辑",
+    "title": "从“网红”到“长红”，拆解单品烘焙店的连锁化底层逻辑",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "烘焙"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "烘焙"
+    ],
+    "keywords": [
+      "从“网红”到“长红”",
+      "拆解单品烘焙店的连锁化底层逻辑"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：从“网红”到“长红”，拆解单品烘焙店的连锁化底层逻辑.md",
+    "chunks": [
+      "kb/chunks/brands/wu-从-网红-到-长红-拆解单品烘焙店的连锁化底层逻辑/motivation.md",
+      "kb/chunks/brands/wu-从-网红-到-长红-拆解单品烘焙店的连锁化底层逻辑/overview.md",
+      "kb/chunks/brands/wu-从-网红-到-长红-拆解单品烘焙店的连锁化底层逻辑/insight.md",
+      "kb/chunks/brands/wu-从-网红-到-长红-拆解单品烘焙店的连锁化底层逻辑/think.md",
+      "kb/chunks/brands/wu-从-网红-到-长红-拆解单品烘焙店的连锁化底层逻辑/dimension-定义首店的功能-高举高打-意在-插旗.md",
+      "kb/chunks/brands/wu-从-网红-到-长红-拆解单品烘焙店的连锁化底层逻辑/dimension-用营销思维开店-视觉截流与-反常识-配色.md",
+      "kb/chunks/brands/wu-从-网红-到-长红-拆解单品烘焙店的连锁化底层逻辑/dimension-连锁背后-产品效率才是核心壁垒.md"
+    ]
+  },
+  {
+    "id": "wu-农耕记的-农产品餐饮化-逻辑",
+    "title": "农耕记的“农产品餐饮化”逻辑",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "农耕记的“农产品餐饮化”逻辑"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：农耕记的“农产品餐饮化”逻辑.md",
+    "chunks": [
+      "kb/chunks/brands/wu-农耕记的-农产品餐饮化-逻辑/motivation.md",
+      "kb/chunks/brands/wu-农耕记的-农产品餐饮化-逻辑/overview.md",
+      "kb/chunks/brands/wu-农耕记的-农产品餐饮化-逻辑/insight.md",
+      "kb/chunks/brands/wu-农耕记的-农产品餐饮化-逻辑/think.md",
+      "kb/chunks/brands/wu-农耕记的-农产品餐饮化-逻辑/dimension-场景定位-脚踏两只船的流量逻辑.md",
+      "kb/chunks/brands/wu-农耕记的-农产品餐饮化-逻辑/dimension-超级单品-用-鲜-对抗-预制.md",
+      "kb/chunks/brands/wu-农耕记的-农产品餐饮化-逻辑/dimension-体验设计-感官验证与锅气营销.md"
+    ]
+  },
+  {
+    "id": "wu-大虎老火锅如何成为上海-排队王-拆解-新世代老火锅-的破局之道",
+    "title": "大虎老火锅如何成为上海“排队王”？拆解“新世代老火锅”的破局之道",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "大虎老火锅如何成为上海“排队王”？拆解“新世代老火锅”的破局之道"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：大虎老火锅如何成为上海“排队王”？拆解“新世代老火锅”的破局之道.md",
+    "chunks": [
+      "kb/chunks/brands/wu-大虎老火锅如何成为上海-排队王-拆解-新世代老火锅-的破局之道/motivation.md",
+      "kb/chunks/brands/wu-大虎老火锅如何成为上海-排队王-拆解-新世代老火锅-的破局之道/overview.md",
+      "kb/chunks/brands/wu-大虎老火锅如何成为上海-排队王-拆解-新世代老火锅-的破局之道/insight.md",
+      "kb/chunks/brands/wu-大虎老火锅如何成为上海-排队王-拆解-新世代老火锅-的破局之道/think.md",
+      "kb/chunks/brands/wu-大虎老火锅如何成为上海-排队王-拆解-新世代老火锅-的破局之道/dimension-选址策略-a级商圈b级铺位-借势蓄能.md",
+      "kb/chunks/brands/wu-大虎老火锅如何成为上海-排队王-拆解-新世代老火锅-的破局之道/dimension-空间体验-用-不锈钢-重塑-烟火气.md",
+      "kb/chunks/brands/wu-大虎老火锅如何成为上海-排队王-拆解-新世代老火锅-的破局之道/dimension-品牌符号-音韵与情绪的-通感-设计.md"
+    ]
+  },
+  {
+    "id": "wu-崎本の店如何用-日式基因-重塑吐司赛道",
+    "title": "崎本の店如何用“日式基因”重塑吐司赛道",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "烘焙"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "烘焙"
+    ],
+    "keywords": [
+      "崎本の店如何用“日式基因”重塑吐司赛道"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：崎本の店如何用“日式基因”重塑吐司赛道.md",
+    "chunks": [
+      "kb/chunks/brands/wu-崎本の店如何用-日式基因-重塑吐司赛道/motivation.md",
+      "kb/chunks/brands/wu-崎本の店如何用-日式基因-重塑吐司赛道/overview.md",
+      "kb/chunks/brands/wu-崎本の店如何用-日式基因-重塑吐司赛道/insight.md",
+      "kb/chunks/brands/wu-崎本の店如何用-日式基因-重塑吐司赛道/think.md",
+      "kb/chunks/brands/wu-崎本の店如何用-日式基因-重塑吐司赛道/dimension-品牌沟通-顺应认知-降低解释成本.md",
+      "kb/chunks/brands/wu-崎本の店如何用-日式基因-重塑吐司赛道/dimension-产品结构-三王一后-场景决定增量.md",
+      "kb/chunks/brands/wu-崎本の店如何用-日式基因-重塑吐司赛道/dimension-选址策略-战略与战役的平衡术.md"
+    ]
+  },
+  {
+    "id": "wu-巡湘记如何用-头道菜-破局湘菜连锁标准化困局",
+    "title": "巡湘记如何用“头道菜”破局湘菜连锁标准化困局",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "巡湘记如何用“头道菜”破局湘菜连锁标准化困局"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：巡湘记如何用“头道菜”破局湘菜连锁标准化困局.md",
+    "chunks": [
+      "kb/chunks/brands/wu-巡湘记如何用-头道菜-破局湘菜连锁标准化困局/motivation.md",
+      "kb/chunks/brands/wu-巡湘记如何用-头道菜-破局湘菜连锁标准化困局/overview.md",
+      "kb/chunks/brands/wu-巡湘记如何用-头道菜-破局湘菜连锁标准化困局/insight.md",
+      "kb/chunks/brands/wu-巡湘记如何用-头道菜-破局湘菜连锁标准化困局/think.md",
+      "kb/chunks/brands/wu-巡湘记如何用-头道菜-破局湘菜连锁标准化困局/dimension-产品策略-用-头道菜-重构标准化模型.md",
+      "kb/chunks/brands/wu-巡湘记如何用-头道菜-破局湘菜连锁标准化困局/dimension-消费体验-用-亏本-思维做透家庭场景.md"
+    ]
+  },
+  {
+    "id": "wu-延庆路-马路牙子-上的流量收割机",
+    "title": "延庆路“马路牙子”上的流量收割机——Cheers Burger",
+    "series": "商业探店笔记",
+    "brand": "延庆路“马路牙子”上的流量收割机",
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "延庆路“马路牙子”上的流量收割机",
+      "Cheers",
+      "Burger"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：延庆路“马路牙子”上的流量收割机——Cheers Burger.md",
+    "chunks": [
+      "kb/chunks/brands/wu-延庆路-马路牙子-上的流量收割机/motivation.md",
+      "kb/chunks/brands/wu-延庆路-马路牙子-上的流量收割机/overview.md",
+      "kb/chunks/brands/wu-延庆路-马路牙子-上的流量收割机/insight.md",
+      "kb/chunks/brands/wu-延庆路-马路牙子-上的流量收割机/think.md",
+      "kb/chunks/brands/wu-延庆路-马路牙子-上的流量收割机/dimension-店铺截流能力-在-精神坐标-上卡位.md",
+      "kb/chunks/brands/wu-延庆路-马路牙子-上的流量收割机/dimension-关键成功要素-ksf-把-马路牙子-变成vip席位.md",
+      "kb/chunks/brands/wu-延庆路-马路牙子-上的流量收割机/dimension-产品是场景的投影-高溢价的-窄众-游戏.md"
+    ]
+  },
+  {
+    "id": "wu-徐家汇1号麦门",
+    "title": "徐家汇1号麦门——严谨克制与童趣天真的“海派共生”",
+    "series": "商业探店笔记",
+    "brand": "徐家汇1号麦门",
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "徐家汇1号麦门",
+      "严谨克制与童趣天真的“海派共生”"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：徐家汇1号麦门——严谨克制与童趣天真的“海派共生”.md",
+    "chunks": [
+      "kb/chunks/brands/wu-徐家汇1号麦门/motivation.md",
+      "kb/chunks/brands/wu-徐家汇1号麦门/overview.md",
+      "kb/chunks/brands/wu-徐家汇1号麦门/insight.md",
+      "kb/chunks/brands/wu-徐家汇1号麦门/think.md",
+      "kb/chunks/brands/wu-徐家汇1号麦门/dimension-空间设计-海派复古与童趣的-克制-表达.md",
+      "kb/chunks/brands/wu-徐家汇1号麦门/dimension-目标人群-全时段与全人群的-罗网式-覆盖.md",
+      "kb/chunks/brands/wu-徐家汇1号麦门/dimension-菜品关键-安格斯牛肉系列的-降维打击.md"
+    ]
+  },
+  {
+    "id": "wu-意库披萨",
+    "title": "意库披萨——选址借势与全时段场景的“一体共生”",
+    "series": "商业探店笔记",
+    "brand": "意库披萨",
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "意库披萨",
+      "选址借势与全时段场景的“一体共生”"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：意库披萨——选址借势与全时段场景的“一体共生”.md",
+    "chunks": [
+      "kb/chunks/brands/wu-意库披萨/motivation.md",
+      "kb/chunks/brands/wu-意库披萨/overview.md",
+      "kb/chunks/brands/wu-意库披萨/insight.md",
+      "kb/chunks/brands/wu-意库披萨/think.md",
+      "kb/chunks/brands/wu-意库披萨/dimension-选址定位-借势a类商圈-锁定-高净值-流量池.md",
+      "kb/chunks/brands/wu-意库披萨/dimension-产品策略-全时段经营的-菜单工程学.md",
+      "kb/chunks/brands/wu-意库披萨/dimension-场景设计-定位一体化的-氛围剧场.md"
+    ]
+  },
+  {
+    "id": "wu-新中式养生茶-老树如何发新芽",
+    "title": "新中式养生茶，老树如何发新芽？",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "茶饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "茶饮"
+    ],
+    "keywords": [
+      "新中式养生茶",
+      "老树如何发新芽？"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：新中式养生茶，老树如何发新芽？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-新中式养生茶-老树如何发新芽/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-粉红汉堡charlie-s的错位竞争与全时段模型",
+    "title": "粉红汉堡Charlie's的错位竞争与全时段模型",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "快餐",
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "快餐",
+      "餐饮"
+    ],
+    "keywords": [
+      "粉红汉堡Charlie's的错位竞争与全时段模型"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：粉红汉堡Charlie's的错位竞争与全时段模型.md",
+    "chunks": [
+      "kb/chunks/brands/wu-粉红汉堡charlie-s的错位竞争与全时段模型/motivation.md",
+      "kb/chunks/brands/wu-粉红汉堡charlie-s的错位竞争与全时段模型/overview.md",
+      "kb/chunks/brands/wu-粉红汉堡charlie-s的错位竞争与全时段模型/insight.md",
+      "kb/chunks/brands/wu-粉红汉堡charlie-s的错位竞争与全时段模型/think.md",
+      "kb/chunks/brands/wu-粉红汉堡charlie-s的错位竞争与全时段模型/dimension-选址定位-从-网红地标-到-社区复用-的模型修正.md",
+      "kb/chunks/brands/wu-粉红汉堡charlie-s的错位竞争与全时段模型/dimension-消费场景-全时段运营的-三差-打法.md",
+      "kb/chunks/brands/wu-粉红汉堡charlie-s的错位竞争与全时段模型/dimension-产品与定价-视觉锤与中档卡位.md"
+    ]
+  },
+  {
+    "id": "wu-红唇麻辣拌如何用体验设计反内卷",
+    "title": "红唇麻辣拌如何用体验设计反内卷",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "红唇麻辣拌如何用体验设计反内卷"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：红唇麻辣拌如何用体验设计反内卷.md",
+    "chunks": [
+      "kb/chunks/brands/wu-红唇麻辣拌如何用体验设计反内卷/motivation.md",
+      "kb/chunks/brands/wu-红唇麻辣拌如何用体验设计反内卷/overview.md",
+      "kb/chunks/brands/wu-红唇麻辣拌如何用体验设计反内卷/insight.md",
+      "kb/chunks/brands/wu-红唇麻辣拌如何用体验设计反内卷/think.md",
+      "kb/chunks/brands/wu-红唇麻辣拌如何用体验设计反内卷/dimension-获客逻辑-顺应认知的截流策略.md",
+      "kb/chunks/brands/wu-红唇麻辣拌如何用体验设计反内卷/dimension-体验设计-心理缓冲与无声引导.md",
+      "kb/chunks/brands/wu-红唇麻辣拌如何用体验设计反内卷/dimension-出品与交付-西快逻辑与视觉欺骗.md"
+    ]
+  },
+  {
+    "id": "wu-肉肉大米凭什么让上海白领排队-拆解-新式快餐-的5个成功密码",
+    "title": "肉肉大米凭什么让上海白领排队？拆解“新式快餐”的5个成功密码",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "快餐"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "快餐"
+    ],
+    "keywords": [
+      "肉肉大米凭什么让上海白领排队？拆解“新式快餐”的5个成功密码"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：肉肉大米凭什么让上海白领排队？拆解“新式快餐”的5个成功密码.md",
+    "chunks": [
+      "kb/chunks/brands/wu-肉肉大米凭什么让上海白领排队-拆解-新式快餐-的5个成功密码/motivation.md",
+      "kb/chunks/brands/wu-肉肉大米凭什么让上海白领排队-拆解-新式快餐-的5个成功密码/overview.md",
+      "kb/chunks/brands/wu-肉肉大米凭什么让上海白领排队-拆解-新式快餐-的5个成功密码/insight.md",
+      "kb/chunks/brands/wu-肉肉大米凭什么让上海白领排队-拆解-新式快餐-的5个成功密码/think.md",
+      "kb/chunks/brands/wu-肉肉大米凭什么让上海白领排队-拆解-新式快餐-的5个成功密码/dimension-菜品设计-选肉定生死-价值感拉满.md",
+      "kb/chunks/brands/wu-肉肉大米凭什么让上海白领排队-拆解-新式快餐-的5个成功密码/dimension-烹饪工艺-以-煎-代-烤-平衡效率与口感.md",
+      "kb/chunks/brands/wu-肉肉大米凭什么让上海白领排队-拆解-新式快餐-的5个成功密码/dimension-人群定位-轻正餐-轻社交的-改善型-选择.md",
+      "kb/chunks/brands/wu-肉肉大米凭什么让上海白领排队-拆解-新式快餐-的5个成功密码/dimension-营收模型-板前体验-高翻台-坪效惊人.md",
+      "kb/chunks/brands/wu-肉肉大米凭什么让上海白领排队-拆解-新式快餐-的5个成功密码/dimension-品牌识别-所见即所得-降低认知成本.md"
+    ]
+  },
+  {
+    "id": "wu-费大厨的-集客-设计逻辑",
+    "title": "费大厨的“集客”设计逻辑",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "费大厨的“集客”设计逻辑"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：费大厨的“集客”设计逻辑.md",
+    "chunks": [
+      "kb/chunks/brands/wu-费大厨的-集客-设计逻辑/motivation.md",
+      "kb/chunks/brands/wu-费大厨的-集客-设计逻辑/overview.md",
+      "kb/chunks/brands/wu-费大厨的-集客-设计逻辑/insight.md",
+      "kb/chunks/brands/wu-费大厨的-集客-设计逻辑/think.md",
+      "kb/chunks/brands/wu-费大厨的-集客-设计逻辑/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-赛百味上海旗舰店的-反共识-突围",
+    "title": "赛百味上海旗舰店的“反共识”突围",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "赛百味上海旗舰店的“反共识”突围"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：赛百味上海旗舰店的“反共识”突围.md",
+    "chunks": [
+      "kb/chunks/brands/wu-赛百味上海旗舰店的-反共识-突围/motivation.md",
+      "kb/chunks/brands/wu-赛百味上海旗舰店的-反共识-突围/overview.md",
+      "kb/chunks/brands/wu-赛百味上海旗舰店的-反共识-突围/insight.md",
+      "kb/chunks/brands/wu-赛百味上海旗舰店的-反共识-突围/think.md",
+      "kb/chunks/brands/wu-赛百味上海旗舰店的-反共识-突围/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-金匠寿司的-快餐化-突围",
+    "title": "金匠寿司的“快餐化”突围",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "快餐",
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "快餐",
+      "餐饮"
+    ],
+    "keywords": [
+      "金匠寿司的“快餐化”突围"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：金匠寿司的“快餐化”突围.md",
+    "chunks": [
+      "kb/chunks/brands/wu-金匠寿司的-快餐化-突围/motivation.md",
+      "kb/chunks/brands/wu-金匠寿司的-快餐化-突围/overview.md",
+      "kb/chunks/brands/wu-金匠寿司的-快餐化-突围/insight.md",
+      "kb/chunks/brands/wu-金匠寿司的-快餐化-突围/think.md",
+      "kb/chunks/brands/wu-金匠寿司的-快餐化-突围/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-非遗美食-东台鱼汤面-如何做成必吃榜-拆解南通-阿达师傅-的3个商业逻辑",
+    "title": "非遗美食“东台鱼汤面”如何做成必吃榜？拆解南通“阿达师傅”的3个商业逻辑",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "非遗美食“东台鱼汤面”如何做成必吃榜？拆解南通“阿达师傅”的3个商业逻辑"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：非遗美食“东台鱼汤面”如何做成必吃榜？拆解南通“阿达师傅”的3个商业逻辑.md",
+    "chunks": [
+      "kb/chunks/brands/wu-非遗美食-东台鱼汤面-如何做成必吃榜-拆解南通-阿达师傅-的3个商业逻辑/motivation.md",
+      "kb/chunks/brands/wu-非遗美食-东台鱼汤面-如何做成必吃榜-拆解南通-阿达师傅-的3个商业逻辑/overview.md",
+      "kb/chunks/brands/wu-非遗美食-东台鱼汤面-如何做成必吃榜-拆解南通-阿达师傅-的3个商业逻辑/insight.md",
+      "kb/chunks/brands/wu-非遗美食-东台鱼汤面-如何做成必吃榜-拆解南通-阿达师傅-的3个商业逻辑/think.md",
+      "kb/chunks/brands/wu-非遗美食-东台鱼汤面-如何做成必吃榜-拆解南通-阿达师傅-的3个商业逻辑/dimension-生意基本盘-顺应地缘口味-锁定最大公约数.md",
+      "kb/chunks/brands/wu-非遗美食-东台鱼汤面-如何做成必吃榜-拆解南通-阿达师傅-的3个商业逻辑/dimension-产品策略-低价引流-高利浇头-信任感营销.md",
+      "kb/chunks/brands/wu-非遗美食-东台鱼汤面-如何做成必吃榜-拆解南通-阿达师傅-的3个商业逻辑/dimension-品牌竞争-社区大店模型-降维打击夫妻店.md"
+    ]
+  },
+  {
+    "id": "wu-煲仔皇",
+    "title": "魔都「煲仔皇」背后的成功",
+    "series": "商业探店笔记",
+    "brand": "煲仔皇",
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "煲仔皇",
+      "魔都「煲仔皇」背后的成功"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：魔都「煲仔皇」背后的成功.md",
+    "chunks": [
+      "kb/chunks/brands/wu-煲仔皇/motivation.md",
+      "kb/chunks/brands/wu-煲仔皇/overview.md",
+      "kb/chunks/brands/wu-煲仔皇/insight.md",
+      "kb/chunks/brands/wu-煲仔皇/think.md",
+      "kb/chunks/brands/wu-煲仔皇/dimension-产品定位.md",
+      "kb/chunks/brands/wu-煲仔皇/dimension-需求场景.md",
+      "kb/chunks/brands/wu-煲仔皇/dimension-用户沟通.md"
+    ]
+  },
+  {
+    "id": "wu-伽喱博士",
+    "title": "魔都咖喱饭顶流「伽喱博士」",
+    "series": "商业探店笔记",
+    "brand": "伽喱博士",
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "伽喱博士",
+      "魔都咖喱饭顶流「伽喱博士"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：魔都咖喱饭顶流「伽喱博士」.md",
+    "chunks": [
+      "kb/chunks/brands/wu-伽喱博士/motivation.md",
+      "kb/chunks/brands/wu-伽喱博士/overview.md",
+      "kb/chunks/brands/wu-伽喱博士/insight.md",
+      "kb/chunks/brands/wu-伽喱博士/think.md",
+      "kb/chunks/brands/wu-伽喱博士/dimension-选品出品-定价.md",
+      "kb/chunks/brands/wu-伽喱博士/dimension-选址和连锁发展.md",
+      "kb/chunks/brands/wu-伽喱博士/dimension-体验细节上设计.md"
+    ]
+  },
+  {
+    "id": "wu-魔都网红日式拉面小店-京都一乘寺",
+    "title": "魔都网红日式拉面小店·京都一乘寺",
+    "series": "商业探店笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "魔都网红日式拉面小店·京都一乘寺"
+    ],
+    "raw_file": "kb/raw/吴探长商业探店笔记：魔都网红日式拉面小店·京都一乘寺.md",
+    "chunks": [
+      "kb/chunks/brands/wu-魔都网红日式拉面小店-京都一乘寺/motivation.md",
+      "kb/chunks/brands/wu-魔都网红日式拉面小店-京都一乘寺/overview.md",
+      "kb/chunks/brands/wu-魔都网红日式拉面小店-京都一乘寺/insight.md",
+      "kb/chunks/brands/wu-魔都网红日式拉面小店-京都一乘寺/think.md",
+      "kb/chunks/brands/wu-魔都网红日式拉面小店-京都一乘寺/dimension-先点单流程.md",
+      "kb/chunks/brands/wu-魔都网红日式拉面小店-京都一乘寺/dimension-看出品设计.md",
+      "kb/chunks/brands/wu-魔都网红日式拉面小店-京都一乘寺/dimension-算账.md"
+    ]
+  },
+  {
+    "id": "wu-一份让顾客-闭眼入-的分类指南",
+    "title": "一份让顾客“闭眼入”的分类指南",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "一份让顾客“闭眼入”的分类指南"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记【三顿半VS雀巢】产品设计的“游牧”与“定居”之战：一份让顾客“闭眼入”的分类指南.md",
+    "chunks": [
+      "kb/chunks/brands/wu-一份让顾客-闭眼入-的分类指南/motivation.md",
+      "kb/chunks/brands/wu-一份让顾客-闭眼入-的分类指南/overview.md",
+      "kb/chunks/brands/wu-一份让顾客-闭眼入-的分类指南/insight.md",
+      "kb/chunks/brands/wu-一份让顾客-闭眼入-的分类指南/think.md",
+      "kb/chunks/brands/wu-一份让顾客-闭眼入-的分类指南/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-死于-贪-摊-乱-的败局复盘",
+    "title": "死于“贪、摊、乱”的败局复盘",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "死于“贪",
+      "乱”的败局复盘"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记【哈茶福】价值一亿的警示课：死于“贪、摊、乱”的败局复盘.md",
+    "chunks": [
+      "kb/chunks/brands/wu-死于-贪-摊-乱-的败局复盘/motivation.md",
+      "kb/chunks/brands/wu-死于-贪-摊-乱-的败局复盘/overview.md",
+      "kb/chunks/brands/wu-死于-贪-摊-乱-的败局复盘/insight.md",
+      "kb/chunks/brands/wu-死于-贪-摊-乱-的败局复盘/think.md",
+      "kb/chunks/brands/wu-死于-贪-摊-乱-的败局复盘/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-一场用40亿美元买来的-本土化-豪赌",
+    "title": "一场用40亿美元买来的“本土化”豪赌",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "一场用40亿美元买来的“本土化”豪赌"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记【星巴克中国】“千店千面”背后：一场用40亿美元买来的“本土化”豪赌.md",
+    "chunks": [
+      "kb/chunks/brands/wu-一场用40亿美元买来的-本土化-豪赌/motivation.md",
+      "kb/chunks/brands/wu-一场用40亿美元买来的-本土化-豪赌/overview.md",
+      "kb/chunks/brands/wu-一场用40亿美元买来的-本土化-豪赌/insight.md",
+      "kb/chunks/brands/wu-一场用40亿美元买来的-本土化-豪赌/think.md",
+      "kb/chunks/brands/wu-一场用40亿美元买来的-本土化-豪赌/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-akalcha品牌构建逻辑拆解",
+    "title": "AKALCHA品牌构建逻辑拆解",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "AKALCHA品牌构建逻辑拆解"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：AKALCHA品牌构建逻辑拆解.md",
+    "chunks": [
+      "kb/chunks/brands/wu-akalcha品牌构建逻辑拆解/motivation.md",
+      "kb/chunks/brands/wu-akalcha品牌构建逻辑拆解/overview.md"
+    ]
+  },
+  {
+    "id": "wu-amam小狗面包",
+    "title": "AMAM小狗面包——如何用“英伦小镇”的剧本，导演一场排队收割机",
+    "series": "探店商业笔记",
+    "brand": "AMAM小狗面包",
+    "city": "上海",
+    "categories": [
+      "烘焙",
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "烘焙",
+      "餐饮"
+    ],
+    "keywords": [
+      "AMAM小狗面包",
+      "如何用“英伦小镇”的剧本",
+      "导演一场排队收割机"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：AMAM小狗面包——如何用“英伦小镇”的剧本，导演一场排队收割机.md",
+    "chunks": [
+      "kb/chunks/brands/wu-amam小狗面包/motivation.md",
+      "kb/chunks/brands/wu-amam小狗面包/overview.md",
+      "kb/chunks/brands/wu-amam小狗面包/insight.md",
+      "kb/chunks/brands/wu-amam小狗面包/think.md",
+      "kb/chunks/brands/wu-amam小狗面包/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-aokka品牌构建逻辑拆解",
+    "title": "AOKKA品牌构建逻辑拆解",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "AOKKA品牌构建逻辑拆解"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：AOKKA品牌构建逻辑拆解.md",
+    "chunks": [
+      "kb/chunks/brands/wu-aokka品牌构建逻辑拆解/motivation.md",
+      "kb/chunks/brands/wu-aokka品牌构建逻辑拆解/overview.md",
+      "kb/chunks/brands/wu-aokka品牌构建逻辑拆解/dimension-商业模式与定位-品牌角色重塑.md",
+      "kb/chunks/brands/wu-aokka品牌构建逻辑拆解/dimension-产品与菜单策略-主题的精准翻译.md",
+      "kb/chunks/brands/wu-aokka品牌构建逻辑拆解/dimension-空间与体验设计-在地共生美学.md",
+      "kb/chunks/brands/wu-aokka品牌构建逻辑拆解/dimension-营销与流量-非零和博弈的增量思维.md"
+    ]
+  },
+  {
+    "id": "wu-captain-george",
+    "title": "Captain George——从“卖咖啡”到“卖风味信仰”的顶级操盘",
+    "series": "探店商业笔记",
+    "brand": "Captain George",
+    "city": "上海",
+    "categories": [
+      "咖啡"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "咖啡"
+    ],
+    "keywords": [
+      "Captain George",
+      "Captain",
+      "George",
+      "从“卖咖啡”到“卖风味信仰”的顶级操盘"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：Captain George——从“卖咖啡”到“卖风味信仰”的顶级操盘.md",
+    "chunks": [
+      "kb/chunks/brands/wu-captain-george/motivation.md",
+      "kb/chunks/brands/wu-captain-george/overview.md",
+      "kb/chunks/brands/wu-captain-george/insight.md",
+      "kb/chunks/brands/wu-captain-george/think.md",
+      "kb/chunks/brands/wu-captain-george/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-dq汉堡",
+    "title": "DQ汉堡——“冰火两重天”的本土化实验与动线迷局",
+    "series": "探店商业笔记",
+    "brand": "DQ汉堡",
+    "city": "上海",
+    "categories": [
+      "快餐"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "快餐"
+    ],
+    "keywords": [
+      "DQ汉堡",
+      "“冰火两重天”的本土化实验与动线迷局"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：DQ汉堡——“冰火两重天”的本土化实验与动线迷局.md",
+    "chunks": [
+      "kb/chunks/brands/wu-dq汉堡/motivation.md",
+      "kb/chunks/brands/wu-dq汉堡/overview.md",
+      "kb/chunks/brands/wu-dq汉堡/insight.md",
+      "kb/chunks/brands/wu-dq汉堡/think.md",
+      "kb/chunks/brands/wu-dq汉堡/dimension-感官营销-明档厨房的-声香-诱惑与双刃剑.md",
+      "kb/chunks/brands/wu-dq汉堡/dimension-动线布局-效率的-堵点-与选择瘫痪.md",
+      "kb/chunks/brands/wu-dq汉堡/dimension-空间氛围-急于-自证-的品牌焦虑.md",
+      "kb/chunks/brands/wu-dq汉堡/dimension-产品逻辑-酱料定胜负-碳水与蛋白质的博弈.md"
+    ]
+  },
+  {
+    "id": "wu-tonton肉桂卷",
+    "title": "TonTon肉桂卷——从网红街铺到商场A类铺位的“西餐化”跃迁",
+    "series": "探店商业笔记",
+    "brand": "TonTon肉桂卷",
+    "city": "上海",
+    "categories": [
+      "烘焙",
+      "轻餐"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "烘焙",
+      "轻餐"
+    ],
+    "keywords": [
+      "TonTon肉桂卷",
+      "从网红街铺到商场A类铺位的“西餐化”跃迁"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：TonTon肉桂卷——从网红街铺到商场A类铺位的“西餐化”跃迁.md",
+    "chunks": [
+      "kb/chunks/brands/wu-tonton肉桂卷/motivation.md",
+      "kb/chunks/brands/wu-tonton肉桂卷/overview.md",
+      "kb/chunks/brands/wu-tonton肉桂卷/insight.md",
+      "kb/chunks/brands/wu-tonton肉桂卷/think.md",
+      "kb/chunks/brands/wu-tonton肉桂卷/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-yogurt-day",
+    "title": "YOGURT DAY——冷萃酸奶的“单店模型”与“极简”野心",
+    "series": "探店商业笔记",
+    "brand": "YOGURT DAY",
+    "city": "上海",
+    "categories": [
+      "茶饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "茶饮"
+    ],
+    "keywords": [
+      "YOGURT DAY",
+      "YOGURT",
+      "DAY",
+      "冷萃酸奶的“单店模型”与“极简”野心"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：YOGURT DAY——冷萃酸奶的“单店模型”与“极简”野心.md",
+    "chunks": [
+      "kb/chunks/brands/wu-yogurt-day/motivation.md",
+      "kb/chunks/brands/wu-yogurt-day/overview.md",
+      "kb/chunks/brands/wu-yogurt-day/insight.md",
+      "kb/chunks/brands/wu-yogurt-day/think.md",
+      "kb/chunks/brands/wu-yogurt-day/dimension-单店模型测算-20平米里的生存算盘.md",
+      "kb/chunks/brands/wu-yogurt-day/dimension-核心壁垒-t12菌种与-冷萃-的重新定义.md",
+      "kb/chunks/brands/wu-yogurt-day/dimension-产品矩阵-从-喝-到-吃-的全场景覆盖.md",
+      "kb/chunks/brands/wu-yogurt-day/dimension-运营哲学-前台做加法-后台做减法.md"
+    ]
+  },
+  {
+    "id": "wu-tea-stone品牌构建逻辑拆解",
+    "title": "tea'stone品牌构建逻辑拆解",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "tea'stone品牌构建逻辑拆解"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：tea'stone品牌构建逻辑拆解.md",
+    "chunks": [
+      "kb/chunks/brands/wu-tea-stone品牌构建逻辑拆解/motivation.md",
+      "kb/chunks/brands/wu-tea-stone品牌构建逻辑拆解/overview.md"
+    ]
+  },
+  {
+    "id": "wu-红茶公司和阿嬷手作对比分析-顶级品牌操盘手的-心智设计-密码",
+    "title": "【红茶公司和阿嬷手作对比分析】顶级品牌操盘手的“心智设计”密码",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "茶饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "茶饮"
+    ],
+    "keywords": [
+      "【红茶公司和阿嬷手作对比分析】顶级品牌操盘手的“心智设计”密码"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：【红茶公司和阿嬷手作对比分析】顶级品牌操盘手的“心智设计”密码.md",
+    "chunks": [
+      "kb/chunks/brands/wu-红茶公司和阿嬷手作对比分析-顶级品牌操盘手的-心智设计-密码/motivation.md",
+      "kb/chunks/brands/wu-红茶公司和阿嬷手作对比分析-顶级品牌操盘手的-心智设计-密码/overview.md",
+      "kb/chunks/brands/wu-红茶公司和阿嬷手作对比分析-顶级品牌操盘手的-心智设计-密码/insight.md",
+      "kb/chunks/brands/wu-红茶公司和阿嬷手作对比分析-顶级品牌操盘手的-心智设计-密码/think.md",
+      "kb/chunks/brands/wu-红茶公司和阿嬷手作对比分析-顶级品牌操盘手的-心智设计-密码/dimension-案例对比-两种极端情绪的完美承接.md",
+      "kb/chunks/brands/wu-红茶公司和阿嬷手作对比分析-顶级品牌操盘手的-心智设计-密码/dimension-设计本质-从-显性好看-到-隐性共情.md",
+      "kb/chunks/brands/wu-红茶公司和阿嬷手作对比分析-顶级品牌操盘手的-心智设计-密码/dimension-落地逻辑-顶级操盘手的-心智设计-三板斧.md"
+    ]
+  },
+  {
+    "id": "wu-三立方愚园路旗舰店的-空间革命-与效率悖论",
+    "title": "三立方愚园路旗舰店的“空间革命”与效率悖论",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "三立方愚园路旗舰店的“空间革命”与效率悖论"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：三立方愚园路旗舰店的“空间革命”与效率悖论.md",
+    "chunks": [
+      "kb/chunks/brands/wu-三立方愚园路旗舰店的-空间革命-与效率悖论/motivation.md",
+      "kb/chunks/brands/wu-三立方愚园路旗舰店的-空间革命-与效率悖论/overview.md"
+    ]
+  },
+  {
+    "id": "wu-三顿半愚园路旗舰店的-价值观变现-与空间哲学",
+    "title": "三顿半愚园路旗舰店的“价值观变现”与空间哲学",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "三顿半愚园路旗舰店的“价值观变现”与空间哲学"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：三顿半愚园路旗舰店的“价值观变现”与空间哲学.md",
+    "chunks": [
+      "kb/chunks/brands/wu-三顿半愚园路旗舰店的-价值观变现-与空间哲学/motivation.md",
+      "kb/chunks/brands/wu-三顿半愚园路旗舰店的-价值观变现-与空间哲学/overview.md"
+    ]
+  },
+  {
+    "id": "wu-上海科技馆霸王茶姬-为何拿了一手好牌却打得稀烂",
+    "title": "上海科技馆霸王茶姬，为何拿了一手好牌却打得稀烂？",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "茶饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "茶饮"
+    ],
+    "keywords": [
+      "上海科技馆霸王茶姬",
+      "为何拿了一手好牌却打得稀烂？"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：上海科技馆霸王茶姬，为何拿了一手好牌却打得稀烂？.md",
+    "chunks": [
+      "kb/chunks/brands/wu-上海科技馆霸王茶姬-为何拿了一手好牌却打得稀烂/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-上海高端奶茶红茶公司商业拆解",
+    "title": "上海高端奶茶红茶公司商业拆解",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "茶饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "茶饮"
+    ],
+    "keywords": [
+      "上海高端奶茶红茶公司商业拆解"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：上海高端奶茶红茶公司商业拆解.md",
+    "chunks": [
+      "kb/chunks/brands/wu-上海高端奶茶红茶公司商业拆解/motivation.md",
+      "kb/chunks/brands/wu-上海高端奶茶红茶公司商业拆解/overview.md"
+    ]
+  },
+  {
+    "id": "wu-arabica",
+    "title": "全球精品咖啡「% Arabica」品牌构建密码",
+    "series": "探店商业笔记",
+    "brand": "% Arabica",
+    "city": "上海",
+    "categories": [
+      "咖啡"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "咖啡"
+    ],
+    "keywords": [
+      "% Arabica",
+      "全球精品咖啡「%",
+      "Arabica」品牌构建密码"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：全球精品咖啡「% Arabica」品牌构建密码.md",
+    "chunks": [
+      "kb/chunks/brands/wu-arabica/motivation.md",
+      "kb/chunks/brands/wu-arabica/overview.md",
+      "kb/chunks/brands/wu-arabica/insight.md",
+      "kb/chunks/brands/wu-arabica/think.md",
+      "kb/chunks/brands/wu-arabica/dimension-品牌立宪-找到指引方向的-北极星.md",
+      "kb/chunks/brands/wu-arabica/dimension-感官翻译-把抽象理念变成-视觉炸弹.md",
+      "kb/chunks/brands/wu-arabica/dimension-市场占位-在红海中开辟-新赛道.md"
+    ]
+  },
+  {
+    "id": "wu-卡旺卡",
+    "title": "卡旺卡——一张带着徽派体温的地域茶饮名片",
+    "series": "探店商业笔记",
+    "brand": "卡旺卡",
+    "city": "上海",
+    "categories": [
+      "茶饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "茶饮"
+    ],
+    "keywords": [
+      "卡旺卡",
+      "一张带着徽派体温的地域茶饮名片"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：卡旺卡——一张带着徽派体温的地域茶饮名片.md",
+    "chunks": [
+      "kb/chunks/brands/wu-卡旺卡/motivation.md",
+      "kb/chunks/brands/wu-卡旺卡/overview.md",
+      "kb/chunks/brands/wu-卡旺卡/dimension-品牌定位与产品策略-地域文化的深度挖掘.md",
+      "kb/chunks/brands/wu-卡旺卡/dimension-渠道策略与选址逻辑-全直营的护城河.md",
+      "kb/chunks/brands/wu-卡旺卡/dimension-体验设计与运营细节-反效率的排队美学.md"
+    ]
+  },
+  {
+    "id": "wu-喜茶上海lab-2-0",
+    "title": "喜茶上海Lab 2.0——从“卖一杯茶”到“茶生活实验”的操盘密码",
+    "series": "探店商业笔记",
+    "brand": "喜茶上海Lab 2.0",
+    "city": "上海",
+    "categories": [
+      "茶饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "茶饮"
+    ],
+    "keywords": [
+      "喜茶上海Lab 2.0",
+      "喜茶上海Lab",
+      "2.0",
+      "从“卖一杯茶”到“茶生活实验”的操盘密码"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：喜茶上海Lab 2.0——从“卖一杯茶”到“茶生活实验”的操盘密码.md",
+    "chunks": [
+      "kb/chunks/brands/wu-喜茶上海lab-2-0/motivation.md",
+      "kb/chunks/brands/wu-喜茶上海lab-2-0/overview.md",
+      "kb/chunks/brands/wu-喜茶上海lab-2-0/insight.md",
+      "kb/chunks/brands/wu-喜茶上海lab-2-0/think.md",
+      "kb/chunks/brands/wu-喜茶上海lab-2-0/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-星巴克向绿工坊-别把主题店开成-自嗨",
+    "title": "星巴克向绿工坊，别把主题店开成“自嗨”",
+    "series": "探店商业笔记",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "星巴克向绿工坊",
+      "别把主题店开成“自嗨”"
+    ],
+    "raw_file": "kb/raw/吴探长探店商业笔记：星巴克向绿工坊，别把主题店开成“自嗨”.md",
+    "chunks": [
+      "kb/chunks/brands/wu-星巴克向绿工坊-别把主题店开成-自嗨/motivation.md",
+      "kb/chunks/brands/wu-星巴克向绿工坊-别把主题店开成-自嗨/dimension-dimension-1.md"
+    ]
+  },
+  {
+    "id": "wu-吴探长商业分析视角",
+    "title": "吴探长商业分析视角",
+    "series": "方法论",
+    "brand": null,
+    "city": "上海",
+    "categories": [
+      "餐饮"
+    ],
+    "price_band": null,
+    "avg_ticket": null,
+    "topics": [],
+    "dimensions": [],
+    "consult_for": [
+      "餐饮"
+    ],
+    "keywords": [
+      "吴探长商业分析视角"
+    ],
+    "raw_file": "kb/raw/训练智能体：吴探长商业分析视角.md",
+    "skip_chunk": true,
+    "chunks": []
+  }
+]

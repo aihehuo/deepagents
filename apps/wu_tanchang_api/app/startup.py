@@ -37,7 +37,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
                 "  Agent '%s': provider=%s model=%s workspace=%s",
                 name,
                 agent_cfg.provider,
-                agent_cfg.intake_model,
+                agent_cfg.model,
                 agent_cfg.workspace or "(default)",
             )
             agent, _ckpt = create_agent(

@@ -4,12 +4,8 @@
   "agents": {
     "defaults": {
       "provider": "qwen",
-      "intake_model": "deepseek-v4-flash",
-      "analyst_model": "deepseek-v4-flash",
-      "max_intake_rounds": 10,
-      "sync_interval": 3,
-      "expertise_type": "consult_intake",
-      "intake_max_tokens": 800,
+      "model": "deepseek-v4-flash",
+      "max_tokens": 800,
       "workspace": ""
     },
     "list": [
@@ -17,10 +13,7 @@
         "name": "default",
         "default": true,
         "provider": "qwen",
-        "intake_model": "deepseek-v4-flash",
-        "analyst_model": "deepseek-v4-flash",
-        "max_intake_rounds": 10,
-        "expertise_type": "consult_intake",
+        "model": "deepseek-v4-flash",
         "workspace": "workspace"
       }
     ]

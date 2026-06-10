@@ -30,10 +30,8 @@ class WuAgentConfig:
 
     name: str
     provider: str
-    intake_model: str
-    max_intake_rounds: int
-    expertise_type: str
-    intake_max_tokens: int
+    model: str
+    max_tokens: int
     workspace: str
 
 
@@ -266,21 +264,17 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
         if not isinstance(entry, dict):
             continue
         name = _get_str(entry, "name") or "unnamed"
-        merged = {**defaults, **entry}  # entry overrides defaults
+        merged = {**defaults, **entry}
         provider = _get_str(merged, "provider") or default_provider or "qwen"
-        intake_model = _get_str(merged, "intake_model", "qwen-plus") or "qwen-plus"
-        max_rounds = _get_int(merged, "max_intake_rounds", 10)
-        expertise_type = _get_str(merged, "expertise_type", "consult_intake") or "consult_intake"
-        intake_max_tokens = _get_int(merged, "intake_max_tokens", 800)
+        model = _get_str(merged, "model", "qwen-plus") or "qwen-plus"
+        max_tokens = _get_int(merged, "max_tokens", 800)
         workspace = _get_str(merged, "workspace", "") or ""
 
         agent_config = WuAgentConfig(
             name=name,
             provider=provider,
-            intake_model=intake_model,
-            max_intake_rounds=max_rounds,
-            expertise_type=expertise_type,
-            intake_max_tokens=intake_max_tokens,
+            model=model,
+            max_tokens=max_tokens,
             workspace=workspace,
         )
         agents[name] = agent_config
@@ -291,14 +285,11 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
     if not agents:
         return None
 
-    # Build a synthetic defaults config for the registry
     defaults_config = WuAgentConfig(
         name="__defaults__",
         provider=default_provider,
-        intake_model=_get_str(defaults, "intake_model", "qwen-plus") or "qwen-plus",
-        max_intake_rounds=_get_int(defaults, "max_intake_rounds", 10),
-        expertise_type=_get_str(defaults, "expertise_type", "consult_intake") or "consult_intake",
-        intake_max_tokens=_get_int(defaults, "intake_max_tokens", 800),
+        model=_get_str(defaults, "model", "qwen-plus") or "qwen-plus",
+        max_tokens=_get_int(defaults, "max_tokens", 800),
         workspace=_get_str(defaults, "workspace", "") or "",
     )
     return WuAgentRegistry(defaults=defaults_config, agents=agents, default_name=default_name)

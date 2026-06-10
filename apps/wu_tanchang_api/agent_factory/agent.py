@@ -63,14 +63,14 @@ def create_agent(
         Tuple of (agent graph, checkpoints path).
     """
     effective_provider = agent_config.provider if agent_config else provider
-    effective_max_tokens = agent_config.intake_max_tokens if agent_config else 800
+    effective_max_tokens = agent_config.max_tokens if agent_config else 800
 
     model = create_model(
         provider=effective_provider,
         model_name_suffix="MAIN_AGENT_MODEL",
         log_prefix="[Agent]",
         max_tokens=effective_max_tokens,
-        model_name_override=agent_config.intake_model if agent_config else None,
+        model_name_override=agent_config.model if agent_config else None,
     )
 
     runtime_dir = default_runtime_dir()
@@ -104,6 +104,6 @@ def create_agent(
         backend_root,
         checkpoints_path,
         effective_provider,
-        agent_config.intake_model if agent_config else "default",
+        agent_config.model if agent_config else "default",
     )
     return agent, checkpoints_path

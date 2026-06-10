@@ -33,6 +33,12 @@ def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
         The runtime_dir path (created if needed).
     """
     runtime_dir.mkdir(parents=True, exist_ok=True)
+    # Also copy persona .md files from workspace root to runtime
+    for md_file in workspace_src.glob("*.md"):
+        if not md_file.name.startswith("kb") and not md_file.name.startswith("memory"):
+            dest = runtime_dir / md_file.name
+            shutil.copy2(md_file, dest)
+            _logger.info("[WuTanchang] Deployed persona: %s -> %s", md_file, dest)
     for name in ("kb", "skills", "intake"):
         src = workspace_src / name
         if not src.exists():

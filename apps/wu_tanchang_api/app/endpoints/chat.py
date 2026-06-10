@@ -94,18 +94,19 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                 detail={"error_type": type(exc).__name__, "error_message": str(exc), "thread_id": tid},
             ) from exc
 
-    # Collect all AI message content from this round (not just the last one).
-    # When the agent delivers material, it may produce multiple AI messages:
-    # e.g. material content (with sub-agent analysis) + guide message.
-    # Collecting only the last would lose the material.
+    # Collect all AI and meaningful Tool message content from this round.
+    # Material content may be in AIMessage.content (front-end agent output),
+    # or in ToolMessage.content (sub-agent/kb_analyst response).
+    # We only skip HumanMessage (user input) and the mark_material_delivered
+    # tool return value ("material_delivered").
     messages = result.get("messages", [])
     new_messages = messages[msg_count_before:]
     parts: list[str] = []
     for msg in new_messages:
-        if isinstance(msg, (HumanMessage, ToolMessage)):
+        if isinstance(msg, HumanMessage):
             continue
-        is_ai = isinstance(msg, AIMessage) or getattr(msg, "type", None) == "ai"
-        if not is_ai:
+        # Skip the tool return value of mark_material_delivered
+        if isinstance(msg, ToolMessage) and getattr(msg, "name", None) == "mark_material_delivered":
             continue
         content = str(msg.content).strip() if msg.content else ""
         if not content:

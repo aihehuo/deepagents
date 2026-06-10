@@ -93,14 +93,14 @@ FRONTEND_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
 - 你**没有**文件系统访问权限，无法直接读取任何工作区文件
 - 你的工作流程：收集信息 → 调用 kb_analyst（一次）→ 产出材料 → 引导预约
 - **不要做分析、不要给建议、不要做预算拆解**
-- **当你生成会议准备材料并呈现给用户后，必须调用 `mark_material_delivered` 工具标记完成。**
+- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，再调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**
 - 材料交付后，只引导预约，不再深入探讨
 """
 
 
 @tool
 def mark_material_delivered() -> str:
-    """当你生成会议准备材料并呈现给用户后，调用此工具标记材料已完成交付。
+    """先把会议准备材料的文字内容完整输出到回复中呈现给用户，然后调用此工具标记材料已完成交付。顺序不可颠倒：先呈现材料，再调此工具。
 
     调用此工具后，系统会知道该用户的对话已完成前置阶段。
     """
@@ -116,8 +116,8 @@ def _load_persona_files(workspace_path: Path) -> str:
     Returns:
         Concatenated content of all personality .md files.
     """
-    # Only load the core persona files; skip kb/, memory/, TOOLS, USER files
-    persona_files = ["IDENTITY.md", "SOUL.md", "AGENTS.md"]
+    # Only load the core persona files; skip kb/, memory/ directories
+    persona_files = ["IDENTITY.md", "SOUL.md", "AGENTS.md", "USER.md"]
     parts: list[str] = []
     for name in persona_files:
         md_file = workspace_path / name

@@ -193,11 +193,11 @@ def resolve_model_config(
         model = (
             _get_str(provider_data, role_key)
             or _get_str(provider_data, f"default_{role_key}")
-            or _get_str(provider_data, "main_agent_model")
-            or _get_str(provider_data, "default_main_agent_model")
+            or _get_str(provider_data, "model")
+            or _get_str(provider_data, "default_model")
         )
         if not model:
-            msg = f"Provider `{provider}` must define `{role_key}`, `default_{role_key}`, or `main_agent_model`."
+            msg = f"Provider `{provider}` must define `{role_key}`, `default_{role_key}`, or `model`."
             raise ValueError(msg)
 
     models = provider_data.get("models")
@@ -258,6 +258,15 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
     defaults = _get_agent_defaults(data)
     default_provider = _get_str(defaults, "provider") or get_selected_provider()
 
+    # Helper: get fallback model for a provider from providers section
+    def _provider_default_model(provider_name: str) -> str:
+        providers = data.get("providers")
+        if isinstance(providers, dict):
+            p = providers.get(provider_name)
+            if isinstance(p, dict):
+                return _get_str(p, "default_model", "qwen-flash") or "qwen-flash"
+        return "qwen-flash"
+
     agents: dict[str, WuAgentConfig] = {}
     default_name: str = ""
     for entry in agent_list:
@@ -266,7 +275,8 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
         name = _get_str(entry, "name") or "unnamed"
         merged = {**defaults, **entry}
         provider = _get_str(merged, "provider") or default_provider or "qwen"
-        model = _get_str(merged, "model", "qwen-plus") or "qwen-plus"
+        fallback = _provider_default_model(provider)
+        model = _get_str(merged, "model") or _get_str(defaults, "model") or fallback
         max_tokens = _get_int(merged, "max_tokens", 800)
         workspace = _get_str(merged, "workspace", "") or ""
 
@@ -288,7 +298,7 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
     defaults_config = WuAgentConfig(
         name="__defaults__",
         provider=default_provider,
-        model=_get_str(defaults, "model", "qwen-plus") or "qwen-plus",
+        model=_get_str(defaults, "model") or _provider_default_model(default_provider),
         max_tokens=_get_int(defaults, "max_tokens", 800),
         workspace=_get_str(defaults, "workspace", "") or "",
     )

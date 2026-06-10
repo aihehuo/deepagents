@@ -6,7 +6,7 @@
       "provider": "qwen",
       "model": "deepseek-v4-flash",
       "max_tokens": 800,
-      "workspace": ""
+      "workspace": "workspace"
     },
     "list": [
       {
@@ -30,10 +30,8 @@
       "api_type": "openai-compatible",
       "base_url": "https://api.deepseek.com",
       "api_key": "env:WU_DEEPSEEK_API_KEY",
-      "main_agent_model": "env:WU_DEEPSEEK_MAIN_AGENT_MODEL",
-      "analyst_agent_model": "env:WU_DEEPSEEK_ANALYST_AGENT_MODEL",
-      "default_main_agent_model": "deepseek-v4-flash",
-      "default_analyst_agent_model": "deepseek-v4-pro",
+      "model": "env:WU_DEEPSEEK_MAIN_AGENT_MODEL",
+      "default_model": "deepseek-v4-flash",
       "max_tokens": "env:WU_DEEPSEEK_MAX_TOKENS",
       "timeout_s": "env:WU_DEEPSEEK_TIMEOUT_S",
       "temperature": "env:WU_DEEPSEEK_TEMPERATURE",
@@ -78,10 +76,8 @@
       "api_type": "openai-compatible",
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "api_key": "env:WU_DASHSCOPE_API_KEY",
-      "main_agent_model": "env:WU_DASHSCOPE_MAIN_AGENT_MODEL",
-      "analyst_agent_model": "env:WU_DASHSCOPE_ANALYST_AGENT_MODEL",
-      "default_main_agent_model": "qwen-plus",
-      "default_analyst_agent_model": "qwen-max",
+      "model": "env:WU_DASHSCOPE_MAIN_AGENT_MODEL",
+      "default_model": "qwen-flash",
       "max_tokens": "env:WU_DASHSCOPE_MAX_TOKENS",
       "timeout_s": "env:WU_DASHSCOPE_TIMEOUT_S",
       "temperature": "env:WU_DASHSCOPE_TEMPERATURE",

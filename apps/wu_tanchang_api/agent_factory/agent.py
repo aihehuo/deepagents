@@ -174,6 +174,7 @@ def create_agent(
         "tools": [],
         "system_prompt": KB_ANALYST_PROMPT,
         "middleware": [
+            AccountantMiddleware(max_tool_calls=6),
             SkillsMiddleware(backend=backend, sources=["/skills/"]),
             FilesystemMiddleware(backend=backend),
         ],

@@ -1,46 +1,68 @@
 # Wu Tanchang Pre-Consultation API
 
-吴探长一对一咨询的**前置沟通**服务：用户在 10 轮对话内说清楚情况，系统结合知识库产出**咨询提纲**，供吴探长面谈使用。
+吴探长一对一咨询的**前置沟通**服务。用户在对话中提供基本信息后，系统产出一份**会议准备材料**，供吴探长面谈使用。
 
-## 与 business_cofounder_api 的关系
+## 架构
 
-参考其双智能体架构，但只保留必要部分：
+```
+用户 ←→ 前置助手 (Front-end Agent)
+            │ 无 KB 访问权限，人格文件启动时预注入
+            │
+            ├── task() ──→ kb_analyst (Sub-Agent)
+            │                   │ 有 SkillsMiddleware + FilesystemMiddleware
+            │                   │ 读取 kb/ 下的案例和方法论
+            │                   │ 返回吴探长口吻的分析
+            │
+            ↓ 信息足够时
+           产出会议准备材料 → 调用 mark_material_delivered
+            → 引导预约吴探长
 
-| 保留 | 省略 |
-|------|------|
-| FastAPI `/chat`, `/health`, `/reset` | `/chat/stream`, `/deep_agent/call_async` |
-| 双智能体：前置助手 + 分析师 | 模拟用户、合伙人搜索、里程碑 middleware |
-| LangGraph checkpoint + 线程锁 | 多 expertise 切换、canvas 语言修复 |
-| 知识库 skill + expertise 模板 | Aihehuo、Artifacts、AssetUpload |
+材料交付后 → 任何用户消息直接返回引导话术
+（通过 checkpoint 中检测 mark_material_delivered tool call）
+```
 
-## 智能体分工
+## 单次会话流程
 
-### 前置助手（Intake Agent）
+```
+收集信息（多轮对话，每轮 1-2 个问题）
+    ↓ 信息足够
+调用 kb_analyst 子代理（仅一次）
+    ↓
+生成会议准备材料 → 调用 mark_material_delivered 标记完成
+    ↓
+引导预约吴探长一对一深聊（不再深入探讨）
+```
 
-- **不是**吴探长本人，是团队接待同事
-- 每轮 1–2 个关键问题，最多 10 轮
-- 接收分析师 `expert_guidance` 决定追问方向
-- 完成时向用户呈现咨询提纲
+## 智能体
 
-### 分析师（Analyst Agent）
+### 前置助手（Front-end Agent）
 
-- 后台运行，不直接对用户说话
-- 使用 `wu-tanchang-kb` skill 检索 `kb/index.json` + chunks
-- 每 3 轮同步一次，第 10 轮强制终局同步
-- 输出 `canvas`（提纲）+ `expert_guidance` + `brief_summary`
+- **不是**吴探长本人，是吴探长团队的前置咨询助手
+- **无 FilesystemMiddleware** — 无法直接访问工作区文件
+- 人格文件（`IDENTITY.md`、`SOUL.md`、`AGENTS.md`）在 Python 层预读后注入 system prompt
+- 每轮 1–2 个关键问题，信息足够时调用 `kb_analyst` 子代理
+- 产出材料后调用 `mark_material_delivered` 工具标记完成
+- 工具：`mark_material_delivered`
+
+### KB 子代理（kb_analyst）
+
+- 通过 `task()` 工具调用，由前置助手触发（仅一次）
+- 有 `SkillsMiddleware` + `FilesystemMiddleware`，可读取知识库
+- 以吴探长口吻返回结构化分析
+- 读取 `kb/METHOD.md`、`kb/PLAYBOOK.md` 了解方法论
+- 检索 `kb/index.json` + `kb/chunks/` 获取案例
 
 ## API
 
 ```bash
-# 启动（需配置 DEEPSEEK_API_KEY 等）
-PYTHONPATH=libs/deepagents:libs/cli uvicorn apps.wu_tanchang_api.app:app --reload --port 8001
+# 启动
+PYTHONPATH=libs/deepagents uvicorn apps.wu_tanchang_api.app:app --port 8001
 ```
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/health` | 健康检查 |
 | POST | `/chat` | 前置对话 |
-| POST | `/brief` | 获取当前咨询提纲 |
 | POST | `/reset` | 重置会话 |
 
 ### POST /chat
@@ -49,33 +71,56 @@ PYTHONPATH=libs/deepagents:libs/cli uvicorn apps.wu_tanchang_api.app:app --reloa
 {
   "user_id": "user123",
   "conversation_id": "default",
-  "message": "我想在上海开一家烘焙店，预算50万左右"
+  "message": "我想在上海开一家烘焙店，预算30万左右"
 }
 ```
 
-响应含 `conversation_round`、`rounds_remaining`、`intake_complete`。
+响应：
 
-### POST /brief
+```json
+{
+  "user_id": "user123",
+  "conversation_id": "default",
+  "thread_id": "wt::default::user123::default",
+  "reply": "你好！很高兴为你服务..."
+}
+```
 
-返回完整 `canvas`：
-
-- `conversation_points` — 交谈要点
-- `main_challenges` — 主要挑战
-- `solution_directions` — 吴探长可能探讨的方向
-- `relevant_cases` — 知识库可参考案例
+材料交付后再发消息给同一 `user_id` + `conversation_id`，API 会检测 `mark_material_delivered` 标记并直接返回引导预约话术，不再调用智能体。
 
 ## 目录
 
 ```
 apps/wu_tanchang_api/
-├── workspace/          # OpenClaw 人格 + 知识库（部署源）
-│   ├── kb/
-│   ├── skills/local/wu-tanchang-kb/
-│   └── intake/INTAKE_PLAYBOOK.md
-├── expertise/consult_intake.md
-├── agent_factory/      # intake + analyst 工厂
-├── analyst_sync.py     # 分析师同步（精简版 expert_sync）
-└── app/                # FastAPI
+├── workspace/                # 人格文件 + 知识库
+│   ├── IDENTITY.md           # 前置助手身份
+│   ├── SOUL.md               # 核心定位与流程
+│   ├── AGENTS.md             # 工作流程与规则
+│   ├── kb/                   # 知识库（仅子代理访问）
+│   │   ├── index.json        # 案例索引
+│   │   ├── METHOD.md         # 商业拆解方法论
+│   │   ├── PLAYBOOK.md       # 咨询回答 Playbook
+│   │   └── chunks/brands/    # 按品牌切片的案例
+│   └── skills/local/wu-tanchang-kb/
+├── agent_factory/            # 智能体工厂
+│   ├── agent.py              # 前置助手 + kb_analyst 子代理
+│   ├── model_builder.py      # 模型初始化
+│   └── utils.py              # 工作区部署工具
+├── checkpointer.py           # 磁盘持久化 checkpoint
+├── config.py                 # 配置解析
+├── config.json               # 模型供应商与模型定义
+├── env.example               # 环境变量模板
+├── expertise_loader.py       # 不启用（旧架构遗留）
+└── app/                      # FastAPI
+    ├── __init__.py            # 应用入口
+    ├── state.py              # AppState
+    ├── startup.py            # 启动初始化
+    ├── utils.py              # 工具函数
+    ├── models.py             # Pydantic 模型
+    └── endpoints/
+        ├── chat.py           # 对话端点（含材料交付检测）
+        ├── health.py         # 健康检查
+        └── reset.py          # 会话重置
 ```
 
 ## 配置
@@ -87,12 +132,10 @@ apps/wu_tanchang_api/
 
 内置两个 OpenAI-compatible provider：
 
-| Provider key | Base URL | LangChain client |
-|------|------|------|
+| Provider | Base URL | LangChain client |
+|----------|----------|------------------|
 | `qwen` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `ChatOpenAI` |
 | `deepseek` | `https://api.deepseek.com` | `ChatOpenAI` |
-
-`config.json` 内含模型候选清单、上下文长度、计价和能力标签。API key 只从 `.env` 获取，不写入 JSON 配置。
 
 常用变量：
 

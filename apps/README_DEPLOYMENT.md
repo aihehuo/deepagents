@@ -55,6 +55,20 @@ All scripts take the app name as the first parameter:
 ./apps/deploy_to_prod2.sh business_cofounder_worker
 ```
 
+### Wu Tanchang API
+
+```bash
+# Build and push
+./apps/build_and_push.sh wu_tanchang_api
+./apps/build_and_push.sh wu_tanchang_api 0.1.0
+
+# Run locally (external port 8002, internal port 8001)
+./apps/pull_and_run.sh wu_tanchang_api 8002
+
+# Deploy to production (external port 8002)
+./apps/deploy_to_prod2.sh wu_tanchang_api 8002
+```
+
 ## Configuration
 
 Each app should have its own `.deploy.env` file in its directory (e.g., `apps/business_cofounder_api/.deploy.env`):

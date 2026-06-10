@@ -94,17 +94,26 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                 detail={"error_type": type(exc).__name__, "error_message": str(exc), "thread_id": tid},
             ) from exc
 
-    # Collect all AI message content from this round (not just the last one)
-    # This ensures material content is included when mark_material_delivered is called
+    # Collect all AI message content from this round (not just the last one).
+    # When the agent delivers material, it may produce multiple AI messages:
+    # e.g. material content (with sub-agent analysis) + guide message.
+    # Collecting only the last would lose the material.
     messages = result.get("messages", [])
     new_messages = messages[msg_count_before:]
     parts: list[str] = []
     for msg in new_messages:
+        if isinstance(msg, (HumanMessage, ToolMessage)):
+            continue
         is_ai = isinstance(msg, AIMessage) or getattr(msg, "type", None) == "ai"
-        if is_ai and msg.content:
-            content = str(msg.content).strip()
-            if content:
-                parts.append(content)
+        if not is_ai:
+            continue
+        content = str(msg.content).strip() if msg.content else ""
+        if not content:
+            continue
+        # Skip system artifacts emitted by the agent
+        if content.startswith("Updated todo list"):
+            continue
+        parts.append(content)
     reply = "\n\n".join(parts)
 
     return ChatResponse(

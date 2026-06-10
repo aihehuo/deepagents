@@ -1,0 +1,13 @@
+fastapi>=0.110
+# Avoid uvicorn "standard" extras (uvloop/httptools) in production:
+# we've observed exit=139 (segfault) on some hosts, typically from native deps.
+uvicorn>=0.27
+h11>=0.14
+langdetect>=1.0.9
+
+# DeepAgents runtime deps (so Docker image can import from PYTHONPATH without editable installs)
+langchain>=1.1.0,<2.0.0
+langchain-core>=1.1.0,<2.0.0
+langchain-anthropic>=1.2.0,<2.0.0
+langchain-openai>=0.1.0
+wcmatch>=10.0

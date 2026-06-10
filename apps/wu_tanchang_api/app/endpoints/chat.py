@@ -77,6 +77,10 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
     async with lock:
         try:
+            # Record existing message count to isolate this round's new messages
+            checkpoint = await agent.checkpointer.aget({"configurable": {"thread_id": tid}}) if hasattr(agent, "checkpointer") else None
+            msg_count_before = len(checkpoint.get("channel_values", {}).get("messages", [])) if checkpoint else 0
+
             result = await agent.ainvoke(
                 {"messages": [HumanMessage(content=req.message)]},
                 {
@@ -90,14 +94,18 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                 detail={"error_type": type(exc).__name__, "error_message": str(exc), "thread_id": tid},
             ) from exc
 
-    # Extract the last AI message with content
+    # Collect all AI message content from this round (not just the last one)
+    # This ensures material content is included when mark_material_delivered is called
     messages = result.get("messages", [])
-    reply = ""
-    for msg in reversed(messages):
+    new_messages = messages[msg_count_before:]
+    parts: list[str] = []
+    for msg in new_messages:
         is_ai = isinstance(msg, AIMessage) or getattr(msg, "type", None) == "ai"
         if is_ai and msg.content:
-            reply = str(msg.content)
-            break
+            content = str(msg.content).strip()
+            if content:
+                parts.append(content)
+    reply = "\n\n".join(parts)
 
     return ChatResponse(
         user_id=req.user_id,

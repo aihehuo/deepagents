@@ -193,11 +193,10 @@ def resolve_model_config(
         model = (
             _get_str(provider_data, role_key)
             or _get_str(provider_data, f"default_{role_key}")
-            or _get_str(provider_data, "model")
             or _get_str(provider_data, "default_model")
         )
         if not model:
-            msg = f"Provider `{provider}` must define `{role_key}`, `default_{role_key}`, or `model`."
+            msg = f"Provider `{provider}` must define `{role_key}`, `default_{role_key}`, or `default_model`."
             raise ValueError(msg)
 
     models = provider_data.get("models")

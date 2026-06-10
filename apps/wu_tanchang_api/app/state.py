@@ -23,7 +23,6 @@ class AppState:
     checkpoints_path: str = ""
     thread_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
     backend_root: str = ""
-    expertise_dir: str = ""
 
     @property
     def agent(self) -> Any:

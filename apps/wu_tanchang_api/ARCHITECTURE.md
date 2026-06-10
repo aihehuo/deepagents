@@ -110,7 +110,6 @@ apps/wu_tanchang_api/
 ├── config.py                 # 配置解析
 ├── config.json               # 模型供应商与模型定义
 ├── env.example               # 环境变量模板
-├── expertise_loader.py       # 不启用（旧架构遗留）
 └── app/                      # FastAPI
     ├── __init__.py            # 应用入口
     ├── state.py              # AppState
@@ -141,9 +140,11 @@ apps/wu_tanchang_api/
 
 | 变量 | 说明 |
 |------|------|
-| `WU_API_MODEL_PROVIDER` | `qwen` 或 `deepseek` |
+| `WU_API_MODEL_PROVIDER` | `qwen` 或 `deepseek`；通过 `agents.defaults.provider = "env:WU_API_MODEL_PROVIDER"` 控制默认 agent 的供应商，未设置时回退 `qwen` |
 | `WU_API_CONFIG` | 可选，自定义 `config.json` 路径 |
 | `WU_API_ENV_FILE` | 可选，自定义 `.env` 路径 |
 | `WU_API_WORKSPACE` | workspace 源路径（默认 `apps/wu_tanchang_api/workspace`） |
+
+模型名在 `config.json` 中配置（`agents.list[].model` 或 `providers.*.default_model`），不通过环境变量设置。
 
 运行时数据：`~/.deepagents/wu_tanchang_api/`

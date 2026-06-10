@@ -51,18 +51,6 @@ def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
     return runtime_dir
 
 
-def copy_default_expertise(*, dest_expertise_dir: Path) -> None:
-    """Copy expertise templates from app source to runtime directory."""
-    dest_expertise_dir.mkdir(parents=True, exist_ok=True)
-    source = Path(__file__).resolve().parent.parent / "expertise"
-    if not source.exists():
-        _logger.warning("[WuTanchang] Expertise source not found: %s", source)
-        return
-    for source_file in source.glob("*.md"):
-        shutil.copy2(source_file, dest_expertise_dir / source_file.name)
-        _logger.info("[WuTanchang] Copied expertise: %s", source_file.name)
-
-
 def mask_sensitive_value(value: str | None, show_chars: int = 8) -> str:
     """Mask a sensitive value for logging."""
     if not value:

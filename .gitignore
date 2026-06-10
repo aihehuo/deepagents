@@ -227,3 +227,4 @@ __marimo__/
 tests/*.md
 aihehuo_mcp
 BPGenerationAgent
+*.lock

@@ -130,6 +130,5 @@ kb/
 ├── PLAYBOOK.md     # 咨询回答流程
 ├── INDEX.md        # 本文件
 ├── index.json      # 检索索引
-├── raw/            # 原文 markdown
-└── chunks/brands/  # 按品牌切片
+└── chunks/brands/  # 按品牌切片（原文归纳后的结构化数据）
 ```

@@ -24,7 +24,7 @@ grep -i '阿德\|Punch Monday' kb/index.json
 ```
 
 - **Exit code / output empty** → 该品牌**无探店笔记**，不得说「吴探长探店 XX」
-- User asks for 笔记原文 → `ls kb/raw/*品牌*` ; file must exist before quoting
+- 笔记原文已归档为 chunks，不提供原文文件查询
 
 3. Search index for related entries:
 
@@ -48,7 +48,7 @@ cat kb/chunks/brands/wu-punch-monday/insight.md
 |---------|-----------|
 | Brands in `kb/index.json` | 「吴探长探店阿德生煎」when grep returns nothing |
 | Facts from read chunks | Specific numbers for brands not in index |
-| 「库内暂无 XX，可参考 YY（库内）」 | 「刚才那轮拆解来自笔记原文」when no raw file was read |
+| 「库内暂无 XX，可参考 YY（库内）」 | 虚构未收录品牌的笔记内容 |
 
 ## Index fields
 
@@ -60,11 +60,9 @@ cat kb/chunks/brands/wu-punch-monday/insight.md
 | `series` | 商业探店笔记 / 探店记 / 案例说 / 市场调查 |
 | `keywords` | 模糊匹配 |
 
-## Rebuild after new raw files
+## Update chunks after adding new raw files
 
+Run the rebuild script from repo root:
 ```bash
-cd /root/.openclaw/workspace-andy01  # or local workspace path
-python3 ../../scripts/build_wu_kb.py   # from agent01 dir on dev machine
+python3 claws/agent01/scripts/build_wu_kb.py
 ```
-
-On dev: `python3 claws/agent01/scripts/build_wu_kb.py` from repo root.

@@ -4,9 +4,11 @@ import asyncio
 from typing import Any
 
 import pytest
+import requests
 from fastapi import HTTPException
 from langchain_core.messages import ToolMessage
 
+from apps.wu_tanchang_api.app import callbacks
 from apps.wu_tanchang_api.app.callbacks import CallbackUrlError, validate_callback_url
 from apps.wu_tanchang_api.app.endpoints import async_chat, chat
 from apps.wu_tanchang_api.app.models import CallWuTanchangAsyncRequest, ChatRequest
@@ -51,6 +53,36 @@ def test_callback_url_requires_allowed_base_url() -> None:
     ]:
         with pytest.raises(CallbackUrlError):
             validate_callback_url(url)
+
+
+def test_invoke_callback_sends_agent_key_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class Response:
+        text = ""
+
+        def raise_for_status(self) -> None:
+            return None
+
+    def fake_post(url: str, **kwargs: Any) -> Response:
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setenv("WU_CALLBACK_AGENT_KEY", "shared-test-key")
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    interrupted = callbacks.invoke_callback(
+        "http://host.docker.internal:3001/wu_tanchang_callbacks/u1/c1",
+        {"type": "message", "message": "hello"},
+    )
+
+    assert interrupted is False
+    assert captured["headers"] == {
+        "Content-Type": "application/json",
+        "X-Agent-Key": "shared-test-key",
+    }
+    assert captured["allow_redirects"] is False
 
 
 def test_call_async_rejects_duplicate_active_thread(monkeypatch: pytest.MonkeyPatch) -> None:

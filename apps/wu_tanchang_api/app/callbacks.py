@@ -83,6 +83,15 @@ def _env_float(name: str, default: float) -> float:
     return value
 
 
+def callback_headers() -> dict[str, str]:
+    """Build HTTP headers for callback POSTs."""
+    headers = {"Content-Type": "application/json"}
+    agent_key = os.environ.get("WU_CALLBACK_AGENT_KEY") or os.environ.get("WU_TANCHANG_CALLBACK_TOKEN")
+    if agent_key:
+        headers["X-Agent-Key"] = agent_key
+    return headers
+
+
 def _jsonable(value: Any) -> Any:
     """Convert LangChain/Pydantic objects into JSON-serializable data."""
     if hasattr(value, "model_dump"):
@@ -109,7 +118,7 @@ def invoke_callback(callback_url: str, payload: dict[str, Any]) -> bool:
         response = requests.post(
             callback_url,
             json=_jsonable(payload),
-            headers={"Content-Type": "application/json"},
+            headers=callback_headers(),
             timeout=30,
             allow_redirects=False,
         )
@@ -148,7 +157,7 @@ def send_heartbeat(callback_url: str, session_id: str, metadata: dict[str, Any])
         response = requests.post(
             heartbeat_url,
             json=_jsonable(payload),
-            headers={"Content-Type": "application/json"},
+            headers=callback_headers(),
             timeout=10,
             allow_redirects=False,
         )

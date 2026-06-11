@@ -5,8 +5,10 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 
-from apps.wu_tanchang_api.app.endpoints import chat, health, reset
+from apps.wu_tanchang_api.app.endpoints import async_chat, chat, health, reset
 from apps.wu_tanchang_api.app.models import (
+    CallWuTanchangAsyncRequest,
+    CallWuTanchangAsyncResponse,
     ChatRequest,
     ChatResponse,
     ResetRequest,
@@ -43,6 +45,11 @@ def create_app() -> FastAPI:
     async def chat_stream_endpoint(req: ChatRequest) -> StreamingResponse:
         assert _state is not None
         return await chat.chat_stream(req, _state)
+
+    @app.post("/call_async", response_model=CallWuTanchangAsyncResponse)
+    async def call_async_endpoint(req: CallWuTanchangAsyncRequest) -> CallWuTanchangAsyncResponse:
+        assert _state is not None
+        return await async_chat.call_async(req, _state)
 
     @app.post("/reset", response_model=ResetResponse)
     async def reset_endpoint(req: ResetRequest) -> ResetResponse:

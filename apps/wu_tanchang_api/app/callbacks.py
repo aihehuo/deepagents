@@ -272,7 +272,10 @@ def run_async_stream_with_callback(
                 ):
                     if not isinstance(chunk, tuple) or len(chunk) != 3:
                         continue
-                    _, stream_mode, data = chunk
+                    subgraph_path, stream_mode, data = chunk
+                    if subgraph_path:
+                        # Skip streaming messages/updates from subagents (e.g. kb_analyst)
+                        continue
 
                     if stream_mode == "messages" and isinstance(data, tuple) and data:
                         msg_chunk = data[0]

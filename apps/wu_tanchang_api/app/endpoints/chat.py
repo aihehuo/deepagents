@@ -175,7 +175,10 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                     ):
                         if not isinstance(chunk, tuple) or len(chunk) != 3:
                             continue
-                        _, current_stream_mode, data = chunk
+                        subgraph_path, current_stream_mode, data = chunk
+                        if subgraph_path:
+                            # Skip streaming messages/updates from subagents (e.g. kb_analyst)
+                            continue
 
                         # Handle "updates" mode — progress info
                         if current_stream_mode == "updates" and isinstance(data, dict):

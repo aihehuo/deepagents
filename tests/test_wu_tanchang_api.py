@@ -9,10 +9,8 @@ from deepagents.middleware.filesystem import FilesystemMiddleware
 from fastapi import HTTPException
 
 from apps.wu_tanchang_api.config import get_selected_provider, resolve_model_config
-from apps.wu_tanchang_api.agent_factory.intake_agent import MAX_INTAKE_ROUNDS
-from apps.wu_tanchang_api.app.endpoints.brief import get_brief
 from apps.wu_tanchang_api.app.endpoints.chat import chat
-from apps.wu_tanchang_api.app.models import BriefRequest, ChatRequest
+from apps.wu_tanchang_api.app.models import ChatRequest
 from apps.wu_tanchang_api.app.state import AppState
 
 
@@ -32,15 +30,14 @@ class _FakeAgent:
         return {"messages": []}
 
 
-@dataclass
 class _FakeModel:
-    profile: dict[str, Any] | None = None
+    def __init__(self, profile: dict[str, Any] | None = None) -> None:
+        self.profile = profile
 
 
 def _state(
     checkpointer: _FakeCheckpointer,
     tmp_path: Path,
-    canvas_store: dict[str, dict[str, Any]] | None = None,
 ) -> AppState:
     agent = _FakeAgent(checkpointer)
     return AppState(
@@ -50,66 +47,31 @@ def _state(
         checkpoints_path=str(tmp_path / "checkpoints.pkl"),
         thread_locks={},
         backend_root=str(tmp_path),
-        expertise_dir=str(tmp_path / "expertise"),
-        canvas_store=canvas_store or {},
     )
 
-
-async def test_brief_returns_current_canvas(tmp_path: Path) -> None:
-    canvas = {
-        "meta": {"intake_complete": True, "round_count": 6},
-        "conversation_points": ["确认上海烘焙店的预算与商圈"],
-        "main_challenges": ["预算和店型之间需要重新匹配"],
-        "solution_directions": ["用库内烘焙案例校准选址和定价"],
-        "relevant_cases": [{"brand": "Punch Monday", "id": "wu-punch-monday", "why_relevant": "平价烘焙模型"}],
-        "open_questions": [],
-    }
-    thread_id = "wt::default::u1::c1"
-    canvas_store = {
-        thread_id: {
-            "canvas": canvas,
-            "brief_summary": "用户计划在上海做烘焙店，需重点讨论预算、选址和定价。",
-            "intake_complete": True,
-            "analysis_timestamp": "2026-06-09T00:00:00+00:00",
+async def test_chat_returns_guide_message_after_delivered(tmp_path: Path) -> None:
+    from langchain_core.messages import ToolMessage
+    checkpoint = {
+        "channel_values": {
+            "messages": [
+                ToolMessage(content="material_delivered", name="mark_material_delivered", tool_call_id="call_1")
+            ]
         }
     }
-    checkpointer = _FakeCheckpointer(None)
+    checkpointer = _FakeCheckpointer(checkpoint)
 
-    response = await get_brief(
-        BriefRequest(user_id="u1", conversation_id="c1"),
-        _state(checkpointer, tmp_path, canvas_store=canvas_store),
+    response = await chat(
+        ChatRequest(user_id="u1", conversation_id="c1", message="继续聊"),
+        _state(checkpointer, tmp_path),
     )
 
-    assert response.thread_id == thread_id
-    assert response.canvas == canvas
-    assert response.brief_summary == "用户计划在上海做烘焙店，需重点讨论预算、选址和定价。"
-    assert response.current_round == 6
-    assert response.intake_complete is True
-
-
-async def test_chat_rejects_after_intake_complete(tmp_path: Path) -> None:
-    thread_id = "wt::default::u1::c1"
-    canvas_store = {
-        thread_id: {
-            "canvas": {"meta": {"intake_complete": True}},
-            "intake_complete": True,
-        }
-    }
-    checkpointer = _FakeCheckpointer(None)
-
-    with pytest.raises(HTTPException) as exc:
-        await chat(
-            ChatRequest(user_id="u1", conversation_id="c1", message="继续聊"),
-            _state(checkpointer, tmp_path, canvas_store=canvas_store),
-        )
-
-    assert exc.value.status_code == 400
-    assert exc.value.detail["error"] == "intake_complete"
-    assert exc.value.detail["thread_id"] == thread_id
+    from apps.wu_tanchang_api.app.endpoints.chat import _GUIDE_MESSAGE
+    assert response.reply == _GUIDE_MESSAGE
 
 
 def test_agent_has_filesystem_middleware(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from apps.wu_tanchang_api.agent_factory import intake_agent
+    from apps.wu_tanchang_api.agent_factory import agent
+    import deepagents._models
 
     captured: dict[str, Any] = {}
 
@@ -120,15 +82,20 @@ def test_agent_has_filesystem_middleware(monkeypatch: pytest.MonkeyPatch, tmp_pa
         captured.update(_kwargs)
         return object()
 
-    monkeypatch.setattr(intake_agent, "create_model", fake_create_model)
-    monkeypatch.setattr(intake_agent, "create_deep_agent", fake_create_deep_agent)
-    monkeypatch.setattr(intake_agent, "default_runtime_dir", lambda: tmp_path / "runtime")
+    monkeypatch.setattr(deepagents._models, "resolve_model", lambda m: m)
+    monkeypatch.setattr(agent, "create_model", fake_create_model)
+    monkeypatch.setattr(agent, "create_deep_agent", fake_create_deep_agent)
+    monkeypatch.setattr(agent, "default_runtime_dir", lambda: tmp_path / "runtime")
 
-    agent, checkpoints_path = intake_agent.create_agent(backend_root=tmp_path, provider="deepseek")
+    created_agent, checkpoints_path = agent.create_agent(backend_root=tmp_path, provider="deepseek")
 
-    assert agent is not None
+    assert created_agent is not None
     assert checkpoints_path == tmp_path / "runtime" / "checkpoints.pkl"
-    assert any(isinstance(item, FilesystemMiddleware) for item in captured["middleware"])
+
+    from deepagents.middleware.subagents import SubAgentMiddleware
+    subagent_mw = next(item for item in captured["middleware"] if isinstance(item, SubAgentMiddleware))
+    kb_spec = next(spec for spec in subagent_mw._subagents if spec["name"] == "kb_analyst")
+    assert any(isinstance(item, FilesystemMiddleware) for item in kb_spec["middleware"])
 
 
 def test_config_resolves_env_references(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -257,7 +224,7 @@ def test_default_config_uses_model_catalog(monkeypatch: pytest.MonkeyPatch) -> N
     assert get_selected_provider() == "qwen"
 
     model_config = resolve_model_config(provider="qwen", model_name_suffix="MAIN_AGENT_MODEL")
-    assert model_config.model == "qwen-plus"
+    assert model_config.model == "qwen-flash"
     assert model_config.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
     assert model_config.api_key is None
     assert model_config.max_input_tokens == 1000000

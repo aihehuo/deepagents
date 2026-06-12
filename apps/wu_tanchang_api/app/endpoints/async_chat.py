@@ -47,77 +47,7 @@ async def call_async(req: CallWuTanchangAsyncRequest, state: AppState) -> CallWu
 
     max_active = _env_int("WU_CALLBACK_MAX_ACTIVE_STREAMS", 16)
 
-    if await _has_delivered_material(agent, tid):
-        if not state.try_start_agent_run(tid, "call_async_delivered"):
-            return CallWuTanchangAsyncResponse(
-                success=False,
-                session_id=tid,
-                message="Agent run already in progress for this conversation",
-            )
 
-        with state.active_callback_threads_lock:
-            stale_thread_ids = [
-                thread_id_key
-                for thread_id_key, thread in state.active_callback_threads.items()
-                if not thread.is_alive()
-            ]
-            for thread_id_key in stale_thread_ids:
-                state.active_callback_threads.pop(thread_id_key, None)
-            if len(state.active_callback_threads) >= max_active:
-                state.finish_agent_run(tid, "call_async_delivered")
-                return CallWuTanchangAsyncResponse(
-                    success=False,
-                    session_id=tid,
-                    message="Too many active Wu Tanchang streams",
-                )
-
-        delivered_message_id = f"wu_delivered_{tid}"
-        base_payload = {
-            "session_id": tid,
-            "user_id": req.user_id,
-            "conversation_id": req.conversation_id,
-            "agent_name": agent_name,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-        }
-
-        def _send_delivered_callbacks() -> None:
-            message_ok = invoke_callback(
-                callback_url,
-                {
-                    **base_payload,
-                    "type": "message",
-                    "message_id": delivered_message_id,
-                    "message": _GUIDE_MESSAGE,
-                },
-            )
-            final_ok = invoke_callback(
-                callback_url,
-                {
-                    **base_payload,
-                    "type": "status",
-                    "message_id": delivered_message_id,
-                    "status": "stream_completed",
-                },
-            )
-            if message_ok or final_ok:
-                _logger.info("Delivered-material callback requested interrupt for thread_id=%s", tid)
-            with state.active_callback_threads_lock:
-                state.active_callback_threads.pop(tid, None)
-            state.finish_agent_run(tid, "call_async_delivered")
-
-        thread = threading.Thread(
-            target=_send_delivered_callbacks,
-            daemon=False,
-            name=f"wu-delivered-callback-{tid}",
-        )
-        with state.active_callback_threads_lock:
-            state.active_callback_threads[tid] = thread
-        thread.start()
-        return CallWuTanchangAsyncResponse(
-            success=True,
-            session_id=tid,
-            message="Material already delivered; guide message callback scheduled",
-        )
 
     def _cleanup(completed_thread_id: str) -> None:
         with state.active_callback_threads_lock:

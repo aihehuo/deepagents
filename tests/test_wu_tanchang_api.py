@@ -49,7 +49,7 @@ def _state(
         backend_root=str(tmp_path),
     )
 
-async def test_chat_returns_guide_message_after_delivered(tmp_path: Path) -> None:
+async def test_chat_calls_agent_normally_after_delivered(tmp_path: Path) -> None:
     from langchain_core.messages import ToolMessage
     checkpoint = {
         "channel_values": {
@@ -65,8 +65,8 @@ async def test_chat_returns_guide_message_after_delivered(tmp_path: Path) -> Non
         _state(checkpointer, tmp_path),
     )
 
-    from apps.wu_tanchang_api.app.endpoints.chat import _GUIDE_MESSAGE
-    assert response.reply == _GUIDE_MESSAGE
+    # Should not short-circuit to _GUIDE_MESSAGE, but call the agent (which returns empty messages in FakeAgent)
+    assert response.reply == ""
 
 
 def test_agent_has_filesystem_middleware(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -228,3 +228,37 @@ def test_default_config_uses_model_catalog(monkeypatch: pytest.MonkeyPatch) -> N
     assert model_config.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
     assert model_config.api_key is None
     assert model_config.max_input_tokens == 1000000
+
+
+def test_task_tool_blocks_kb_analyst_after_delivered() -> None:
+    from deepagents.middleware.subagents import _build_task_tool, _SubagentSpec
+    from langchain.tools import ToolRuntime
+    from langchain_core.messages import ToolMessage
+    from unittest.mock import MagicMock
+
+    # Create dummy specs
+    mock_runnable = MagicMock()
+    mock_runnable.invoke.return_value = {"messages": [MagicMock()]}
+    spec = _SubagentSpec(name="kb_analyst", description="KB", runnable=mock_runnable)
+
+    # Build the task tool
+    tool = _build_task_tool([spec])
+
+    # Case 1: Materials not delivered yet
+    mock_runtime_ok = MagicMock(spec=ToolRuntime)
+    mock_runtime_ok.state = {"messages": []}
+    mock_runtime_ok.tool_call_id = "call-1"
+    mock_runtime_ok.config = {}
+    # Should attempt to execute and not return the block string
+    res_ok = tool.func(description="hello", subagent_type="kb_analyst", runtime=mock_runtime_ok)
+    assert res_ok != "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约吴探长一对一深聊。"
+
+    # Case 2: Materials delivered
+    mock_runtime_blocked = MagicMock(spec=ToolRuntime)
+    delivered_msg = ToolMessage(content="done", name="mark_material_delivered", tool_call_id="tool-1")
+    mock_runtime_blocked.state = {"messages": [delivered_msg]}
+    mock_runtime_blocked.tool_call_id = "call-2"
+    mock_runtime_blocked.config = {}
+
+    res_blocked = tool.func(description="hello", subagent_type="kb_analyst", runtime=mock_runtime_blocked)
+    assert res_blocked == "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约吴探长一对一深聊。"

@@ -67,14 +67,7 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
     agent_name, agent = _resolve_agent(state, req.agent_name)
     tid = thread_id(agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id)
 
-    # Check if material has already been delivered
-    if await _has_delivered_material(agent, tid):
-        return ChatResponse(
-            user_id=req.user_id,
-            conversation_id=req.conversation_id,
-            thread_id=tid,
-            reply=_GUIDE_MESSAGE,
-        )
+
 
     if not state.try_start_agent_run(tid, "chat"):
         raise HTTPException(
@@ -144,11 +137,7 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
     agent_name, agent = _resolve_agent(state, req.agent_name)
     tid = thread_id(agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id)
 
-    # Check if material has already been delivered
-    if await _has_delivered_material(agent, tid):
-        async def _early_gen() -> None:
-            yield f"data: {json.dumps({'type':'final','text':_GUIDE_MESSAGE}, ensure_ascii=False)}\n\n"
-        return StreamingResponse(_early_gen(), media_type="text/event-stream; charset=utf-8")
+
 
     async def _gen() -> None:
         final_parts: list[str] = []

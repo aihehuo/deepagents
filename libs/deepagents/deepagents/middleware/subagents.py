@@ -345,6 +345,19 @@ class _SubagentSpec(TypedDict):
     runnable: Runnable
 
 
+def _has_delivered_material(messages: list[Any]) -> bool:
+    for msg in messages:
+        if hasattr(msg, "name") and getattr(msg, "name") == "mark_material_delivered":
+            return True
+        if isinstance(msg, dict) and msg.get("type") == "tool" and msg.get("name") == "mark_material_delivered":
+            return True
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                if tc.get("name") == "mark_material_delivered":
+                    return True
+    return False
+
+
 def _build_task_tool(  # noqa: C901
     subagents: list[_SubagentSpec],
     task_description: str | None = None,
@@ -421,6 +434,11 @@ def _build_task_tool(  # noqa: C901
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
+        
+        parent_messages = runtime.state.get("messages", [])
+        if subagent_type == "kb_analyst" and _has_delivered_material(parent_messages):
+            return "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约吴探长一对一深聊。"
+
         subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
 
         # Don't merge all fields because this will block out manual `.with_config`
@@ -439,6 +457,11 @@ def _build_task_tool(  # noqa: C901
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
+
+        parent_messages = runtime.state.get("messages", [])
+        if subagent_type == "kb_analyst" and _has_delivered_material(parent_messages):
+            return "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约吴探长一对一深聊。"
+
         subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
         # Don't merge all fields because this will block out manual `.with_config`
         subagent_config: RunnableConfig = {"configurable": {**runtime.config.get("configurable", {}), "ls_agent_type": "subagent"}}

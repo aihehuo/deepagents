@@ -106,18 +106,9 @@ def test_call_async_rejects_duplicate_active_thread(monkeypatch: pytest.MonkeyPa
     assert second.message == "Agent run already in progress for this conversation"
 
 
-def test_call_async_delivered_material_sends_guide_without_stream(monkeypatch: pytest.MonkeyPatch) -> None:
-    callbacks: list[dict[str, Any]] = []
-
-    class ImmediateThread:
-        def __init__(self, target: Any, **_kwargs: Any) -> None:
-            self.target = target
-
-        def start(self) -> None:
-            self.target()
-
-    monkeypatch.setattr(async_chat.threading, "Thread", ImmediateThread)
-    monkeypatch.setattr(async_chat, "invoke_callback", lambda _url, payload: callbacks.append(payload) or False)
+def test_call_async_delivered_material_starts_stream_normally(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_thread = FakeThread()
+    monkeypatch.setattr(async_chat, "build_callback_thread", lambda **_kwargs: fake_thread)
 
     delivered = ToolMessage(content="done", name="mark_material_delivered", tool_call_id="tool-1")
     state = AppState(agents={"default": FakeAgent([delivered])}, default_agent="default")
@@ -131,11 +122,7 @@ def test_call_async_delivered_material_sends_guide_without_stream(monkeypatch: p
     response = asyncio.run(async_chat.call_async(req, state))
 
     assert response.success is True
-    assert "guide message callback scheduled" in response.message
-    assert [payload["type"] for payload in callbacks] == ["message", "status"]
-    assert callbacks[0]["message_id"] == callbacks[1]["message_id"]
-    assert callbacks[1]["status"] == "stream_completed"
-    assert state.active_agent_runs == {}
+    assert fake_thread.started is True
 
 
 def test_call_async_bad_max_active_env_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -33,6 +33,7 @@ from apps.wu_tanchang_api.agent_factory.model_builder import create_model
 from apps.wu_tanchang_api.agent_factory.utils import default_runtime_dir
 from apps.wu_tanchang_api.checkpointer import DiskBackedInMemorySaver
 from apps.wu_tanchang_api.config import WuAgentConfig
+from apps.wu_tanchang_api.agent_factory.kb_search import kb_semantic_search
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -45,9 +46,17 @@ KB_ANALYST_PROMPT = """你是吴探长团队的知识库分析师。
 
 你接收前置助手转交的用户诉求（包括品类、预算、城市、痛点等），然后：
 1. 读取 `kb/METHOD.md` 和 `kb/PLAYBOOK.md` 了解分析方法论。
-2. 使用 `wu-tanchang-kb` 技能检索 `kb/index.json` 查找相关案例。
-3. 读取匹配的 `kb/chunks/brands/{id}/` 维度文件获取案例详情。
-4. 提供高度精炼的业务建议，作为前置助手生成会议材料的内部参考。
+2. 用 `kb_semantic_search` 工具做语义召回（query=用户诉求，k=5）。
+3. 对返回的 note_id，用 `wu-tanchang-kb` 技能 grep `kb/index.json` 验证收录——
+    只有 grep 命中的 brand 才能引用。
+4. 对验证通过的 1-2 个最契合品牌，cat `kb/chunks/brands/{note_id}/` 下相关维度文件读细节。
+5. 提供高度精炼的业务建议，作为前置助手生成会议材料的内部参考。
+
+## 检索原则
+
+- `kb_semantic_search` 是**召回**工具，返回的 note_id 是候选；它**不能**单独作为引用依据。
+- `kb/index.json` 的 grep 是**收录硬护栏**——语义检索命中但 index.json 没收录 of 品牌，必须当作未收录处理。
+- 同一轮里 `kb_semantic_search` 最多调用 2 次（首次结果偏离时换 query 重试一次）。
 
 ## ⚠️ 防泄露与精简规则 (极其重要)
 
@@ -177,12 +186,13 @@ def create_agent(
         "name": "kb_analyst",
         "description": "检索吴探长知识库，查找餐饮案例、商业分析和参考数据",
         "model": model,
-        "tools": [],
+        "tools": [kb_semantic_search],
         "system_prompt": KB_ANALYST_PROMPT,
         "middleware": [
             AccountantMiddleware(max_tool_calls=6),
             SkillsMiddleware(backend=backend, sources=["/skills/"]),
             FilesystemMiddleware(backend=backend),
+            PromptLoggingMiddleware(),
         ],
     }
 

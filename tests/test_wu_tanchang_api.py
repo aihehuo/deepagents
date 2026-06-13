@@ -140,6 +140,20 @@ def test_config_resolves_env_references(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setenv("WU_API_CONFIG", str(config_path))
     monkeypatch.setenv("WU_API_ENV_FILE", str(env_path))
 
+    # Clean any pre-existing env vars that would override the .env file loading
+    for key in [
+        "WU_API_MODEL_PROVIDER",
+        "WU_OPENAI_COMPATIBLE_BASE_URL",
+        "WU_OPENAI_COMPATIBLE_API_KEY",
+        "WU_OPENAI_COMPATIBLE_MAIN_AGENT_MODEL",
+        "WU_OPENAI_COMPATIBLE_MAX_TOKENS",
+        "WU_OPENAI_COMPATIBLE_TIMEOUT_S",
+        "WU_OPENAI_COMPATIBLE_TEMPERATURE",
+        "WU_OPENAI_COMPATIBLE_MAX_INPUT_TOKENS",
+    ]:
+        monkeypatch.delenv(key, raising=False)
+
+
     assert get_selected_provider() == "openai_compatible"
 
     model_config = resolve_model_config(provider="openai_compatible", model_name_suffix="MAIN_AGENT_MODEL")

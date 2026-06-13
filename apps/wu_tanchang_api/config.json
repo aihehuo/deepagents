@@ -449,6 +449,18 @@
           "supports_tools": true,
           "billing_type": "flat"
         }
+      },
+      "embedding_models": {
+        "text-embedding-v3": {
+          "dimension": 1024,
+          "max_tokens_per_chunk": 8192,
+          "pricing": {
+            "input": {
+              "normal": 0.0007
+            },
+            "unit": "per_1k_tokens"
+          }
+        }
       }
     }
   }

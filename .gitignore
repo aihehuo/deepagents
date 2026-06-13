@@ -228,3 +228,13 @@ tests/*.md
 aihehuo_mcp
 BPGenerationAgent
 *.lock
+
+# Wu Tanchang KB DB & Vectors
+apps/wu_tanchang_api/workspace/kb/chroma/
+apps/wu_tanchang_api/workspace/kb/kb.db
+apps/wu_tanchang_api/workspace/kb/raw/
+apps/wu_tanchang_api/workspace/kb/extracted/
+apps/wu_tanchang_api/workspace/kb/chunks/brands/
+
+
+

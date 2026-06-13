@@ -28,7 +28,7 @@ RUN groupadd -r appuser -g 1000 && \
 # Minimal runtime deps for the API layer
 COPY apps/wu_tanchang_api/requirements.txt /app/apps/wu_tanchang_api/requirements.txt
 
-RUN pip install -r /app/apps/wu_tanchang_api/requirements.txt
+RUN pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r /app/apps/wu_tanchang_api/requirements.txt
 
 # Copy deepagents + cli source (imported via PYTHONPATH; no pip editable install)
 COPY libs/deepagents /app/libs/deepagents

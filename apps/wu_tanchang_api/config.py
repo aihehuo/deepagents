@@ -89,7 +89,9 @@ def load_env_file(path: Path | None = None) -> None:
 
 def _load_config(path: Path | None = None) -> dict[str, Any]:
     """Load the Wu Tanchang JSON config."""
-    config_path = path or Path(os.environ.get("WU_API_CONFIG", str(default_config_path())))
+    config_path = path or Path(
+        os.environ.get("WU_API_CONFIG", str(default_config_path()))
+    )
     with config_path.open(encoding="utf-8") as file:
         data = json.load(file)
     if not isinstance(data, dict):
@@ -129,7 +131,9 @@ def _get_int(data: dict[str, Any], key: str, default: int) -> int:
         return default
 
 
-def _get_float(data: dict[str, Any], key: str, default: float | None = None) -> float | None:
+def _get_float(
+    data: dict[str, Any], key: str, default: float | None = None
+) -> float | None:
     """Return a float value with a default fallback."""
     value = data.get(key)
     if value is None or value == "":
@@ -152,7 +156,9 @@ def get_selected_provider() -> str:
     """Return the configured model provider key."""
     load_env_file()
     data = _resolve(_load_config())
-    provider = _get_str(data, "model_provider") or _get_str(data, "default_model_provider")
+    provider = _get_str(data, "model_provider") or _get_str(
+        data, "default_model_provider"
+    )
     if provider:
         return provider
     return "qwen"
@@ -218,7 +224,9 @@ def resolve_model_config(
         max_tokens=_get_int(provider_data, "max_tokens", max_tokens_default),
         timeout_s=_get_float(provider_data, "timeout_s", 180.0) or 180.0,
         temperature=_get_float(provider_data, "temperature", 0.2),
-        max_input_tokens=_get_int(provider_data, "max_input_tokens", max_input_tokens_default),
+        max_input_tokens=_get_int(
+            provider_data, "max_input_tokens", max_input_tokens_default
+        ),
     )
 
 
@@ -301,7 +309,9 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
         max_tokens=_get_int(defaults, "max_tokens", 800),
         workspace=_get_str(defaults, "workspace", "") or "",
     )
-    return WuAgentRegistry(defaults=defaults_config, agents=agents, default_name=default_name)
+    return WuAgentRegistry(
+        defaults=defaults_config, agents=agents, default_name=default_name
+    )
 
 
 def resolve_agent_config(

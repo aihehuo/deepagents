@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
-from datetime import datetime
 
-from apps.wu_tanchang_api.app.callbacks import CallbackUrlError, build_callback_thread, invoke_callback, validate_callback_url
-from apps.wu_tanchang_api.app.endpoints.chat import _GUIDE_MESSAGE, _has_delivered_material, _resolve_agent
-from apps.wu_tanchang_api.app.models import CallWuTanchangAsyncRequest, CallWuTanchangAsyncResponse
+from apps.wu_tanchang_api.app.callbacks import (
+    CallbackUrlError,
+    build_callback_thread,
+    validate_callback_url,
+)
+from apps.wu_tanchang_api.app.endpoints.chat import _resolve_agent
+from apps.wu_tanchang_api.app.models import (
+    CallWuTanchangAsyncRequest,
+    CallWuTanchangAsyncResponse,
+)
 from apps.wu_tanchang_api.app.state import AppState
 from apps.wu_tanchang_api.app.utils import thread_id
 
@@ -31,10 +36,14 @@ def _env_int(name: str, default: int) -> int:
     return value
 
 
-async def call_async(req: CallWuTanchangAsyncRequest, state: AppState) -> CallWuTanchangAsyncResponse:
+async def call_async(
+    req: CallWuTanchangAsyncRequest, state: AppState
+) -> CallWuTanchangAsyncResponse:
     """Start a Wu Tanchang stream and POST chunks to the provided callback URL."""
     agent_name, agent = _resolve_agent(state, req.agent_name)
-    tid = thread_id(agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id)
+    tid = thread_id(
+        agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id
+    )
 
     try:
         callback_url = validate_callback_url(req.callback or "")
@@ -46,8 +55,6 @@ async def call_async(req: CallWuTanchangAsyncRequest, state: AppState) -> CallWu
         )
 
     max_active = _env_int("WU_CALLBACK_MAX_ACTIVE_STREAMS", 16)
-
-
 
     def _cleanup(completed_thread_id: str) -> None:
         with state.active_callback_threads_lock:

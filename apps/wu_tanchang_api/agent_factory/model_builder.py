@@ -39,7 +39,13 @@ def create_model(
         model_name_override=model_name_override,
     )
 
-    _logger.info("%s provider=%s api_type=%s model=%s", log_prefix, model_config.provider, model_config.api_type, model_config.model)
+    _logger.info(
+        "%s provider=%s api_type=%s model=%s",
+        log_prefix,
+        model_config.provider,
+        model_config.api_type,
+        model_config.model,
+    )
 
     model_kwargs: dict[str, object] = {
         "model": model_config.model,

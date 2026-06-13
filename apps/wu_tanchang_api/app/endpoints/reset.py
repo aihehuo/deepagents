@@ -25,11 +25,15 @@ async def reset(req: ResetRequest, state: AppState) -> ResetResponse:
                 "available": list(state.agents.keys()),
             },
         )
-    tid = thread_id(agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id)
+    tid = thread_id(
+        agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id
+    )
     intake_agent = state.agents[agent_name]
     checkpointer = getattr(intake_agent, "checkpointer", None)
     if checkpointer is not None and hasattr(checkpointer, "delete_thread"):
         checkpointer.delete_thread(tid)
     state.thread_locks.pop(tid, None)
     _logger.info("Reset thread %s (agent=%s)", tid, agent_name)
-    return ResetResponse(user_id=req.user_id, conversation_id=req.conversation_id, thread_id=tid, ok=True)
+    return ResetResponse(
+        user_id=req.user_id, conversation_id=req.conversation_id, thread_id=tid, ok=True
+    )

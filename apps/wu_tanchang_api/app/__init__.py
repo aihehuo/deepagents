@@ -47,7 +47,9 @@ def create_app() -> FastAPI:
         return await chat.chat_stream(req, _state)
 
     @app.post("/call_async", response_model=CallWuTanchangAsyncResponse)
-    async def call_async_endpoint(req: CallWuTanchangAsyncRequest) -> CallWuTanchangAsyncResponse:
+    async def call_async_endpoint(
+        req: CallWuTanchangAsyncRequest,
+    ) -> CallWuTanchangAsyncResponse:
         assert _state is not None
         return await async_chat.call_async(req, _state)
 

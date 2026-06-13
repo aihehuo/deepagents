@@ -28,6 +28,7 @@ from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
 
 from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
 
 from apps.wu_tanchang_api.agent_factory.model_builder import create_model
 from apps.wu_tanchang_api.agent_factory.utils import default_runtime_dir
@@ -104,7 +105,7 @@ FRONTEND_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
 - 你**没有**文件系统访问权限，无法直接读取任何工作区文件
 - 你的工作流程：收集信息 → 调用 kb_analyst（一次）→ 产出材料 → 引导预约
 - **不要做分析、不要给建议、不要做预算拆解**
-- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，再调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**
+- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**
 - 材料交付后，只引导预约，不再深入探讨
 """
 
@@ -116,6 +117,105 @@ def mark_material_delivered() -> str:
     调用此工具后，系统会知道该用户的对话已完成前置阶段。
     """
     return "material_delivered"
+
+
+@tool(parse_docstring=True)
+def save_meeting_prep(
+    body: str,
+    user_a_id: int | None = None,
+    user_b_id: int | None = None,
+    *,
+    config: RunnableConfig,
+) -> str:
+    """保存生成的两位用户之间的会面准备材料。
+    当会议材料（Markdown）生成完毕后，必须在调用 mark_material_delivered 之前调用此工具进行保存。
+
+    Args:
+        body: 生成的会面准备材料正文，支持 Markdown 格式。
+        user_a_id: 第一位用户的 ID。如果不传，将自动从上下文 metadata 中读取。
+        user_b_id: 第二位用户的 ID。如果不传，将自动从上下文 metadata 中读取。
+    """
+    import os
+    import requests
+    from datetime import datetime, timezone
+
+    metadata = config.get("metadata") or {}
+
+    # Extract user IDs
+    effective_user_a = user_a_id or metadata.get("user_a_id") or metadata.get("user_id")
+    effective_user_b = (
+        user_b_id or metadata.get("user_b_id") or metadata.get("calendar_id")
+    )
+
+    if not effective_user_a or not effective_user_b:
+        _logger.warning(
+            "[AgentTool] save_meeting_prep missing user_a_id or user_b_id in metadata/args"
+        )
+        return "保存失败：未在上下文或参数中找到 user_a_id 或 user_b_id"
+
+    # Determine API endpoint URL
+    callback_url = metadata.get("callback_url")
+    if callback_url:
+        if "/wu_tanchang_callbacks/" in callback_url:
+            base_url = (
+                callback_url.split("/wu_tanchang_callbacks/")[0]
+                + "/wu_tanchang_callbacks"
+            )
+        else:
+            base_url = callback_url.rstrip("/")
+        api_url = f"{base_url}/meeting_preps"
+    else:
+        raw_allowed = os.environ.get("WU_CALLBACK_ALLOWED_BASE_URLS")
+        base_urls = (
+            [base.strip() for base in raw_allowed.split(",") if base.strip()]
+            if raw_allowed
+            else [
+                "http://host.docker.internal:3001/wu_tanchang_callbacks/",
+                "http://localhost:3001/wu_tanchang_callbacks/",
+                "http://127.0.0.1:3001/wu_tanchang_callbacks/",
+            ]
+        )
+        base_url = base_urls[0].rstrip("/")
+        api_url = f"{base_url}/meeting_preps"
+
+    # Fetch token
+    token = os.environ.get("WU_TANCHANG_CALLBACK_TOKEN") or os.environ.get(
+        "WU_CALLBACK_AGENT_KEY"
+    )
+    headers = {"X-Agent-Key": token or "", "Content-Type": "application/json"}
+
+    # Prepare payload
+    author = metadata.get("agent_name") or "wu_tanchang"
+    payload = {
+        "user_a_id": int(effective_user_a),
+        "user_b_id": int(effective_user_b),
+        "author": author,
+        "body": body,
+        "prepared_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+    try:
+        _logger.info(
+            "[AgentTool] Calling create_meeting_prep: url=%s, user_a=%s, user_b=%s, author=%s",
+            api_url,
+            effective_user_a,
+            effective_user_b,
+            author,
+        )
+        response = requests.post(api_url, json=payload, headers=headers, timeout=15)
+        if response.status_code == 201:
+            _logger.info("[AgentTool] Meeting prep saved successfully.")
+            return "meeting_prep_saved"
+        else:
+            _logger.error(
+                "[AgentTool] Failed to save meeting prep: status_code=%s, response=%s",
+                response.status_code,
+                response.text,
+            )
+            return f"保存失败：后端返回状态码 {response.status_code}"
+    except Exception as e:
+        _logger.exception("[AgentTool] Connection error calling save_meeting_prep")
+        return f"保存失败：网络或接口调用异常 {type(e).__name__}: {str(e)}"
 
 
 def _load_persona_files(workspace_path: Path) -> str:
@@ -177,7 +277,10 @@ def create_agent(
 
     # Pre-load persona files from workspace root into system prompt
     persona_content = _load_persona_files(backend_root)
-    _logger.info("[Agent] Loaded %d persona file(s)", persona_content.count("===") if persona_content else 0)
+    _logger.info(
+        "[Agent] Loaded %d persona file(s)",
+        persona_content.count("===") if persona_content else 0,
+    )
 
     # ------------------------------------------------------------------
     # Sub-agent: KB analyst with full KB access
@@ -212,11 +315,13 @@ def create_agent(
 
     checkpointer = DiskBackedInMemorySaver(file_path=checkpoints_path)
 
-    system_prompt = FRONTEND_SYSTEM_PROMPT_TEMPLATE.format(persona_content=persona_content)
+    system_prompt = FRONTEND_SYSTEM_PROMPT_TEMPLATE.format(
+        persona_content=persona_content
+    )
 
     agent = create_deep_agent(
         model=model,
-        tools=[mark_material_delivered],
+        tools=[mark_material_delivered, save_meeting_prep],
         backend=backend,
         checkpointer=checkpointer,
         subagents=[],

@@ -254,7 +254,12 @@ def run_async_stream_with_callback(
         try:
             config = {
                 "configurable": {"thread_id": thread_id},
-                "metadata": {"user_id": user_id, "agent_name": agent_name, **metadata},
+                "metadata": {
+                    "user_id": user_id,
+                    "agent_name": agent_name,
+                    "callback_url": callback_url,
+                    **metadata,
+                },
             }
             last_status: str | None = None
             timeout_seconds = _env_float("WU_CALLBACK_STREAM_TIMEOUT_S", 300.0)

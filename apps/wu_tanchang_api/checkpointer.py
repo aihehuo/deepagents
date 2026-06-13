@@ -99,5 +99,3 @@ class DiskBackedInMemorySaver(InMemorySaver):
     def delete_thread(self, thread_id: str) -> None:  # type: ignore[override]
         super().delete_thread(thread_id)
         self._dump_to_disk()
-
-

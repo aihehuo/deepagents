@@ -27,8 +27,12 @@ class CallWuTanchangAsyncRequest(BaseModel):
     message: str = Field(..., description="User message")
     conversation_id: str = Field("default", description="Conversation id")
     agent_name: str = Field("", description="Agent profile name; empty = default")
-    callback: str | None = Field(None, description="Callback URL to receive stream events")
-    callback_url: str | None = Field(None, alias="callback_url", description="Callback URL to receive stream events")
+    callback: str | None = Field(
+        None, description="Callback URL to receive stream events"
+    )
+    callback_url: str | None = Field(
+        None, alias="callback_url", description="Callback URL to receive stream events"
+    )
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:

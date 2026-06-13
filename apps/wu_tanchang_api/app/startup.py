@@ -13,7 +13,11 @@ from apps.wu_tanchang_api.agent_factory.utils import (
     ensure_runtime_workspace,
 )
 from apps.wu_tanchang_api.app.state import AppState
-from apps.wu_tanchang_api.config import get_selected_provider, load_agent_registry, load_env_file
+from apps.wu_tanchang_api.config import (
+    get_selected_provider,
+    load_agent_registry,
+    load_env_file,
+)
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -21,9 +25,13 @@ _logger = logging.getLogger("uvicorn.error")
 async def startup(state_ref: dict[str, AppState | None]) -> None:
     """Initialize agents and application state."""
     load_env_file()
-    workspace_src = Path(os.environ.get("WU_API_WORKSPACE", str(default_workspace_path())))
+    workspace_src = Path(
+        os.environ.get("WU_API_WORKSPACE", str(default_workspace_path()))
+    )
     runtime_dir = default_runtime_dir()
-    backend_root = ensure_runtime_workspace(workspace_src=workspace_src, runtime_dir=runtime_dir)
+    backend_root = ensure_runtime_workspace(
+        workspace_src=workspace_src, runtime_dir=runtime_dir
+    )
 
     registry = load_agent_registry()
 

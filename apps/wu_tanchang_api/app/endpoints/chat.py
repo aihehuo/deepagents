@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, Too
 
 from apps.wu_tanchang_api.app.models import ChatRequest, ChatResponse
 from apps.wu_tanchang_api.app.state import AppState
-from apps.wu_tanchang_api.app.utils import thread_id
+from apps.wu_tanchang_api.app.utils import get_progress_status, thread_id
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -52,11 +52,14 @@ async def _has_delivered_material(agent: Any, tid: str) -> bool:
     messages = checkpoint.get("channel_values", {}).get("messages", [])
     for msg in messages:
         # Check for ToolMessage with matching name
-        if isinstance(msg, ToolMessage) and getattr(msg, "name", None) == "mark_material_delivered":
+        if (
+            isinstance(msg, ToolMessage)
+            and getattr(msg, "name", None) == "mark_material_delivered"
+        ):
             return True
         # Check for tool_calls on AIMessage
         if isinstance(msg, AIMessage):
-            for tc in (msg.tool_calls or []):
+            for tc in msg.tool_calls or []:
                 if tc.get("name") == "mark_material_delivered":
                     return True
     return False
@@ -65,14 +68,18 @@ async def _has_delivered_material(agent: Any, tid: str) -> bool:
 async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
     """Handle a conversation turn."""
     agent_name, agent = _resolve_agent(state, req.agent_name)
-    tid = thread_id(agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id)
-
-
+    tid = thread_id(
+        agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id
+    )
 
     if not state.try_start_agent_run(tid, "chat"):
         raise HTTPException(
             status_code=409,
-            detail={"error": "stream_in_progress", "message": "Agent run already in progress for this conversation", "thread_id": tid},
+            detail={
+                "error": "stream_in_progress",
+                "message": "Agent run already in progress for this conversation",
+                "thread_id": tid,
+            },
         )
 
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
@@ -80,8 +87,16 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
         async with lock:
             try:
                 # Record existing message count to isolate this round's new messages
-                checkpoint = await agent.checkpointer.aget({"configurable": {"thread_id": tid}}) if hasattr(agent, "checkpointer") else None
-                msg_count_before = len(checkpoint.get("channel_values", {}).get("messages", [])) if checkpoint else 0
+                checkpoint = (
+                    await agent.checkpointer.aget({"configurable": {"thread_id": tid}})
+                    if hasattr(agent, "checkpointer")
+                    else None
+                )
+                msg_count_before = (
+                    len(checkpoint.get("channel_values", {}).get("messages", []))
+                    if checkpoint
+                    else 0
+                )
 
                 result = await agent.ainvoke(
                     {"messages": [HumanMessage(content=req.message)]},
@@ -93,7 +108,11 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(
                     status_code=502,
-                    detail={"error_type": type(exc).__name__, "error_message": str(exc), "thread_id": tid},
+                    detail={
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                        "thread_id": tid,
+                    },
                 ) from exc
     finally:
         state.finish_agent_run(tid, "chat")
@@ -135,29 +154,48 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
     - data: {"type":"error","detail":{...}} (once, if error)
     """
     agent_name, agent = _resolve_agent(state, req.agent_name)
-    tid = thread_id(agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id)
-
-
+    tid = thread_id(
+        agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id
+    )
 
     async def _gen() -> None:
         final_parts: list[str] = []
         if not state.try_start_agent_run(tid, "chat_stream"):
-            detail = {"error": "stream_in_progress", "message": "Agent run already in progress for this conversation", "thread_id": tid}
-            yield f"data: {json.dumps({'type':'error','detail':detail}, ensure_ascii=False)}\n\n"
+            detail = {
+                "error": "stream_in_progress",
+                "message": "Agent run already in progress for this conversation",
+                "thread_id": tid,
+            }
+            yield f"data: {json.dumps({'type': 'error', 'detail': detail}, ensure_ascii=False)}\n\n"
             return
         lock = state.thread_locks.setdefault(tid, asyncio.Lock())
         try:
             async with lock:
                 try:
                     # Record existing message count to isolate this round's new messages
-                    checkpoint = await agent.checkpointer.aget({"configurable": {"thread_id": tid}}) if hasattr(agent, "checkpointer") else None
-                    msg_count_before = len(checkpoint.get("channel_values", {}).get("messages", [])) if checkpoint else 0
+                    checkpoint = (
+                        await agent.checkpointer.aget(
+                            {"configurable": {"thread_id": tid}}
+                        )
+                        if hasattr(agent, "checkpointer")
+                        else None
+                    )
+                    msg_count_before = (
+                        len(checkpoint.get("channel_values", {}).get("messages", []))
+                        if checkpoint
+                        else 0
+                    )
+
+                    last_status: str | None = None
 
                     async for chunk in agent.astream(
                         {"messages": [HumanMessage(content=req.message)]},
                         config={
                             "configurable": {"thread_id": tid},
-                            "metadata": {"user_id": req.user_id, **(req.metadata or {})},
+                            "metadata": {
+                                "user_id": req.user_id,
+                                **(req.metadata or {}),
+                            },
                         },
                         stream_mode=["messages", "updates"],
                         subgraphs=True,
@@ -165,29 +203,28 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                         if not isinstance(chunk, tuple) or len(chunk) != 3:
                             continue
                         subgraph_path, current_stream_mode, data = chunk
-                        if subgraph_path:
-                            # Skip streaming messages/updates from subagents (e.g. kb_analyst)
+
+                        # Skip subagent raw text chunks to avoid polluting the main chat bubble
+                        if current_stream_mode == "messages" and subgraph_path:
                             continue
 
-                        # Handle "updates" mode — progress info
-                        if current_stream_mode == "updates" and isinstance(data, dict):
-                            for key, update_data in data.items():
-                                if key.startswith("__") and key.endswith("__"):
-                                    continue
-                                if not isinstance(update_data, dict):
-                                    continue
-                                # Detect sub-agent / tool calls in progress
-                                msgs = update_data.get("messages", [])
-                                for msg in msgs:
-                                    if isinstance(msg, ToolMessage) or (isinstance(msg, dict) and msg.get("type") == "tool"):
-                                        tool_name = msg.get("name", "") if isinstance(msg, dict) else getattr(msg, "name", "")
-                                        if tool_name:
-                                            progress_msg = f"正在调用知识库: {tool_name}..."
-                                            payload = {"type": "progress", "message": progress_msg}
-                                            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                        # Handle "updates" mode — progress info (including subagents)
+                        if current_stream_mode == "updates":
+                            status = get_progress_status(
+                                subgraph_path, current_stream_mode, data
+                            )
+                            if status and status != last_status:
+                                last_status = status
+                                payload = {"type": "progress", "message": status}
+                                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-                        # Handle "messages" mode — text deltas
-                        if current_stream_mode == "messages" and isinstance(data, tuple) and len(data) == 2:
+                        # Handle "messages" mode — text deltas (only from the main agent)
+                        if (
+                            current_stream_mode == "messages"
+                            and not subgraph_path
+                            and isinstance(data, tuple)
+                            and len(data) == 2
+                        ):
                             msg_chunk, _metadata = data
                             if isinstance(msg_chunk, AIMessageChunk):
                                 if msg_chunk.content:
@@ -197,9 +234,15 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
                 except Exception as exc:  # noqa: BLE001
-                    _logger.error("[ChatStream] Error: %s: %s", type(exc).__name__, str(exc))
-                    detail = {"error_type": type(exc).__name__, "error_message": str(exc), "thread_id": tid}
-                    yield f"data: {json.dumps({'type':'error','detail':detail}, ensure_ascii=False)}\n\n"
+                    _logger.error(
+                        "[ChatStream] Error: %s: %s", type(exc).__name__, str(exc)
+                    )
+                    detail = {
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                        "thread_id": tid,
+                    }
+                    yield f"data: {json.dumps({'type': 'error', 'detail': detail}, ensure_ascii=False)}\n\n"
                     return
         finally:
             state.finish_agent_run(tid, "chat_stream")
@@ -209,7 +252,11 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
 
         # Fallback: if no text was streamed, extract from checkpoint messages
         if not reply:
-            messages = checkpoint.get("channel_values", {}).get("messages", []) if checkpoint else []
+            messages = (
+                checkpoint.get("channel_values", {}).get("messages", [])
+                if checkpoint
+                else []
+            )
             new_messages = messages[msg_count_before:]
             parts: list[str] = []
             for msg in new_messages:
@@ -223,6 +270,6 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                 parts.append(content)
             reply = "\n\n".join(parts)
 
-        yield f"data: {json.dumps({'type':'final','text':reply}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'final', 'text': reply}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(_gen(), media_type="text/event-stream; charset=utf-8")

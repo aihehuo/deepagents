@@ -12,7 +12,9 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from langchain_core.messages import AIMessageChunk, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessageChunk, HumanMessage
+
+from apps.wu_tanchang_api.app.utils import get_progress_status
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -51,14 +53,20 @@ def validate_callback_url(callback_url: str) -> str:
     for base_url in _allowed_callback_base_urls():
         base_parts = urlsplit(base_url)
         if base_parts.scheme not in {"http", "https"} or not base_parts.hostname:
-            _logger.warning("[WuCallback] Ignoring invalid allowed callback base URL: %s", sanitize_url_for_log(base_url))
+            _logger.warning(
+                "[WuCallback] Ignoring invalid allowed callback base URL: %s",
+                sanitize_url_for_log(base_url),
+            )
             continue
         same_origin = (
             parts.scheme == base_parts.scheme
             and parts.hostname == base_parts.hostname
-            and (parts.port or _default_port(parts.scheme)) == (base_parts.port or _default_port(base_parts.scheme))
+            and (parts.port or _default_port(parts.scheme))
+            == (base_parts.port or _default_port(base_parts.scheme))
         )
-        base_path = base_parts.path if base_parts.path.endswith("/") else f"{base_parts.path}/"
+        base_path = (
+            base_parts.path if base_parts.path.endswith("/") else f"{base_parts.path}/"
+        )
         if same_origin and parts.path.startswith(base_path):
             return callback_url
     raise CallbackUrlError("callback URL is not under an allowed callback base URL")
@@ -86,7 +94,9 @@ def _env_float(name: str, default: float) -> float:
 def callback_headers() -> dict[str, str]:
     """Build HTTP headers for callback POSTs."""
     headers = {"Content-Type": "application/json"}
-    agent_key = os.environ.get("WU_CALLBACK_AGENT_KEY") or os.environ.get("WU_TANCHANG_CALLBACK_TOKEN")
+    agent_key = os.environ.get("WU_CALLBACK_AGENT_KEY") or os.environ.get(
+        "WU_TANCHANG_CALLBACK_TOKEN"
+    )
     if agent_key:
         headers["X-Agent-Key"] = agent_key
     return headers
@@ -127,9 +137,13 @@ def invoke_callback(callback_url: str, payload: dict[str, Any]) -> bool:
         if response_text:
             try:
                 data = response.json()
-                interrupted = isinstance(data, dict) and data.get("action") == "interrupt"
+                interrupted = (
+                    isinstance(data, dict) and data.get("action") == "interrupt"
+                )
             except (ValueError, json.JSONDecodeError):
-                _logger.warning("[WuCallback] Non-JSON callback response: %s", response_text[:500])
+                _logger.warning(
+                    "[WuCallback] Non-JSON callback response: %s", response_text[:500]
+                )
         response.raise_for_status()
         return interrupted
     except Exception as exc:  # noqa: BLE001
@@ -143,7 +157,9 @@ def invoke_callback(callback_url: str, payload: dict[str, Any]) -> bool:
         return False
 
 
-def send_heartbeat(callback_url: str, session_id: str, metadata: dict[str, Any]) -> None:
+def send_heartbeat(
+    callback_url: str, session_id: str, metadata: dict[str, Any]
+) -> None:
     """Send a liveness heartbeat to the backend callback receiver."""
     heartbeat_url = f"{callback_url.rstrip('/')}/heartbeat"
     payload = {
@@ -196,30 +212,6 @@ def _extract_text_delta(message: Any) -> str:
     return ""
 
 
-def _progress_messages_from_update(data: dict[str, Any]) -> list[str]:
-    messages: list[str] = []
-    for node_name, update_data in data.items():
-        if node_name.startswith("__") and node_name.endswith("__"):
-            continue
-        if not isinstance(update_data, dict):
-            continue
-
-        tool_calls = update_data.get("tool_calls") or []
-        for tool_call in tool_calls[:3]:
-            tool_name = tool_call.get("name") if isinstance(tool_call, dict) else getattr(tool_call, "name", "")
-            if tool_name:
-                messages.append(f"正在调用知识库: {tool_name}...")
-
-        for msg in update_data.get("messages") or []:
-            is_tool = isinstance(msg, ToolMessage) or (isinstance(msg, dict) and msg.get("type") == "tool")
-            if not is_tool:
-                continue
-            tool_name = msg.get("name") if isinstance(msg, dict) else getattr(msg, "name", "")
-            messages.append(f"知识库调用完成: {tool_name}" if tool_name else "知识库调用完成")
-
-    return messages
-
-
 def run_async_stream_with_callback(
     *,
     agent: Any,
@@ -241,7 +233,9 @@ def run_async_stream_with_callback(
 
         async def _heartbeat_loop() -> None:
             while not heartbeat_stop.is_set():
-                await loop.run_in_executor(None, send_heartbeat, callback_url, thread_id, metadata)
+                await loop.run_in_executor(
+                    None, send_heartbeat, callback_url, thread_id, metadata
+                )
                 try:
                     await asyncio.wait_for(heartbeat_stop.wait(), timeout=10)
                 except asyncio.TimeoutError:
@@ -262,6 +256,7 @@ def run_async_stream_with_callback(
                 "configurable": {"thread_id": thread_id},
                 "metadata": {"user_id": user_id, "agent_name": agent_name, **metadata},
             }
+            last_status: str | None = None
             timeout_seconds = _env_float("WU_CALLBACK_STREAM_TIMEOUT_S", 300.0)
             async with asyncio.timeout(timeout_seconds):
                 async for chunk in agent.astream(
@@ -273,11 +268,17 @@ def run_async_stream_with_callback(
                     if not isinstance(chunk, tuple) or len(chunk) != 3:
                         continue
                     subgraph_path, stream_mode, data = chunk
-                    if subgraph_path:
-                        # Skip streaming messages/updates from subagents (e.g. kb_analyst)
+
+                    # Skip subagent raw text chunks to avoid polluting the main chat bubble
+                    if stream_mode == "messages" and subgraph_path:
                         continue
 
-                    if stream_mode == "messages" and isinstance(data, tuple) and data:
+                    if (
+                        stream_mode == "messages"
+                        and not subgraph_path
+                        and isinstance(data, tuple)
+                        and data
+                    ):
                         msg_chunk = data[0]
                         if isinstance(msg_chunk, AIMessageChunk):
                             text = _extract_text_delta(msg_chunk)
@@ -287,20 +288,23 @@ def run_async_stream_with_callback(
                                 **base_payload,
                                 "timestamp": datetime.utcnow().isoformat() + "Z",
                                 "type": "message",
-                                "message_id": _message_id_from_chunk(msg_chunk) or fallback_message_id,
+                                "message_id": _message_id_from_chunk(msg_chunk)
+                                or fallback_message_id,
                                 "message": text,
                             }
                             active_message_id = payload["message_id"]
                             if invoke_callback(callback_url, payload):
                                 break
 
-                    if stream_mode == "updates" and isinstance(data, dict):
-                        for progress_message in _progress_messages_from_update(data):
+                    if stream_mode == "updates":
+                        status = get_progress_status(subgraph_path, stream_mode, data)
+                        if status and status != last_status:
+                            last_status = status
                             payload = {
                                 **base_payload,
                                 "timestamp": datetime.utcnow().isoformat() + "Z",
                                 "type": "status",
-                                "status": progress_message,
+                                "status": status,
                             }
                             if invoke_callback(callback_url, payload):
                                 return

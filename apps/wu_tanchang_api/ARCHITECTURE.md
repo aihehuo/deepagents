@@ -52,6 +52,11 @@
 - 读取 `kb/METHOD.md`、`kb/PLAYBOOK.md` 了解方法论
 - 检索 `kb/index.json` + `kb/chunks/` 获取案例
 
+### 记忆与持久化设计 (Memory & Persistence Design)
+
+- **仅会话级 Checkpoint**：前置咨询服务本质上是短周期的信息收集与一次性材料生成过程。当前的前置助手均是按知识库进行短咨询并生成会面材料，**无需长期记忆（Long-term Memory）**需求，因此未启用 `MemoryMiddleware` 或任何长期记忆文件写操作。
+- **短期会话隔离**：系统通过磁盘持久化 checkpointer（`checkpoints.pkl`）仅保留单次会话状态（`thread_id` 级别），以维持多轮对话信息收集的上下文连贯，一旦材料交付，会话流程即告结束。
+
 ## API
 
 ```bash

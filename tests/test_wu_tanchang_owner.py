@@ -410,3 +410,104 @@ async def test_resolve_dynamic_agent(
     assert name == "default"
     called_cfg = mock_create_agent.call_args[1]["agent_config"]
     assert called_cfg.workspace == "workspace"
+
+
+def test_mask_pii() -> None:
+    from apps.wu_tanchang_api.agent_factory.owner_tools import mask_pii
+
+    # Test emails
+    assert mask_pii("my email is abc@example.com") == "my email is a***c@example.com"
+    assert mask_pii("test.user+tag@domain.co.uk") == "t***g@domain.co.uk"
+
+    # Test Chinese mobile phone numbers
+    assert mask_pii("手机号是13812345678") == "手机号是138****5678"
+    assert mask_pii("My phone is +86-18998765432") == "My phone is +86-189****5432"
+
+    # Test landlines
+    assert mask_pii("021-62345678") == "021****5678"
+    assert mask_pii("010 8765 4321") == "010****4321"
+
+    # Test 18-digit ID card
+    assert mask_pii("身份证是110101199003072345") == "身份证是110101********2345"
+    assert mask_pii("身份证X是11010119900307234X") == "身份证X是110101********234X"
+
+
+@pytest.mark.anyio
+async def test_get_client_detail_pii_masking() -> None:
+    # Set up client messages and prep body containing PII
+    t1_msg = [
+        HumanMessage(content="我预留手机号是13911112222，邮箱是test@gmail.com"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "save_meeting_prep",
+                    "args": {
+                        "body": "### 客户预约材料\n- 电话：13911112222\n- 邮箱：test@gmail.com\n- 身份证号：110101199003072345"
+                    },
+                    "id": "tc1",
+                }
+            ],
+        ),
+    ]
+    t1 = _FakeCheckpointTuple(
+        thread_id="wt::default::user_pii::conv1",
+        ts="2026-06-14T10:00:00.000000+00:00",
+        messages=t1_msg,
+        metadata={"calendar_id": "o1"},
+    )
+
+    checkpointer = _FakeCheckpointer([t1])
+    agent = _FakeAgent(checkpointer)
+
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "wt::owner::o1::c1"},
+        "metadata": {"agent_instance": agent},
+    }
+
+    # Retrieve with expand_prep_details=True
+    detail = await get_client_detail.ainvoke(
+        {"client_user_id": "user_pii", "expand_prep_details": True},
+        config=config,
+    )
+
+    assert "user_pii" in detail
+    # Phone, email and ID should be masked
+    assert "139****2222" in detail
+    assert "13911112222" not in detail
+    assert "t***t@gmail.com" in detail
+    assert "test@gmail.com" not in detail
+    assert "110101********2345" in detail
+    assert "110101199003072345" not in detail
+
+
+@pytest.mark.anyio
+async def test_owner_tools_strict_access_denied() -> None:
+    # Test that if owner's calendar_id is missing, the tools fail safely
+    t1_msg = [HumanMessage(content="你好")]
+    t1 = _FakeCheckpointTuple(
+        thread_id="wt::default::u1::c1",
+        ts="2026-06-14T10:00:00.000000+00:00",
+        messages=t1_msg,
+        metadata={"calendar_id": "o1"},
+    )
+    checkpointer = _FakeCheckpointer([t1])
+    agent = _FakeAgent(checkpointer)
+
+    # config has no calendar_id metadata and thread_id is not wt::owner::o1::c1
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "some_other_thread"},
+        "metadata": {"agent_instance": agent},
+    }
+
+    # stats should return empty/failure message
+    stats = await get_consultation_stats.ainvoke({"days": 7}, config=config)
+    assert "0" in stats
+
+    # list recent clients should return empty list message
+    recent = await list_recent_clients.ainvoke({"days": 7}, config=config)
+    assert "未找到" in recent
+
+    # get client detail should return not found message
+    detail = await get_client_detail.ainvoke({"client_user_id": "u1"}, config=config)
+    assert "未找到" in detail

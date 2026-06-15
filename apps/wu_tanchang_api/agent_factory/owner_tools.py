@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Tuple
 
@@ -10,6 +11,49 @@ from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 
 _logger = logging.getLogger("uvicorn.error")
+
+
+def mask_pii(text: str) -> str:
+    """Mask sensitive PII like emails, ID card numbers, and phone numbers from the text.
+
+    Args:
+        text: The input text potentially containing PII.
+
+    Returns:
+        The masked text.
+    """
+    if not text:
+        return text
+
+    # Mask email addresses
+    def _replace_email(match: re.Match[str]) -> str:
+        email = match.group(0)
+        if "@" in email:
+            local, domain = email.split("@", 1)
+            if len(local) > 2:
+                return f"{local[0]}***{local[-1]}@{domain}"
+            return f"***@{domain}"
+        return email
+
+    text = re.sub(
+        r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", _replace_email, text
+    )
+
+    # Mask Chinese mobile phone numbers: 1[3-9]\d{9} -> 1xx****xxxx
+    text = re.sub(r"(?<!\d)(1[3-9]\d)\d{4}(\d{4})(?!\d)", r"\1****\2", text)
+
+    # Mask 7-12 digit numbers that look like phone numbers
+    # (e.g. landline 010-12345678 or 021 1234 5678)
+    text = re.sub(r"(?<!\d)(\d{3,4})[- ]?(\d{4})[- ]?(\d{4})(?!\d)", r"\1****\3", text)
+
+    # Mask 18-digit ID card numbers: 18 digits or 17 digits followed by X/x
+    text = re.sub(
+        r"(?<!\d)(\d{6})\d{8}(\d{3}[\dXx])(?!\d)",
+        r"\1********\2",
+        text,
+    )
+
+    return text
 
 
 def _parse_thread_id(thread_id: str) -> Tuple[str, str, str] | None:
@@ -55,6 +99,11 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
     owner_calendar_id_str = (
         str(owner_calendar_id).strip() if owner_calendar_id else None
     )
+    if not owner_calendar_id_str:
+        _logger.warning(
+            "[OwnerTools] Access denied: calendar_id/user_b_id not found in config context"
+        )
+        return []
 
     # Call checkpointer.list(config=None) once to fetch all checkpoints (P1/P7 Optimization)
     try:
@@ -111,8 +160,8 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
             str(client_calendar_id).strip() if client_calendar_id else None
         )
 
-        # Filter by owner_calendar_id if both are specified (S2)
-        if owner_calendar_id_str and client_calendar_id_str != owner_calendar_id_str:
+        # Filter by owner_calendar_id (S2 Point 1): client must match owner's calendar
+        if client_calendar_id_str != owner_calendar_id_str:
             continue
 
         first_ts_str = first_ckpt.checkpoint.get("ts", "")
@@ -274,7 +323,7 @@ async def get_client_detail(
         )
         if target["prep_body"]:
             result.append("\n## 📄 生成的会议准备材料：\n")
-            result.append(target["prep_body"])
+            result.append(mask_pii(target["prep_body"]))
         else:
             result.append("\n⚠️ **该客户的会议准备材料尚未生成。**\n")
             # Extract the last few dialogue turns
@@ -283,7 +332,7 @@ async def get_client_detail(
                 role = "AI助手" if msg.type == "ai" else "客户"
                 content = getattr(msg, "content", "")
                 if content and not str(content).startswith("Updated todo list"):
-                    chat_history.append(f"**{role}**: {content}")
+                    chat_history.append(f"**{role}**: {mask_pii(str(content))}")
             if chat_history:
                 result.append("### 💬 最近对话片段：")
                 result.extend(chat_history)

@@ -36,7 +36,7 @@ from apps.wu_tanchang_api.agent_factory.model_builder import create_model
 from apps.wu_tanchang_api.agent_factory.utils import default_runtime_dir
 from apps.wu_tanchang_api.checkpointer import DiskBackedInMemorySaver
 from apps.wu_tanchang_api.config import WuAgentConfig
-from apps.wu_tanchang_api.agent_factory.kb_search import kb_semantic_search
+from apps.wu_tanchang_api.agent_factory.kb_search import kb_semantic_search, get_note_content
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -64,7 +64,7 @@ def get_active_agent(thread_id: str) -> Any | None:
 # =========================================================================
 # KB sub-agent prompt: reads KB files and returns analysis in Wu Tanchang's voice
 # =========================================================================
-KB_ANALYST_PROMPT = """你是吴探长团队的知识库分析师。
+KB_ANALYST_PROMPT = """你是协助分析知识库的专业分析师。
 
 ## 职责
 
@@ -72,39 +72,38 @@ KB_ANALYST_PROMPT = """你是吴探长团队的知识库分析师。
 1. 读取 `kb/METHOD.md` 和 `kb/PLAYBOOK.md` 了解分析方法论。
 2. 用 `kb_semantic_search` 工具做语义召回（query=用户诉求，k=5）。
 3. 对返回的 note_id，用 `wu-tanchang-kb` 技能 grep `kb/index.json` 验证收录——
-    只有 grep 命中的 brand 才能引用。
-4. 对验证通过的 1-2 个最契合品牌，cat `kb/chunks/brands/{note_id}/` 下相关维度文件读细节。
+    只有 grep 命中的案例/品牌才能引用。
+4. 对验证通过 of 1-2 个最契合条目，使用 `get_note_content` 工具读取其完整笔记内容。
 5. 提供高度精炼的业务建议，作为前置助手生成会议材料的内部参考。
 
 ## 检索原则
 
 - `kb_semantic_search` 是**召回**工具，返回的 note_id 是候选；它**不能**单独作为引用依据。
-- `kb/index.json` 的 grep 是**收录硬护栏**——语义检索命中但 index.json 没收录 of 品牌，必须当作未收录处理。
+- `kb/index.json` 的 grep 是**收录硬护栏**——语义检索命中但 index.json 没收录的案例，必须当作未收录处理。
 - 同一轮里 `kb_semantic_search` 最多调用 2 次（首次结果偏离时换 query 重试一次）。
 
 ## ⚠️ 防泄露与精简规则 (极其重要)
 
-- **禁止泄露任何技术或文件系统信息**：输出内容中**绝对不能**出现任何文件路径（如 `kb/chunks/...`、`kb/index.json`）、文件名（如 `dimension-...`、`.md`、`.json`）、技能名称（如 `wu-tanchang-kb`）、或者关于你如何搜索、读取文件及“分块 (chunks)”的系统行为描述。
+- **禁止泄露任何技术或文件系统信息**：输出内容中**绝对不能**出现任何文件路径（如 `kb/...`、`kb/index.json`）、文件名（如 `.md`、`.json`）、技能名称（如 `wu-tanchang-kb`）、或者关于你如何搜索、调用工具及“读取数据库”的系统行为描述。
 - **禁止包含任何操作指令**：不要写类似“需要读取的 chunks”、“建议你自行前往以下路径读取”、“收录状态：库内已收录”等面向系统的提示。
-- **字数严格限制**：输出的总字数**必须严格控制在 300 字以内**。探讨方向和案例介绍只保留最核心的商业逻辑和动作，禁止大段背景叙述或废话。
-- **输出必须高度精炼**：避免长篇大论或虚套客套话，不输出无意义的步骤信息，直接切入核心商业洞察与案例参考。
+- **字数严格限制**：输出的总字数**必须严格控制在 300 字以内**。探讨方向和案例介绍只保留最核心的商业逻辑 and 动作，禁止大段背景叙述或废话。
+- **输出必须高度精炼**：避免长篇大论或极简客套话，不输出无意义的步骤信息，直接切入核心商业洞察与案例参考。
 
 ## 输出内容
 
 结合用户信息和知识库，仅输出以下两个部分：
 
-1. **吴探长可能探讨的方向** (2-3 个方向)：
-   - 基于用户当前阶段、预算及困惑，提炼出最关键的探讨方向（如定位卡位、产品线设计、成本控制、流量模型等），并给出简要的商业逻辑解释。
-2. **可参考案例** (1-2 个最契合的库内案例)：
-   - 列出匹配的品牌名称（直接写品牌名，如“荣家黄鱼面”、“肉肉大米”）。
-   - 核心商业动作（该品牌具体做了什么）。
+1. **可能探讨的方向** (2-3 个方向)：
+   - 基于用户当前阶段及困惑，提炼出最关键的探讨方向，并给出简要的商业逻辑解释。
+2. **可参考案例/方法论** (1-2 个最契合的库内案例/方法论)：
+   - 列出匹配的品牌或方法论名称。
+   - 核心商业动作/去风险要点（该案例/方法论具体指出了什么）。
    - 核心参考价值（为什么对这位用户有参考意义）。
 
 ## 引用规则
 
-- 引用品牌前必须检索 `kb/index.json` 确认收录。
-- 仅对库内品牌写「吴探长探店 XX 时」。
-- 数据必须来自 chunks 内容，不得凭空捏造。
+- 引用案例前必须检索 `kb/index.json` 确认收录。
+- 仅对库内条目引用，且数据必须来自真实文件内容，不得凭空捏造。
 
 ## 语言
 
@@ -358,9 +357,9 @@ def create_agent(
     # ------------------------------------------------------------------
     kb_subagent = {
         "name": "kb_analyst",
-        "description": "检索吴探长知识库，查找餐饮案例、商业分析和参考数据",
+        "description": "检索知识库，查找商业方法论、案例和参考数据",
         "model": model,
-        "tools": [kb_semantic_search],
+        "tools": [kb_semantic_search, get_note_content],
         "system_prompt": KB_ANALYST_PROMPT,
         "middleware": [
             AccountantMiddleware(max_tool_calls=6),

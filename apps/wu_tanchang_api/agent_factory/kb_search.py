@@ -261,3 +261,22 @@ def kb_semantic_search(
         return f"错误: 知识库向量索引未构建，请先运行 kb_build_vectors.py。({e})"
     except Exception as e:
         return f"错误: 语义检索失败 ({e})"
+
+
+@tool
+def get_note_content(note_id: str) -> str:
+    """获取指定 note_id 的完整笔记内容。此工具直接从数据库中读取并返回笔记的全文。"""
+    try:
+        _ensure_loaded()
+        conn = sqlite3.connect(_db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT title, content FROM notes WHERE id = ?;", (note_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return f"错误: 未找到 ID 为 '{note_id}' 的笔记。"
+        return f"### {row['title']}\n\n{row['content']}"
+    except Exception as e:
+        return f"错误: 无法获取笔记内容 ({e})"
+

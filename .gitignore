@@ -237,5 +237,14 @@ apps/wu_tanchang_api/workspace/kb/raw/
 apps/wu_tanchang_api/workspace/kb/extracted/
 apps/wu_tanchang_api/workspace/kb/chunks/brands/
 
+# Custom Workspace KB Private Data (e.g. workspace_1, workspace_2, etc.)
+apps/wu_tanchang_api/workspace_*/kb/chroma/
+apps/wu_tanchang_api/workspace_*/kb/kb.db
+apps/wu_tanchang_api/workspace_*/kb/raw/
+apps/wu_tanchang_api/workspace_*/kb/extracted/
+apps/wu_tanchang_api/workspace_*/kb/chunks/
+apps/wu_tanchang_api/workspace_*/kb/index.json
+apps/wu_tanchang_api/workspace_*/kb/INDEX.md
+
 
 

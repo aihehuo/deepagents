@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from pathlib import Path
+
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -17,6 +19,32 @@ def default_workspace_path() -> Path:
 def default_runtime_dir() -> Path:
     """Return the runtime data directory."""
     return Path.home() / ".deepagents" / "wu_tanchang_api"
+
+
+def _deploy_dir(src: Path, dest: Path) -> None:
+    """Deploy a directory from src to dest.
+
+    Tries to create a symlink first to save disk and time.
+    If symlinking fails due to filesystem/OS limitations,
+    falls back to copytree.
+    """
+    if dest.exists() or dest.is_symlink():
+        if dest.is_symlink():
+            dest.unlink()
+        else:
+            shutil.rmtree(dest)
+
+    try:
+        os.symlink(src.resolve(), dest)
+        _logger.info("[WuTanchang] Symlinked directory: %s -> %s", src, dest)
+    except (OSError, PermissionError) as exc:
+        _logger.warning(
+            "[WuTanchang] Symlink failed (%s). Falling back to copytree: %s -> %s",
+            exc,
+            src,
+            dest,
+        )
+        shutil.copytree(src, dest)
 
 
 def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
@@ -44,19 +72,13 @@ def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
         if not src.exists():
             continue
         dest = runtime_dir / name
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(src, dest)
-        _logger.info("[WuTanchang] Deployed %s -> %s", src, dest)
+        _deploy_dir(src, dest)
 
     # Deploy all workspace directories (e.g. workspace_*, workspace)
     for folder in workspace_src.parent.glob("workspace*"):
         if folder.is_dir() and folder.name not in ("kb", "skills", "intake"):
             dest = runtime_dir / folder.name
-            if dest.exists():
-                shutil.rmtree(dest)
-            shutil.copytree(folder, dest)
-            _logger.info("[WuTanchang] Deployed workspace: %s -> %s", folder, dest)
+            _deploy_dir(folder, dest)
 
     return runtime_dir
 

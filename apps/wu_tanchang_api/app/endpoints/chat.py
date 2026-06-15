@@ -365,7 +365,10 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                         # Handle "updates" mode — progress info (including subagents)
                         if current_stream_mode == "updates":
                             status = get_progress_status(
-                                subgraph_path, current_stream_mode, data
+                                subgraph_path,
+                                current_stream_mode,
+                                data,
+                                workspace_name=getattr(agent, "workspace_name", "workspace"),
                             )
                             if status and status != last_status:
                                 last_status = status

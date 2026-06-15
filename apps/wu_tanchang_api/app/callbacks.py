@@ -248,11 +248,16 @@ def run_async_stream_with_callback(
                     continue
 
         heartbeat_task = asyncio.create_task(_heartbeat_loop())
+        workspace_name = getattr(agent, "workspace_name", "workspace")
+        payload_agent_name = agent_name
+        if "1" in workspace_name:
+            payload_agent_name = "yc01_owner" if agent_name == "owner" else "yc01"
+
         base_payload = {
             "session_id": thread_id,
             "user_id": user_id,
             "conversation_id": conversation_id,
-            "agent_name": agent_name,
+            "agent_name": payload_agent_name,
         }
         fallback_message_id = f"wu_{uuid.uuid4().hex}"
         active_message_id: str | None = None
@@ -312,7 +317,12 @@ def run_async_stream_with_callback(
                                 break
 
                     if stream_mode == "updates":
-                        status = get_progress_status(subgraph_path, stream_mode, data)
+                        status = get_progress_status(
+                            subgraph_path,
+                            stream_mode,
+                            data,
+                            workspace_name=workspace_name,
+                        )
                         if status and status != last_status:
                             last_status = status
                             payload = {

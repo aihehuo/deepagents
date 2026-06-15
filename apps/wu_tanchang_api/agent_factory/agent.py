@@ -142,10 +142,10 @@ OWNER_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
 
 ## 基本规则
 
-- 严格按照人格文件中的指导行事，你是吴探长的专属AI数据决策助理。
-- 你的工作是帮助吴探长掌握客户进展、统计数据、分析客户需求。
+- 严格按照人格文件中的指导行事，你是{owner_name}的专属AI数据决策助理。
+- 你的工作是帮助{owner_name}掌握客户进展、统计数据、分析客户需求。
 - **请务必在需要时调用提供的工具（get_consultation_stats, list_recent_clients, get_client_detail）来获取和汇总数据。不要凭空虚构任何客户统计或明细信息！**
-- 回复探长时要专业、高效、结构化，通常使用中文。
+- 回复{owner_name}时要专业、高效、结构化，通常使用中文。
 """
 
 
@@ -248,7 +248,19 @@ def save_meeting_prep(
         return "保存失败：用户 ID 格式不正确（必须为整数）"
 
     # Prepare payload
-    author = metadata.get("agent_name") or "wu_tanchang"
+    author = metadata.get("agent_name")
+    if not author:
+        # Determine default author name based on workspace
+        from apps.wu_tanchang_api.agent_factory.agent import get_active_agent
+        config_configurable = config.get("configurable") or {}
+        tid = config_configurable.get("thread_id")
+        active_agent = get_active_agent(tid) if tid else None
+        workspace_name = getattr(active_agent, "workspace_name", "workspace") if active_agent else "workspace"
+        if "1" in workspace_name:
+            author = "yc"
+        else:
+            author = "wu_tanchang"
+
     payload = {
         "user_a_id": user_a_int,
         "user_b_id": user_b_int,
@@ -381,9 +393,12 @@ def create_agent(
             get_client_detail,
         )
 
+        owner_name = "YC老师" if "1" in effective_workspace else "吴探长"
+
         tools = [get_consultation_stats, list_recent_clients, get_client_detail]
         system_prompt = OWNER_SYSTEM_PROMPT_TEMPLATE.format(
-            persona_content=persona_content
+            persona_content=persona_content,
+            owner_name=owner_name,
         )
         middleware = [
             AccountantMiddleware(max_tool_calls=6),
@@ -416,6 +431,10 @@ def create_agent(
         middleware=middleware,
         system_prompt=system_prompt,
     )
+    try:
+        agent.workspace_name = effective_workspace
+    except AttributeError:
+        pass
 
     _logger.info(
         "[Agent] Created (backend=%s, checkpoints=%s, provider=%s, model=%s)",

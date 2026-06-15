@@ -17,6 +17,8 @@ def get_progress_status(
     subgraph_path: Any,
     stream_mode: str,
     data: Any,
+    *,
+    workspace_name: str = "workspace",
 ) -> str | None:
     """Extract a user-friendly progress status message from a stream chunk.
 
@@ -24,6 +26,7 @@ def get_progress_status(
         subgraph_path: The subgraph path (empty for main agent).
         stream_mode: The stream mode ("messages" or "updates").
         data: The chunk data.
+        workspace_name: The name of the active workspace.
 
     Returns:
         A user-friendly status message, or None if no status update.
@@ -80,7 +83,10 @@ def get_progress_status(
             # Subagent execution progress
             # Check if kb_semantic_search is being called
             if has_tool_call(update_data, {"kb_semantic_search"}):
-                return "正在对餐饮案例库进行语义检索..."
+                if "1" in workspace_name:
+                    return "正在对创业案例与方法论进行语义检索..."
+                else:
+                    return "正在对餐饮案例库进行语义检索..."
 
             # Check if other tools are called (e.g. filesystem tools or skill tools)
             tool_calls = update_data.get("tool_calls") or []
@@ -91,7 +97,10 @@ def get_progress_status(
                 or (isinstance(msg, dict) and msg.get("type") == "tool")
             ]
             if tool_calls or tool_msgs:
-                return "正在调阅餐饮案例详情并分析商业动作..."
+                if "1" in workspace_name:
+                    return "正在调阅创业案例详情并分析商业动作..."
+                else:
+                    return "正在调阅餐饮案例详情并分析商业动作..."
 
             # If the agent node is running without tool calls, it's synthesizing the response
             if node_name == "agent":

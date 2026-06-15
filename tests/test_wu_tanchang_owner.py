@@ -577,3 +577,34 @@ def test_app_state_compilation_locks() -> None:
     dep_lock = state.compilation_lock
     assert dep_lock is state.get_compilation_lock("default")
 
+
+def test_extract_name_and_title() -> None:
+    from apps.wu_tanchang_api.agent_factory.owner_tools import _extract_name_and_title
+    from langchain_core.messages import HumanMessage, AIMessage
+
+    # 1. Direct name + title in text
+    msgs1 = [HumanMessage(content="张总好，我准备开个面馆")]
+    assert _extract_name_and_title(msgs1) == "张总"
+
+    # 2. Introduction with "我是...的老板"
+    msgs2 = [HumanMessage(content="我是面馆的李老板，想咨询一下连锁加盟")]
+    assert _extract_name_and_title(msgs2) == "李老板"
+
+    # 3. "我叫..."
+    msgs3 = [HumanMessage(content="我叫王二，打算在上海开店")]
+    assert _extract_name_and_title(msgs3) == "王二"
+
+    # 4. "我姓..."
+    msgs4 = [HumanMessage(content="你好，我姓陈")]
+    assert _extract_name_and_title(msgs4) == "陈先生/女士"
+
+    # 5. "我姓..." with title in the same content
+    msgs5 = [HumanMessage(content="我姓王，是这边的经理")]
+    assert _extract_name_and_title(msgs5) == "王经理"
+
+    # 6. Fallback to "未知客户" if no patterns matched
+    msgs6 = [HumanMessage(content="哈喽"), AIMessage(content="你好")]
+    assert _extract_name_and_title(msgs6) == "未知客户"
+
+    # 7. No messages
+    assert _extract_name_and_title([]) == "未知客户"

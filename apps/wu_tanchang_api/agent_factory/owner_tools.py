@@ -57,6 +57,103 @@ def mask_pii(text: str) -> str:
     return text
 
 
+def _extract_name_and_title(messages: List[Any]) -> str:
+    """Extract name and title from human messages in the conversation history."""
+    if not messages:
+        return "未知客户"
+
+    for msg in messages:
+        # Check if the message is from the human/client
+        msg_type = getattr(msg, "type", "")
+        if (
+            msg_type != "human"
+            and msg_type != "user"
+            and type(msg).__name__ != "HumanMessage"
+        ):
+            continue
+
+        content = getattr(msg, "content", "")
+        if not isinstance(content, str) or not content:
+            continue
+
+        # Pattern 1: Direct name + title patterns anywhere in the message
+        # e.g., "我李老板准备...", "张总好..."
+        title_pattern = (
+            r"([^的我是你他她它有个了想要开在有就和与，。！？、\s]{1,3})"
+            r"(老板|经理|总|创始人|合伙人|主理人|先生|女士|医生|老师|师傅)"
+        )
+        for name_part, title_part in re.findall(title_pattern, content):
+            stop_words = [
+                "是",
+                "要",
+                "想",
+                "去",
+                "做",
+                "叫",
+                "给",
+                "跟",
+                "和",
+                "或",
+                "在",
+                "不",
+                "有",
+                "个",
+                "人",
+                "都",
+                "此",
+            ]
+            if name_part not in stop_words and len(name_part) >= 1:
+                return f"{name_part}{title_part}"
+
+        # Pattern 2: Explicit introductions with name/title patterns
+        # e.g., 我是面馆的李老板, 我叫王二, 我是李总, 我是王老师
+        intro_matches = re.findall(
+            r"(?:我是|我叫|叫我|称呼我为|本人是)\s*([^结构化，。！？、\s]{1,10})",
+            content,
+        )
+        for match in intro_matches:
+            # Clean up: if the match contains "的" (e.g., "面馆的李老板"), get the part after "的"
+            candidate = (
+                match.split("的")[-1].strip() if "的" in match else match.strip()
+            )
+
+            # Filter candidates to avoid matching verbs/phrases
+            if candidate and len(candidate) <= 4:
+                invalid_keywords = [
+                    "一个",
+                    "做",
+                    "想",
+                    "开",
+                    "打算",
+                    "去",
+                    "要",
+                    "准备",
+                    "来",
+                    "咨询",
+                    "加",
+                    "加盟",
+                    "找",
+                ]
+                if not any(w in candidate for w in invalid_keywords):
+                    return candidate
+
+        # Pattern 3: Surname and title combinations
+        # e.g., 我姓张，是开面馆的。
+        surname_matches = re.findall(r"我姓\s*([^，。！？、\s]{1,3})", content)
+        for s in surname_matches:
+            # Look for a title in the same content
+            title_match = re.search(
+                r"(老板|经理|总|创始人|合伙人|主理人|先生|女士|医生|老师|师傅|阿姨|叔叔|大姐)",
+                content,
+            )
+            if title_match:
+                title = title_match.group(1)
+                return f"{s}{title}"
+            return f"{s}先生/女士"
+
+    return "未知客户"
+
+
 def _parse_thread_id(thread_id: str) -> Tuple[str, str, str] | None:
     """Parse thread ID into (agent_name, user_id, conversation_id)."""
     parts = thread_id.split("::")
@@ -88,6 +185,12 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
     checkpointer = getattr(agent, "checkpointer", None)
     if not checkpointer:
         return []
+
+    if hasattr(checkpointer, "_load_from_disk"):
+        try:
+            checkpointer._load_from_disk()
+        except Exception as exc:  # noqa: BLE001
+            _logger.error("Failed to reload checkpointer from disk: %s", exc)
 
     # Extract owner's calendar_id for scoping (S2)
     metadata = config.get("metadata") or {}
@@ -147,13 +250,17 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
                 f_ckpt_b, f_meta_b, _ = first_raw
                 _f_meta = checkpointer.serde.loads_typed(f_meta_b)
                 f_ckpt = checkpointer.serde.loads_typed(f_ckpt_b)
-                f_channels = checkpointer._load_blobs(t_id, "", f_ckpt["channel_versions"])
+                f_channels = checkpointer._load_blobs(
+                    t_id, "", f_ckpt["channel_versions"]
+                )
                 first_checkpoint = {**f_ckpt, "channel_values": f_channels}
 
                 l_ckpt_b, l_meta_b, _ = latest_raw
                 l_meta = checkpointer.serde.loads_typed(l_meta_b)
                 l_ckpt = checkpointer.serde.loads_typed(l_ckpt_b)
-                l_channels = checkpointer._load_blobs(t_id, "", l_ckpt["channel_versions"])
+                l_channels = checkpointer._load_blobs(
+                    t_id, "", l_ckpt["channel_versions"]
+                )
                 latest_checkpoint = {**l_ckpt, "channel_values": l_channels}
             # Fallback for CheckpointTuple objects
             elif hasattr(latest_raw, "checkpoint"):
@@ -166,13 +273,20 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
                 latest_checkpoint = latest_raw
                 # Find matching tuple in mock list to get metadata
                 tups = getattr(checkpointer, "_tuples", [])
-                match_tup = next((x for x in tups if x.config["configurable"]["thread_id"] == t_id), None)
+                match_tup = next(
+                    (x for x in tups if x.config["configurable"]["thread_id"] == t_id),
+                    None,
+                )
                 l_meta = match_tup.metadata if match_tup else {}
             else:
-                _logger.warning("Unknown checkpoint raw value type in storage: %s", type(latest_raw))
+                _logger.warning(
+                    "Unknown checkpoint raw value type in storage: %s", type(latest_raw)
+                )
                 continue
         except Exception as exc:  # noqa: BLE001
-            _logger.error("Failed to deserialize checkpoint for thread %s: %s", t_id, exc)
+            _logger.error(
+                "Failed to deserialize checkpoint for thread %s: %s", t_id, exc
+            )
             continue
 
         # Check calendar_id scope (S2)
@@ -198,7 +312,9 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
                     if tc.get("name") == "save_meeting_prep":
                         prep_body = tc.get("args", {}).get("body")
                         if not client_calendar_id_str:
-                            client_calendar_id_str = str(tc.get("args", {}).get("user_b_id")).strip()
+                            client_calendar_id_str = str(
+                                tc.get("args", {}).get("user_b_id")
+                            ).strip()
 
         first_ts_str = first_checkpoint.get("ts", "")
         last_ts_str = latest_checkpoint.get("ts", "")
@@ -213,6 +329,7 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
                 "status": "completed" if delivered else "chatting",
                 "prep_body": prep_body,
                 "messages": messages,
+                "client_name": _extract_name_and_title(messages),
             }
         )
 
@@ -313,13 +430,13 @@ async def list_recent_clients(
 
     lines = [
         f"### 👥 近 {days} 天客户列表 (状态: {status})",
-        "| 客户ID | 开始时间 | 最后活跃时间 | 状态 |",
-        "| :--- | :--- | :--- | :---: |",
+        "| 姓名/称呼 | 客户ID | 开始时间 | 最后活跃时间 | 状态 |",
+        "| :--- | :--- | :--- | :--- | :---: |",
     ]
     for t in sorted(filtered, key=lambda x: x["started_at"], reverse=True):
         status_label = "✅ 已交付" if t["status"] == "completed" else "💬 沟通中"
         lines.append(
-            f"| `{t['user_id']}` | {t['started_at'][:19]} | {t['last_active_at'][:19]} | {status_label} |"
+            f"| {t['client_name']} | `{t['user_id']}` | {t['started_at'][:19]} | {t['last_active_at'][:19]} | {status_label} |"
         )
 
     return "\n".join(lines)
@@ -346,7 +463,7 @@ async def get_client_detail(
         return f"未找到客户 ID 为 `{client_user_id}` 的预聊记录。"
 
     result = [
-        f"# 👤 客户需求详情 (ID: {client_user_id})",
+        f"# 👤 客户需求详情: {target['client_name']} (ID: {client_user_id})",
         f"- **开始预聊时间**: {target['started_at'][:19]}",
         f"- **最后互动时间**: {target['last_active_at'][:19]}",
         f"- **当前进度状态**: {'✅ 会议材料已交付' if target['status'] == 'completed' else '💬 仍在补充信息'}",

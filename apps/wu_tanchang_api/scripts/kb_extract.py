@@ -286,6 +286,12 @@ def main() -> None:
     parser.add_argument(
         "--workers", type=int, default=8, help="Number of concurrent workers"
     )
+    parser.add_argument(
+        "--owner-name",
+        type=str,
+        default=None,
+        help="The name of the workspace owner (e.g. YC老师 or 吴探长)",
+    )
     args = parser.parse_args()
 
     raw_dir = Path(args.raw_dir)
@@ -293,6 +299,19 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     workspace_dir = raw_dir.parents[1]
+    
+    # Generate owner.json
+    owner_name = args.owner_name
+    if not owner_name:
+        if "workspace_1" in str(raw_dir.resolve()):
+            owner_name = "YC老师"
+        else:
+            owner_name = "吴探长"
+    owner_json_path = workspace_dir / "owner.json"
+    logger.info("Writing owner.json to %s with owner_name=%s", owner_json_path, owner_name)
+    with owner_json_path.open("w", encoding="utf-8") as f:
+        json.dump({"owner_name": owner_name}, f, ensure_ascii=False, indent=2)
+
     index_json_path = workspace_dir / "kb" / "index.json"
     if not index_json_path.exists():
         logger.error("index.json not found at %s", index_json_path)

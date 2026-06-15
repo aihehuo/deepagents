@@ -94,12 +94,13 @@ def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
         The runtime_dir path (created if needed).
     """
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    # Also copy persona .md files from workspace root to runtime
-    for md_file in workspace_src.glob("*.md"):
-        if not md_file.name.startswith("kb") and not md_file.name.startswith("memory"):
-            dest = runtime_dir / md_file.name
-            shutil.copy2(md_file, dest)
-            _logger.info("[WuTanchang] Deployed persona: %s -> %s", md_file, dest)
+    # Also copy persona .md and owner.json files from workspace root to runtime
+    for pattern in ("*.md", "owner.json"):
+        for src_file in workspace_src.glob(pattern):
+            if not src_file.name.startswith("kb") and not src_file.name.startswith("memory"):
+                dest = runtime_dir / src_file.name
+                shutil.copy2(src_file, dest)
+                _logger.info("[WuTanchang] Deployed file: %s -> %s", src_file, dest)
     for name in ("kb", "skills"):
         src = workspace_src / name
         if not src.exists():
@@ -161,25 +162,21 @@ def get_workspace_agent_id(workspace_path: Path) -> str:
 
 
 def get_workspace_owner_name(workspace_path: Path) -> str:
-    """Parse the owner name from USER.md in the owner workspace.
-    If workspace_path is not an owner workspace, converts it to the owner workspace first.
+    """Parse the owner name from owner.json in the workspace.
+    If workspace_path is an owner workspace, looks in the corresponding user workspace.
     """
+    import json
     path = workspace_path
-    if not path.name.endswith("_owner"):
-        owner_ws_name = f"{path.name}_owner"
-        path = path.parent / owner_ws_name
-
-    user_md = path / "USER.md"
-    if user_md.exists():
-        try:
-            content = user_md.read_text(encoding="utf-8")
-            import re
-            match = re.search(r"-\s+\*\*Target\s+User\*\*:\s*([^\n\r(]+)", content, re.IGNORECASE)
-            if match:
-                name = match.group(1).strip()
-                return name
-        except Exception:
-            pass
+    # Try current workspace first, then fall back to user workspace if it's owner mode
+    for target_path in (path, path.parent / path.name.replace("_owner", "")):
+        owner_json = target_path / "owner.json"
+        if owner_json.exists():
+            try:
+                data = json.loads(owner_json.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and "owner_name" in data:
+                    return data["owner_name"]
+            except Exception:
+                pass
 
     # Fallbacks
     if "1" in workspace_path.name:

@@ -90,13 +90,20 @@ def _tool_call_count_reducer(left: int | None, right: int | None) -> int:
     return left + right
 
 
+def _turn_id_reducer(left: str | None, right: str | None) -> str:
+    """Reducer for accountant_turn_id that handles concurrent updates by returning the latest."""
+    if right is not None:
+        return right
+    return left or ""
+
+
 class AccountantState(AgentState):
     """State for tracking tool calls and token usage."""
 
     tool_call_count: Annotated[NotRequired[int], _tool_call_count_reducer]
     """Current count of tool calls made in this conversation."""
 
-    accountant_turn_id: NotRequired[str]
+    accountant_turn_id: Annotated[NotRequired[str], _turn_id_reducer]
     """Current turn identifier for per-turn tool call accounting."""
 
     total_input_tokens: Annotated[NotRequired[int], _token_count_reducer]

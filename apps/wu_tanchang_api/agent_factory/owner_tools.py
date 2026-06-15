@@ -35,6 +35,7 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
     agent = None
     if tid:
         from apps.wu_tanchang_api.agent_factory.agent import get_active_agent
+
         agent = get_active_agent(tid)
     if not agent:
         agent = config.get("metadata", {}).get("agent_instance")
@@ -51,7 +52,9 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
         if len(parts) == 4 and parts[0] == "wt" and parts[1] == "owner":
             owner_calendar_id = parts[2]
 
-    owner_calendar_id_str = str(owner_calendar_id).strip() if owner_calendar_id else None
+    owner_calendar_id_str = (
+        str(owner_calendar_id).strip() if owner_calendar_id else None
+    )
 
     # Call checkpointer.list(config=None) once to fetch all checkpoints (P1/P7 Optimization)
     try:
@@ -61,6 +64,7 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
         return []
 
     from collections import defaultdict
+
     thread_groups = defaultdict(list)
     for tup in all_tuples:
         t_id = tup.config["configurable"]["thread_id"]
@@ -84,7 +88,9 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
         # Check calendar_id scope (S2)
         client_calendar_id = None
         if latest_ckpt.metadata:
-            client_calendar_id = latest_ckpt.metadata.get("calendar_id") or latest_ckpt.metadata.get("user_b_id")
+            client_calendar_id = latest_ckpt.metadata.get(
+                "calendar_id"
+            ) or latest_ckpt.metadata.get("user_b_id")
 
         delivered = False
         prep_body = None
@@ -101,7 +107,9 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
                         if not client_calendar_id:
                             client_calendar_id = tc.get("args", {}).get("user_b_id")
 
-        client_calendar_id_str = str(client_calendar_id).strip() if client_calendar_id else None
+        client_calendar_id_str = (
+            str(client_calendar_id).strip() if client_calendar_id else None
+        )
 
         # Filter by owner_calendar_id if both are specified (S2)
         if owner_calendar_id_str and client_calendar_id_str != owner_calendar_id_str:
@@ -110,16 +118,18 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
         first_ts_str = first_ckpt.checkpoint.get("ts", "")
         last_ts_str = latest_ckpt.checkpoint.get("ts", "")
 
-        client_threads.append({
-            "thread_id": t_id,
-            "user_id": user_id,
-            "conversation_id": conv_id,
-            "started_at": first_ts_str,
-            "last_active_at": last_ts_str,
-            "status": "completed" if delivered else "chatting",
-            "prep_body": prep_body,
-            "messages": messages,
-        })
+        client_threads.append(
+            {
+                "thread_id": t_id,
+                "user_id": user_id,
+                "conversation_id": conv_id,
+                "started_at": first_ts_str,
+                "last_active_at": last_ts_str,
+                "status": "completed" if delivered else "chatting",
+                "prep_body": prep_body,
+                "messages": messages,
+            }
+        )
 
     return client_threads
 
@@ -234,12 +244,14 @@ async def list_recent_clients(
 async def get_client_detail(
     client_user_id: str,
     *,
+    expand_prep_details: bool = False,
     config: RunnableConfig,
 ) -> str:
     """获取指定客户的预聊需求细节和已生成的会议材料。
 
     Args:
         client_user_id: 客户的唯一 user_id。
+        expand_prep_details: 是否展开详细的会议材料及历史对话片段。默认为 False 以保护客户隐私。
         config: 运行时配置对象，自动注入。
     """
     threads = await _get_client_threads(config)
@@ -256,20 +268,46 @@ async def get_client_detail(
         "\n---",
     ]
 
-    if target["prep_body"]:
-        result.append("\n## 📄 生成的会议准备材料：\n")
-        result.append(target["prep_body"])
+    if expand_prep_details:
+        _logger.info(
+            "[AUDIT] Owner agent expanded full details for client: %s", client_user_id
+        )
+        if target["prep_body"]:
+            result.append("\n## 📄 生成的会议准备材料：\n")
+            result.append(target["prep_body"])
+        else:
+            result.append("\n⚠️ **该客户的会议准备材料尚未生成。**\n")
+            # Extract the last few dialogue turns
+            chat_history = []
+            for msg in target["messages"][-6:]:
+                role = "AI助手" if msg.type == "ai" else "客户"
+                content = getattr(msg, "content", "")
+                if content and not str(content).startswith("Updated todo list"):
+                    chat_history.append(f"**{role}**: {content}")
+            if chat_history:
+                result.append("### 💬 最近对话片段：")
+                result.extend(chat_history)
     else:
-        result.append("\n⚠️ **该客户的会议准备材料尚未生成。**\n")
-        # Extract the last few dialogue turns
-        chat_history = []
-        for msg in target["messages"][-6:]:
-            role = "AI助手" if msg.type == "ai" else "客户"
-            content = getattr(msg, "content", "")
-            if content and not str(content).startswith("Updated todo list"):
-                chat_history.append(f"**{role}**: {content}")
-        if chat_history:
-            result.append("### 💬 最近对话片段：")
-            result.extend(chat_history)
+        if target["prep_body"]:
+            result.append(
+                f"\n📄 **会议准备材料已生成** (共 {len(target['prep_body'])} 字符)。"
+            )
+            result.append(
+                "💡 *提示：如需查阅详细的会议材料，请将参数 `expand_prep_details` 设置为 `True` 调用本工具。*"
+            )
+        else:
+            result.append("\n⚠️ **该客户的会议准备材料尚未生成。**")
+            chat_history_len = len(
+                [
+                    msg
+                    for msg in target["messages"]
+                    if getattr(msg, "content", "")
+                    and not str(msg.content).startswith("Updated todo list")
+                ]
+            )
+            result.append(f"💬 预聊对话包含 {chat_history_len} 条记录。")
+            result.append(
+                "💡 *提示：如需查阅详细的历史对话片段，请将参数 `expand_prep_details` 设置为 `True` 调用本工具。*"
+            )
 
     return "\n".join(result)

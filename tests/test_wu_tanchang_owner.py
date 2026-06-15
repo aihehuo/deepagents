@@ -297,8 +297,17 @@ async def test_get_client_detail() -> None:
 
     assert "user_complete" in detail
     assert "会议材料已交付" in detail
-    assert "### 上海面馆会议材料" in detail
-    assert "主要挑战：写字楼客单低" in detail
+    assert "会议准备材料已生成" in detail
+    assert "### 上海面馆会议材料" not in detail
+    assert "expand_prep_details" in detail
+
+    detail_expanded = await get_client_detail.ainvoke(
+        {"client_user_id": "user_complete", "expand_prep_details": True},
+        config=config,
+    )
+    assert "user_complete" in detail_expanded
+    assert "### 上海面馆会议材料" in detail_expanded
+    assert "主要挑战：写字楼客单低" in detail_expanded
 
     t2_msg = [
         HumanMessage(content="我想开奶茶店"),
@@ -327,9 +336,18 @@ async def test_get_client_detail() -> None:
 
     assert "user_chatting" in detail
     assert "仍在补充信息" in detail
-    assert "我想开奶茶店" in detail
-    assert "请问你的预算范围是多少？" in detail
-    assert "20万" in detail
+    assert "该客户的会议准备材料尚未生成" in detail
+    assert "我想开奶茶店" not in detail
+    assert "expand_prep_details" in detail
+
+    detail_expanded2 = await get_client_detail.ainvoke(
+        {"client_user_id": "user_chatting", "expand_prep_details": True},
+        config=config,
+    )
+    assert "user_chatting" in detail_expanded2
+    assert "我想开奶茶店" in detail_expanded2
+    assert "请问你的预算范围是多少？" in detail_expanded2
+    assert "20万" in detail_expanded2
 
 
 @pytest.mark.anyio

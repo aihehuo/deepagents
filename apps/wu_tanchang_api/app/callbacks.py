@@ -258,8 +258,12 @@ def run_async_stream_with_callback(
         active_message_id: str | None = None
 
         try:
+            turn_id = f"{thread_id}::{uuid.uuid4().hex}"
             config = {
-                "configurable": {"thread_id": thread_id},
+                "configurable": {
+                    "thread_id": thread_id,
+                    "deepagents_turn_id": turn_id,
+                },
                 "metadata": {
                     "user_id": user_id,
                     "agent_name": agent_name,

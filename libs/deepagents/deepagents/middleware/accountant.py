@@ -96,6 +96,9 @@ class AccountantState(AgentState):
     tool_call_count: Annotated[NotRequired[int], _tool_call_count_reducer]
     """Current count of tool calls made in this conversation."""
 
+    accountant_turn_id: NotRequired[str]
+    """Current turn identifier for per-turn tool call accounting."""
+
     total_input_tokens: Annotated[NotRequired[int], _token_count_reducer]
     """Total input tokens used across all model calls."""
 
@@ -108,6 +111,9 @@ class AccountantStateUpdate(TypedDict):
 
     tool_call_count: NotRequired[int]
     """Current count of tool calls."""
+
+    accountant_turn_id: NotRequired[str]
+    """Current turn identifier for per-turn tool call accounting."""
 
     total_input_tokens: NotRequired[int]
     """Total input tokens."""
@@ -163,6 +169,31 @@ class AccountantMiddleware(AgentMiddleware):
         """
         self.max_tool_calls = max_tool_calls
 
+    def _turn_id_from_runtime(self, runtime: Runtime) -> str | None:
+        """Return the configured per-turn accounting identifier, if present."""
+        config = getattr(runtime, "config", {}) or {}
+        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        turn_id = (
+            configurable.get("deepagents_turn_id")
+            if isinstance(configurable, dict)
+            else None
+        )
+        return str(turn_id) if turn_id else None
+
+    def _reset_count_for_new_turn(
+        self,
+        state: AccountantState,
+        runtime: Runtime,
+    ) -> str | None:
+        """Reset tool call count when the caller supplies a new turn id."""
+        turn_id = self._turn_id_from_runtime(runtime)
+        if not turn_id:
+            return None
+        if state.get("accountant_turn_id") != turn_id:
+            state["accountant_turn_id"] = turn_id
+            state["tool_call_count"] = 0
+        return turn_id
+
     def before_agent(
         self,
         state: AccountantState,
@@ -178,6 +209,10 @@ class AccountantMiddleware(AgentMiddleware):
             Updated state with accounting fields initialized to 0 if not present.
         """
         updates = {}
+        turn_id = self._turn_id_from_runtime(runtime)
+        if turn_id and state.get("accountant_turn_id") != turn_id:
+            updates["accountant_turn_id"] = turn_id
+            updates["tool_call_count"] = 0
         if "tool_call_count" not in state:
             updates["tool_call_count"] = 0
         if "total_input_tokens" not in state:
@@ -203,7 +238,11 @@ class AccountantMiddleware(AgentMiddleware):
             or a ToolMessage with an error if limit exceeded (allows LLM to handle gracefully).
         """
         # Get current state
-        state = cast(AccountantState, request.runtime.state if hasattr(request.runtime, "state") else {})
+        state = cast(
+            "AccountantState",
+            request.runtime.state if hasattr(request.runtime, "state") else {},
+        )
+        turn_id = self._reset_count_for_new_turn(state, request.runtime)
         current_count = state.get("tool_call_count", 0)
 
         # Check if limit would be exceeded
@@ -236,15 +275,18 @@ class AccountantMiddleware(AgentMiddleware):
             existing_update = dict(result.update or {})
             # Set increment value (reducer will sum with existing count)
             existing_update["tool_call_count"] = increment
+            if turn_id:
+                existing_update["accountant_turn_id"] = turn_id
             return Command(update=existing_update)
-        else:
-            # Wrap ToolMessage in Command with state update
-            return Command(
-                update={
-                    "tool_call_count": increment,  # Increment value, not absolute
-                    "messages": [result] if isinstance(result, ToolMessage) else [],
-                }
-            )
+
+        # Wrap ToolMessage in Command with state update
+        update: dict[str, object] = {
+            "tool_call_count": increment,  # Increment value, not absolute
+            "messages": [result] if isinstance(result, ToolMessage) else [],
+        }
+        if turn_id:
+            update["accountant_turn_id"] = turn_id
+        return Command(update=update)
 
     async def awrap_tool_call(
         self,
@@ -262,7 +304,11 @@ class AccountantMiddleware(AgentMiddleware):
             or a ToolMessage with an error if limit exceeded (allows LLM to handle gracefully).
         """
         # Get current state
-        state = cast(AccountantState, request.runtime.state if hasattr(request.runtime, "state") else {})
+        state = cast(
+            "AccountantState",
+            request.runtime.state if hasattr(request.runtime, "state") else {},
+        )
+        turn_id = self._reset_count_for_new_turn(state, request.runtime)
         current_count = state.get("tool_call_count", 0)
 
         # Check if limit would be exceeded
@@ -295,15 +341,18 @@ class AccountantMiddleware(AgentMiddleware):
             existing_update = dict(result.update or {})
             # Set increment value (reducer will sum with existing count)
             existing_update["tool_call_count"] = increment
+            if turn_id:
+                existing_update["accountant_turn_id"] = turn_id
             return Command(update=existing_update)
-        else:
-            # Wrap ToolMessage in Command with state update
-            return Command(
-                update={
-                    "tool_call_count": increment,  # Increment value, not absolute
-                    "messages": [result] if isinstance(result, ToolMessage) else [],
-                }
-            )
+
+        # Wrap ToolMessage in Command with state update
+        update: dict[str, object] = {
+            "tool_call_count": increment,  # Increment value, not absolute
+            "messages": [result] if isinstance(result, ToolMessage) else [],
+        }
+        if turn_id:
+            update["accountant_turn_id"] = turn_id
+        return Command(update=update)
 
     def _extract_tokens_from_response(self, response: ModelResponse) -> tuple[int, int]:
         """Extract input and output tokens from a model response.
@@ -430,7 +479,7 @@ class AccountantMiddleware(AgentMiddleware):
         # The state should be mutable and updates will be persisted
         # Use runtime.state if available (like in wrap_tool_call), otherwise fall back to request.state
         state = cast(
-            AccountantState,
+            "AccountantState",
             request.runtime.state if hasattr(request, "runtime") and hasattr(request.runtime, "state") else request.state
         )
         current_input = state.get("total_input_tokens", 0) or 0
@@ -472,7 +521,7 @@ class AccountantMiddleware(AgentMiddleware):
         # The state should be mutable and updates will be persisted
         # Use runtime.state if available (like in wrap_tool_call), otherwise fall back to request.state
         state = cast(
-            AccountantState,
+            "AccountantState",
             request.runtime.state if hasattr(request, "runtime") and hasattr(request.runtime, "state") else request.state
         )
         current_input = state.get("total_input_tokens", 0) or 0
@@ -488,4 +537,3 @@ class AccountantMiddleware(AgentMiddleware):
             state["total_output_tokens"] = new_output
 
         return response
-

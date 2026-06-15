@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from typing import Any
 
 from fastapi import HTTPException
@@ -230,11 +231,15 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                 )
 
                 register_active_agent(tid, agent)
+                turn_id = f"{tid}::{uuid.uuid4().hex}"
                 try:
                     result = await agent.ainvoke(
                         {"messages": [HumanMessage(content=req.message)]},
                         {
-                            "configurable": {"thread_id": tid},
+                            "configurable": {
+                                "thread_id": tid,
+                                "deepagents_turn_id": turn_id,
+                            },
                             "metadata": {
                                 "user_id": req.user_id,
                                 **(req.metadata or {}),
@@ -332,11 +337,15 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                     )
 
                     last_status: str | None = None
+                    turn_id = f"{tid}::{uuid.uuid4().hex}"
 
                     async for chunk in agent.astream(
                         {"messages": [HumanMessage(content=req.message)]},
                         config={
-                            "configurable": {"thread_id": tid},
+                            "configurable": {
+                                "thread_id": tid,
+                                "deepagents_turn_id": turn_id,
+                            },
                             "metadata": {
                                 "user_id": req.user_id,
                                 **(req.metadata or {}),

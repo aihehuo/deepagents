@@ -276,6 +276,66 @@ def test_task_tool_blocks_kb_analyst_after_delivered() -> None:
     assert res_blocked == "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约吴探长一对一深聊。"
 
 
+def test_accountant_middleware_resets_tool_count_per_turn() -> None:
+    from types import SimpleNamespace
+
+    from deepagents.middleware.accountant import AccountantMiddleware
+    from langchain_core.messages import ToolMessage
+    from langgraph.types import Command
+
+    state = {"tool_call_count": 1, "accountant_turn_id": "turn-1"}
+    runtime = SimpleNamespace(
+        state=state,
+        config={"configurable": {"deepagents_turn_id": "turn-2"}},
+    )
+    request = SimpleNamespace(
+        runtime=runtime,
+        tool_call={"name": "sample_tool", "id": "call-1"},
+    )
+
+    middleware = AccountantMiddleware(max_tool_calls=1)
+
+    def handler(_request: object) -> ToolMessage:
+        return ToolMessage(content="ok", tool_call_id="call-1")
+
+    result = middleware.wrap_tool_call(request, handler)
+
+    assert isinstance(result, Command)
+    assert result.update["tool_call_count"] == 1
+    assert result.update["accountant_turn_id"] == "turn-2"
+    assert state["tool_call_count"] == 0
+    assert state["accountant_turn_id"] == "turn-2"
+
+
+def test_accountant_middleware_ignores_metadata_turn_id() -> None:
+    from types import SimpleNamespace
+
+    from deepagents.middleware.accountant import AccountantMiddleware
+    from langchain_core.messages import ToolMessage
+
+    state = {"tool_call_count": 1, "accountant_turn_id": "turn-1"}
+    runtime = SimpleNamespace(
+        state=state,
+        config={"metadata": {"deepagents_turn_id": "turn-2"}},
+    )
+    request = SimpleNamespace(
+        runtime=runtime,
+        tool_call={"name": "sample_tool", "id": "call-1"},
+    )
+
+    middleware = AccountantMiddleware(max_tool_calls=1)
+
+    def handler(_request: object) -> ToolMessage:
+        return ToolMessage(content="ok", tool_call_id="call-1")
+
+    result = middleware.wrap_tool_call(request, handler)
+
+    assert isinstance(result, ToolMessage)
+    assert "Tool call limit exceeded" in str(result.content)
+    assert state["tool_call_count"] == 1
+    assert state["accountant_turn_id"] == "turn-1"
+
+
 def test_ensure_runtime_workspace_isolation(tmp_path: Path) -> None:
     from apps.wu_tanchang_api.agent_factory.utils import ensure_runtime_workspace
     import os
@@ -326,5 +386,3 @@ def test_ensure_runtime_workspace_isolation(tmp_path: Path) -> None:
 
     # Assert source did NOT change!
     assert (custom_ws / "identity.md").read_text(encoding="utf-8") == "identity source"
-
-

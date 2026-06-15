@@ -27,6 +27,7 @@ from deepagents.backends.state import StateBackend
 from deepagents.backends.store import StoreBackend
 from deepagents.backends.utils import TOOL_RESULT_TOKEN_LIMIT, create_file_data
 from deepagents.graph import create_deep_agent
+from deepagents.middleware.accountant import AccountantMiddleware
 from deepagents.middleware.filesystem import NUM_CHARS_PER_TOKEN
 from deepagents.middleware.permissions import FilesystemPermission
 from deepagents.middleware.subagents import SubAgent  # noqa: TC001
@@ -247,6 +248,70 @@ class TestDeepAgentEndToEnd:
         assert captured_config["metadata"]["ls_integration"] == "deepagents"
         assert captured_config["metadata"]["lc_agent_name"] == "supervisor"
         assert "deepagents" in captured_config["metadata"]["versions"]
+
+    def test_accountant_tool_limit_resets_with_turn_id(self) -> None:
+        """A new `deepagents_turn_id` gets a fresh tool-call budget."""
+        agent = create_deep_agent(
+            model=FixedGenericFakeChatModel(
+                messages=iter(
+                    [
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "name": "sample_tool",
+                                    "args": {"sample_input": "first"},
+                                    "id": "call_1",
+                                    "type": "tool_call",
+                                }
+                            ],
+                        ),
+                        AIMessage(content="first done"),
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "name": "sample_tool",
+                                    "args": {"sample_input": "second"},
+                                    "id": "call_2",
+                                    "type": "tool_call",
+                                }
+                            ],
+                        ),
+                        AIMessage(content="second done"),
+                    ]
+                )
+            ),
+            tools=[sample_tool],
+            middleware=[AccountantMiddleware(max_tool_calls=1)],
+            checkpointer=InMemorySaver(),
+        )
+
+        config = {
+            "configurable": {
+                "thread_id": "accountant_per_turn",
+                "deepagents_turn_id": "turn-1",
+            },
+        }
+        result1 = agent.invoke({"messages": [HumanMessage(content="first")]}, config=config)
+        assert result1["tool_call_count"] == 1
+        assert result1["accountant_turn_id"] == "turn-1"
+
+        result2 = agent.invoke(
+            {"messages": [HumanMessage(content="second")]},
+            config={
+                "configurable": {
+                    "thread_id": "accountant_per_turn",
+                    "deepagents_turn_id": "turn-2",
+                },
+            },
+        )
+
+        tool_messages = [msg for msg in result2["messages"] if msg.type == "tool"]
+        assert any(msg.content == "second" for msg in tool_messages)
+        assert not any("Tool call limit exceeded" in str(msg.content) for msg in tool_messages)
+        assert result2["tool_call_count"] == 1
+        assert result2["accountant_turn_id"] == "turn-2"
 
     def test_deep_agent_with_fake_llm_with_tools(self) -> None:
         """Test deepagent with tools using a fake LLM model.

@@ -100,62 +100,71 @@ async def resolve_dynamic_agent(
             is_base_workspace = True
 
     if is_base_workspace:
-        return config_name, state.agents[config_name]
-
-    cache_key = f"{config_name}::{resolved_workspace}"
-
-    if cache_key in state.agents:
-        return config_name, state.agents[cache_key]
-
-    async with state.get_compilation_lock(cache_key):
-        # Check again under lock
+        agent = state.agents[config_name]
+    else:
+        cache_key = f"{config_name}::{resolved_workspace}"
         if cache_key in state.agents:
-            return config_name, state.agents[cache_key]
-
-        # Enforce P5 cache size limit (pop oldest entries in state.agents when size >= 50)
-        while len(state.agents) >= 50:
-            evict_key = None
-            for key in state.agents:
-                if "::" in key:
-                    evict_key = key
-                    break
-            if evict_key is None:
-                evict_key = next(iter(state.agents))
-            state.agents.pop(evict_key, None)
-            state.agent_configs.pop(evict_key, None)
-            state.compilation_locks.pop(evict_key, None)
-
-        # Resolve model configuration
-        base_cfg = state.agent_configs.get(config_name)
-        if base_cfg:
-            provider = base_cfg.provider
-            model = base_cfg.model
-            max_tokens = base_cfg.max_tokens
+            agent = state.agents[cache_key]
         else:
-            from apps.wu_tanchang_api.config import get_selected_provider
+            async with state.get_compilation_lock(cache_key):
+                # Check again under lock
+                if cache_key in state.agents:
+                    agent = state.agents[cache_key]
+                else:
+                    # Enforce P5 cache size limit (pop oldest entries in state.agents when size >= 50)
+                    while len(state.agents) >= 50:
+                        evict_key = None
+                        for key in state.agents:
+                            if "::" in key:
+                                evict_key = key
+                                break
+                        if evict_key is None:
+                            evict_key = next(iter(state.agents))
+                        state.agents.pop(evict_key, None)
+                        state.agent_configs.pop(evict_key, None)
+                        state.compilation_locks.pop(evict_key, None)
 
-            provider = get_selected_provider()
-            model = "deepseek-v4-flash"
-            max_tokens = 4000 if is_owner else 800
+                    # Resolve model configuration
+                    base_cfg = state.agent_configs.get(config_name)
+                    if base_cfg:
+                        provider = base_cfg.provider
+                        model = base_cfg.model
+                        max_tokens = base_cfg.max_tokens
+                    else:
+                        from apps.wu_tanchang_api.config import get_selected_provider
 
-        agent_cfg = WuAgentConfig(
-            name=config_name,
-            provider=provider,
-            model=model,
-            max_tokens=max_tokens,
-            workspace=resolved_workspace,
-        )
+                        provider = get_selected_provider()
+                        model = "deepseek-v4-flash"
+                        max_tokens = 4000 if is_owner else 800
 
-        agent, _ckpt = await asyncio.to_thread(
-            create_agent,
-            backend_root=backend_path,
-            agent_config=agent_cfg,
-        )
+                    agent_cfg = WuAgentConfig(
+                        name=config_name,
+                        provider=provider,
+                        model=model,
+                        max_tokens=max_tokens,
+                        workspace=resolved_workspace,
+                    )
 
-        state.agents[cache_key] = agent
-        state.agent_configs[cache_key] = agent_cfg
+                    agent, _ckpt = await asyncio.to_thread(
+                        create_agent,
+                        backend_root=backend_path,
+                        agent_config=agent_cfg,
+                    )
 
-        return config_name, agent
+                    state.agents[cache_key] = agent
+                    state.agent_configs[cache_key] = agent_cfg
+
+    from apps.wu_tanchang_api.agent_factory.utils import get_workspace_agent_id
+    workspace_path = backend_path / resolved_workspace
+    parsed_id = get_workspace_agent_id(workspace_path)
+    if parsed_id == "andy01":
+        canonical_name = "default"
+    elif parsed_id == "andy01_owner":
+        canonical_name = "owner"
+    else:
+        canonical_name = parsed_id
+
+    return canonical_name, agent
 
 
 async def _resolve_agent(state: AppState, agent_name: str) -> tuple[str, Any]:

@@ -16,7 +16,13 @@ _logger = logging.getLogger("uvicorn.error")
 async def reset(req: ResetRequest, state: AppState) -> ResetResponse:
     """Delete thread checkpoint and release lock."""
     agent_name = req.agent_name or state.default_agent
-    if agent_name not in {"default", "owner"} and agent_name not in state.agents:
+    import re
+    is_valid = (
+        agent_name in {"default", "owner"}
+        or agent_name in state.agents
+        or re.fullmatch(r"^[A-Za-z0-9_\-]{1,64}$", agent_name)
+    )
+    if not is_valid:
         raise HTTPException(
             status_code=404,
             detail={

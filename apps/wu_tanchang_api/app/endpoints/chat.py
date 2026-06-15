@@ -106,7 +106,7 @@ async def resolve_dynamic_agent(
     if cache_key in state.agents:
         return config_name, state.agents[cache_key]
 
-    async with state.compilation_lock:
+    async with state.get_compilation_lock(cache_key):
         # Check again under lock
         if cache_key in state.agents:
             return config_name, state.agents[cache_key]

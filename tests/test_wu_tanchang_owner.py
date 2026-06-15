@@ -552,3 +552,28 @@ def test_save_meeting_prep_tool_validation() -> None:
     }
     res = save_meeting_prep.invoke({"body": "valid body"}, config=config_unauthorized)
     assert "未被授权" in res
+
+
+def test_app_state_compilation_locks() -> None:
+    from apps.wu_tanchang_api.app.state import AppState
+
+    state = AppState(
+        agents={},
+        agent_configs={},
+        default_agent="default",
+        checkpoints_path="",
+        thread_locks={},
+        backend_root="",
+    )
+
+    lock1 = state.get_compilation_lock("workspace_1")
+    lock2 = state.get_compilation_lock("workspace_1")
+    lock3 = state.get_compilation_lock("workspace_2")
+
+    assert lock1 is lock2
+    assert lock1 is not lock3
+
+    # Test backward compatibility compilation_lock property
+    dep_lock = state.compilation_lock
+    assert dep_lock is state.get_compilation_lock("default")
+

@@ -27,14 +27,21 @@ class AppState:
     active_callback_threads_lock: threading.Lock = field(default_factory=threading.Lock)
     active_agent_runs: dict[str, str] = field(default_factory=dict)
     active_agent_runs_lock: threading.Lock = field(default_factory=threading.Lock)
-    _compilation_lock: asyncio.Lock | None = field(default=None, init=False)
+    compilation_locks: dict[str, asyncio.Lock] = field(default_factory=dict, init=False)
+    compilation_locks_lock: threading.Lock = field(default_factory=threading.Lock, init=False)
     backend_root: str = ""
+
+    def get_compilation_lock(self, cache_key: str) -> asyncio.Lock:
+        """Get or create a compilation lock for a specific cache key/workspace."""
+        with self.compilation_locks_lock:
+            if cache_key not in self.compilation_locks:
+                self.compilation_locks[cache_key] = asyncio.Lock()
+            return self.compilation_locks[cache_key]
 
     @property
     def compilation_lock(self) -> asyncio.Lock:
-        if self._compilation_lock is None:
-            self._compilation_lock = asyncio.Lock()
-        return self._compilation_lock
+        """Deprecated: Use get_compilation_lock(cache_key) instead."""
+        return self.get_compilation_lock("default")
 
     @property
     def agent(self) -> Any:

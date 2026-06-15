@@ -21,7 +21,7 @@ def default_runtime_dir() -> Path:
     return Path.home() / ".deepagents" / "wu_tanchang_api"
 
 
-def _deploy_dir(src: Path, dest: Path, *, symlink: bool = False) -> None:
+def _deploy_dir(src: Path, dest: Path, *, symlink: bool = False, ignore: list[str] | None = None) -> None:
     """Deploy a directory from src to dest.
 
     If symlink is True, tries to create a symlink first.
@@ -59,7 +59,8 @@ def _deploy_dir(src: Path, dest: Path, *, symlink: bool = False) -> None:
         else:
             shutil.rmtree(temp_dest, ignore_errors=True)
 
-    shutil.copytree(src, temp_dest)
+    ignore_callable = shutil.ignore_patterns(*ignore) if ignore else None
+    shutil.copytree(src, temp_dest, ignore=ignore_callable)
 
     if dest.is_symlink():
         dest.unlink()
@@ -80,10 +81,10 @@ def _deploy_dir(src: Path, dest: Path, *, symlink: bool = False) -> None:
 
 
 def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
-    """Deploy workspace assets (kb, skills, intake) into runtime backend root.
+    """Deploy workspace assets (kb, skills) into runtime backend root.
 
-    Copies kb/, skills/, and intake/ from workspace into runtime_dir so the
-    FilesystemBackend can access them at virtual paths /kb/, /skills/, etc.
+    Symlinks kb/ and skills/ from workspace into runtime_dir so the
+    FilesystemBackend can access them at virtual paths /kb/ and /skills/.
 
     Args:
         workspace_src: Source workspace directory in the repo.
@@ -99,21 +100,21 @@ def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
             dest = runtime_dir / md_file.name
             shutil.copy2(md_file, dest)
             _logger.info("[WuTanchang] Deployed persona: %s -> %s", md_file, dest)
-    for name in ("kb", "skills", "intake"):
+    for name in ("kb", "skills"):
         src = workspace_src / name
         if not src.exists():
             continue
         dest = runtime_dir / name
-        # Only symlink read-only 'kb' directory to save disk space and performance.
-        # Writable directories like 'skills' and 'intake' must be copied.
-        _deploy_dir(src, dest, symlink=(name == "kb"))
+        # Both kb/ and skills/ are read-only! We can safely symlink both to save space.
+        _deploy_dir(src, dest, symlink=True)
 
     # Deploy all workspace directories (e.g. workspace_*, workspace)
+    # Writable workspace folders containing persona MDs are copied to preserve isolation,
+    # but we ignore kb, skills, and memory folders inside them to avoid redundant big copies.
     for folder in workspace_src.parent.glob("workspace*"):
-        if folder.is_dir() and folder.name not in ("kb", "skills", "intake"):
+        if folder.is_dir() and folder.name not in ("kb", "skills"):
             dest = runtime_dir / folder.name
-            # Writable workspaces must not be symlinked!
-            _deploy_dir(folder, dest, symlink=False)
+            _deploy_dir(folder, dest, symlink=False, ignore=["kb", "skills", "memory"])
 
     return runtime_dir
 

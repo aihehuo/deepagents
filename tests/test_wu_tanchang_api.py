@@ -289,9 +289,6 @@ def test_ensure_runtime_workspace_isolation(tmp_path: Path) -> None:
     (src_dir / "skills").mkdir()
     (src_dir / "skills" / "skill.txt").write_text("skills source", encoding="utf-8")
 
-    (src_dir / "intake").mkdir()
-    (src_dir / "intake" / "intake.txt").write_text("intake source", encoding="utf-8")
-
     # Add a custom workspace folder
     custom_ws = tmp_path / "workspace_custom"
     custom_ws.mkdir()
@@ -304,7 +301,6 @@ def test_ensure_runtime_workspace_isolation(tmp_path: Path) -> None:
     # 3. Assert target directory existence
     assert (runtime_dir / "kb" / "doc.txt").read_text(encoding="utf-8") == "kb source"
     assert (runtime_dir / "skills" / "skill.txt").read_text(encoding="utf-8") == "skills source"
-    assert (runtime_dir / "intake" / "intake.txt").read_text(encoding="utf-8") == "intake source"
     assert (runtime_dir / "workspace_custom" / "identity.md").read_text(encoding="utf-8") == "identity source"
 
     # Verify symlink status (if symlinks are supported by filesystem/OS)
@@ -315,22 +311,20 @@ def test_ensure_runtime_workspace_isolation(tmp_path: Path) -> None:
         symlink_supported = False
 
     if symlink_supported:
-        # 'kb' should be a symlink
+        # Both 'kb' and 'skills' should be symlinks since they are read-only
         assert (runtime_dir / "kb").is_symlink()
-        # 'skills', 'intake', and custom workspaces must NEVER be symlinks to preserve write isolation
-        assert not (runtime_dir / "skills").is_symlink()
-        assert not (runtime_dir / "intake").is_symlink()
+        assert (runtime_dir / "skills").is_symlink()
+        # Custom workspaces must NEVER be symlinks to preserve write isolation
         assert not (runtime_dir / "workspace_custom").is_symlink()
 
     # 4. Modify files in runtime and check isolation
-    (runtime_dir / "skills" / "skill.txt").write_text("skills modified", encoding="utf-8")
+    # Note: custom workspace files can be modified and must be isolated.
     (runtime_dir / "workspace_custom" / "identity.md").write_text("identity modified", encoding="utf-8")
 
     # Assert runtime changed
-    assert (runtime_dir / "skills" / "skill.txt").read_text(encoding="utf-8") == "skills modified"
     assert (runtime_dir / "workspace_custom" / "identity.md").read_text(encoding="utf-8") == "identity modified"
 
     # Assert source did NOT change!
-    assert (src_dir / "skills" / "skill.txt").read_text(encoding="utf-8") == "skills source"
     assert (custom_ws / "identity.md").read_text(encoding="utf-8") == "identity source"
+
 

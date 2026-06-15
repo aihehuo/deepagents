@@ -48,6 +48,16 @@ def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
             shutil.rmtree(dest)
         shutil.copytree(src, dest)
         _logger.info("[WuTanchang] Deployed %s -> %s", src, dest)
+
+    # Deploy all workspace directories (e.g. workspace_*, workspace)
+    for folder in workspace_src.parent.glob("workspace*"):
+        if folder.is_dir() and folder.name not in ("kb", "skills", "intake"):
+            dest = runtime_dir / folder.name
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(folder, dest)
+            _logger.info("[WuTanchang] Deployed workspace: %s -> %s", folder, dest)
+
     return runtime_dir
 
 

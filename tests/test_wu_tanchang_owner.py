@@ -1,0 +1,387 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
+
+from apps.wu_tanchang_api.agent_factory.agent import create_agent
+from apps.wu_tanchang_api.agent_factory.owner_tools import (
+    get_client_detail,
+    get_consultation_stats,
+    list_recent_clients,
+)
+from apps.wu_tanchang_api.config import WuAgentConfig
+
+
+class _FakeCheckpointTuple:
+    def __init__(
+        self,
+        thread_id: str,
+        ts: str,
+        messages: list[Any],
+        checkpoint_id: str = "ckpt_1",
+    ) -> None:
+        self.config = {
+            "configurable": {
+                "thread_id": thread_id,
+                "checkpoint_ns": "",
+                "checkpoint_id": checkpoint_id,
+            }
+        }
+        self.checkpoint = {
+            "v": 1,
+            "ts": ts,
+            "id": checkpoint_id,
+            "channel_versions": {},
+            "versions_seen": {},
+            "updated_channels": [],
+            "channel_values": {"messages": messages},
+        }
+        self.metadata = {"source": "loop", "step": 1, "parents": {}}
+
+
+class _FakeCheckpointer:
+    def __init__(self, checkpoint_tuples: list[_FakeCheckpointTuple]) -> None:
+        self._tuples = checkpoint_tuples
+        self.storage = {}
+        for item in checkpoint_tuples:
+            tid = item.config["configurable"]["thread_id"]
+            ns = item.config["configurable"]["checkpoint_ns"]
+            cid = item.config["configurable"]["checkpoint_id"]
+            self.storage.setdefault(tid, {}).setdefault(ns, {})[cid] = item.checkpoint
+
+    def list(self, config: dict[str, Any] | None = None) -> list[_FakeCheckpointTuple]:
+        if (
+            config
+            and "configurable" in config
+            and "thread_id" in config["configurable"]
+        ):
+            tid = config["configurable"]["thread_id"]
+            return [
+                x for x in self._tuples if x.config["configurable"]["thread_id"] == tid
+            ]
+        return self._tuples
+
+
+class _FakeAgent:
+    def __init__(self, checkpointer: _FakeCheckpointer) -> None:
+        self.checkpointer = checkpointer
+
+
+@pytest.fixture
+def fake_workspace_setup(tmp_path: Path) -> Path:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        """
+{
+  "default_model_provider": "qwen",
+  "providers": {
+    "qwen": {
+      "api_type": "openai-compatible",
+      "base_url": "https://dashscope.test/v1",
+      "api_key": "fake-key",
+      "main_agent_model": "qwen-flash"
+    }
+  }
+}
+""",
+        encoding="utf-8",
+    )
+
+    for name in ["IDENTITY.md", "SOUL.md", "AGENTS.md", "USER.md"]:
+        (tmp_path / name).write_text(f"Client {name}", encoding="utf-8")
+
+    owner_dir = tmp_path / "workspace_owner"
+    owner_dir.mkdir(parents=True, exist_ok=True)
+    for name in ["IDENTITY.md", "SOUL.md", "AGENTS.md", "USER.md"]:
+        (owner_dir / name).write_text(f"Owner {name}", encoding="utf-8")
+
+    return tmp_path
+
+
+def test_owner_agent_creation(
+    monkeypatch: pytest.MonkeyPatch, fake_workspace_setup: Path
+) -> None:
+    captured_kwargs: dict[str, Any] = {}
+
+    def fake_create_deep_agent(**kwargs: Any) -> object:
+        captured_kwargs.update(kwargs)
+        return object()
+
+    import deepagents._models
+
+    monkeypatch.setattr(deepagents._models, "resolve_model", lambda m: m)
+    monkeypatch.setattr(
+        "apps.wu_tanchang_api.agent_factory.agent.create_deep_agent",
+        fake_create_deep_agent,
+    )
+    monkeypatch.setattr(
+        "apps.wu_tanchang_api.agent_factory.agent.create_model",
+        lambda **kw: MagicMock(),
+    )
+    monkeypatch.setattr(
+        "apps.wu_tanchang_api.agent_factory.agent.default_runtime_dir",
+        lambda: fake_workspace_setup / "runtime",
+    )
+
+    agent_config = WuAgentConfig(
+        name="owner",
+        provider="qwen",
+        model="qwen-flash",
+        max_tokens=800,
+        workspace="workspace_owner",
+    )
+
+    agent, ckpt_path = create_agent(
+        backend_root=fake_workspace_setup,
+        agent_config=agent_config,
+    )
+
+    assert agent is not None
+    system_prompt = captured_kwargs.get("system_prompt", "")
+    assert "Owner IDENTITY.md" in system_prompt
+    assert "Owner SOUL.md" in system_prompt
+    assert "专属AI数据决策助理" in system_prompt
+
+    tools = captured_kwargs.get("tools", [])
+    tool_names = [t.name for t in tools]
+    assert "get_consultation_stats" in tool_names
+    assert "list_recent_clients" in tool_names
+    assert "get_client_detail" in tool_names
+
+
+@pytest.mark.anyio
+async def test_get_consultation_stats() -> None:
+    t1_msg = [
+        HumanMessage(content="你好"),
+        AIMessage(
+            content="做个准备材料",
+            tool_calls=[
+                {
+                    "name": "save_meeting_prep",
+                    "args": {"body": "面馆准备材料"},
+                    "id": "tc1",
+                }
+            ],
+        ),
+        ToolMessage(
+            content="meeting_prep_saved", name="save_meeting_prep", tool_call_id="tc1"
+        ),
+        AIMessage(
+            content="交付材料",
+            tool_calls=[{"name": "mark_material_delivered", "args": {}, "id": "tc2"}],
+        ),
+        ToolMessage(
+            content="material_delivered",
+            name="mark_material_delivered",
+            tool_call_id="tc2",
+        ),
+    ]
+    t1 = _FakeCheckpointTuple(
+        thread_id="wt::default::user_complete::conv1",
+        ts="2026-06-14T10:00:00.000000+00:00",
+        messages=t1_msg,
+    )
+
+    t2_msg = [
+        HumanMessage(content="开奶茶店"),
+        AIMessage(content="预算多少？"),
+    ]
+    t2 = _FakeCheckpointTuple(
+        thread_id="wt::default::user_chatting::conv1",
+        ts="2026-06-14T11:00:00.000000+00:00",
+        messages=t2_msg,
+    )
+
+    checkpointer = _FakeCheckpointer([t1, t2])
+    agent = _FakeAgent(checkpointer)
+
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "wt::owner::o1::c1"},
+        "metadata": {"agent_instance": agent},
+    }
+
+    stats_report = await get_consultation_stats.ainvoke(
+        {"days": 7},
+        config=config,
+    )
+
+    assert "**新增预聊客户数**: 2 人" in stats_report
+    assert "**已生成准备资料数**: 1 份" in stats_report
+    assert "**资料生成转化率**: 50.0%" in stats_report
+    assert "2026-06-14 | 2 | 1 |" in stats_report
+
+
+@pytest.mark.anyio
+async def test_list_recent_clients() -> None:
+    t1_msg = [HumanMessage(content="哈喽")]
+    t1 = _FakeCheckpointTuple(
+        thread_id="wt::default::u1::c1",
+        ts="2026-06-14T10:00:00.000000+00:00",
+        messages=t1_msg,
+    )
+    checkpointer = _FakeCheckpointer([t1])
+    agent = _FakeAgent(checkpointer)
+
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "wt::owner::o1::c1"},
+        "metadata": {"agent_instance": agent},
+    }
+
+    clients_list = await list_recent_clients.ainvoke(
+        {"days": 7, "status": "all"},
+        config=config,
+    )
+
+    assert "u1" in clients_list
+    assert "2026-06-14T10:00:00" in clients_list
+    assert "💬 沟通中" in clients_list
+
+
+@pytest.mark.anyio
+async def test_get_client_detail() -> None:
+    t1_msg = [
+        HumanMessage(content="面馆"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "save_meeting_prep",
+                    "args": {
+                        "body": "### 上海面馆会议材料\n- 预算：50万\n- 主要挑战：写字楼客单低"
+                    },
+                    "id": "tc1",
+                }
+            ],
+        ),
+        ToolMessage(
+            content="meeting_prep_saved", name="save_meeting_prep", tool_call_id="tc1"
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "mark_material_delivered", "args": {}, "id": "tc2"}],
+        ),
+        ToolMessage(
+            content="material_delivered",
+            name="mark_material_delivered",
+            tool_call_id="tc2",
+        ),
+    ]
+    t1 = _FakeCheckpointTuple(
+        thread_id="wt::default::user_complete::conv1",
+        ts="2026-06-14T10:00:00.000000+00:00",
+        messages=t1_msg,
+    )
+
+    checkpointer = _FakeCheckpointer([t1])
+    agent = _FakeAgent(checkpointer)
+
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "wt::owner::o1::c1"},
+        "metadata": {"agent_instance": agent},
+    }
+
+    detail = await get_client_detail.ainvoke(
+        {"client_user_id": "user_complete"},
+        config=config,
+    )
+
+    assert "user_complete" in detail
+    assert "会议材料已交付" in detail
+    assert "### 上海面馆会议材料" in detail
+    assert "主要挑战：写字楼客单低" in detail
+
+    t2_msg = [
+        HumanMessage(content="我想开奶茶店"),
+        AIMessage(content="请问你的预算范围是多少？"),
+        HumanMessage(content="20万"),
+    ]
+    t2 = _FakeCheckpointTuple(
+        thread_id="wt::default::user_chatting::conv1",
+        ts="2026-06-14T11:00:00.000000+00:00",
+        messages=t2_msg,
+    )
+
+    checkpointer = _FakeCheckpointer([t2])
+    agent = _FakeAgent(checkpointer)
+
+    config = {
+        "configurable": {"thread_id": "wt::owner::o1::c1"},
+        "metadata": {"agent_instance": agent},
+    }
+
+    detail = await get_client_detail.ainvoke(
+        {"client_user_id": "user_chatting"},
+        config=config,
+    )
+
+    assert "user_chatting" in detail
+    assert "仍在补充信息" in detail
+    assert "我想开奶茶店" in detail
+    assert "请问你的预算范围是多少？" in detail
+    assert "20万" in detail
+
+
+def test_resolve_dynamic_agent(
+    monkeypatch: pytest.MonkeyPatch, fake_workspace_setup: Path
+) -> None:
+    from apps.wu_tanchang_api.app.endpoints.chat import resolve_dynamic_agent
+    from apps.wu_tanchang_api.app.state import AppState
+
+    mock_agent_instance = MagicMock()
+    mock_create_agent = MagicMock(return_value=(mock_agent_instance, Path("ckpt.pkl")))
+    monkeypatch.setattr(
+        "apps.wu_tanchang_api.agent_factory.agent.create_agent", mock_create_agent
+    )
+
+    state = AppState(
+        agents={},
+        agent_configs={},
+        default_agent="default",
+        checkpoints_path="ckpt.pkl",
+        thread_locks={},
+        backend_root=str(fake_workspace_setup),
+    )
+
+    # 1. Identical user_id and calendar_id -> owner mode, fallback to workspace_owner
+    name, agent = resolve_dynamic_agent(
+        state,
+        user_id="123",
+        metadata={"calendar_id": "123"},
+    )
+    assert name == "owner"
+    assert agent == mock_agent_instance
+    mock_create_agent.assert_called_once()
+    called_cfg = mock_create_agent.call_args[1]["agent_config"]
+    assert called_cfg.workspace == "workspace_owner"
+
+    mock_create_agent.reset_mock()
+
+    # 2. If workspace_{calendar_id}_owner actually exists, route to it
+    special_owner_dir = fake_workspace_setup / "workspace_456_owner"
+    special_owner_dir.mkdir(parents=True, exist_ok=True)
+
+    name, agent = resolve_dynamic_agent(
+        state,
+        user_id="456",
+        metadata={"calendar_id": "456"},
+    )
+    assert name == "owner"
+    called_cfg = mock_create_agent.call_args[1]["agent_config"]
+    assert called_cfg.workspace == "workspace_456_owner"
+
+    mock_create_agent.reset_mock()
+
+    # 3. Different user_id and calendar_id -> client mode, fallback to workspace
+    name, agent = resolve_dynamic_agent(
+        state,
+        user_id="client_user",
+        metadata={"calendar_id": "789"},
+    )
+    assert name == "default"
+    called_cfg = mock_create_agent.call_args[1]["agent_config"]
+    assert called_cfg.workspace == "workspace"

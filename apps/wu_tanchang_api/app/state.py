@@ -27,6 +27,7 @@ class AppState:
     active_callback_threads_lock: threading.Lock = field(default_factory=threading.Lock)
     active_agent_runs: dict[str, str] = field(default_factory=dict)
     active_agent_runs_lock: threading.Lock = field(default_factory=threading.Lock)
+    compilation_lock: threading.Lock = field(default_factory=threading.Lock)
     backend_root: str = ""
 
     @property

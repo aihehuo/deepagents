@@ -110,6 +110,23 @@ FRONTEND_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
 """
 
 
+OWNER_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
+
+## 你的人格
+
+以下是你的人格定义文件内容，请在对话中严格遵守：
+
+{persona_content}
+
+## 基本规则
+
+- 严格按照人格文件中的指导行事，你是吴探长的专属AI数据决策助理。
+- 你的工作是帮助吴探长掌握客户进展、统计数据、分析客户需求。
+- **请务必在需要时调用提供的工具（get_consultation_stats, list_recent_clients, get_client_detail）来获取和汇总数据。不要凭空虚构任何客户统计或明细信息！**
+- 回复探长时要专业、高效、结构化，通常使用中文。
+"""
+
+
 @tool
 def mark_material_delivered() -> str:
     """先把会议准备材料的文字内容完整输出到回复中呈现给用户，然后调用此工具标记材料已完成交付。顺序不可颠倒：先呈现材料，再调此工具。
@@ -276,10 +293,17 @@ def create_agent(
     backend = FilesystemBackend(root_dir=str(backend_root), virtual_mode=True)
 
     # Pre-load persona files from workspace root into system prompt
-    persona_content = _load_persona_files(backend_root)
+    effective_workspace = agent_config.workspace if agent_config else "workspace"
+    workspace_path = (
+        backend_root / effective_workspace
+        if (backend_root / effective_workspace).exists()
+        else backend_root
+    )
+    persona_content = _load_persona_files(workspace_path)
     _logger.info(
-        "[Agent] Loaded %d persona file(s)",
+        "[Agent] Loaded %d persona file(s) from %s",
         persona_content.count("===") if persona_content else 0,
+        workspace_path,
     )
 
     # ------------------------------------------------------------------
@@ -300,28 +324,46 @@ def create_agent(
     }
 
     # ------------------------------------------------------------------
-    # Front-end agent middleware: NO FilesystemMiddleware
-    # Personality is pre-loaded in system prompt above.
+    # Determine agent configuration: owner mode vs. client front-end mode
     # ------------------------------------------------------------------
-    middleware = [
-        AccountantMiddleware(max_tool_calls=20),
-        LanguageDetectionMiddleware(),
-        SubAgentMiddleware(
-            backend=backend,
-            subagents=[kb_subagent],
-        ),
-        PromptLoggingMiddleware(),
-    ]
+    is_owner = agent_config and agent_config.name == "owner"
+
+    if is_owner:
+        from apps.wu_tanchang_api.agent_factory.owner_tools import (
+            get_consultation_stats,
+            list_recent_clients,
+            get_client_detail,
+        )
+
+        tools = [get_consultation_stats, list_recent_clients, get_client_detail]
+        system_prompt = OWNER_SYSTEM_PROMPT_TEMPLATE.format(
+            persona_content=persona_content
+        )
+        middleware = [
+            AccountantMiddleware(max_tool_calls=20),
+            LanguageDetectionMiddleware(),
+            PromptLoggingMiddleware(),
+        ]
+    else:
+        tools = [mark_material_delivered, save_meeting_prep]
+        system_prompt = FRONTEND_SYSTEM_PROMPT_TEMPLATE.format(
+            persona_content=persona_content
+        )
+        middleware = [
+            AccountantMiddleware(max_tool_calls=20),
+            LanguageDetectionMiddleware(),
+            SubAgentMiddleware(
+                backend=backend,
+                subagents=[kb_subagent],
+            ),
+            PromptLoggingMiddleware(),
+        ]
 
     checkpointer = DiskBackedInMemorySaver(file_path=checkpoints_path)
 
-    system_prompt = FRONTEND_SYSTEM_PROMPT_TEMPLATE.format(
-        persona_content=persona_content
-    )
-
     agent = create_deep_agent(
         model=model,
-        tools=[mark_material_delivered, save_meeting_prep],
+        tools=tools,
         backend=backend,
         checkpointer=checkpointer,
         subagents=[],

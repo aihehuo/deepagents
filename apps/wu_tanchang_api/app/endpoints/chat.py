@@ -23,19 +23,120 @@ _GUIDE_MESSAGE = """这份材料我已经准备好了。建议你预约吴探长
 你可以直接联系吴探长预约时间，或者告诉我你需要什么帮助来安排这次深聊？"""
 
 
-def _resolve_agent(state: AppState, agent_name: str) -> tuple[str, Any]:
-    """Resolve agent name to (name, agent)."""
-    name = agent_name or state.default_agent
-    if name not in state.agents:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "unknown_agent",
-                "message": f"Unknown agent: {name}",
-                "available": list(state.agents.keys()),
-            },
+def resolve_dynamic_agent(
+    state: AppState,
+    user_id: str,
+    metadata: dict[str, Any],
+    agent_name_override: str = "",
+) -> tuple[str, Any]:
+    """Dynamically route and resolve the agent based on user_id and calendar_id.
+
+    If user_id and calendar_id match, it routes to:
+      - workspace_{calendar_id}_owner
+      - Fallback 1: workspace_owner_default
+      - Fallback 2: workspace_owner
+    Otherwise, it routes to:
+      - workspace_{calendar_id}
+      - Fallback 1: workspace_default
+      - Fallback 2: workspace
+    """
+    from pathlib import Path
+    from apps.wu_tanchang_api.config import WuAgentConfig
+    from apps.wu_tanchang_api.agent_factory.agent import create_agent
+
+    # 1. Extract IDs
+    effective_user = metadata.get("user_a_id") or metadata.get("user_id") or user_id
+    effective_calendar = metadata.get("user_b_id") or metadata.get("calendar_id")
+
+    # 2. Determine owner mode
+    is_owner = (effective_calendar is not None) and (
+        str(effective_user) == str(effective_calendar)
+    )
+
+    # 3. Determine agent profile name configuration
+    config_name = agent_name_override or ("owner" if is_owner else "default")
+
+    # 4. Resolve target and fallback workspaces
+    backend_path = Path(state.backend_root)
+    if is_owner:
+        target_ws = f"workspace_{effective_calendar}_owner"
+        fallbacks = ["workspace_owner_default", "workspace_owner"]
+    else:
+        if effective_calendar:
+            target_ws = f"workspace_{effective_calendar}"
+        else:
+            target_ws = "workspace_default"
+        fallbacks = ["workspace_default", "workspace"]
+
+    # Check existence
+    resolved_workspace = target_ws
+    if not (backend_path / resolved_workspace).exists():
+        found_fallback = False
+        for fallback in fallbacks:
+            if (backend_path / fallback).exists():
+                resolved_workspace = fallback
+                found_fallback = True
+                break
+        if not found_fallback:
+            resolved_workspace = fallbacks[-1]
+
+    # 5. Check cache or compile on-the-fly
+    is_base_workspace = False
+    if config_name in state.agents:
+        base_cfg = state.agent_configs.get(config_name)
+        if base_cfg and base_cfg.workspace == resolved_workspace:
+            is_base_workspace = True
+        elif not base_cfg:
+            is_base_workspace = True
+
+    if is_base_workspace:
+        return config_name, state.agents[config_name]
+
+    cache_key = f"{config_name}::{resolved_workspace}"
+
+    if cache_key in state.agents:
+        return config_name, state.agents[cache_key]
+
+    with state.compilation_lock:
+        # Check again under lock
+        if cache_key in state.agents:
+            return config_name, state.agents[cache_key]
+
+        # Resolve model configuration
+        base_cfg = state.agent_configs.get(config_name)
+        if base_cfg:
+            provider = base_cfg.provider
+            model = base_cfg.model
+            max_tokens = base_cfg.max_tokens
+        else:
+            from apps.wu_tanchang_api.config import get_selected_provider
+
+            provider = get_selected_provider()
+            model = "deepseek-v4-flash"
+            max_tokens = 20000 if is_owner else 800
+
+        agent_cfg = WuAgentConfig(
+            name=config_name,
+            provider=provider,
+            model=model,
+            max_tokens=max_tokens,
+            workspace=resolved_workspace,
         )
-    return name, state.agents[name]
+
+        agent, _ckpt = create_agent(
+            backend_root=backend_path,
+            agent_config=agent_cfg,
+        )
+
+        state.agents[cache_key] = agent
+        state.agent_configs[cache_key] = agent_cfg
+
+        return config_name, agent
+
+
+def _resolve_agent(state: AppState, agent_name: str) -> tuple[str, Any]:
+    """Resolve agent name to (name, agent) for backward compatibility."""
+    return resolve_dynamic_agent(state, "", {}, agent_name)
 
 
 async def _has_delivered_material(agent: Any, tid: str) -> bool:
@@ -67,7 +168,9 @@ async def _has_delivered_material(agent: Any, tid: str) -> bool:
 
 async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
     """Handle a conversation turn."""
-    agent_name, agent = _resolve_agent(state, req.agent_name)
+    agent_name, agent = resolve_dynamic_agent(
+        state, req.user_id, req.metadata or {}, req.agent_name
+    )
     tid = thread_id(
         agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id
     )
@@ -102,7 +205,11 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                     {"messages": [HumanMessage(content=req.message)]},
                     {
                         "configurable": {"thread_id": tid},
-                        "metadata": {"user_id": req.user_id, **(req.metadata or {})},
+                        "metadata": {
+                            "user_id": req.user_id,
+                            "agent_instance": agent,
+                            **(req.metadata or {}),
+                        },
                     },
                 )
             except Exception as exc:  # noqa: BLE001
@@ -153,7 +260,9 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
     - data: {"type":"final","text":"..."}  (once) — final complete response
     - data: {"type":"error","detail":{...}} (once, if error)
     """
-    agent_name, agent = _resolve_agent(state, req.agent_name)
+    agent_name, agent = resolve_dynamic_agent(
+        state, req.user_id, req.metadata or {}, req.agent_name
+    )
     tid = thread_id(
         agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id
     )
@@ -194,6 +303,7 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                             "configurable": {"thread_id": tid},
                             "metadata": {
                                 "user_id": req.user_id,
+                                "agent_instance": agent,
                                 **(req.metadata or {}),
                             },
                         },

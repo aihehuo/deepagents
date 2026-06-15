@@ -10,7 +10,7 @@ from apps.wu_tanchang_api.app.callbacks import (
     build_callback_thread,
     validate_callback_url,
 )
-from apps.wu_tanchang_api.app.endpoints.chat import _resolve_agent
+from apps.wu_tanchang_api.app.endpoints.chat import resolve_dynamic_agent
 from apps.wu_tanchang_api.app.models import (
     CallWuTanchangAsyncRequest,
     CallWuTanchangAsyncResponse,
@@ -40,7 +40,9 @@ async def call_async(
     req: CallWuTanchangAsyncRequest, state: AppState
 ) -> CallWuTanchangAsyncResponse:
     """Start a Wu Tanchang stream and POST chunks to the provided callback URL."""
-    agent_name, agent = _resolve_agent(state, req.agent_name)
+    agent_name, agent = resolve_dynamic_agent(
+        state, req.user_id, req.metadata or {}, req.agent_name
+    )
     tid = thread_id(
         agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id
     )

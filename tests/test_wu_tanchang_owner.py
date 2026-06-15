@@ -411,6 +411,18 @@ async def test_resolve_dynamic_agent(
     called_cfg = mock_create_agent.call_args[1]["agent_config"]
     assert called_cfg.workspace == "workspace"
 
+    # 4. Invalid calendar_id (S3 path traversal prevention) -> raises HTTPException
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        await resolve_dynamic_agent(
+            state,
+            user_id="123",
+            metadata={"calendar_id": "../workspace_owner"},
+        )
+    assert exc_info.value.status_code == 400
+    assert "Invalid calendar_id" in exc_info.value.detail
+
 
 def test_mask_pii() -> None:
     from apps.wu_tanchang_api.agent_factory.owner_tools import mask_pii
@@ -511,3 +523,32 @@ async def test_owner_tools_strict_access_denied() -> None:
     # get client detail should return not found message
     detail = await get_client_detail.ainvoke({"client_user_id": "u1"}, config=config)
     assert "未找到" in detail
+
+
+def test_save_meeting_prep_tool_validation() -> None:
+    from apps.wu_tanchang_api.agent_factory.agent import save_meeting_prep
+
+    # 1. Test size limit (S4)
+    huge_body = "x" * 50001
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "wt::default::u1::c1"},
+        "metadata": {
+            "user_id": "1",
+            "calendar_id": "2",
+            "callback_url": "http://localhost:3001/wu_tanchang_callbacks/",
+        },
+    }
+    res = save_meeting_prep.invoke({"body": huge_body}, config=config)
+    assert "超长" in res
+
+    # 2. Test unauthorized callback URL (S4)
+    config_unauthorized: RunnableConfig = {
+        "configurable": {"thread_id": "wt::default::u1::c1"},
+        "metadata": {
+            "user_id": "1",
+            "calendar_id": "2",
+            "callback_url": "http://malicious-attacker.com/wu_tanchang_callbacks/",
+        },
+    }
+    res = save_meeting_prep.invoke({"body": "valid body"}, config=config_unauthorized)
+    assert "未被授权" in res

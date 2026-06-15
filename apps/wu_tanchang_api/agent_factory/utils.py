@@ -21,30 +21,62 @@ def default_runtime_dir() -> Path:
     return Path.home() / ".deepagents" / "wu_tanchang_api"
 
 
-def _deploy_dir(src: Path, dest: Path) -> None:
+def _deploy_dir(src: Path, dest: Path, *, symlink: bool = False) -> None:
     """Deploy a directory from src to dest.
 
-    Tries to create a symlink first to save disk and time.
-    If symlinking fails due to filesystem/OS limitations,
-    falls back to copytree.
+    If symlink is True, tries to create a symlink first.
+    If symlink is False or symlinking fails, uses an atomic copytree fallback.
     """
-    if dest.exists() or dest.is_symlink():
+    if symlink:
         if dest.is_symlink():
+            try:
+                if dest.readlink() == src.resolve():
+                    # Already correctly symlinked
+                    return
+            except OSError:
+                pass
             dest.unlink()
-        else:
-            shutil.rmtree(dest)
+        elif dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
 
-    try:
-        os.symlink(src.resolve(), dest)
-        _logger.info("[WuTanchang] Symlinked directory: %s -> %s", src, dest)
-    except (OSError, PermissionError) as exc:
-        _logger.warning(
-            "[WuTanchang] Symlink failed (%s). Falling back to copytree: %s -> %s",
-            exc,
-            src,
-            dest,
-        )
-        shutil.copytree(src, dest)
+        try:
+            os.symlink(src.resolve(), dest)
+            _logger.info("[WuTanchang] Symlinked directory: %s -> %s", src, dest)
+            return
+        except (OSError, PermissionError) as exc:
+            _logger.warning(
+                "[WuTanchang] Symlink failed (%s). Falling back to copytree: %s -> %s",
+                exc,
+                src,
+                dest,
+            )
+
+    # Copy / deploy via atomic replace to prevent partial delete or failure window
+    temp_dest = dest.with_name(dest.name + ".tmp")
+    if temp_dest.exists():
+        if temp_dest.is_symlink():
+            temp_dest.unlink()
+        else:
+            shutil.rmtree(temp_dest, ignore_errors=True)
+
+    shutil.copytree(src, temp_dest)
+
+    if dest.is_symlink():
+        dest.unlink()
+        os.rename(temp_dest, dest)
+    elif dest.exists():
+        backup_dest = dest.with_name(dest.name + ".old")
+        if backup_dest.exists():
+            if backup_dest.is_symlink():
+                backup_dest.unlink()
+            else:
+                shutil.rmtree(backup_dest, ignore_errors=True)
+        os.rename(dest, backup_dest)
+        os.rename(temp_dest, dest)
+        shutil.rmtree(backup_dest, ignore_errors=True)
+    else:
+        os.rename(temp_dest, dest)
+    _logger.info("[WuTanchang] Deployed directory via copy: %s -> %s", src, dest)
 
 
 def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
@@ -72,13 +104,16 @@ def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
         if not src.exists():
             continue
         dest = runtime_dir / name
-        _deploy_dir(src, dest)
+        # Only symlink read-only 'kb' directory to save disk space and performance.
+        # Writable directories like 'skills' and 'intake' must be copied.
+        _deploy_dir(src, dest, symlink=(name == "kb"))
 
     # Deploy all workspace directories (e.g. workspace_*, workspace)
     for folder in workspace_src.parent.glob("workspace*"):
         if folder.is_dir() and folder.name not in ("kb", "skills", "intake"):
             dest = runtime_dir / folder.name
-            _deploy_dir(folder, dest)
+            # Writable workspaces must not be symlinked!
+            _deploy_dir(folder, dest, symlink=False)
 
     return runtime_dir
 

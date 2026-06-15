@@ -22,6 +22,9 @@ class DiskBackedInMemorySaver(InMemorySaver):
         super().__init__()
         self._file_path = Path(file_path)
         self._lock = threading.RLock()
+        self._thread_activity: dict[str, float] = {}
+        self._timer: threading.Timer | None = None
+        self._needs_save = False
         self._load_from_disk()
 
     def _load_from_disk(self) -> None:
@@ -36,6 +39,7 @@ class DiskBackedInMemorySaver(InMemorySaver):
                 storage = payload.get("storage", {})
                 writes = payload.get("writes", {})
                 blobs = payload.get("blobs", {})
+                self._thread_activity = payload.get("thread_activity", {})
                 if (
                     not isinstance(storage, dict)
                     or not isinstance(writes, dict)
@@ -68,6 +72,9 @@ class DiskBackedInMemorySaver(InMemorySaver):
 
     def _dump_to_disk(self) -> None:
         with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
             try:
                 self._file_path.parent.mkdir(parents=True, exist_ok=True)
                 payload: dict[str, Any] = {
@@ -77,25 +84,54 @@ class DiskBackedInMemorySaver(InMemorySaver):
                     },
                     "writes": {k: dict(v) for k, v in self.writes.items()},
                     "blobs": dict(self.blobs),
+                    "thread_activity": self._thread_activity,
                 }
                 tmp = self._file_path.with_suffix(self._file_path.suffix + ".tmp")
                 tmp.write_bytes(pickle.dumps(payload))
                 os.replace(tmp, self._file_path)
+                self._needs_save = False
             except Exception as e:  # noqa: BLE001
                 warnings.warn(
                     f"Failed to persist checkpoints to {self._file_path}: {e!s}.",
                     stacklevel=2,
                 )
 
+    def _schedule_save(self) -> None:
+        with self._lock:
+            self._needs_save = True
+            if self._timer is None:
+                self._timer = threading.Timer(1.0, self._dump_to_disk)
+                self._timer.start()
+
+    def flush(self) -> None:
+        """Force write pending checkpoints to disk."""
+        with self._lock:
+            if self._needs_save:
+                self._dump_to_disk()
+
     def put(self, config, checkpoint, metadata, new_versions):  # type: ignore[override]
         out = super().put(config, checkpoint, metadata, new_versions)
-        self._dump_to_disk()
+        import time
+        with self._lock:
+            thread_id = config["configurable"]["thread_id"]
+            self._thread_activity[thread_id] = time.time()
+
+            # Enforce 100 threads capacity limit
+            if len(self._thread_activity) > 100:
+                sorted_threads = sorted(self._thread_activity.items(), key=lambda x: x[1])
+                for oldest_tid, _ in sorted_threads[:len(self._thread_activity) - 100]:
+                    super().delete_thread(oldest_tid)
+                    self._thread_activity.pop(oldest_tid, None)
+
+        self._schedule_save()
         return out
 
     def put_writes(self, config, writes, task_id, task_path: str = ""):  # type: ignore[override]
         super().put_writes(config, writes, task_id, task_path)
-        self._dump_to_disk()
+        self._schedule_save()
 
     def delete_thread(self, thread_id: str) -> None:  # type: ignore[override]
-        super().delete_thread(thread_id)
+        with self._lock:
+            super().delete_thread(thread_id)
+            self._thread_activity.pop(thread_id, None)
         self._dump_to_disk()

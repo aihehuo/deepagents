@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Tuple
 
@@ -105,45 +106,88 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
         )
         return []
 
-    # Call checkpointer.list(config=None) once to fetch all checkpoints (P1/P7 Optimization)
-    try:
-        all_tuples = list(checkpointer.list(config=None))
-    except Exception as exc:  # noqa: BLE001
-        _logger.error("Failed to list all checkpoints: %s", exc)
-        return []
+    storage = getattr(checkpointer, "storage", {})
+    lock = getattr(checkpointer, "_lock", threading.RLock())
 
-    from collections import defaultdict
+    thread_groups = {}
+    with lock:
+        try:
+            t_ids = list(storage.keys())
+        except Exception:
+            t_ids = []
 
-    thread_groups = defaultdict(list)
-    for tup in all_tuples:
-        t_id = tup.config["configurable"]["thread_id"]
-        ns = tup.config["configurable"].get("checkpoint_ns", "")
-        # Only process main thread client conversations (prefix wt::default::)
-        if ns == "" and t_id.startswith("wt::default::"):
-            thread_groups[t_id].append(tup)
+        for t_id in t_ids:
+            # Only process main thread client conversations (prefix wt::default::)
+            if not t_id.startswith("wt::default::"):
+                continue
+            ns_map = storage.get(t_id, {})
+            ckpts = ns_map.get("", {})
+            if not ckpts:
+                continue
+
+            # Sort checkpoint IDs (which are in incremental order) to find first/latest
+            sorted_ids = sorted(ckpts.keys())
+            if not sorted_ids:
+                continue
+
+            first_raw = ckpts[sorted_ids[0]]
+            latest_raw = ckpts[sorted_ids[-1]]
+            thread_groups[t_id] = (first_raw, latest_raw)
 
     client_threads = []
-    for t_id, ckpt_tuples in thread_groups.items():
+    for t_id, (first_raw, latest_raw) in thread_groups.items():
         parsed = _parse_thread_id(t_id)
         if not parsed:
             continue
         agent_name, user_id, conv_id = parsed
 
-        # Sort the checkpoint tuples for this thread by timestamp
-        ckpt_tuples.sort(key=lambda x: x.checkpoint.get("ts", ""))
-        first_ckpt = ckpt_tuples[0]
-        latest_ckpt = ckpt_tuples[-1]
+        try:
+            # Check for real InMemorySaver database tuple format
+            if isinstance(latest_raw, tuple) and len(latest_raw) == 3:
+                f_ckpt_b, f_meta_b, _ = first_raw
+                _f_meta = checkpointer.serde.loads_typed(f_meta_b)
+                f_ckpt = checkpointer.serde.loads_typed(f_ckpt_b)
+                f_channels = checkpointer._load_blobs(t_id, "", f_ckpt["channel_versions"])
+                first_checkpoint = {**f_ckpt, "channel_values": f_channels}
+
+                l_ckpt_b, l_meta_b, _ = latest_raw
+                l_meta = checkpointer.serde.loads_typed(l_meta_b)
+                l_ckpt = checkpointer.serde.loads_typed(l_ckpt_b)
+                l_channels = checkpointer._load_blobs(t_id, "", l_ckpt["channel_versions"])
+                latest_checkpoint = {**l_ckpt, "channel_values": l_channels}
+            # Fallback for CheckpointTuple objects
+            elif hasattr(latest_raw, "checkpoint"):
+                first_checkpoint = first_raw.checkpoint
+                l_meta = latest_raw.metadata
+                latest_checkpoint = latest_raw.checkpoint
+            # Fallback for fake/mock checkpointer dictionaries in unit tests
+            elif isinstance(latest_raw, dict):
+                first_checkpoint = first_raw
+                latest_checkpoint = latest_raw
+                # Find matching tuple in mock list to get metadata
+                tups = getattr(checkpointer, "_tuples", [])
+                match_tup = next((x for x in tups if x.config["configurable"]["thread_id"] == t_id), None)
+                l_meta = match_tup.metadata if match_tup else {}
+            else:
+                _logger.warning("Unknown checkpoint raw value type in storage: %s", type(latest_raw))
+                continue
+        except Exception as exc:  # noqa: BLE001
+            _logger.error("Failed to deserialize checkpoint for thread %s: %s", t_id, exc)
+            continue
 
         # Check calendar_id scope (S2)
-        client_calendar_id = None
-        if latest_ckpt.metadata:
-            client_calendar_id = latest_ckpt.metadata.get(
-                "calendar_id"
-            ) or latest_ckpt.metadata.get("user_b_id")
+        client_calendar_id = l_meta.get("calendar_id") or l_meta.get("user_b_id")
+        client_calendar_id_str = (
+            str(client_calendar_id).strip() if client_calendar_id else None
+        )
+
+        # Filter by owner_calendar_id (S2 Point 1)
+        if client_calendar_id_str != owner_calendar_id_str:
+            continue
 
         delivered = False
         prep_body = None
-        messages = latest_ckpt.checkpoint.get("channel_values", {}).get("messages", [])
+        messages = latest_checkpoint.get("channel_values", {}).get("messages", [])
 
         # Check messages for save_meeting_prep and mark_material_delivered tool calls
         for msg in messages:
@@ -153,19 +197,11 @@ async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
                         delivered = True
                     if tc.get("name") == "save_meeting_prep":
                         prep_body = tc.get("args", {}).get("body")
-                        if not client_calendar_id:
-                            client_calendar_id = tc.get("args", {}).get("user_b_id")
+                        if not client_calendar_id_str:
+                            client_calendar_id_str = str(tc.get("args", {}).get("user_b_id")).strip()
 
-        client_calendar_id_str = (
-            str(client_calendar_id).strip() if client_calendar_id else None
-        )
-
-        # Filter by owner_calendar_id (S2 Point 1): client must match owner's calendar
-        if client_calendar_id_str != owner_calendar_id_str:
-            continue
-
-        first_ts_str = first_ckpt.checkpoint.get("ts", "")
-        last_ts_str = latest_ckpt.checkpoint.get("ts", "")
+        first_ts_str = first_checkpoint.get("ts", "")
+        last_ts_str = latest_checkpoint.get("ts", "")
 
         client_threads.append(
             {

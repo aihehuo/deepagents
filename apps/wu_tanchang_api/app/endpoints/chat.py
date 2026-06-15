@@ -122,6 +122,7 @@ async def resolve_dynamic_agent(
                 evict_key = next(iter(state.agents))
             state.agents.pop(evict_key, None)
             state.agent_configs.pop(evict_key, None)
+            state.compilation_locks.pop(evict_key, None)
 
         # Resolve model configuration
         base_cfg = state.agent_configs.get(config_name)
@@ -242,6 +243,8 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                     )
                 finally:
                     unregister_active_agent(tid)
+                    if hasattr(agent, "checkpointer") and hasattr(agent.checkpointer, "flush"):
+                        agent.checkpointer.flush()
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(
                     status_code=502,
@@ -391,6 +394,8 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
 
             unregister_active_agent(tid)
             state.finish_agent_run(tid, "chat_stream")
+            if hasattr(agent, "checkpointer") and hasattr(agent.checkpointer, "flush"):
+                agent.checkpointer.flush()
 
         # Build final reply from all collected text
         reply = "".join(final_parts).strip()

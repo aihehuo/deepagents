@@ -274,3 +274,63 @@ def test_task_tool_blocks_kb_analyst_after_delivered() -> None:
 
     res_blocked = tool.func(description="hello", subagent_type="kb_analyst", runtime=mock_runtime_blocked)
     assert res_blocked == "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约吴探长一对一深聊。"
+
+
+def test_ensure_runtime_workspace_isolation(tmp_path: Path) -> None:
+    from apps.wu_tanchang_api.agent_factory.utils import ensure_runtime_workspace
+    import os
+
+    # 1. Setup source workspace structure
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "kb").mkdir()
+    (src_dir / "kb" / "doc.txt").write_text("kb source", encoding="utf-8")
+
+    (src_dir / "skills").mkdir()
+    (src_dir / "skills" / "skill.txt").write_text("skills source", encoding="utf-8")
+
+    (src_dir / "intake").mkdir()
+    (src_dir / "intake" / "intake.txt").write_text("intake source", encoding="utf-8")
+
+    # Add a custom workspace folder
+    custom_ws = tmp_path / "workspace_custom"
+    custom_ws.mkdir()
+    (custom_ws / "identity.md").write_text("identity source", encoding="utf-8")
+
+    # 2. Deploy to runtime
+    runtime_dir = tmp_path / "runtime"
+    ensure_runtime_workspace(workspace_src=src_dir, runtime_dir=runtime_dir)
+
+    # 3. Assert target directory existence
+    assert (runtime_dir / "kb" / "doc.txt").read_text(encoding="utf-8") == "kb source"
+    assert (runtime_dir / "skills" / "skill.txt").read_text(encoding="utf-8") == "skills source"
+    assert (runtime_dir / "intake" / "intake.txt").read_text(encoding="utf-8") == "intake source"
+    assert (runtime_dir / "workspace_custom" / "identity.md").read_text(encoding="utf-8") == "identity source"
+
+    # Verify symlink status (if symlinks are supported by filesystem/OS)
+    try:
+        os.symlink(src_dir / "kb" / "doc.txt", tmp_path / "test_link")
+        symlink_supported = True
+    except (OSError, PermissionError):
+        symlink_supported = False
+
+    if symlink_supported:
+        # 'kb' should be a symlink
+        assert (runtime_dir / "kb").is_symlink()
+        # 'skills', 'intake', and custom workspaces must NEVER be symlinks to preserve write isolation
+        assert not (runtime_dir / "skills").is_symlink()
+        assert not (runtime_dir / "intake").is_symlink()
+        assert not (runtime_dir / "workspace_custom").is_symlink()
+
+    # 4. Modify files in runtime and check isolation
+    (runtime_dir / "skills" / "skill.txt").write_text("skills modified", encoding="utf-8")
+    (runtime_dir / "workspace_custom" / "identity.md").write_text("identity modified", encoding="utf-8")
+
+    # Assert runtime changed
+    assert (runtime_dir / "skills" / "skill.txt").read_text(encoding="utf-8") == "skills modified"
+    assert (runtime_dir / "workspace_custom" / "identity.md").read_text(encoding="utf-8") == "identity modified"
+
+    # Assert source did NOT change!
+    assert (src_dir / "skills" / "skill.txt").read_text(encoding="utf-8") == "skills source"
+    assert (custom_ws / "identity.md").read_text(encoding="utf-8") == "identity source"
+

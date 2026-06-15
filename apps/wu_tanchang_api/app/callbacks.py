@@ -343,6 +343,8 @@ def run_async_stream_with_callback(
             )
         finally:
             unregister_active_agent(thread_id)
+            if hasattr(agent, "checkpointer") and hasattr(agent.checkpointer, "flush"):
+                agent.checkpointer.flush()
             heartbeat_stop.set()
             try:
                 await asyncio.wait_for(heartbeat_task, timeout=2)

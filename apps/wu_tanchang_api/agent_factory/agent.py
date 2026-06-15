@@ -38,6 +38,29 @@ from apps.wu_tanchang_api.agent_factory.kb_search import kb_semantic_search
 
 _logger = logging.getLogger("uvicorn.error")
 
+import threading
+
+_ACTIVE_AGENTS_LOCK = threading.Lock()
+_ACTIVE_AGENTS: dict[str, Any] = {}
+
+
+def register_active_agent(thread_id: str, agent: Any) -> None:
+    """Register an active agent instance by thread ID."""
+    with _ACTIVE_AGENTS_LOCK:
+        _ACTIVE_AGENTS[thread_id] = agent
+
+
+def unregister_active_agent(thread_id: str) -> None:
+    """Unregister an active agent instance by thread ID."""
+    with _ACTIVE_AGENTS_LOCK:
+        _ACTIVE_AGENTS.pop(thread_id, None)
+
+
+def get_active_agent(thread_id: str) -> Any | None:
+    """Retrieve an active agent instance by thread ID."""
+    with _ACTIVE_AGENTS_LOCK:
+        return _ACTIVE_AGENTS.get(thread_id)
+
 # =========================================================================
 # KB sub-agent prompt: reads KB files and returns analysis in Wu Tanchang's voice
 # =========================================================================
@@ -170,6 +193,10 @@ def save_meeting_prep(
         )
         return "保存失败：未在上下文或参数中找到 user_a_id 或 user_b_id"
 
+    # Enforce body size limit (S4)
+    if len(body) > 50000:
+        return "保存失败：准备材料正文超长（最大限制为 50KB）"
+
     # Determine API endpoint URL
     callback_url = metadata.get("callback_url")
     if callback_url:
@@ -195,17 +222,37 @@ def save_meeting_prep(
         base_url = base_urls[0].rstrip("/")
         api_url = f"{base_url}/meeting_preps"
 
+    # Validate callback URL against allowed list (S4)
+    from apps.wu_tanchang_api.app.callbacks import validate_callback_url, CallbackUrlError
+    try:
+        validate_callback_url(api_url)
+    except CallbackUrlError as exc:
+        _logger.warning("[AgentTool] Unauthorized callback API url: %s, error: %s", api_url, exc)
+        return f"保存失败：出网接口地址未被授权 ({exc})"
+
     # Fetch token
     token = os.environ.get("WU_TANCHANG_CALLBACK_TOKEN") or os.environ.get(
         "WU_CALLBACK_AGENT_KEY"
     )
     headers = {"X-Agent-Key": token or "", "Content-Type": "application/json"}
 
+    # Validate integer IDs (S6)
+    try:
+        user_a_int = int(effective_user_a)
+        user_b_int = int(effective_user_b)
+    except (ValueError, TypeError):
+        _logger.warning(
+            "[AgentTool] Invalid user ID format: user_a=%s, user_b=%s",
+            effective_user_a,
+            effective_user_b,
+        )
+        return "保存失败：用户 ID 格式不正确（必须为整数）"
+
     # Prepare payload
     author = metadata.get("agent_name") or "wu_tanchang"
     payload = {
-        "user_a_id": int(effective_user_a),
-        "user_b_id": int(effective_user_b),
+        "user_a_id": user_a_int,
+        "user_b_id": user_b_int,
         "author": author,
         "body": body,
         "prepared_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -340,7 +387,7 @@ def create_agent(
             persona_content=persona_content
         )
         middleware = [
-            AccountantMiddleware(max_tool_calls=20),
+            AccountantMiddleware(max_tool_calls=6),
             LanguageDetectionMiddleware(),
             PromptLoggingMiddleware(),
         ]

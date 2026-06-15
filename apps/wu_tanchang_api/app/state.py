@@ -27,8 +27,14 @@ class AppState:
     active_callback_threads_lock: threading.Lock = field(default_factory=threading.Lock)
     active_agent_runs: dict[str, str] = field(default_factory=dict)
     active_agent_runs_lock: threading.Lock = field(default_factory=threading.Lock)
-    compilation_lock: threading.Lock = field(default_factory=threading.Lock)
+    _compilation_lock: asyncio.Lock | None = field(default=None, init=False)
     backend_root: str = ""
+
+    @property
+    def compilation_lock(self) -> asyncio.Lock:
+        if self._compilation_lock is None:
+            self._compilation_lock = asyncio.Lock()
+        return self._compilation_lock
 
     @property
     def agent(self) -> Any:

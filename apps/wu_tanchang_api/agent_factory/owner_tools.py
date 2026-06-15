@@ -20,60 +20,71 @@ def _parse_thread_id(thread_id: str) -> Tuple[str, str, str] | None:
     return None
 
 
-async def _get_client_threads(agent: Any) -> List[Dict[str, Any]]:
+async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
     """Scan checkpointer to extract metadata and status of all client threads.
 
+    Filters client threads by the current owner's calendar_id (Scope control).
+
     Args:
-        agent: The current agent instance with a checkpointer.
+        config: The current RunnableConfig object.
 
     Returns:
         List of client thread info dicts.
     """
+    tid = config.get("configurable", {}).get("thread_id")
+    agent = None
+    if tid:
+        from apps.wu_tanchang_api.agent_factory.agent import get_active_agent
+        agent = get_active_agent(tid)
+    if not agent:
+        agent = config.get("metadata", {}).get("agent_instance")
+
     checkpointer = getattr(agent, "checkpointer", None)
     if not checkpointer:
         return []
 
-    client_threads = []
-    # InMemorySaver stores checkpoints in checkpointer.storage
-    storage = getattr(checkpointer, "storage", {})
+    # Extract owner's calendar_id for scoping (S2)
+    metadata = config.get("metadata") or {}
+    owner_calendar_id = metadata.get("calendar_id") or metadata.get("user_b_id")
+    if not owner_calendar_id and tid:
+        parts = tid.split("::")
+        if len(parts) == 4 and parts[0] == "wt" and parts[1] == "owner":
+            owner_calendar_id = parts[2]
 
-    for tid in list(storage.keys()):
-        parsed = _parse_thread_id(tid)
+    owner_calendar_id_str = str(owner_calendar_id).strip() if owner_calendar_id else None
+
+    # Call checkpointer.list(config=None) once to fetch all checkpoints (P1/P7 Optimization)
+    try:
+        all_tuples = list(checkpointer.list(config=None))
+    except Exception as exc:  # noqa: BLE001
+        _logger.error("Failed to list all checkpoints: %s", exc)
+        return []
+
+    from collections import defaultdict
+    thread_groups = defaultdict(list)
+    for tup in all_tuples:
+        t_id = tup.config["configurable"]["thread_id"]
+        ns = tup.config["configurable"].get("checkpoint_ns", "")
+        # Only process main thread client conversations (prefix wt::default::)
+        if ns == "" and t_id.startswith("wt::default::"):
+            thread_groups[t_id].append(tup)
+
+    client_threads = []
+    for t_id, ckpt_tuples in thread_groups.items():
+        parsed = _parse_thread_id(t_id)
         if not parsed:
             continue
         agent_name, user_id, conv_id = parsed
 
-        # We only process client conversations (prefix wt::default::)
-        if agent_name != "default":
-            continue
+        # Sort the checkpoint tuples for this thread by timestamp
+        ckpt_tuples.sort(key=lambda x: x.checkpoint.get("ts", ""))
+        first_ckpt = ckpt_tuples[0]
+        latest_ckpt = ckpt_tuples[-1]
 
-        ns_map = storage[tid]
-        all_ckpts = []
-        for ns, ckpts in ns_map.items():
-            # Only process the root namespace for the main thread
-            if ns != "":
-                continue
-            # ckpts maps checkpoint_id to serialized tuple.
-            # We can use the checkpointer.list method to safely get CheckpointTuples
-            # instead of parsing the raw storage dictionary.
-            # But checkpointer.list(config={"configurable": {"thread_id": tid}}) is extremely clean.
-            try:
-                # list returns an iterator of CheckpointTuple objects for this thread
-                ckpt_tuples = list(
-                    checkpointer.list(config={"configurable": {"thread_id": tid}})
-                )
-                all_ckpts.extend(ckpt_tuples)
-            except Exception as exc:  # noqa: BLE001
-                _logger.error("Failed to list checkpoints for thread %s: %s", tid, exc)
-
-        if not all_ckpts:
-            continue
-
-        # Sort checkpoint tuples by timestamp
-        all_ckpts.sort(key=lambda x: x.checkpoint.get("ts", ""))
-
-        first_ckpt = all_ckpts[0]
-        latest_ckpt = all_ckpts[-1]
+        # Check calendar_id scope (S2)
+        client_calendar_id = None
+        if latest_ckpt.metadata:
+            client_calendar_id = latest_ckpt.metadata.get("calendar_id") or latest_ckpt.metadata.get("user_b_id")
 
         delivered = False
         prep_body = None
@@ -87,22 +98,28 @@ async def _get_client_threads(agent: Any) -> List[Dict[str, Any]]:
                         delivered = True
                     if tc.get("name") == "save_meeting_prep":
                         prep_body = tc.get("args", {}).get("body")
+                        if not client_calendar_id:
+                            client_calendar_id = tc.get("args", {}).get("user_b_id")
+
+        client_calendar_id_str = str(client_calendar_id).strip() if client_calendar_id else None
+
+        # Filter by owner_calendar_id if both are specified (S2)
+        if owner_calendar_id_str and client_calendar_id_str != owner_calendar_id_str:
+            continue
 
         first_ts_str = first_ckpt.checkpoint.get("ts", "")
         last_ts_str = latest_ckpt.checkpoint.get("ts", "")
 
-        client_threads.append(
-            {
-                "thread_id": tid,
-                "user_id": user_id,
-                "conversation_id": conv_id,
-                "started_at": first_ts_str,
-                "last_active_at": last_ts_str,
-                "status": "completed" if delivered else "chatting",
-                "prep_body": prep_body,
-                "messages": messages,
-            }
-        )
+        client_threads.append({
+            "thread_id": t_id,
+            "user_id": user_id,
+            "conversation_id": conv_id,
+            "started_at": first_ts_str,
+            "last_active_at": last_ts_str,
+            "status": "completed" if delivered else "chatting",
+            "prep_body": prep_body,
+            "messages": messages,
+        })
 
     return client_threads
 
@@ -119,11 +136,7 @@ async def get_consultation_stats(
         days: 统计的历史天数，默认 7 天。
         config: 运行时配置对象，自动注入。
     """
-    agent = config.get("metadata", {}).get("agent_instance")
-    if not agent:
-        return "无法获取 checkpointer，统计失败。"
-
-    threads = await _get_client_threads(agent)
+    threads = await _get_client_threads(config)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     new_clients = 0
@@ -182,11 +195,7 @@ async def list_recent_clients(
         status: 过滤状态。支持 "all", "chatting", "completed"。
         config: 运行时配置对象，自动注入。
     """
-    agent = config.get("metadata", {}).get("agent_instance")
-    if not agent:
-        return "无法获取 checkpointer。"
-
-    threads = await _get_client_threads(agent)
+    threads = await _get_client_threads(config)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     filtered = []
@@ -233,11 +242,7 @@ async def get_client_detail(
         client_user_id: 客户的唯一 user_id。
         config: 运行时配置对象，自动注入。
     """
-    agent = config.get("metadata", {}).get("agent_instance")
-    if not agent:
-        return "无法获取 checkpointer。"
-
-    threads = await _get_client_threads(agent)
+    threads = await _get_client_threads(config)
     target = next((t for t in threads if t["user_id"] == client_user_id), None)
 
     if not target:

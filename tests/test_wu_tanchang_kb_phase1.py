@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import re
 import sqlite3
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -251,7 +249,7 @@ def test_semantic_search_success(
     with patch("apps.wu_tanchang_api.agent_factory.kb_search._db_path", db_path), \
          patch("apps.wu_tanchang_api.agent_factory.kb_search._collection", mock_coll), \
          patch("apps.wu_tanchang_api.agent_factory.kb_search._api_key", "fake-key"), \
-         patch("apps.wu_tanchang_api.agent_factory.kb_search._ensure_loaded") as mock_ensure:
+         patch("apps.wu_tanchang_api.agent_factory.kb_search._ensure_loaded"):
         
         mock_get_embs.return_value = [[0.1] * 1024]
         

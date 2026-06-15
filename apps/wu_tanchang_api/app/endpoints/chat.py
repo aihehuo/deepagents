@@ -134,7 +134,7 @@ async def resolve_dynamic_agent(
 
             provider = get_selected_provider()
             model = "deepseek-v4-flash"
-            max_tokens = 20000 if is_owner else 800
+            max_tokens = 4000 if is_owner else 800
 
         agent_cfg = WuAgentConfig(
             name=config_name,

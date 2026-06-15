@@ -16,7 +16,9 @@ Architecture:
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
+from typing import Any
 
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
@@ -37,8 +39,6 @@ from apps.wu_tanchang_api.config import WuAgentConfig
 from apps.wu_tanchang_api.agent_factory.kb_search import kb_semantic_search
 
 _logger = logging.getLogger("uvicorn.error")
-
-import threading
 
 _ACTIVE_AGENTS_LOCK = threading.Lock()
 _ACTIVE_AGENTS: dict[str, Any] = {}

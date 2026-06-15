@@ -126,3 +126,82 @@ def mask_sensitive_value(value: str | None, show_chars: int = 8) -> str:
     if len(value) <= show_chars + 4:
         return "***"
     return f"{value[:show_chars]}...{value[-4:]}"
+
+
+def get_workspace_agent_id(workspace_path: Path) -> str:
+    """Parse the Agent id from MEMORY.md in the workspace.
+    If workspace_path is an owner workspace, looks in the corresponding user workspace.
+    """
+    path = workspace_path
+    is_owner = path.name.endswith("_owner")
+    if is_owner:
+        user_ws_name = path.name[:-6]  # strip '_owner'
+        path = path.parent / user_ws_name
+
+    memory_md = path / "MEMORY.md"
+    if memory_md.exists():
+        try:
+            content = memory_md.read_text(encoding="utf-8")
+            import re
+            match = re.search(r"-\s+\*\*Agent\s+id\*\*:\s*(\S+)", content, re.IGNORECASE)
+            if not match:
+                match = re.search(r"-\s+Agent\s+id\s*:\s*(\S+)", content, re.IGNORECASE)
+            if match:
+                agent_id = match.group(1).strip()
+                if is_owner:
+                    return f"{agent_id}_owner"
+                return agent_id
+        except Exception:
+            pass
+
+    # Fallbacks if parsing fails
+    if "1" in workspace_path.name:
+        return "yc01_owner" if is_owner else "yc01"
+    return "owner" if is_owner else "default"
+
+
+def get_workspace_owner_name(workspace_path: Path) -> str:
+    """Parse the owner name from USER.md in the owner workspace.
+    If workspace_path is not an owner workspace, converts it to the owner workspace first.
+    """
+    path = workspace_path
+    if not path.name.endswith("_owner"):
+        owner_ws_name = f"{path.name}_owner"
+        path = path.parent / owner_ws_name
+
+    user_md = path / "USER.md"
+    if user_md.exists():
+        try:
+            content = user_md.read_text(encoding="utf-8")
+            import re
+            match = re.search(r"-\s+\*\*Target\s+User\*\*:\s*([^\n\r(]+)", content, re.IGNORECASE)
+            if match:
+                name = match.group(1).strip()
+                return name
+        except Exception:
+            pass
+
+    # Fallbacks
+    if "1" in workspace_path.name:
+        return "YC老师"
+    return "吴探长"
+
+
+def get_workspace_domain(workspace_path: Path) -> str:
+    """Parse the domain/category from IDENTITY.md in the workspace.
+    Returns "创业" or "餐饮" (default).
+    """
+    path = workspace_path
+    if path.name.endswith("_owner"):
+        user_ws_name = path.name[:-6]
+        path = path.parent / user_ws_name
+
+    identity_md = path / "IDENTITY.md"
+    if identity_md.exists():
+        try:
+            content = identity_md.read_text(encoding="utf-8")
+            if "创业" in content:
+                return "创业"
+        except Exception:
+            pass
+    return "餐饮"

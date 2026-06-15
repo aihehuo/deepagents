@@ -33,7 +33,12 @@ from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 
 from apps.wu_tanchang_api.agent_factory.model_builder import create_model
-from apps.wu_tanchang_api.agent_factory.utils import default_runtime_dir
+from apps.wu_tanchang_api.agent_factory.utils import (
+    default_runtime_dir,
+    get_workspace_agent_id,
+    get_workspace_owner_name,
+    get_workspace_domain,
+)
 from apps.wu_tanchang_api.checkpointer import DiskBackedInMemorySaver
 from apps.wu_tanchang_api.config import WuAgentConfig
 from apps.wu_tanchang_api.agent_factory.kb_search import kb_semantic_search, get_note_content
@@ -252,14 +257,22 @@ def save_meeting_prep(
     if not author:
         # Determine default author name based on workspace
         from apps.wu_tanchang_api.agent_factory.agent import get_active_agent
+        from apps.wu_tanchang_api.agent_factory.utils import get_workspace_agent_id
         config_configurable = config.get("configurable") or {}
         tid = config_configurable.get("thread_id")
         active_agent = get_active_agent(tid) if tid else None
         workspace_name = getattr(active_agent, "workspace_name", "workspace") if active_agent else "workspace"
-        if "1" in workspace_name:
+        
+        backend_root = Path(__file__).resolve().parent.parent
+        workspace_path = backend_root / workspace_name
+        agent_id = get_workspace_agent_id(workspace_path)
+        
+        if "yc01" in agent_id:
             author = "yc"
-        else:
+        elif "andy01" in agent_id:
             author = "wu_tanchang"
+        else:
+            author = agent_id.replace("_owner", "")
 
     payload = {
         "user_a_id": user_a_int,
@@ -393,7 +406,7 @@ def create_agent(
             get_client_detail,
         )
 
-        owner_name = "YC老师" if "1" in effective_workspace else "吴探长"
+        owner_name = get_workspace_owner_name(workspace_path)
 
         tools = [get_consultation_stats, list_recent_clients, get_client_detail]
         system_prompt = OWNER_SYSTEM_PROMPT_TEMPLATE.format(

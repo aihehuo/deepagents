@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 from langchain_core.messages import ToolMessage
+from apps.wu_tanchang_api.agent_factory.utils import get_workspace_domain
 
 
 def thread_id(
@@ -80,10 +82,15 @@ def get_progress_status(
             continue
 
         if is_subagent:
+            # Resolve domain from workspace metadata
+            backend_root = Path(__file__).resolve().parent.parent
+            workspace_path = backend_root / workspace_name
+            domain = get_workspace_domain(workspace_path)
+
             # Subagent execution progress
             # Check if kb_semantic_search is being called
             if has_tool_call(update_data, {"kb_semantic_search"}):
-                if "1" in workspace_name:
+                if domain == "创业":
                     return "正在对创业案例与方法论进行语义检索..."
                 else:
                     return "正在对餐饮案例库进行语义检索..."
@@ -97,7 +104,7 @@ def get_progress_status(
                 or (isinstance(msg, dict) and msg.get("type") == "tool")
             ]
             if tool_calls or tool_msgs:
-                if "1" in workspace_name:
+                if domain == "创业":
                     return "正在调阅创业案例详情并分析商业动作..."
                 else:
                     return "正在调阅餐饮案例详情并分析商业动作..."

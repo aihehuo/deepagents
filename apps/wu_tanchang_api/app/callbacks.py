@@ -14,7 +14,9 @@ from urllib.parse import urlsplit, urlunsplit
 
 from langchain_core.messages import AIMessageChunk, HumanMessage
 
+from pathlib import Path
 from apps.wu_tanchang_api.app.utils import get_progress_status
+from apps.wu_tanchang_api.agent_factory.utils import get_workspace_agent_id
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -249,9 +251,15 @@ def run_async_stream_with_callback(
 
         heartbeat_task = asyncio.create_task(_heartbeat_loop())
         workspace_name = getattr(agent, "workspace_name", "workspace")
-        payload_agent_name = agent_name
-        if "1" in workspace_name:
-            payload_agent_name = "yc01_owner" if agent_name == "owner" else "yc01"
+        backend_root = Path(__file__).resolve().parent.parent
+        workspace_path = backend_root / workspace_name
+        parsed_id = get_workspace_agent_id(workspace_path)
+        if parsed_id == "andy01":
+            payload_agent_name = "default"
+        elif parsed_id == "andy01_owner":
+            payload_agent_name = "owner"
+        else:
+            payload_agent_name = parsed_id
 
         base_payload = {
             "session_id": thread_id,

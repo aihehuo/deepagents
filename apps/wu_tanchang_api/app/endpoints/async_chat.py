@@ -40,7 +40,7 @@ async def call_async(
     req: CallWuTanchangAsyncRequest, state: AppState
 ) -> CallWuTanchangAsyncResponse:
     """Start a Wu Tanchang stream and POST chunks to the provided callback URL."""
-    agent_name, agent = resolve_dynamic_agent(
+    agent_name, agent = await resolve_dynamic_agent(
         state, req.user_id, req.metadata or {}, req.agent_name
     )
     tid = thread_id(

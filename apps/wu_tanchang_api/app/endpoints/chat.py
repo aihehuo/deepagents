@@ -23,7 +23,7 @@ _GUIDE_MESSAGE = """这份材料我已经准备好了。建议你预约吴探长
 你可以直接联系吴探长预约时间，或者告诉我你需要什么帮助来安排这次深聊？"""
 
 
-def resolve_dynamic_agent(
+async def resolve_dynamic_agent(
     state: AppState,
     user_id: str,
     metadata: dict[str, Any],
@@ -43,10 +43,19 @@ def resolve_dynamic_agent(
     from pathlib import Path
     from apps.wu_tanchang_api.config import WuAgentConfig
     from apps.wu_tanchang_api.agent_factory.agent import create_agent
+    import re
 
     # 1. Extract IDs
     effective_user = metadata.get("user_a_id") or metadata.get("user_id") or user_id
     effective_calendar = metadata.get("user_b_id") or metadata.get("calendar_id")
+
+    # Whitelist check for calendar_id / user_b_id (S3) to prevent path traversal
+    if effective_calendar is not None:
+        if not re.fullmatch(r"^[A-Za-z0-9_\-]{1,32}$", str(effective_calendar)):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid calendar_id or user_b_id format. Must match ^[A-Za-z0-9_\\-]{1,32}$",
+            )
 
     # 2. Determine owner mode
     is_owner = (effective_calendar is not None) and (
@@ -97,10 +106,22 @@ def resolve_dynamic_agent(
     if cache_key in state.agents:
         return config_name, state.agents[cache_key]
 
-    with state.compilation_lock:
+    async with state.compilation_lock:
         # Check again under lock
         if cache_key in state.agents:
             return config_name, state.agents[cache_key]
+
+        # Enforce P5 cache size limit (pop oldest entries in state.agents when size >= 50)
+        while len(state.agents) >= 50:
+            evict_key = None
+            for key in state.agents:
+                if "::" in key:
+                    evict_key = key
+                    break
+            if evict_key is None:
+                evict_key = next(iter(state.agents))
+            state.agents.pop(evict_key, None)
+            state.agent_configs.pop(evict_key, None)
 
         # Resolve model configuration
         base_cfg = state.agent_configs.get(config_name)
@@ -123,7 +144,8 @@ def resolve_dynamic_agent(
             workspace=resolved_workspace,
         )
 
-        agent, _ckpt = create_agent(
+        agent, _ckpt = await asyncio.to_thread(
+            create_agent,
             backend_root=backend_path,
             agent_config=agent_cfg,
         )
@@ -134,9 +156,9 @@ def resolve_dynamic_agent(
         return config_name, agent
 
 
-def _resolve_agent(state: AppState, agent_name: str) -> tuple[str, Any]:
+async def _resolve_agent(state: AppState, agent_name: str) -> tuple[str, Any]:
     """Resolve agent name to (name, agent) for backward compatibility."""
-    return resolve_dynamic_agent(state, "", {}, agent_name)
+    return await resolve_dynamic_agent(state, "", {}, agent_name)
 
 
 async def _has_delivered_material(agent: Any, tid: str) -> bool:
@@ -168,7 +190,7 @@ async def _has_delivered_material(agent: Any, tid: str) -> bool:
 
 async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
     """Handle a conversation turn."""
-    agent_name, agent = resolve_dynamic_agent(
+    agent_name, agent = await resolve_dynamic_agent(
         state, req.user_id, req.metadata or {}, req.agent_name
     )
     tid = thread_id(
@@ -201,17 +223,25 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                     else 0
                 )
 
-                result = await agent.ainvoke(
-                    {"messages": [HumanMessage(content=req.message)]},
-                    {
-                        "configurable": {"thread_id": tid},
-                        "metadata": {
-                            "user_id": req.user_id,
-                            "agent_instance": agent,
-                            **(req.metadata or {}),
-                        },
-                    },
+                from apps.wu_tanchang_api.agent_factory.agent import (
+                    register_active_agent,
+                    unregister_active_agent,
                 )
+
+                register_active_agent(tid, agent)
+                try:
+                    result = await agent.ainvoke(
+                        {"messages": [HumanMessage(content=req.message)]},
+                        {
+                            "configurable": {"thread_id": tid},
+                            "metadata": {
+                                "user_id": req.user_id,
+                                **(req.metadata or {}),
+                            },
+                        },
+                    )
+                finally:
+                    unregister_active_agent(tid)
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(
                     status_code=502,
@@ -260,7 +290,7 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
     - data: {"type":"final","text":"..."}  (once) — final complete response
     - data: {"type":"error","detail":{...}} (once, if error)
     """
-    agent_name, agent = resolve_dynamic_agent(
+    agent_name, agent = await resolve_dynamic_agent(
         state, req.user_id, req.metadata or {}, req.agent_name
     )
     tid = thread_id(
@@ -277,6 +307,9 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
             }
             yield f"data: {json.dumps({'type': 'error', 'detail': detail}, ensure_ascii=False)}\n\n"
             return
+        from apps.wu_tanchang_api.agent_factory.agent import register_active_agent
+
+        register_active_agent(tid, agent)
         lock = state.thread_locks.setdefault(tid, asyncio.Lock())
         try:
             async with lock:
@@ -303,7 +336,6 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                             "configurable": {"thread_id": tid},
                             "metadata": {
                                 "user_id": req.user_id,
-                                "agent_instance": agent,
                                 **(req.metadata or {}),
                             },
                         },
@@ -355,6 +387,9 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                     yield f"data: {json.dumps({'type': 'error', 'detail': detail}, ensure_ascii=False)}\n\n"
                     return
         finally:
+            from apps.wu_tanchang_api.agent_factory.agent import unregister_active_agent
+
+            unregister_active_agent(tid)
             state.finish_agent_run(tid, "chat_stream")
 
         # Build final reply from all collected text

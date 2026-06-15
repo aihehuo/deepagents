@@ -229,6 +229,12 @@ def run_async_stream_with_callback(
     asyncio.set_event_loop(loop)
 
     async def _run() -> None:
+        from apps.wu_tanchang_api.agent_factory.agent import (
+            register_active_agent,
+            unregister_active_agent,
+        )
+
+        register_active_agent(thread_id, agent)
         heartbeat_stop = asyncio.Event()
 
         async def _heartbeat_loop() -> None:
@@ -258,7 +264,6 @@ def run_async_stream_with_callback(
                     "user_id": user_id,
                     "agent_name": agent_name,
                     "callback_url": callback_url,
-                    "agent_instance": agent,
                     **metadata,
                 },
             }
@@ -337,6 +342,7 @@ def run_async_stream_with_callback(
                 },
             )
         finally:
+            unregister_active_agent(thread_id)
             heartbeat_stop.set()
             try:
                 await asyncio.wait_for(heartbeat_task, timeout=2)

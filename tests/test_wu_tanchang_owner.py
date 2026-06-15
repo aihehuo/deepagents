@@ -24,6 +24,7 @@ class _FakeCheckpointTuple:
         ts: str,
         messages: list[Any],
         checkpoint_id: str = "ckpt_1",
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         self.config = {
             "configurable": {
@@ -41,7 +42,7 @@ class _FakeCheckpointTuple:
             "updated_channels": [],
             "channel_values": {"messages": messages},
         }
-        self.metadata = {"source": "loop", "step": 1, "parents": {}}
+        self.metadata = metadata or {"source": "loop", "step": 1, "parents": {}}
 
 
 class _FakeCheckpointer:
@@ -185,6 +186,7 @@ async def test_get_consultation_stats() -> None:
         thread_id="wt::default::user_complete::conv1",
         ts="2026-06-14T10:00:00.000000+00:00",
         messages=t1_msg,
+        metadata={"calendar_id": "o1"},
     )
 
     t2_msg = [
@@ -195,6 +197,7 @@ async def test_get_consultation_stats() -> None:
         thread_id="wt::default::user_chatting::conv1",
         ts="2026-06-14T11:00:00.000000+00:00",
         messages=t2_msg,
+        metadata={"calendar_id": "o1"},
     )
 
     checkpointer = _FakeCheckpointer([t1, t2])
@@ -223,6 +226,7 @@ async def test_list_recent_clients() -> None:
         thread_id="wt::default::u1::c1",
         ts="2026-06-14T10:00:00.000000+00:00",
         messages=t1_msg,
+        metadata={"calendar_id": "o1"},
     )
     checkpointer = _FakeCheckpointer([t1])
     agent = _FakeAgent(checkpointer)
@@ -275,6 +279,7 @@ async def test_get_client_detail() -> None:
         thread_id="wt::default::user_complete::conv1",
         ts="2026-06-14T10:00:00.000000+00:00",
         messages=t1_msg,
+        metadata={"calendar_id": "o1"},
     )
 
     checkpointer = _FakeCheckpointer([t1])
@@ -304,6 +309,7 @@ async def test_get_client_detail() -> None:
         thread_id="wt::default::user_chatting::conv1",
         ts="2026-06-14T11:00:00.000000+00:00",
         messages=t2_msg,
+        metadata={"calendar_id": "o1"},
     )
 
     checkpointer = _FakeCheckpointer([t2])
@@ -326,7 +332,8 @@ async def test_get_client_detail() -> None:
     assert "20万" in detail
 
 
-def test_resolve_dynamic_agent(
+@pytest.mark.anyio
+async def test_resolve_dynamic_agent(
     monkeypatch: pytest.MonkeyPatch, fake_workspace_setup: Path
 ) -> None:
     from apps.wu_tanchang_api.app.endpoints.chat import resolve_dynamic_agent
@@ -348,7 +355,7 @@ def test_resolve_dynamic_agent(
     )
 
     # 1. Identical user_id and calendar_id -> owner mode, fallback to workspace_owner
-    name, agent = resolve_dynamic_agent(
+    name, agent = await resolve_dynamic_agent(
         state,
         user_id="123",
         metadata={"calendar_id": "123"},
@@ -365,7 +372,7 @@ def test_resolve_dynamic_agent(
     special_owner_dir = fake_workspace_setup / "workspace_456_owner"
     special_owner_dir.mkdir(parents=True, exist_ok=True)
 
-    name, agent = resolve_dynamic_agent(
+    name, agent = await resolve_dynamic_agent(
         state,
         user_id="456",
         metadata={"calendar_id": "456"},
@@ -377,7 +384,7 @@ def test_resolve_dynamic_agent(
     mock_create_agent.reset_mock()
 
     # 3. Different user_id and calendar_id -> client mode, fallback to workspace
-    name, agent = resolve_dynamic_agent(
+    name, agent = await resolve_dynamic_agent(
         state,
         user_id="client_user",
         metadata={"calendar_id": "789"},

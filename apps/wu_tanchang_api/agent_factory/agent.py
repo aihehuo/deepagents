@@ -361,7 +361,12 @@ def create_agent(
     runtime_dir.mkdir(parents=True, exist_ok=True)
 
     # Filesystem backend for workspace access
-    backend = FilesystemBackend(root_dir=str(backend_root), virtual_mode=True)
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    backend = FilesystemBackend(
+        root_dir=str(backend_root),
+        virtual_mode=True,
+        allowed_symlink_roots=[repo_root, Path.cwd()],
+    )
 
     # Pre-load persona files from workspace root into system prompt
     effective_workspace = agent_config.workspace if agent_config else "workspace"

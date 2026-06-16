@@ -586,21 +586,21 @@ class TestWindowsPathHandling:
         (tmp_path / "src" / "utils" / "helper.py").write_text("def help(): pass")
         return FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
 
-    def test_ls_paths(self, backend):
+    def test_ls_paths(self, backend: FilesystemBackend):
         """Ls should return forward-slash paths."""
         infos = backend.ls("/src").entries
         assert infos is not None
         for info in infos:
             assert "\\" not in info["path"], f"Backslash in ls path: {info['path']}"
 
-    def test_glob_paths(self, backend):
+    def test_glob_paths(self, backend: FilesystemBackend):
         """Glob should return forward-slash paths."""
         result = backend.glob("**/*.py", path="/")
         assert result.matches is not None
         for info in result.matches:
             assert "\\" not in info["path"], f"Backslash in glob path: {info['path']}"
 
-    def test_grep_paths(self, backend):
+    def test_grep_paths(self, backend: FilesystemBackend):
         """Grep should return forward-slash paths."""
         matches = backend.grep("def", path="/").matches
         assert matches is not None
@@ -681,3 +681,38 @@ class TestEditCrlfNormalization:
         final = (tmp_path / "history.md").read_text()
         assert "## Summary 2" in final
         assert "Human: next" in final
+
+
+def test_filesystem_backend_allowed_symlink_roots(tmp_path: Path):
+    import os
+
+    # Create a root directory and an outside directory
+    root_dir = tmp_path / "root"
+    outside_dir = tmp_path / "outside"
+    root_dir.mkdir()
+    outside_dir.mkdir()
+
+    # Write a file in the outside directory
+    (outside_dir / "target.txt").write_text("outside content", encoding="utf-8")
+
+    link_path = root_dir / "link"
+    try:
+        os.symlink(outside_dir, link_path)
+    except (OSError, PermissionError):
+        # Symlink not supported on this platform/run
+        pytest.skip("Symlinks not supported")
+
+    # 1. Without allowed_symlink_roots, read should fail
+    be_fail = FilesystemBackend(root_dir=str(root_dir), virtual_mode=True)
+    with pytest.raises(ValueError, match="outside root directory"):
+        be_fail.read("/link/target.txt")
+
+    # 2. With allowed_symlink_roots, read should succeed!
+    be_ok = FilesystemBackend(
+        root_dir=str(root_dir),
+        virtual_mode=True,
+        allowed_symlink_roots=[outside_dir]
+    )
+    res = be_ok.read("/link/target.txt")
+    assert res.file_data is not None
+    assert res.file_data["content"] == "outside content"

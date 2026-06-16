@@ -91,8 +91,9 @@ class FilesystemBackend(BackendProtocol):
     def __init__(
         self,
         root_dir: str | Path | None = None,
-        virtual_mode: bool | None = None,  # noqa: FBT001
+        virtual_mode: bool | None = None,
         max_file_size_mb: int = 10,
+        allowed_symlink_roots: list[str | Path] | None = None,
     ) -> None:
         """Initialize filesystem backend.
 
@@ -126,6 +127,8 @@ class FilesystemBackend(BackendProtocol):
                 grep's Python fallback search.
 
                 Files exceeding this limit are skipped during search. Defaults to 10 MB.
+            allowed_symlink_roots: Optional list of directory paths that are allowed as
+                targets for symlinks under root_dir.
         """
         self.cwd = Path(root_dir).resolve() if root_dir else Path.cwd()
         if virtual_mode is None:
@@ -142,6 +145,11 @@ class FilesystemBackend(BackendProtocol):
             virtual_mode = False
         self.virtual_mode = virtual_mode
         self.max_file_size_bytes = max_file_size_mb * 1024 * 1024
+        self.allowed_symlink_roots = (
+            [Path(p).resolve() for p in allowed_symlink_roots]
+            if allowed_symlink_roots
+            else []
+        )
 
     def _resolve_path(self, key: str) -> Path:
         """Resolve a file path with security checks.
@@ -169,9 +177,22 @@ class FilesystemBackend(BackendProtocol):
                 msg = "Path traversal not allowed"
                 raise ValueError(msg)
             full = (self.cwd / vpath.lstrip("/")).resolve()
+
+            # Check if resolved path is inside the root directory or allowed symlink roots
+            is_safe = False
             try:
                 full.relative_to(self.cwd)
+                is_safe = True
             except ValueError:
+                for allowed_root in self.allowed_symlink_roots:
+                    try:
+                        full.relative_to(allowed_root)
+                        is_safe = True
+                        break
+                    except ValueError:
+                        pass
+
+            if not is_safe:
                 msg = f"Path:{full} outside root directory: {self.cwd}"
                 raise ValueError(msg) from None
             return full
@@ -196,7 +217,7 @@ class FilesystemBackend(BackendProtocol):
         """
         return "/" + path.resolve().relative_to(self.cwd).as_posix()
 
-    def ls(self, path: str) -> LsResult:  # noqa: C901, PLR0912, PLR0915  # Complex virtual_mode logic
+    def ls(self, path: str) -> LsResult:  # noqa: PLR0915  # Complex virtual_mode logic
         """List files and directories in the specified directory (non-recursive).
 
         Args:
@@ -239,7 +260,7 @@ class FilesystemBackend(BackendProtocol):
                                     "path": abs_path,
                                     "is_dir": False,
                                     "size": int(st.st_size),
-                                    "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # noqa: DTZ006  # Local filesystem timestamps don't need timezone
+                                    "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # Local filesystem timestamps don't need timezone
                                 }
                             )
                         except OSError:
@@ -252,7 +273,7 @@ class FilesystemBackend(BackendProtocol):
                                     "path": abs_path + "/",
                                     "is_dir": True,
                                     "size": 0,
-                                    "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # noqa: DTZ006  # Local filesystem timestamps don't need timezone
+                                    "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # Local filesystem timestamps don't need timezone
                                 }
                             )
                         except OSError:
@@ -276,7 +297,7 @@ class FilesystemBackend(BackendProtocol):
                                     "path": virt_path,
                                     "is_dir": False,
                                     "size": int(st.st_size),
-                                    "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # noqa: DTZ006  # Local filesystem timestamps don't need timezone
+                                    "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # Local filesystem timestamps don't need timezone
                                 }
                             )
                         except OSError:
@@ -289,7 +310,7 @@ class FilesystemBackend(BackendProtocol):
                                     "path": virt_path + "/",
                                     "is_dir": True,
                                     "size": 0,
-                                    "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # noqa: DTZ006  # Local filesystem timestamps don't need timezone
+                                    "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # Local filesystem timestamps don't need timezone
                                 }
                             )
                         except OSError:
@@ -393,7 +414,7 @@ class FilesystemBackend(BackendProtocol):
         file_path: str,
         old_string: str,
         new_string: str,
-        replace_all: bool = False,  # noqa: FBT001, FBT002
+        replace_all: bool = False,
     ) -> EditResult:
         """Edit a file by replacing string occurrences.
 
@@ -486,7 +507,8 @@ class FilesystemBackend(BackendProtocol):
                 matches.append({"path": fpath, "line": int(line_num), "text": line_text})
         return GrepResult(matches=matches)
 
-    def _ripgrep_search(self, pattern: str, base_full: Path, include_glob: str | None) -> dict[str, list[tuple[int, str]]] | None:  # noqa: C901  # Split except clauses for logging
+    # Split except clauses for logging
+    def _ripgrep_search(self, pattern: str, base_full: Path, include_glob: str | None) -> dict[str, list[tuple[int, str]]] | None:
         """Search using ripgrep with fixed-string (literal) mode.
 
         Args:
@@ -546,7 +568,7 @@ class FilesystemBackend(BackendProtocol):
 
         return results
 
-    def _python_search(self, pattern: str, base_full: Path, include_glob: str | None) -> dict[str, list[tuple[int, str]]]:  # noqa: C901, PLR0912
+    def _python_search(self, pattern: str, base_full: Path, include_glob: str | None) -> dict[str, list[tuple[int, str]]]:
         """Fallback search using Python when ripgrep is unavailable.
 
         Recursively searches files, respecting `max_file_size_bytes` limit.
@@ -601,7 +623,7 @@ class FilesystemBackend(BackendProtocol):
 
         return results
 
-    def glob(self, pattern: str, path: str = "/") -> GlobResult:  # noqa: C901, PLR0912  # Complex virtual_mode logic
+    def glob(self, pattern: str, path: str = "/") -> GlobResult:  # Complex virtual_mode logic
         """Find files matching a glob pattern.
 
         Args:
@@ -646,7 +668,7 @@ class FilesystemBackend(BackendProtocol):
                                 "path": abs_path,
                                 "is_dir": False,
                                 "size": int(st.st_size),
-                                "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # noqa: DTZ006  # Local filesystem timestamps don't need timezone
+                                "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # Local filesystem timestamps don't need timezone
                             }
                         )
                     except OSError:
@@ -668,7 +690,7 @@ class FilesystemBackend(BackendProtocol):
                                 "path": virt,
                                 "is_dir": False,
                                 "size": int(st.st_size),
-                                "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # noqa: DTZ006  # Local filesystem timestamps don't need timezone
+                                "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),  # Local filesystem timestamps don't need timezone
                             }
                         )
                     except OSError:

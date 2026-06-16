@@ -275,6 +275,18 @@ def test_task_tool_blocks_kb_analyst_after_delivered() -> None:
     res_blocked = tool.func(description="hello", subagent_type="kb_analyst", runtime=mock_runtime_blocked)
     assert res_blocked == "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约吴探长一对一深聊。"
 
+    # Case 3: Materials delivered (YC Workspace)
+    mock_runtime_blocked_yc = MagicMock(spec=ToolRuntime)
+    mock_runtime_blocked_yc.state = {"messages": [delivered_msg]}
+    mock_runtime_blocked_yc.tool_call_id = "call-3"
+    mock_runtime_blocked_yc.config = {
+        "configurable": {"thread_id": "wt::yc01::u1::c1"},
+        "metadata": {"agent_name": "yc01"}
+    }
+
+    res_blocked_yc = tool.func(description="hello", subagent_type="kb_analyst", runtime=mock_runtime_blocked_yc)
+    assert res_blocked_yc == "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约YC老师一对一深聊。"
+
 
 def test_accountant_middleware_resets_tool_count_per_turn() -> None:
     from types import SimpleNamespace
@@ -386,3 +398,80 @@ def test_ensure_runtime_workspace_isolation(tmp_path: Path) -> None:
 
     # Assert source did NOT change!
     assert (custom_ws / "identity.md").read_text(encoding="utf-8") == "identity source"
+
+
+def test_task_tool_blocks_kb_analyst_after_delivered_dynamic_owner() -> None:
+    from deepagents.middleware.subagents import _build_task_tool, _SubagentSpec
+    from deepagents.backends.protocol import BackendProtocol
+    from langchain.tools import ToolRuntime
+    from langchain_core.messages import ToolMessage
+    from unittest.mock import MagicMock
+    import json
+
+    # Create dummy specs
+    mock_runnable = MagicMock()
+    mock_runnable.invoke.return_value = {"messages": [MagicMock()]}
+    spec = _SubagentSpec(name="kb_analyst", description="KB", runnable=mock_runnable)
+
+    # 1. Test reading from workspace subdirectory based on MEMORY.md mapping
+    # Mock backend
+    mock_backend = MagicMock(spec=BackendProtocol)
+    
+    # ls("/") returns workspace directories
+    mock_backend.ls.return_value = MagicMock(
+        entries=[
+            {"path": "/workspace"},
+            {"path": "/workspace_1"}
+        ]
+    )
+
+    # Mock read files
+    def mock_read(path):
+        from deepagents.backends.protocol import ReadResult
+        if path == "/workspace_1/MEMORY.md":
+            return ReadResult(file_data={"content": "- Agent id: yc01", "encoding": "utf-8"})
+        elif path == "/workspace/MEMORY.md":
+            return ReadResult(file_data={"content": "- Agent id: andy01", "encoding": "utf-8"})
+        elif path == "/workspace_1/owner.json":
+            return ReadResult(file_data={"content": json.dumps({"owner_name": "动态YC老师"}), "encoding": "utf-8"})
+        elif path == "/workspace/owner.json":
+            return ReadResult(file_data={"content": json.dumps({"owner_name": "动态吴探长"}), "encoding": "utf-8"})
+        elif path == "/owner.json":
+            return ReadResult(file_data={"content": json.dumps({"owner_name": "根目录Owner"}), "encoding": "utf-8"})
+        return ReadResult(error="file not found")
+
+    mock_backend.read.side_effect = mock_read
+
+    # Build the task tool with the mock backend
+    tool = _build_task_tool([spec], backend=mock_backend)
+
+    # Setup runtime with delivered message and YC metadata
+    delivered_msg = ToolMessage(content="done", name="mark_material_delivered", tool_call_id="tool-1")
+    mock_runtime = MagicMock(spec=ToolRuntime)
+    mock_runtime.state = {"messages": [delivered_msg]}
+    mock_runtime.tool_call_id = "call-1"
+    mock_runtime.config = {
+        "configurable": {"thread_id": "wt::yc01::u1::c1"},
+        "metadata": {"agent_name": "yc01"}
+    }
+
+    res = tool.func(description="hello", subagent_type="kb_analyst", runtime=mock_runtime)
+    assert "动态YC老师" in res
+
+    # 2. Test reading from default /owner.json
+    mock_backend_default = MagicMock(spec=BackendProtocol)
+    mock_backend_default.ls.side_effect = Exception("ls not implemented")
+    mock_backend_default.read.side_effect = mock_read
+
+    tool_default = _build_task_tool([spec], backend=mock_backend_default)
+    mock_runtime_default = MagicMock(spec=ToolRuntime)
+    mock_runtime_default.state = {"messages": [delivered_msg]}
+    mock_runtime_default.tool_call_id = "call-2"
+    mock_runtime_default.config = {
+        "configurable": {"thread_id": "wt::andy01::u1::c1"},
+        "metadata": {"agent_name": "andy01"}
+    }
+
+    res_default = tool_default.func(description="hello", subagent_type="kb_analyst", runtime=mock_runtime_default)
+    assert "根目录Owner" in res_default
+

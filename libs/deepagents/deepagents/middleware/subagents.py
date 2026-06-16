@@ -347,7 +347,7 @@ class _SubagentSpec(TypedDict):
 
 def _has_delivered_material(messages: list[Any]) -> bool:
     for msg in messages:
-        if hasattr(msg, "name") and getattr(msg, "name") == "mark_material_delivered":
+        if hasattr(msg, "name") and msg.name == "mark_material_delivered":
             return True
         if isinstance(msg, dict) and msg.get("type") == "tool" and msg.get("name") == "mark_material_delivered":
             return True
@@ -358,14 +358,148 @@ def _has_delivered_material(messages: list[Any]) -> bool:
     return False
 
 
-def _build_task_tool(  # noqa: C901
+def _find_workspace_name(backend: BackendProtocol, agent_name: str, tid: str) -> str | None:
+    try:
+        ls_res = backend.ls("/")
+        if not ls_res or not ls_res.entries:
+            return None
+        for entry in ls_res.entries:
+            path = entry["path"]
+            name = path.lstrip("/")
+            if name.startswith("workspace"):
+                memory_path = f"/{name}/MEMORY.md"
+                read_res = backend.read(memory_path)
+                if read_res and read_res.file_data:
+                    content = read_res.file_data.get("content", "")
+                    import re
+                    match = re.search(r"-\s+\*\*Agent\s+id\*\*:\s*(\S+)", content, re.IGNORECASE)
+                    if not match:
+                        match = re.search(r"-\s+Agent\s+id\s*:\s*(\S+)", content, re.IGNORECASE)
+                    if match:
+                        agent_id = match.group(1).strip()
+                        agent_id_lower = agent_id.lower()
+                        agent_name_str = str(agent_name).lower()
+                        tid_str = str(tid).lower()
+                        if (agent_id_lower == agent_name_str or
+                            agent_id_lower in agent_name_str or
+                            agent_id_lower in tid_str):
+                            return name
+    except Exception:  # noqa: BLE001, S110  # Ignore errors during workspace discovery
+        pass
+    return None
+
+
+async def _afind_workspace_name(backend: BackendProtocol, agent_name: str, tid: str) -> str | None:
+    try:
+        ls_res = await backend.als("/")
+        if not ls_res or not ls_res.entries:
+            return None
+        for entry in ls_res.entries:
+            path = entry["path"]
+            name = path.lstrip("/")
+            if name.startswith("workspace"):
+                memory_path = f"/{name}/MEMORY.md"
+                read_res = await backend.aread(memory_path)
+                if read_res and read_res.file_data:
+                    content = read_res.file_data.get("content", "")
+                    import re
+                    match = re.search(r"-\s+\*\*Agent\s+id\*\*:\s*(\S+)", content, re.IGNORECASE)
+                    if not match:
+                        match = re.search(r"-\s+Agent\s+id\s*:\s*(\S+)", content, re.IGNORECASE)
+                    if match:
+                        agent_id = match.group(1).strip()
+                        agent_id_lower = agent_id.lower()
+                        agent_name_str = str(agent_name).lower()
+                        tid_str = str(tid).lower()
+                        if (agent_id_lower == agent_name_str or
+                            agent_id_lower in agent_name_str or
+                            agent_id_lower in tid_str):
+                            return name
+    except Exception:  # noqa: BLE001, S110  # Ignore errors during workspace discovery
+        pass
+    return None
+
+
+def _read_owner_name(backend: BackendProtocol, ws_folder: str) -> str | None:
+    try:
+        owner_json_path = f"/{ws_folder}/owner.json" if ws_folder else "/owner.json"
+        read_res = backend.read(owner_json_path)
+        if read_res and read_res.file_data:
+            data = json.loads(read_res.file_data.get("content", ""))
+            if isinstance(data, dict) and "owner_name" in data:
+                return str(data["owner_name"])
+    except Exception:  # noqa: BLE001, S110  # Ignore errors reading owner file
+        pass
+    return None
+
+
+async def _aread_owner_name(backend: BackendProtocol, ws_folder: str) -> str | None:
+    try:
+        owner_json_path = f"/{ws_folder}/owner.json" if ws_folder else "/owner.json"
+        read_res = await backend.aread(owner_json_path)
+        if read_res and read_res.file_data:
+            data = json.loads(read_res.file_data.get("content", ""))
+            if isinstance(data, dict) and "owner_name" in data:
+                return str(data["owner_name"])
+    except Exception:  # noqa: BLE001, S110  # Ignore errors reading owner file
+        pass
+    return None
+
+
+def _get_owner_name_from_backend(backend: BackendProtocol | None, runtime: ToolRuntime) -> str:
+    agent_name = runtime.config.get("metadata", {}).get("agent_name", "")
+    tid = runtime.config.get("configurable", {}).get("thread_id", "")
+
+    if backend is not None:
+        target_workspace = _find_workspace_name(backend, agent_name, tid)
+        if target_workspace:
+            for ws_folder in (target_workspace, target_workspace.replace("_owner", "")):
+                name = _read_owner_name(backend, ws_folder)
+                if name:
+                    return name
+
+        # Fallback to root owner.json
+        name = _read_owner_name(backend, "")
+        if name:
+            return name
+
+    if "yc" in str(agent_name).lower() or "yc" in str(tid).lower():
+        return "YC老师"
+    return "吴探长"
+
+
+async def _aget_owner_name_from_backend(backend: BackendProtocol | None, runtime: ToolRuntime) -> str:
+    agent_name = runtime.config.get("metadata", {}).get("agent_name", "")
+    tid = runtime.config.get("configurable", {}).get("thread_id", "")
+
+    if backend is not None:
+        target_workspace = await _afind_workspace_name(backend, agent_name, tid)
+        if target_workspace:
+            for ws_folder in (target_workspace, target_workspace.replace("_owner", "")):
+                name = await _aread_owner_name(backend, ws_folder)
+                if name:
+                    return name
+
+        # Fallback to root owner.json
+        name = await _aread_owner_name(backend, "")
+        if name:
+            return name
+
+    if "yc" in str(agent_name).lower() or "yc" in str(tid).lower():
+        return "YC老师"
+    return "吴探长"
+
+
+def _build_task_tool(  # noqa: PLR0915
     subagents: list[_SubagentSpec],
+    backend: BackendProtocol | BackendFactory | None = None,
     task_description: str | None = None,
 ) -> BaseTool:
     """Create a task tool from pre-built subagent graphs.
 
     Args:
         subagents: List of subagent specs containing name, description, and runnable.
+        backend: Optional backend for file operations.
         task_description: Custom description for the task tool. If `None`,
             uses default template. Supports `{available_agents}` placeholder.
 
@@ -434,10 +568,15 @@ def _build_task_tool(  # noqa: C901
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
-        
+
         parent_messages = runtime.state.get("messages", [])
         if subagent_type == "kb_analyst" and _has_delivered_material(parent_messages):
-            return "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约吴探长一对一深聊。"
+            resolved_backend = backend if isinstance(backend, BackendProtocol) else (backend(runtime) if callable(backend) else backend)
+            owner_name = _get_owner_name_from_backend(resolved_backend, runtime)
+            return (
+                "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。"
+                f"请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约{owner_name}一对一深聊。"  # noqa: RUF001
+            )
 
         subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
 
@@ -460,7 +599,12 @@ def _build_task_tool(  # noqa: C901
 
         parent_messages = runtime.state.get("messages", [])
         if subagent_type == "kb_analyst" and _has_delivered_material(parent_messages):
-            return "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约吴探长一对一深聊。"
+            resolved_backend = backend if isinstance(backend, BackendProtocol) else (backend(runtime) if callable(backend) else backend)
+            owner_name = await _aget_owner_name_from_backend(resolved_backend, runtime)
+            return (
+                "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。"
+                f"请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约{owner_name}一对一深聊。"  # noqa: RUF001
+            )
 
         subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
         # Don't merge all fields because this will block out manual `.with_config`
@@ -544,7 +688,7 @@ class SubAgentMiddleware(AgentMiddleware[ContextT, ResponseT]):
         self._subagents = subagents
         subagent_specs = self._get_subagents()
 
-        task_tool = _build_task_tool(subagent_specs, task_description)
+        task_tool = _build_task_tool(subagent_specs, self._backend, task_description)
 
         # Build system prompt with available agents
         if system_prompt and subagent_specs:
@@ -579,7 +723,7 @@ class SubAgentMiddleware(AgentMiddleware[ContextT, ResponseT]):
                 raise ValueError(msg)
 
             # Resolve model if string
-            from deepagents._models import resolve_model  # noqa: PLC0415
+            from deepagents._models import resolve_model
 
             model = resolve_model(spec["model"])
 

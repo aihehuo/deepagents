@@ -24,8 +24,18 @@ from deepagents.state import DualAgentState
 class TestShouldTriggerExpert:
     """Test should_trigger_expert function."""
 
+    def test_should_trigger_true_at_5_rounds(self) -> None:
+        """Should return True when the 5-round sync interval is reached."""
+        state: DualAgentState = {
+            "messages": [],
+            "conversation_round": 5,
+            "needs_expert_sync": True,
+        }
+
+        assert should_trigger_expert(state) is True
+
     def test_should_trigger_true_at_10_rounds(self) -> None:
-        """Should return True when round % 10 == 0 and needs_expert_sync."""
+        """Should return True at multiples of the 5-round sync interval."""
         state: DualAgentState = {
             "messages": [],
             "conversation_round": 10,
@@ -34,21 +44,11 @@ class TestShouldTriggerExpert:
 
         assert should_trigger_expert(state) is True
 
-    def test_should_trigger_true_at_20_rounds(self) -> None:
-        """Should return True at multiples of 10."""
+    def test_should_trigger_false_before_5_rounds(self) -> None:
+        """Should return False before reaching the 5-round sync interval."""
         state: DualAgentState = {
             "messages": [],
-            "conversation_round": 20,
-            "needs_expert_sync": True,
-        }
-
-        assert should_trigger_expert(state) is True
-
-    def test_should_trigger_false_before_10_rounds(self) -> None:
-        """Should return False before reaching 10 rounds."""
-        state: DualAgentState = {
-            "messages": [],
-            "conversation_round": 5,
+            "conversation_round": 4,
             "needs_expert_sync": False,
         }
 
@@ -58,7 +58,7 @@ class TestShouldTriggerExpert:
         """Should return True if needs_expert_sync is explicitly True."""
         state: DualAgentState = {
             "messages": [],
-            "conversation_round": 5,  # Not a multiple of 10
+            "conversation_round": 4,  # Before the interval
             "needs_expert_sync": True,  # But flag is set
         }
 
@@ -67,10 +67,10 @@ class TestShouldTriggerExpert:
 
     def test_should_trigger_true_based_on_interval(self) -> None:
         """Should return True when interval is reached even without explicit flag."""
-        # At round 10 with last_sync = 0, interval = 10, should trigger
+        # At round 5 with last_sync = 0, interval = 5, should trigger
         state: DualAgentState = {
             "messages": [],
-            "conversation_round": 10,
+            "conversation_round": 5,
             "last_expert_sync": 0,
             "needs_expert_sync": False,
         }

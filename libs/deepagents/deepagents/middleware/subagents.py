@@ -529,6 +529,7 @@ def _build_task_tool(  # noqa: C901, PLR0915
     subagents: Sequence[SubAgent | CompiledSubAgent],
     task_description: str | None = None,
     *,
+    backend: BackendProtocol | BackendFactory | None = None,
     private_state_keys: frozenset[str] = frozenset(),
     state_schema: type | None = None,
 ) -> BaseTool:
@@ -538,6 +539,7 @@ def _build_task_tool(  # noqa: C901, PLR0915
         subagents: List of raw or compiled subagent specs.
         task_description: Custom description for the task tool. If `None`,
             uses default template. Supports `{available_agents}` placeholder.
+        backend: Optional backend used by fork-specific task guards.
         private_state_keys: State keys marked with `PrivateStateAttr` that
             should be stripped from parent state before invoking subagents.
         state_schema: Base graph state schema forwarded to raw subagent specs.
@@ -596,6 +598,110 @@ def _build_task_tool(  # noqa: C901, PLR0915
         description = task_description.format(available_agents=subagent_description_str)
     else:
         description = task_description
+
+    def _has_material_delivered(state: dict[str, Any]) -> bool:
+        """Return whether meeting materials were already delivered."""
+        for message in state.get("messages", []):
+            if isinstance(message, ToolMessage) and message.name == "mark_material_delivered":
+                return True
+            for tool_call in getattr(message, "tool_calls", []) or []:
+                if isinstance(tool_call, dict) and tool_call.get("name") == "mark_material_delivered":
+                    return True
+        return False
+
+    def _read_backend_text(resolved_backend: BackendProtocol, path: str) -> str | None:
+        """Read text from a backend path, returning `None` on any failure."""
+        try:
+            result = resolved_backend.read(path)
+        except Exception:  # noqa: BLE001  # best-effort guard text enrichment
+            return None
+        if result.error or not result.file_data:
+            return None
+        content = result.file_data.get("content")
+        return content if isinstance(content, str) else None
+
+    def _entry_path(entry: Any) -> str | None:
+        if isinstance(entry, dict):
+            value = entry.get("path")
+        else:
+            value = getattr(entry, "path", None)
+        return value if isinstance(value, str) else None
+
+    def _resolve_backend(runtime: ToolRuntime) -> BackendProtocol | None:
+        if backend is None:
+            return None
+        if hasattr(backend, "read") and hasattr(backend, "ls"):
+            return cast("BackendProtocol", backend)
+        if callable(backend):
+            try:
+                return backend(runtime)
+            except Exception:  # noqa: BLE001  # fallback to static owner label
+                return None
+        return backend
+
+    def _owner_name_from_backend(runtime: ToolRuntime) -> str | None:
+        """Resolve owner display name from workspace metadata when available."""
+        resolved_backend = _resolve_backend(runtime)
+        if resolved_backend is None:
+            return None
+
+        config = runtime.config if isinstance(runtime.config, dict) else {}
+        metadata = config.get("metadata") if isinstance(config.get("metadata"), dict) else {}
+        configurable = config.get("configurable") if isinstance(config.get("configurable"), dict) else {}
+        agent_name = metadata.get("agent_name") or str(configurable.get("thread_id", "")).split("::")[1:2]
+        if isinstance(agent_name, list):
+            agent_name = agent_name[0] if agent_name else None
+
+        candidate_dirs: list[str] = []
+        if agent_name:
+            try:
+                listing = resolved_backend.ls("/")
+                for entry in getattr(listing, "entries", []) or []:
+                    path = _entry_path(entry)
+                    if path:
+                        candidate_dirs.append(path.rstrip("/"))
+            except Exception:  # noqa: BLE001  # fallback to root owner.json
+                candidate_dirs = []
+
+        for directory in candidate_dirs:
+            memory = _read_backend_text(resolved_backend, f"{directory}/MEMORY.md")
+            if memory and f"Agent id: {agent_name}" in memory:
+                owner = _read_backend_text(resolved_backend, f"{directory}/owner.json")
+                if owner:
+                    try:
+                        data = json.loads(owner)
+                    except json.JSONDecodeError:
+                        continue
+                    value = data.get("owner_name")
+                    if isinstance(value, str) and value:
+                        return value
+
+        owner = _read_backend_text(resolved_backend, "/owner.json")
+        if owner:
+            try:
+                data = json.loads(owner)
+            except json.JSONDecodeError:
+                return None
+            value = data.get("owner_name")
+            if isinstance(value, str) and value:
+                return value
+        return None
+
+    def _default_owner_name(runtime: ToolRuntime) -> str:
+        config = runtime.config if isinstance(runtime.config, dict) else {}
+        metadata = config.get("metadata") if isinstance(config.get("metadata"), dict) else {}
+        configurable = config.get("configurable") if isinstance(config.get("configurable"), dict) else {}
+        thread_id = configurable.get("thread_id", "")
+        if metadata.get("agent_name") == "yc01" or (isinstance(thread_id, str) and "wt::yc01::" in thread_id):
+            return "YC老师"
+        return "吴探长"
+
+    def _kb_analyst_block_message(runtime: ToolRuntime) -> str:
+        owner_name = _owner_name_from_backend(runtime) or _default_owner_name(runtime)
+        return (
+            "知识库已经检索过且会议准备材料已完成交付。禁止再次调用 kb_analyst 或检索知识库。"
+            f"请直接根据已交付的材料和对话历史回答用户的问题，并引导用户预约{owner_name}一对一深聊。"
+        )
 
     def _return_command_with_state_update(result: dict, tool_call_id: str) -> Command:
         # Validate that the result contains a 'messages' key
@@ -673,6 +779,8 @@ def _build_task_tool(  # noqa: C901, PLR0915
         if subagent_type not in subagent_graphs:
             allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
             return f"We cannot invoke subagent {subagent_type} because it does not exist, the only allowed types are {allowed_types}"
+        if subagent_type == "kb_analyst" and _has_material_delivered(runtime.state):
+            return _kb_analyst_block_message(runtime)
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
@@ -701,6 +809,8 @@ def _build_task_tool(  # noqa: C901, PLR0915
         if subagent_type not in subagent_graphs:
             allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
             return f"We cannot invoke subagent {subagent_type} because it does not exist, the only allowed types are {allowed_types}"
+        if subagent_type == "kb_analyst" and _has_material_delivered(runtime.state):
+            return _kb_analyst_block_message(runtime)
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
@@ -816,6 +926,7 @@ class SubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
         task_tool = _build_task_tool(
             self._subagents,
             task_description,
+            backend=self._backend,
             private_state_keys=self._private_state_keys,
             state_schema=self._state_schema,
         )

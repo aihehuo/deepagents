@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from deepagents.middleware.filesystem import FilesystemMiddleware
 
 from apps.wu_tanchang_api.config import get_selected_provider, resolve_model_config
 from apps.wu_tanchang_api.app.endpoints.chat import chat
@@ -90,10 +89,8 @@ def test_agent_has_filesystem_middleware(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert created_agent is not None
     assert checkpoints_path == tmp_path / "runtime" / "checkpoints.pkl"
 
-    from deepagents.middleware.subagents import SubAgentMiddleware
-    subagent_mw = next(item for item in captured["middleware"] if isinstance(item, SubAgentMiddleware))
-    kb_spec = next(spec for spec in subagent_mw._subagents if spec["name"] == "kb_analyst")
-    assert any(isinstance(item, FilesystemMiddleware) for item in kb_spec["middleware"])
+    kb_spec = next(spec for spec in captured["subagents"] if spec["name"] == "kb_analyst")
+    assert kb_spec["skills"] == ["/skills/"]
 
 
 def test_config_resolves_env_references(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -243,15 +240,16 @@ def test_default_config_uses_model_catalog(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_task_tool_blocks_kb_analyst_after_delivered() -> None:
-    from deepagents.middleware.subagents import _build_task_tool, _SubagentSpec
+    from deepagents.middleware.subagents import _build_task_tool
     from langchain.tools import ToolRuntime
     from langchain_core.messages import ToolMessage
     from unittest.mock import MagicMock
 
     # Create dummy specs
     mock_runnable = MagicMock()
+    mock_runnable.with_config.return_value = mock_runnable
     mock_runnable.invoke.return_value = {"messages": [MagicMock()]}
-    spec = _SubagentSpec(name="kb_analyst", description="KB", runnable=mock_runnable)
+    spec = {"name": "kb_analyst", "description": "KB", "runnable": mock_runnable}
 
     # Build the task tool
     tool = _build_task_tool([spec])
@@ -401,7 +399,7 @@ def test_ensure_runtime_workspace_isolation(tmp_path: Path) -> None:
 
 
 def test_task_tool_blocks_kb_analyst_after_delivered_dynamic_owner() -> None:
-    from deepagents.middleware.subagents import _build_task_tool, _SubagentSpec
+    from deepagents.middleware.subagents import _build_task_tool
     from deepagents.backends.protocol import BackendProtocol
     from langchain.tools import ToolRuntime
     from langchain_core.messages import ToolMessage
@@ -410,8 +408,9 @@ def test_task_tool_blocks_kb_analyst_after_delivered_dynamic_owner() -> None:
 
     # Create dummy specs
     mock_runnable = MagicMock()
+    mock_runnable.with_config.return_value = mock_runnable
     mock_runnable.invoke.return_value = {"messages": [MagicMock()]}
-    spec = _SubagentSpec(name="kb_analyst", description="KB", runnable=mock_runnable)
+    spec = {"name": "kb_analyst", "description": "KB", "runnable": mock_runnable}
 
     # 1. Test reading from workspace subdirectory based on MEMORY.md mapping
     # Mock backend
@@ -474,4 +473,3 @@ def test_task_tool_blocks_kb_analyst_after_delivered_dynamic_owner() -> None:
 
     res_default = tool_default.func(description="hello", subagent_type="kb_analyst", runtime=mock_runtime_default)
     assert "根目录Owner" in res_default
-

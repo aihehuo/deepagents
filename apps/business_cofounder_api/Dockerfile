@@ -28,7 +28,9 @@ RUN groupadd -r appuser -g 1000 && \
 # Minimal runtime deps for the API layer (FastAPI/Uvicorn + optional langdetect).
 COPY apps/business_cofounder_api/requirements.txt /app/apps/business_cofounder_api/requirements.txt
 
-RUN pip install -r /app/apps/business_cofounder_api/requirements.txt
+RUN pip install --no-cache-dir \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    -r /app/apps/business_cofounder_api/requirements.txt
 
 # Copy deepagents + cli source (imported via PYTHONPATH; no pip editable install)
 COPY libs/deepagents /app/libs/deepagents
@@ -58,5 +60,3 @@ ENTRYPOINT ["/app/docker-entrypoint.sh"]
 # - loop: asyncio (avoid uvloop)
 # - http: h11 (avoid httptools)
 CMD ["python", "-m", "uvicorn", "apps.business_cofounder_api.app:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "asyncio", "--http", "h11"]
-
-

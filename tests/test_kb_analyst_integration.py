@@ -45,12 +45,8 @@ def test_semantic_search_registered_in_kb_analyst(monkeypatch: pytest.MonkeyPatc
     captured_subagents = []
     
     def fake_create_deep_agent(**kwargs: Any) -> object:
-        # Front-end agent doesn't need to actually run, we just inspect its middleware
-        middleware = kwargs.get("middleware", [])
-        from deepagents.middleware.subagents import SubAgentMiddleware
-        subagent_mw = next((mw for mw in middleware if isinstance(mw, SubAgentMiddleware)), None)
-        if subagent_mw:
-            captured_subagents.extend(subagent_mw._subagents)
+        # Front-end agent doesn't need to actually run, we just inspect its subagent specs.
+        captured_subagents.extend(kwargs.get("subagents", []))
         return object()
 
     # Defer disk-backed checkpoint loading/saving to memory

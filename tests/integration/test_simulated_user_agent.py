@@ -15,9 +15,6 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from apps.business_cofounder_api.app import create_app
-
-
 # ----- Test data -----
 
 SAMPLE_ASSIGNMENTS = [
@@ -49,11 +46,9 @@ BUSINESS_JARGON = [
 
 
 @pytest.fixture
-def app_client() -> TestClient:
+def app_client(dual_agent_client: TestClient) -> TestClient:
     """Create a FastAPI TestClient from the app with startup to initialize agents."""
-    app = create_app()
-    with TestClient(app) as client:
-        yield client
+    return dual_agent_client
 
 
 @pytest.fixture

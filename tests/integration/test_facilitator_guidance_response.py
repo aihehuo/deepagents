@@ -24,6 +24,11 @@ from apps.business_cofounder_api.checkpointer import DiskBackedInMemorySaver
 # Install it with: pip install pytest-asyncio
 # Or: pip install -e ".[dev]" if pytest-asyncio is in dev dependencies
 
+pytestmark = pytest.mark.skipif(
+    not (os.environ.get("QWEN_API_KEY") and os.environ.get("QWEN_BASE_URL")),
+    reason="requires QWEN_API_KEY and QWEN_BASE_URL for real LLM integration tests",
+)
+
 
 class TestFacilitatorGuidanceResponse:
     """Test that facilitator agent responds to expert guidance."""

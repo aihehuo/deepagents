@@ -23,11 +23,8 @@ from typing import Any
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.accountant import AccountantMiddleware
-from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
 from deepagents.middleware.prompt_logging import PromptLoggingMiddleware
-from deepagents.middleware.skills import SkillsMiddleware
-from deepagents.middleware.subagents import SubAgentMiddleware
 
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
@@ -361,11 +358,11 @@ def create_agent(
     runtime_dir.mkdir(parents=True, exist_ok=True)
 
     # Filesystem backend for workspace access
-    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    app_root = Path(__file__).resolve().parent.parent
     backend = FilesystemBackend(
         root_dir=str(backend_root),
         virtual_mode=True,
-        allowed_symlink_roots=[repo_root, Path.cwd()],
+        allowed_symlink_roots=[app_root],
     )
 
     # Pre-load persona files from workspace root into system prompt
@@ -391,10 +388,9 @@ def create_agent(
         "model": model,
         "tools": [kb_semantic_search, get_note_content],
         "system_prompt": KB_ANALYST_PROMPT,
+        "skills": ["/skills/"],
         "middleware": [
             AccountantMiddleware(max_tool_calls=6),
-            SkillsMiddleware(backend=backend, sources=["/skills/"]),
-            FilesystemMiddleware(backend=backend),
             PromptLoggingMiddleware(),
         ],
     }
@@ -423,6 +419,7 @@ def create_agent(
             LanguageDetectionMiddleware(),
             PromptLoggingMiddleware(),
         ]
+        subagents = []
     else:
         tools = [mark_material_delivered, save_meeting_prep]
         system_prompt = FRONTEND_SYSTEM_PROMPT_TEMPLATE.format(
@@ -431,12 +428,9 @@ def create_agent(
         middleware = [
             AccountantMiddleware(max_tool_calls=20),
             LanguageDetectionMiddleware(),
-            SubAgentMiddleware(
-                backend=backend,
-                subagents=[kb_subagent],
-            ),
             PromptLoggingMiddleware(),
         ]
+        subagents = [kb_subagent]
 
     checkpointer = DiskBackedInMemorySaver(file_path=checkpoints_path)
 
@@ -445,7 +439,7 @@ def create_agent(
         tools=tools,
         backend=backend,
         checkpointer=checkpointer,
-        subagents=[],
+        subagents=subagents,
         middleware=middleware,
         system_prompt=system_prompt,
     )

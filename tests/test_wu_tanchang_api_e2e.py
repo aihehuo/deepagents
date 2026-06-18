@@ -7,35 +7,66 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from collections.abc import Callable, Sequence
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.language_models import BaseChatModel, LanguageModelInput
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
+from pydantic import Field
 
 
 from apps.wu_tanchang_api.app import app
 
 
-class FakeChatModel:
+class FakeChatModel(BaseChatModel):
     """Mock Chat Model to avoid real API network requests during E2E test."""
 
-    def __init__(self, **kwargs: Any) -> None:
-        self.profile = {"max_input_tokens": 1000000}
-        self.kwargs = kwargs
+    profile: dict[str, Any] = Field(default_factory=lambda: {"max_input_tokens": 1000000})
+    kwargs: dict[str, Any] = Field(default_factory=dict)
+    tools: Sequence[dict[str, Any] | type | Callable | BaseTool] = ()
 
-    def invoke(self, prompt: Any, *args: Any, **kwargs: Any) -> MagicMock:
-        res = MagicMock()
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(kwargs=kwargs)
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake-chat-model"
+
+    def _generate(
+        self,
+        messages: Sequence[Any],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
         # Mock responses from LLM
-        prompt_str = str(prompt)
+        prompt_str = str(messages)
         if "mark_material_delivered" in prompt_str:
             # If front-end assistant is generating material
-            res.content = "这是您的会议准备材料... 请过目。"
+            content = "这是您的会议准备材料... 请过目。"
         else:
             # Fallback simple conversational reply
-            res.content = "您好！我是吴探长助手。请问您的品类和预算是多少？"
-        return res
+            content = "您好！我是吴探长助手。请问您的品类和预算是多少？"
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+
+    def bind_tools(
+        self,
+        tools: Sequence[dict[str, Any] | type | Callable | BaseTool],
+        *,
+        tool_choice: str | None = None,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, AIMessage]:
+        self.tools = tools
+        return self
 
     def with_structured_output(self, *args: Any, **kwargs: Any) -> MagicMock:
         mock_struct = MagicMock()
@@ -85,9 +116,13 @@ def e2e_env_setup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     
     # Mock model builder and checkpoints dir
     import deepagents._models
+    import deepagents.graph
+    startup_module = import_module("apps.wu_tanchang_api.app.startup")
     monkeypatch.setattr(deepagents._models, "resolve_model", lambda m: m)
+    monkeypatch.setattr(deepagents.graph, "resolve_model", lambda m: m)
     monkeypatch.setattr("apps.wu_tanchang_api.agent_factory.model_builder.ChatOpenAI", FakeChatModel)
     monkeypatch.setattr("apps.wu_tanchang_api.agent_factory.agent.default_runtime_dir", lambda: tmp_path / "runtime")
+    monkeypatch.setattr(startup_module, "default_runtime_dir", lambda: tmp_path / "runtime")
 
     
     # Mock the embedding retrieval for KB search if called
@@ -211,7 +246,9 @@ def test_wu_tanchang_api_e2e_real_llm(monkeypatch: pytest.MonkeyPatch, tmp_path:
     monkeypatch.setenv("WU_API_CONFIG", str(config_path))
     monkeypatch.setenv("WU_API_ENV_FILE", str(env_path))
     monkeypatch.setenv("WU_API_WORKSPACE", str(workspace_path))
+    startup_module = import_module("apps.wu_tanchang_api.app.startup")
     monkeypatch.setattr("apps.wu_tanchang_api.agent_factory.agent.default_runtime_dir", lambda: runtime_dir)
+    monkeypatch.setattr(startup_module, "default_runtime_dir", lambda: runtime_dir)
 
     # Do NOT mock resolve_model, ChatOpenAI, or get_embeddings. Let them load naturally.
     from apps.wu_tanchang_api.config import load_env_file
@@ -272,5 +309,3 @@ def test_wu_tanchang_api_e2e_real_llm(monkeypatch: pytest.MonkeyPatch, tmp_path:
         res_reset = client.post("/reset", json=reset_req)
         assert res_reset.status_code == 200
         assert res_reset.json()["ok"] is True
-
-

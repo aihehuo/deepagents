@@ -117,6 +117,8 @@ class FilesystemBackend(BackendProtocol):
         root_dir: str | Path | None = None,
         virtual_mode: bool | None = None,  # noqa: FBT001
         max_file_size_mb: int = 10,
+        *,
+        allowed_symlink_roots: list[str | Path] | None = None,
     ) -> None:
         """Initialize filesystem backend.
 
@@ -150,8 +152,14 @@ class FilesystemBackend(BackendProtocol):
                 grep's Python fallback search.
 
                 Files exceeding this limit are skipped during search. Defaults to 10 MB.
+            allowed_symlink_roots: Additional filesystem roots that symlink targets may
+                resolve into when `virtual_mode=True`. This is intended for read-only
+                assets mounted into a virtual workspace via symlinks.
         """
         self.cwd = Path(root_dir).resolve() if root_dir else Path.cwd()
+        self.allowed_symlink_roots = [
+            Path(root).resolve() for root in (allowed_symlink_roots or [])
+        ]
         if virtual_mode is None:
             warn_deprecated(
                 since="0.5.0",
@@ -203,8 +211,15 @@ class FilesystemBackend(BackendProtocol):
             try:
                 full.relative_to(self.cwd)
             except ValueError:
-                msg = f"Path:{full} outside root directory: {self.cwd}"
-                raise ValueError(msg) from None
+                for root in self.allowed_symlink_roots:
+                    try:
+                        full.relative_to(root)
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    msg = f"Path:{full} outside root directory: {self.cwd}"
+                    raise ValueError(msg) from None
             _raise_if_symlink_loop(full)
             return full
 

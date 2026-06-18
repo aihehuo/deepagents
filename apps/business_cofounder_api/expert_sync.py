@@ -1477,7 +1477,6 @@ Return ONLY the JSON object, no markdown or extra text. Use the same keys: "expe
                         proposals[0].get("user", {}).get("avatar", "N/A"),
                         bool(proposals[0].get("proposal_statement")),
                     )
-                    import json
                     _logger.info(
                         "[ExpertSync] Full partner_search_results (first result): %s",
                         json.dumps(proposals[0], ensure_ascii=False, indent=2),

@@ -15,6 +15,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!libs/cli/frontend/src/lib/
 lib64/
 parts/
 sdist/
@@ -100,6 +101,7 @@ ipython_config.py
 #   This is especially recommended for binary packages to ensure reproducibility, and is more
 #   commonly ignored for libraries.
 #uv.lock
+.local_deps/
 
 # poetry
 #   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
@@ -139,12 +141,28 @@ celerybeat.pid
 .env
 .env.*
 .envrc
+env.local
+*.env.local
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Local credentials and secrets
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+credentials.json
+token.json
+Cookies
+Cookies.db
+cookies.sqlite
+cookies.txt
 
 # Spyder project settings
 .spyderproject
@@ -246,5 +264,10 @@ apps/wu_tanchang_api/workspace_*/kb/chunks/
 apps/wu_tanchang_api/workspace_*/kb/index.json
 apps/wu_tanchang_api/workspace_*/kb/INDEX.md
 
+CLAUDE.md
+.worktrees/
 
-
+# Frontend build artifacts (source tree; package data under libs/cli/deepagents_cli/deploy/frontend_dist/ is tracked)
+libs/cli/frontend/node_modules/
+libs/cli/frontend/dist/
+node_modules/

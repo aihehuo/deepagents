@@ -50,10 +50,13 @@
     "ci": "infra",
     "cli": "cli",
     "cli-gha": "github_actions",
+    "code": "dcode",
     "daytona": "daytona",
     "deepagents": "deepagents",
     "deepagents-acp": "acp",
     "deepagents-cli": "cli",
+    "deepagents-code": "dcode",
+    "deepagents-talon": "talon",
     "deps": "dependencies",
     "docs": "documentation",
     "evals": "evals",
@@ -63,15 +66,22 @@
     "langchain-daytona": "daytona",
     "langchain-modal": "modal",
     "langchain-quickjs": "quickjs",
-    "langchain-repl": "repl",
     "langchain-runloop": "runloop",
+    "langchain-vercel-sandbox": "vercel",
     "langsmith-sandbox": "langsmith-sandbox",
     "modal": "modal",
     "quickjs": "quickjs",
-    "repl": "repl",
     "runloop": "runloop",
-    "sdk": "deepagents"
+    "sdk": "deepagents",
+    "talon": "talon",
+    "vercel": "vercel"
   },
+  "branchRules": [
+    {
+      "label": "open-swe",
+      "prefix": "open-swe/"
+    }
+  ],
   "fileRules": [
     {
       "label": "deepagents",
@@ -86,6 +96,16 @@
     {
       "label": "acp",
       "prefix": "libs/acp/",
+      "skipExcludedFiles": true
+    },
+    {
+      "label": "dcode",
+      "prefix": "libs/code/",
+      "skipExcludedFiles": true
+    },
+    {
+      "label": "talon",
+      "prefix": "libs/talon/",
       "skipExcludedFiles": true
     },
     {
@@ -109,13 +129,13 @@
       "skipExcludedFiles": true
     },
     {
-      "label": "repl",
-      "prefix": "libs/repl/",
+      "label": "runloop",
+      "prefix": "libs/partners/runloop/",
       "skipExcludedFiles": true
     },
     {
-      "label": "runloop",
-      "prefix": "libs/partners/runloop/",
+      "label": "vercel",
+      "prefix": "libs/partners/vercel/",
       "skipExcludedFiles": true
     },
     {

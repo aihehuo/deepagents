@@ -406,22 +406,53 @@ def create_agent(
                 kb_skills.append(f"/{effective_workspace}/skills/default/{item.name}/")
         kb_skills.append(f"/{effective_workspace}/skills/default/")
 
-    # Check if tenant-level local skills exist in workspace, and load them dynamically
+    # Load tenant-level local KB skills dynamically
+    local_kb_path = workspace_path / "skills" / "local_kb"
     local_skills_path = workspace_path / "skills" / "local"
-    if local_skills_path.exists():
+    if local_kb_path.exists():
+        kb_skills.append(f"/{effective_workspace}/skills/local_kb/")
+        try:
+            local_kb_skills = [item.name for item in local_kb_path.iterdir() if item.is_dir()]
+            _logger.info(
+                "[Agent] Detected %d local KB skill(s) on disk for workspace %s: %s",
+                len(local_kb_skills),
+                effective_workspace,
+                local_kb_skills,
+            )
+        except Exception as e:
+            _logger.warning("[Agent] Error scanning local KB skills: %s", e)
+    elif local_skills_path.exists():
         kb_skills.append(f"/{effective_workspace}/skills/local/")
         try:
             local_skills = [item.name for item in local_skills_path.iterdir() if item.is_dir()]
             _logger.info(
-                "[Agent] Detected %d local skill(s) on disk for workspace %s: %s",
+                "[Agent] Detected %d local skill(s) on disk (fallback) for workspace %s: %s",
                 len(local_skills),
                 effective_workspace,
                 local_skills,
             )
         except Exception as e:
-            _logger.warning("[Agent] Error scanning local skills: %s", e)
+            _logger.warning("[Agent] Error scanning local fallback skills: %s", e)
 
     _logger.info("[Agent] Configuring kb_skills for %s: %s", effective_workspace, kb_skills)
+
+    # Load tenant-level local Aihehuo skills dynamically
+    aihehuo_skills = []
+    local_aihehuo_path = workspace_path / "skills" / "local_aihehuo"
+    if local_aihehuo_path.exists():
+        aihehuo_skills.append(f"/{effective_workspace}/skills/local_aihehuo/")
+        try:
+            local_aihehuo_skills = [item.name for item in local_aihehuo_path.iterdir() if item.is_dir()]
+            _logger.info(
+                "[Agent] Detected %d local Aihehuo skill(s) on disk for workspace %s: %s",
+                len(local_aihehuo_skills),
+                effective_workspace,
+                local_aihehuo_skills,
+            )
+        except Exception as e:
+            _logger.warning("[Agent] Error scanning local Aihehuo skills: %s", e)
+
+    _logger.info("[Agent] Configuring aihehuo_skills for %s: %s", effective_workspace, aihehuo_skills)
 
     # Enforce strict multi-tenant isolation:
     # 1. Format prompt to use tenant-specific path
@@ -490,7 +521,37 @@ def create_agent(
         subagents = []
     else:
         tools = [mark_material_delivered, save_meeting_prep]
-        system_prompt = FRONTEND_SYSTEM_PROMPT_TEMPLATE.format(
+        
+        # Build dynamic front-end system prompt based on aihehuo_skills availability
+        frontend_rules = [
+            "- 严格按照人格文件中的指导行事",
+            "- 你**没有**文件系统访问权限，无法直接读取任何工作区文件",
+            "- 你的工作流程：收集信息 → 调用 kb_analyst（一次）→ 产出材料 → 引导预约",
+        ]
+        if aihehuo_skills:
+            frontend_rules.append(
+                "- 如果用户询问爱合伙平台的相关数据、博客、微信群、项目或常见问题等信息，你可以随时调用子代理 `aihehuo_cruncher` 来获取最新数据并回复用户。"
+            )
+        frontend_rules.extend([
+            "- **不要做分析、不要给建议、不要做预算拆解**",
+            "- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**",
+            "- 材料交付后，只引导预约，不再深入探讨",
+        ])
+        
+        rules_text = "\n".join(frontend_rules)
+        dynamic_frontend_prompt = f"""你是一个通用智能助手。
+
+## 你的人格
+
+以下是你的人格定义文件内容，请在对话中严格遵守：
+
+{{persona_content}}
+
+## 基本规则
+
+{rules_text}
+"""
+        system_prompt = dynamic_frontend_prompt.format(
             persona_content=persona_content
         )
         middleware = [
@@ -498,7 +559,27 @@ def create_agent(
             LanguageDetectionMiddleware(),
             PromptLoggingMiddleware(),
         ]
+        
         subagents = [kb_subagent]
+        if aihehuo_skills:
+            aihehuo_cruncher_prompt = """你是协助获取和分析爱合伙相关数据的专业分析助理。
+你拥有调用爱合伙官方博客、常见问题（FAQS）、微信群数据、用户行为和周趋势等公开数据接口技能。
+请根据主助手的要求，调用最合适的技能/工具来检索数据，并直接用中文向主代理提供结构化 and 简练的分析结果。
+"""
+            aihehuo_cruncher = {
+                "name": "aihehuo_cruncher",
+                "description": "调用爱合伙数据接口技能获取博客、问答、用户、项目、微信群等数据，进行汇总分析",
+                "model": model,
+                "tools": [],
+                "system_prompt": aihehuo_cruncher_prompt,
+                "skills": aihehuo_skills,
+                "permissions": kb_permissions,
+                "middleware": [
+                    AccountantMiddleware(max_tool_calls=10),
+                    PromptLoggingMiddleware(),
+                ],
+            }
+            subagents.append(aihehuo_cruncher)
 
     checkpointer = DiskBackedInMemorySaver(file_path=checkpoints_path)
 

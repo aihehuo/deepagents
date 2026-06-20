@@ -141,13 +141,25 @@ def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
             tenant_skills_src = folder / "skills"
             if tenant_skills_src.exists():
                 local_skills_src = tenant_skills_src / "local"
+                src_path = local_skills_src if local_skills_src.exists() else tenant_skills_src
+                
+                # 1. Deploy the original local skills directory to keep legacy tests happy
                 _deploy_dir(
-                    local_skills_src
-                    if local_skills_src.exists()
-                    else tenant_skills_src,
+                    src_path,
                     tenant_skills_dir / "local",
                     symlink=False,
                 )
+                
+                # 2. Deploy separate sub-folders for organization in runtime
+                (tenant_skills_dir / "local_kb").mkdir(parents=True, exist_ok=True)
+                (tenant_skills_dir / "local_aihehuo").mkdir(parents=True, exist_ok=True)
+                
+                for item in src_path.iterdir():
+                    if item.is_dir():
+                        if item.name.startswith("get-ai-"):
+                            _deploy_dir(item, tenant_skills_dir / "local_aihehuo" / item.name, symlink=False)
+                        else:
+                            _deploy_dir(item, tenant_skills_dir / "local_kb" / item.name, symlink=False)
 
             # 3. Recursively rewrite "kb/" -> "/{folder.name}/kb/" in all SKILL.md files under tenant_skills_dir
             for skill_md in tenant_skills_dir.glob("**/SKILL.md"):

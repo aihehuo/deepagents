@@ -2,6 +2,34 @@
 
 # Deep Agents Changelog
 
+## [0.7.0](https://github.com/aihehuo/deepagents/compare/deepagents==0.6.10...deepagents==0.7.0) (2026-06-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deepagents:** add async implementations for backend, sandbox, filesystem ([#504](https://github.com/aihehuo/deepagents/issues/504))
+
+### feature
+
+* **deepagents:** add async implementations for backend, sandbox, filesystem ([#504](https://github.com/aihehuo/deepagents/issues/504)) ([99d5341](https://github.com/aihehuo/deepagents/commit/99d534123aa1f6be5f30d683b1d183aadae33fd7))
+
+
+### Features
+
+* **deepagents:** use context window fractions for SummarizationMiddleware when available ([#484](https://github.com/aihehuo/deepagents/issues/484)) ([deec90d](https://github.com/aihehuo/deepagents/commit/deec90db1cae749d7aaf42a1e3c3d69f59ae122a))
+* expose id on base abstraction ([#382](https://github.com/aihehuo/deepagents/issues/382)) ([d2edf7c](https://github.com/aihehuo/deepagents/commit/d2edf7c0d399c9b9d27f4e68a561247e4f7ec31c))
+* sandbox protocol ([#319](https://github.com/aihehuo/deepagents/issues/319)) ([460c49b](https://github.com/aihehuo/deepagents/commit/460c49b82f5e2a3e8a3ebab14d1b380c9f94ef16))
+
+
+### Bug Fixes
+
+* **deepagents-cli:** fix linting (broke CI) ([#457](https://github.com/aihehuo/deepagents/issues/457)) ([6565c07](https://github.com/aihehuo/deepagents/commit/6565c07d87c3e56ba53c20eed64194e3c830b2f8))
+* **deepagents:** fix type for file info ([#471](https://github.com/aihehuo/deepagents/issues/471)) ([381b959](https://github.com/aihehuo/deepagents/commit/381b959fbdd3904d80d0a8fa6cb46ab6ec833109))
+* Don't error when "subagent" does not exist. And add test for truncation logic ([#343](https://github.com/aihehuo/deepagents/issues/343)) ([766c41c](https://github.com/aihehuo/deepagents/commit/766c41cf7eb9c413f405aa6f493d87ae137630be))
+* fix docstring formatting errors in backends ([#514](https://github.com/aihehuo/deepagents/issues/514)) ([6947cc0](https://github.com/aihehuo/deepagents/commit/6947cc02b1835a46b8d4f1e5d081af76850bf08e))
+* **middleware:** prevent silent corruption from Windows absolute paths (Issue [#427](https://github.com/aihehuo/deepagents/issues/427)) ([#454](https://github.com/aihehuo/deepagents/issues/454)) ([d13e341](https://github.com/aihehuo/deepagents/commit/d13e341c4cb385be5b90dc7e67600a27799266b7))
+* use `request.override` instead of direct attribute overrides ([#431](https://github.com/aihehuo/deepagents/issues/431)) ([bf02091](https://github.com/aihehuo/deepagents/commit/bf02091435c31a545c280c35b804789de411132d))
+
 ## [0.6.10](https://github.com/langchain-ai/deepagents/compare/deepagents==0.6.9...deepagents==0.6.10) (2026-06-13)
 
 ### Bug Fixes

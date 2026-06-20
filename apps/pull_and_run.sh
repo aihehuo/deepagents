@@ -90,12 +90,15 @@ echo ""
 # Local persistence folder (host) -> container checkpoint folder
 DATA_DIR="${DATA_DIR:-${APP_DIR}/.tmp_home/.deepagents/${APP_NAME}}"
 
-# For workers, use /home/celery (non-root user); for API, use /root
+# Container internal config.
+# For workers, use /home/celery; for API, use /home/appuser.
 if [[ "$APP_NAME" == *"worker"* ]]; then
-  CONTAINER_DATA_DIR="/home/celery/.deepagents/${APP_NAME}"
+  CONTAINER_HOME="/home/celery"
 else
-  CONTAINER_DATA_DIR="/root/.deepagents/${APP_NAME}"
+  CONTAINER_HOME="/home/appuser"
 fi
+CONTAINER_DATA_DIR="${CONTAINER_HOME}/.deepagents/${APP_NAME}"
+CONTAINER_USER="${CONTAINER_USER:-1000:1000}"
 
 # Check if ALIYUN_DOCKER_PASSWORD is set (can be sourced from .deploy.env)
 if [ -z "$ALIYUN_DOCKER_PASSWORD" ]; then
@@ -138,11 +141,9 @@ docker pull "$FULL_IMAGE"
 # Create persistence directory
 mkdir -p "$DATA_DIR"
 
-# Fix permissions for non-root user (if app is a worker)
-if [[ "$APP_NAME" == *"worker"* ]]; then
-  echo "Setting permissions for celery user (UID 1000)..."
-  sudo chown -R 1000:1000 "$DATA_DIR" 2>/dev/null || chown -R 1000:1000 "$DATA_DIR" 2>/dev/null || echo "⚠️  Note: Could not set permissions. You may need to run: chown -R 1000:1000 $DATA_DIR"
-fi
+# Fix permissions for the non-root container user.
+echo "Setting permissions for container user ($CONTAINER_USER)..."
+sudo chown -R "$CONTAINER_USER" "$DATA_DIR" 2>/dev/null || chown -R "$CONTAINER_USER" "$DATA_DIR" 2>/dev/null || echo "⚠️  Note: Could not set permissions. You may need to run: chown -R $CONTAINER_USER $DATA_DIR"
 
 # Prepare env vars from .docker.env
 ENV_ARGS=()
@@ -152,13 +153,8 @@ while IFS='=' read -r key value; do
   ENV_ARGS+=("-e" "$key=$value")
 done < "$ENV_FILE"
 
-# Ensure HOME points to correct directory inside container
-# For workers, use /home/celery; for API, use /root
-if [[ "$APP_NAME" == *"worker"* ]]; then
-  ENV_ARGS+=("-e" "HOME=/home/celery")
-else
-  ENV_ARGS+=("-e" "HOME=/root")
-fi
+# Ensure HOME points to the non-root user's home directory inside container.
+ENV_ARGS+=("-e" "HOME=$CONTAINER_HOME")
 
 # Host gateway mapping
 HOST_GATEWAY_IP="host-gateway"
@@ -168,6 +164,7 @@ echo "📦 Image: $FULL_IMAGE"
 if [ -n "$PORT" ]; then
   echo "🌐 Port: $PORT -> $CONTAINER_PORT"
 fi
+echo "👤 User:  $CONTAINER_USER"
 echo "📁 Data (host): $DATA_DIR"
 echo "📁 Data (container): $CONTAINER_DATA_DIR"
 echo ""
@@ -175,6 +172,7 @@ echo ""
 if [ -n "$PORT" ] && [ "$IS_WORKER" = false ]; then
   docker run -d \
     --name "$CONTAINER_NAME" \
+    --user "$CONTAINER_USER" \
     -p "$PORT:$CONTAINER_PORT" \
     -v "$DATA_DIR:$CONTAINER_DATA_DIR" \
     --add-host=host.docker.internal:$HOST_GATEWAY_IP \
@@ -184,6 +182,7 @@ if [ -n "$PORT" ] && [ "$IS_WORKER" = false ]; then
 else
   docker run -d \
     --name "$CONTAINER_NAME" \
+    --user "$CONTAINER_USER" \
     -v "$DATA_DIR:$CONTAINER_DATA_DIR" \
     --add-host=host.docker.internal:$HOST_GATEWAY_IP \
     "${ENV_ARGS[@]}" \
@@ -219,4 +218,3 @@ else
   echo "   docker logs $CONTAINER_NAME"
   exit 1
 fi
-

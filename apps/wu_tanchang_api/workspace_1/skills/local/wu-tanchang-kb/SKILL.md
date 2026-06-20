@@ -9,10 +9,15 @@ Search and retrieve YC's startup method notes for consulting and coaching replie
 
 ## Files / Data Sources
 
+> **Multi-tenant note**: All knowledge-base paths (e.g. `kb/...`) in this file
+> are **templates**. At runtime, `ensure_runtime_workspace` rewrites them to
+> tenant-scoped absolute paths. Do **not** hard-code workspace names here.
+
 - Index: `kb/index.json` (for verification)
 - Database: SQLite `kb/kb.db` (accessed via tools, contains note content)
 - Method: `kb/METHOD.md`
 - Playbook: `kb/PLAYBOOK.md`
+
 
 Note: Chunks are not used. Do not attempt to read `kb/chunks/` or raw files.
 

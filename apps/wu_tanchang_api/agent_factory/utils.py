@@ -7,7 +7,6 @@ import os
 import shutil
 from pathlib import Path
 
-
 _logger = logging.getLogger("uvicorn.error")
 
 
@@ -21,7 +20,9 @@ def default_runtime_dir() -> Path:
     return Path.home() / ".deepagents" / "wu_tanchang_api"
 
 
-def _deploy_dir(src: Path, dest: Path, *, symlink: bool = False, ignore: list[str] | None = None) -> None:
+def _deploy_dir(
+    src: Path, dest: Path, *, symlink: bool = False, ignore: list[str] | None = None
+) -> None:
     """Deploy a directory from src to dest.
 
     If symlink is True, tries to create a symlink first.
@@ -83,8 +84,9 @@ def _deploy_dir(src: Path, dest: Path, *, symlink: bool = False, ignore: list[st
 def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
     """Deploy workspace assets (kb, skills) into runtime backend root.
 
-    Symlinks kb/ and skills/ from workspace into runtime_dir so the
-    FilesystemBackend can access them at virtual paths /kb/ and /skills/.
+    Symlinks tenant kb/ directories into their runtime workspaces and copies
+    skills into tenant-scoped runtime directories so SKILL.md path templates can
+    be rewritten to that tenant's /{workspace}/kb/ path.
 
     Args:
         workspace_src: Source workspace directory in the repo.
@@ -97,25 +99,67 @@ def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
     # Also copy persona .md and owner.json files from workspace root to runtime
     for pattern in ("*.md", "owner.json"):
         for src_file in workspace_src.glob(pattern):
-            if not src_file.name.startswith("kb") and not src_file.name.startswith("memory"):
+            if not src_file.name.startswith("kb") and not src_file.name.startswith(
+                "memory"
+            ):
                 dest = runtime_dir / src_file.name
                 shutil.copy2(src_file, dest)
                 _logger.info("[WuTanchang] Deployed file: %s -> %s", src_file, dest)
-    for name in ("kb", "skills"):
-        src = workspace_src / name
-        if not src.exists():
-            continue
-        dest = runtime_dir / name
-        # Both kb/ and skills/ are read-only! We can safely symlink both to save space.
-        _deploy_dir(src, dest, symlink=True)
-
     # Deploy all workspace directories (e.g. workspace_*, workspace)
     # Writable workspace folders containing persona MDs are copied to preserve isolation,
     # but we ignore kb, skills, and memory folders inside them to avoid redundant big copies.
+    # For kb, we deploy it inside the corresponding workspace directory in runtime as a symlink to preserve tenant database isolation.
     for folder in workspace_src.parent.glob("workspace*"):
         if folder.is_dir() and folder.name not in ("kb", "skills"):
             dest = runtime_dir / folder.name
             _deploy_dir(folder, dest, symlink=False, ignore=["kb", "skills", "memory"])
+
+            # 1. Deploy tenant-specific KB as symlink
+            tenant_kb_src = folder / "kb"
+            if tenant_kb_src.exists():
+                _deploy_dir(tenant_kb_src, dest / "kb", symlink=True)
+
+            # 2. Deploy skills as copies so we can format their path variables dynamically
+            tenant_skills_dir = dest / "skills"
+            tenant_skills_dir.mkdir(parents=True, exist_ok=True)
+
+            # Deploy default skills into tenant workspace skills folder
+            shared_skills_src = workspace_src.parent / "skills"
+            if shared_skills_src.exists():
+                default_skills_src = shared_skills_src / "default"
+                _deploy_dir(
+                    default_skills_src
+                    if default_skills_src.exists()
+                    else shared_skills_src,
+                    tenant_skills_dir / "default",
+                    symlink=False,
+                )
+
+            # Deploy tenant local skills into tenant workspace skills folder
+            tenant_skills_src = folder / "skills"
+            if tenant_skills_src.exists():
+                local_skills_src = tenant_skills_src / "local"
+                _deploy_dir(
+                    local_skills_src
+                    if local_skills_src.exists()
+                    else tenant_skills_src,
+                    tenant_skills_dir / "local",
+                    symlink=False,
+                )
+
+            # 3. Recursively rewrite "kb/" -> "/{folder.name}/kb/" in all SKILL.md files under tenant_skills_dir
+            for skill_md in tenant_skills_dir.glob("**/SKILL.md"):
+                try:
+                    content = skill_md.read_text(encoding="utf-8")
+                    updated = content.replace("kb/", f"/{folder.name}/kb/")
+                    skill_md.write_text(updated, encoding="utf-8")
+                    _logger.info(
+                        "[WuTanchang] Formatted skill path for tenant %s: %s",
+                        folder.name,
+                        skill_md,
+                    )
+                except Exception as e:
+                    _logger.warning("Failed to format skill file %s: %s", skill_md, e)
 
     return runtime_dir
 
@@ -144,7 +188,10 @@ def get_workspace_agent_id(workspace_path: Path) -> str:
         try:
             content = memory_md.read_text(encoding="utf-8")
             import re
-            match = re.search(r"-\s+\*\*Agent\s+id\*\*:\s*(\S+)", content, re.IGNORECASE)
+
+            match = re.search(
+                r"-\s+\*\*Agent\s+id\*\*:\s*(\S+)", content, re.IGNORECASE
+            )
             if not match:
                 match = re.search(r"-\s+Agent\s+id\s*:\s*(\S+)", content, re.IGNORECASE)
             if match:
@@ -166,6 +213,7 @@ def get_workspace_owner_name(workspace_path: Path) -> str:
     If workspace_path is an owner workspace, looks in the corresponding user workspace.
     """
     import json
+
     path = workspace_path
     # Try current workspace first, then fall back to user workspace if it's owner mode
     for target_path in (path, path.parent / path.name.replace("_owner", "")):

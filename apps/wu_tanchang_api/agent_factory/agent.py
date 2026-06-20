@@ -17,28 +17,29 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import UTC
 from pathlib import Path
 from typing import Any
+
+from apps.wu_tanchang_api.agent_factory.kb_search import (
+    get_note_content,
+    kb_semantic_search,
+)
+from apps.wu_tanchang_api.agent_factory.model_builder import create_model
+from apps.wu_tanchang_api.agent_factory.utils import (
+    default_runtime_dir,
+    get_workspace_owner_name,
+)
+from apps.wu_tanchang_api.checkpointer import DiskBackedInMemorySaver
+from apps.wu_tanchang_api.config import WuAgentConfig
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
 
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.accountant import AccountantMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
 from deepagents.middleware.prompt_logging import PromptLoggingMiddleware
-
-from langchain_core.tools import tool
-from langchain_core.runnables import RunnableConfig
-
-from apps.wu_tanchang_api.agent_factory.model_builder import create_model
-from apps.wu_tanchang_api.agent_factory.utils import (
-    default_runtime_dir,
-    get_workspace_agent_id,
-    get_workspace_owner_name,
-    get_workspace_domain,
-)
-from apps.wu_tanchang_api.checkpointer import DiskBackedInMemorySaver
-from apps.wu_tanchang_api.config import WuAgentConfig
-from apps.wu_tanchang_api.agent_factory.kb_search import kb_semantic_search, get_note_content
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -62,6 +63,7 @@ def get_active_agent(thread_id: str) -> Any | None:
     """Retrieve an active agent instance by thread ID."""
     with _ACTIVE_AGENTS_LOCK:
         return _ACTIVE_AGENTS.get(thread_id)
+
 
 # =========================================================================
 # KB sub-agent prompt: reads KB files and returns analysis in Wu Tanchang's voice
@@ -177,8 +179,9 @@ def save_meeting_prep(
         user_b_id: 第二位用户的 ID。如果不传，将自动从上下文 metadata 中读取。
     """
     import os
+    from datetime import datetime
+
     import requests
-    from datetime import datetime, timezone
 
     metadata = config.get("metadata") or {}
 
@@ -224,11 +227,17 @@ def save_meeting_prep(
         api_url = f"{base_url}/meeting_preps"
 
     # Validate callback URL against allowed list (S4)
-    from apps.wu_tanchang_api.app.callbacks import validate_callback_url, CallbackUrlError
+    from apps.wu_tanchang_api.app.callbacks import (
+        CallbackUrlError,
+        validate_callback_url,
+    )
+
     try:
         validate_callback_url(api_url)
     except CallbackUrlError as exc:
-        _logger.warning("[AgentTool] Unauthorized callback API url: %s, error: %s", api_url, exc)
+        _logger.warning(
+            "[AgentTool] Unauthorized callback API url: %s, error: %s", api_url, exc
+        )
         return f"保存失败：出网接口地址未被授权 ({exc})"
 
     # Fetch token
@@ -255,15 +264,20 @@ def save_meeting_prep(
         # Determine default author name based on workspace
         from apps.wu_tanchang_api.agent_factory.agent import get_active_agent
         from apps.wu_tanchang_api.agent_factory.utils import get_workspace_agent_id
+
         config_configurable = config.get("configurable") or {}
         tid = config_configurable.get("thread_id")
         active_agent = get_active_agent(tid) if tid else None
-        workspace_name = getattr(active_agent, "workspace_name", "workspace") if active_agent else "workspace"
-        
+        workspace_name = (
+            getattr(active_agent, "workspace_name", "workspace")
+            if active_agent
+            else "workspace"
+        )
+
         backend_root = Path(__file__).resolve().parent.parent
         workspace_path = backend_root / workspace_name
         agent_id = get_workspace_agent_id(workspace_path)
-        
+
         if "yc01" in agent_id:
             author = "yc"
         elif "andy01" in agent_id:
@@ -276,7 +290,7 @@ def save_meeting_prep(
         "user_b_id": user_b_int,
         "author": author,
         "body": body,
-        "prepared_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "prepared_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
 
     try:
@@ -291,16 +305,15 @@ def save_meeting_prep(
         if response.status_code == 201:
             _logger.info("[AgentTool] Meeting prep saved successfully.")
             return "meeting_prep_saved"
-        else:
-            _logger.error(
-                "[AgentTool] Failed to save meeting prep: status_code=%s, response=%s",
-                response.status_code,
-                response.text,
-            )
-            return f"保存失败：后端返回状态码 {response.status_code}"
+        _logger.error(
+            "[AgentTool] Failed to save meeting prep: status_code=%s, response=%s",
+            response.status_code,
+            response.text,
+        )
+        return f"保存失败：后端返回状态码 {response.status_code}"
     except Exception as e:
         _logger.exception("[AgentTool] Connection error calling save_meeting_prep")
-        return f"保存失败：网络或接口调用异常 {type(e).__name__}: {str(e)}"
+        return f"保存失败：网络或接口调用异常 {type(e).__name__}: {e!s}"
 
 
 def _load_persona_files(workspace_path: Path) -> str:
@@ -382,13 +395,47 @@ def create_agent(
     # ------------------------------------------------------------------
     # Sub-agent: KB analyst with full KB access
     # ------------------------------------------------------------------
+    from deepagents.middleware.filesystem import FilesystemPermission
+
+    kb_skills = [f"/{effective_workspace}/skills/default/kb_analyst/"]
+    # Check if tenant-level local skills exist in workspace, and load them dynamically
+    if (workspace_path / "skills" / "local").exists():
+        kb_skills.append(f"/{effective_workspace}/skills/local/")
+
+    # Enforce strict multi-tenant isolation:
+    # 1. Format prompt to use tenant-specific path
+    formatted_kb_prompt = KB_ANALYST_PROMPT.replace(
+        "kb/", f"/{effective_workspace}/kb/"
+    )
+
+    # 2. Add filesystem permissions: deny all access to root /kb and deny write access to all kb/skills directories
+    kb_permissions = [
+        FilesystemPermission(
+            operations=["read", "write"],
+            paths=[
+                "/kb/**",
+            ],
+            mode="deny",
+        ),
+        FilesystemPermission(
+            operations=["write"],
+            paths=[
+                "/workspace*/kb/**",
+                "/workspace*/skills/**",
+                "/skills/**",
+            ],
+            mode="deny",
+        ),
+    ]
+
     kb_subagent = {
         "name": "kb_analyst",
         "description": "检索知识库，查找商业方法论、案例和参考数据",
         "model": model,
         "tools": [kb_semantic_search, get_note_content],
-        "system_prompt": KB_ANALYST_PROMPT,
-        "skills": ["/skills/"],
+        "system_prompt": formatted_kb_prompt,
+        "skills": kb_skills,
+        "permissions": kb_permissions,
         "middleware": [
             AccountantMiddleware(max_tool_calls=6),
             PromptLoggingMiddleware(),
@@ -402,9 +449,9 @@ def create_agent(
 
     if is_owner:
         from apps.wu_tanchang_api.agent_factory.owner_tools import (
+            get_client_detail,
             get_consultation_stats,
             list_recent_clients,
-            get_client_detail,
         )
 
         owner_name = get_workspace_owner_name(workspace_path)

@@ -1,3 +1,8 @@
+---
+name: wu-tanchang-kb
+description: Search and retrieve 吴探长探店笔记 for F&B consulting replies
+---
+
 # Wu Tanchang Knowledge Base Search
 
 Search and retrieve 吴探长探店笔记 for F&B consulting replies.
@@ -9,10 +14,15 @@ Search and retrieve 吴探长探店笔记 for F&B consulting replies.
 
 ## Files
 
+> **Multi-tenant note**: All knowledge-base paths (e.g. `kb/...`) in this file
+> are **templates**. At runtime, `ensure_runtime_workspace` rewrites them to
+> tenant-scoped absolute paths. Do **not** hard-code workspace names here.
+
 - Index: `kb/index.json`
 - Chunks: `kb/chunks/brands/{id}/`
 - Method: `kb/METHOD.md`
 - Playbook: `kb/PLAYBOOK.md`
+
 
 ## Search workflow
 

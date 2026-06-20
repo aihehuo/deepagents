@@ -106,7 +106,7 @@ apps/wu_tanchang_api/
 │   │   ├── METHOD.md         # 商业拆解方法论
 │   │   ├── PLAYBOOK.md       # 咨询回答 Playbook
 │   │   └── chunks/brands/    # 按品牌切片的案例
-│   └── skills/local/wu-tanchang-kb/
+│   └── skills/kb_analyst/wu-tanchang-kb/
 ├── agent_factory/            # 智能体工厂
 │   ├── agent.py              # 前置助手 + kb_analyst 子代理
 │   ├── model_builder.py      # 模型初始化

@@ -75,7 +75,7 @@ Each app should have its own `.deploy.env` file in its directory (e.g., `apps/bu
 
 ```bash
 # Registry
-ALIYUN_DOCKER_REGISTRY=crpi-lp1jelcmhkef5y0u.cn-qingdao.personal.cr.aliyuncs.com
+ALIYUN_DOCKER_REGISTRY=your-registry.example.com
 ALIYUN_DOCKER_USERNAME=your-username
 ALIYUN_DOCKER_PASSWORD=your-password
 
@@ -98,11 +98,8 @@ PORT=8001
 - **Port**: `8001` (can be overridden)
 - **Data directory**: `apps/<app-name>/.tmp_home/.deepagents/<app-name>` (local) or `/mnt/<app-name>/data` (production)
 
-## Migration from App-Specific Scripts
+## App-Specific Scripts
 
-The old scripts in `apps/business_cofounder_api/` can be removed. The new generic scripts in `apps/` replace them:
-
-- `apps/business_cofounder_api/build_and_push.sh` → `apps/build_and_push.sh business_cofounder_api`
-- `apps/business_cofounder_api/pull_and_run.sh` → `apps/pull_and_run.sh business_cofounder_api`
-- `apps/business_cofounder_api/deploy_to_prod2.sh` → `apps/deploy_to_prod2.sh business_cofounder_api`
-
+Use the shared scripts in `apps/` for all app images. The older
+`business_cofounder_api`-specific deployment scripts have been removed to keep
+build, pull, and production deployment behavior consistent across apps.

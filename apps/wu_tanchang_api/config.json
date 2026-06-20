@@ -20,6 +20,11 @@
         "model": "deepseek-v4-flash",
         "max_tokens": 4000,
         "workspace": "workspace_owner"
+      },
+      {
+        "name": "aihehuo",
+        "model": "deepseek-v4-flash",
+        "workspace": "workspace_aihehuo"
       }
     ]
   },

@@ -2,8 +2,8 @@
 
 This folder provides a Docker setup for running `apps.business_cofounder_api.app:app`.
 
-**Important:** This setup intentionally mimics the conventions used in `BPGenerationAgent`
-(base image, compose layout, Aliyun registry push script style).
+**Important:** Shared deployment scripts live under `apps/` so all app images use
+the same build, pull, and production deployment behavior.
 
 ## Base image note (Python 3.11)
 
@@ -31,19 +31,19 @@ Then:
 ## Persistence
 
 The API persists LangGraph checkpoints to:
-- `/root/.deepagents/business_cofounder_api/checkpoints.pkl`
+- `/home/appuser/.deepagents/business_cofounder_api/checkpoints.pkl`
 
 ### Local dev (bind mount)
 
 `docker-compose.yml` mounts:
-- `./data` → `/root/.deepagents/business_cofounder_api`
+- `./.tmp_home/.deepagents/business_cofounder_api` → `/home/appuser/.deepagents/business_cofounder_api`
 
 So checkpoints + copied skills survive restarts and are visible on your host.
 
 ### Production (named volume)
 
 `docker-compose.prod.yml` uses a named volume:
-- `business_cofounder_api_data` → `/root/.deepagents/business_cofounder_api`
+- `business_cofounder_api_data` → `/home/appuser/.deepagents/business_cofounder_api`
 
 This avoids relying on a relative `./data` directory existing on the production host
 (and is typically the right default for server deployments).
@@ -65,7 +65,13 @@ Optional truncation:
 
 ## Aliyun registry build/push
 
-See `build_and_push.sh` (same registry + username pattern as BPGenerationAgent).
+Use the shared app scripts from the repository root:
+
+```bash
+./apps/build_and_push.sh business_cofounder_api
+./apps/pull_and_run.sh business_cofounder_api
+./apps/deploy_to_prod2.sh business_cofounder_api
+```
 
 ## Deployment config (.deploy.env)
 
@@ -87,5 +93,4 @@ this is usually a native dependency crash.
 This API intentionally runs uvicorn in a **pure-python** configuration to reduce that risk:
 - `--loop asyncio` (avoid `uvloop`)
 - `--http h11` (avoid `httptools`)
-
 

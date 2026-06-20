@@ -11,10 +11,11 @@ services:
     env_file:
       - .docker.env
     environment:
-      - HOME=/root
+      - HOME=/home/appuser
+    user: "1000:1000"  # Run as non-root user (appuser, UID 1000)
     volumes:
       # Production: use a named volume (doesn't depend on a host ./data folder existing).
-      - business_cofounder_api_data:/root/.deepagents/business_cofounder_api
+      - business_cofounder_api_data:/home/appuser/.deepagents/business_cofounder_api
     restart: always
     healthcheck:
       test: ["CMD", "python", "-c", "import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)"]
@@ -33,5 +34,4 @@ services:
 
 volumes:
   business_cofounder_api_data:
-
 

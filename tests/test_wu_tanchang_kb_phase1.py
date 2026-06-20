@@ -1,4 +1,5 @@
 """Unit tests for Wu Tanchang KB Phase 1 logic."""
+# ruff: noqa: S101, RUF001, TC003
 
 from __future__ import annotations
 
@@ -7,10 +8,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from apps.wu_tanchang_api.scripts.kb_extract import validate_extraction
+from apps.wu_tanchang_api.agent_factory.kb_search import NoteHit, kb_semantic_search, semantic_search
 from apps.wu_tanchang_api.scripts.kb_build_db import validate_db_constraints
-from apps.wu_tanchang_api.agent_factory.kb_search import NoteHit, semantic_search, kb_semantic_search
+from apps.wu_tanchang_api.scripts.kb_extract import validate_extraction
 
 
 def test_validate_extraction_valid() -> None:
@@ -22,8 +22,8 @@ def test_validate_extraction_valid() -> None:
             "反选址降低租金并卡位高线城市，对传统渠道降维打击。",
             "聚焦垂直品类建立长效壁垒，突破同质化竞争红海。",
             "依靠社群裂变进行精准获客，降低单店私域获客成本。",
-            "利用联名活动与时令菜单持续更新场景内容对抗审美疲劳。"
-        ]
+            "利用联名活动与时令菜单持续更新场景内容对抗审美疲劳。",
+        ],
     }
     ok, err = validate_extraction(valid_data)
     assert ok, f"Expected validation to succeed, got error: {err}"
@@ -32,19 +32,13 @@ def test_validate_extraction_valid() -> None:
 def test_validate_extraction_invalid_keywords_count() -> None:
     """Test validate_extraction fails when keywords count is out of bounds (6-12)."""
     # Too few keywords (5)
-    data_too_few = {
-        "keywords": ["咖啡", "AOKKA", "日咖夜酒", "低价锚定", "品牌学"],
-        "insights": ["这是一条长度超过十个字符的有效核心洞察语句。"] * 5
-    }
+    data_too_few = {"keywords": ["咖啡", "AOKKA", "日咖夜酒", "低价锚定", "品牌学"], "insights": ["这是一条长度超过十个字符的有效核心洞察语句。"] * 5}
     ok, err = validate_extraction(data_too_few)
     assert not ok
     assert "keywords count must be between 6 and 12" in err
 
     # Too many keywords (13)
-    data_too_many = {
-        "keywords": [f"词{i}" for i in range(13)],
-        "insights": ["这是一条长度超过十个字符的有效核心洞察语句。"] * 5
-    }
+    data_too_many = {"keywords": [f"词{i}" for i in range(13)], "insights": ["这是一条长度超过十个字符的有效核心洞察语句。"] * 5}
     ok, err = validate_extraction(data_too_many)
     assert not ok
     assert "keywords count must be between 6 and 12" in err
@@ -54,7 +48,7 @@ def test_validate_extraction_invalid_keyword_chinese_length() -> None:
     """Test validate_extraction fails when a keyword has more than 8 Chinese characters."""
     data = {
         "keywords": ["一个超级无敌长长长的关键词", "AOKKA", "日咖夜酒", "低价锚定", "品牌学", "社群运营"],
-        "insights": ["这是一条长度超过十个字符的有效核心洞察语句。"] * 5
+        "insights": ["这是一条长度超过十个字符的有效核心洞察语句。"] * 5,
     }
     ok, err = validate_extraction(data)
     assert not ok
@@ -66,7 +60,7 @@ def test_validate_extraction_invalid_insights_count() -> None:
     # Too few insights (4)
     data_too_few = {
         "keywords": ["咖啡", "AOKKA", "日咖夜酒", "低价锚定", "品牌学", "社群运营"],
-        "insights": ["这是一条长度超过十个字符的有效核心洞察语句。"] * 4
+        "insights": ["这是一条长度超过十个字符的有效核心洞察语句。"] * 4,
     }
     ok, err = validate_extraction(data_too_few)
     assert not ok
@@ -83,8 +77,8 @@ def test_validate_extraction_invalid_insight_length() -> None:
             "反选址降低租金并卡位高线城市，对传统渠道降维打击。",
             "聚焦垂直品类建立长效壁垒，突破同质化竞争红海。",
             "依靠社群裂变进行精准获客，降低单店私域获客成本。",
-            "利用联名活动与时令菜单持续更新场景内容对抗审美疲劳。"
-        ]
+            "利用联名活动与时令菜单持续更新场景内容对抗审美疲劳。",
+        ],
     }
     ok, err = validate_extraction(data_too_short)
     assert not ok
@@ -101,8 +95,8 @@ def test_validate_extraction_insight_contains_path_or_newlines() -> None:
             "反选址降低租金并卡位高线城市，对传统渠道降维打击。",
             "聚焦垂直品类建立长效壁垒，突破同质化竞争红海。",
             "依靠社群裂变进行精准获客，降低单店私域获客成本。",
-            "利用联名活动与时令菜单持续更新场景内容对抗审美疲劳。"
-        ]
+            "利用联名活动与时令菜单持续更新场景内容对抗审美疲劳。",
+        ],
     }
     ok, err = validate_extraction(data_path)
     assert not ok
@@ -116,8 +110,8 @@ def test_validate_extraction_insight_contains_path_or_newlines() -> None:
             "反选址降低租金并卡位高线城市，对传统渠道降维打击。",
             "聚焦垂直品类建立长效壁垒，突破同质化竞争红海。",
             "依靠社群裂变进行精准获客，降低单店私域获客成本。",
-            "利用联名活动与时令菜单持续更新场景内容对抗审美疲劳。"
-        ]
+            "利用联名活动与时令菜单持续更新场景内容对抗审美疲劳。",
+        ],
     }
     ok, err = validate_extraction(data_newline)
     assert not ok
@@ -127,36 +121,23 @@ def test_validate_extraction_insight_contains_path_or_newlines() -> None:
 def test_validate_db_constraints() -> None:
     """Test SQLite DB constraints validator."""
     # Valid should not raise error
-    validate_db_constraints(
-        ["咖啡", "AOKKA", "不超过八字关键词"],
-        ["这是一条长度超过十个字符的有效核心洞察语句。"]
-    )
-
+    validate_db_constraints(["咖啡", "AOKKA", "不超过八字关键词"], ["这是一条长度超过十个字符的有效核心洞察语句。"])
 
     # Invalid keyword (> 8 Chinese characters)
     with pytest.raises(ValueError, match="exceeds 8 Chinese characters limit"):
-        validate_db_constraints(
-            ["一个包含超级超级超级无敌长长长的关键词"],
-            ["这是一条长度超过十个字符的有效核心洞察语句。"]
-        )
+        validate_db_constraints(["一个包含超级超级超级无敌长长长的关键词"], ["这是一条长度超过十个字符的有效核心洞察语句。"])
 
     # Invalid insight (< 10 Chinese characters)
     with pytest.raises(ValueError, match="must contain 10-50 Chinese characters"):
-        validate_db_constraints(
-            ["咖啡"],
-            ["太短了"]
-        )
+        validate_db_constraints(["咖啡"], ["太短了"])
 
     # Invalid insight contains newlines
     with pytest.raises(ValueError, match="contains newlines"):
-        validate_db_constraints(
-            ["咖啡"],
-            ["这是一条有效的洞察语句\n但是有换行"]
-        )
+        validate_db_constraints(["咖啡"], ["这是一条有效的洞察语句\n但是有换行"])
 
 
 @pytest.fixture
-def mock_db_and_chroma(tmp_path: Path):
+def mock_db_and_chroma(tmp_path: Path) -> tuple[Path, MagicMock]:
     """Set up an in-memory SQLite DB and mock Chroma collection for search testing."""
     # 1. Create SQLite DB schema and insert mock data
     db_path = tmp_path / "test_kb.db"
@@ -193,7 +174,7 @@ def mock_db_and_chroma(tmp_path: Path):
       PRIMARY KEY (note_id, position)
     );
     """)
-    
+
     # Insert mock note
     conn.execute("""
     INSERT INTO notes VALUES (
@@ -213,69 +194,45 @@ def mock_db_and_chroma(tmp_path: Path):
     mock_collection.query.return_value = {
         "ids": [["wu-test-note"]],
         "distances": [[0.35]],
-        "metadatas": [[{
-            "note_id": "wu-test",
-            "vec_type": "note",
-            "categories": '["烘焙", "咖啡"]'
-        }]],
-        "documents": [["测试笔记标题\n\n关键词：关键词一、关键词二\n\n核心洞察：这是一条测试洞察语句一。；这是一条测试洞察语句二。"]]
+        "metadatas": [[{"note_id": "wu-test", "vec_type": "note", "categories": '["烘焙", "咖啡"]'}]],
+        "documents": [["测试笔记标题\n\n关键词：关键词一、关键词二\n\n核心洞察：这是一条测试洞察语句一。；这是一条测试洞察语句二。"]],
     }
-    
+
     return db_path, mock_collection
 
 
 @patch("apps.wu_tanchang_api.agent_factory.kb_search.get_embeddings")
-@patch("apps.wu_tanchang_api.agent_factory.kb_search.resolve_model_config")
-@patch("apps.wu_tanchang_api.agent_factory.kb_search._collection")
-@patch("apps.wu_tanchang_api.agent_factory.kb_search._db_path")
-@patch("apps.wu_tanchang_api.agent_factory.kb_search._api_key", "fake-api-key")
-@patch("apps.wu_tanchang_api.agent_factory.kb_search._chroma_client")
+@patch("apps.wu_tanchang_api.agent_factory.kb_search._get_kb_connection")
 def test_semantic_search_success(
-    mock_chroma_client,
-    mock_db_path_var,
-    mock_collection_var,
-    mock_model_config,
-    mock_get_embs,
-    mock_db_and_chroma
+    mock_get_conn: MagicMock,
+    mock_get_embs: MagicMock,
+    mock_db_and_chroma: tuple[Path, MagicMock],
 ) -> None:
     """Test semantic_search successfully queries Chroma and SQLite and maps objects."""
     db_path, mock_coll = mock_db_and_chroma
-    
-    # Bind mocks to internal kb_search variables
-    mock_collection_var.__get__ = MagicMock(return_value=mock_coll)
-    mock_collection_var.query = mock_coll.query
-    
-    # We patch _ensure_loaded to do nothing, and set the internal variables manually
-    with patch("apps.wu_tanchang_api.agent_factory.kb_search._db_path", db_path), \
-         patch("apps.wu_tanchang_api.agent_factory.kb_search._collection", mock_coll), \
-         patch("apps.wu_tanchang_api.agent_factory.kb_search._api_key", "fake-key"), \
-         patch("apps.wu_tanchang_api.agent_factory.kb_search._ensure_loaded"):
-        
-        mock_get_embs.return_value = [[0.1] * 1024]
-        
-        # Test basic search
-        hits = semantic_search("测试查询", k=1)
-        
-        assert len(hits) == 1
-        hit = hits[0]
-        assert isinstance(hit, NoteHit)
-        assert hit.note_id == "wu-test"
-        assert hit.title == "测试笔记标题"
-        assert hit.brand == "测试品牌"
-        assert hit.score == pytest.approx(0.65)  # 1.0 - 0.35
-        assert hit.matched_keywords == ["关键词一", "关键词二"]
-        assert hit.matched_insights == ["这是一条测试洞察语句一。", "这是一条测试洞察语句二。"]
-        assert hit.raw_path == "kb/raw/test.md"
+
+    # Mock _get_kb_connection to return our test db and collection
+    mock_get_conn.return_value = (MagicMock(), mock_coll, db_path)
+
+    mock_get_embs.return_value = [[0.1] * 1024]
+
+    # Test basic search
+    hits = semantic_search("测试查询", k=1)
+
+    assert len(hits) == 1
+    hit = hits[0]
+    assert isinstance(hit, NoteHit)
+    assert hit.note_id == "wu-test"
+    assert hit.title == "测试笔记标题"
+    assert hit.brand == "测试品牌"
+    assert hit.score == pytest.approx(0.65)  # 1.0 - 0.35
+    assert hit.matched_keywords == ["关键词一", "关键词二"]
+    assert hit.matched_insights == ["这是一条测试洞察语句一。", "这是一条测试洞察语句二。"]
+    assert hit.raw_path == "kb/raw/test.md"
 
 
-@patch("apps.wu_tanchang_api.agent_factory.kb_search.get_embeddings")
-@patch("apps.wu_tanchang_api.agent_factory.kb_search._ensure_loaded")
 @patch("apps.wu_tanchang_api.agent_factory.kb_search.semantic_search")
-def test_kb_semantic_search_tool(
-    mock_search,
-    mock_ensure,
-    mock_get_embs
-) -> None:
+def test_kb_semantic_search_tool(mock_search: MagicMock) -> None:
     """Test the kb_semantic_search @tool formats output as markdown properly."""
     # Mock search response
     mock_search.return_value = [
@@ -286,12 +243,12 @@ def test_kb_semantic_search_tool(
             score=0.85,
             matched_keywords=["关键一", "关键二"],
             matched_insights=["洞察一", "洞察二"],
-            raw_path="kb/raw/test.md"
+            raw_path="kb/raw/test.md",
         )
     ]
-    
+
     res = kb_semantic_search.invoke({"query": "测试需求", "k": 1})
-    
+
     assert "### 1. 测试笔记标题 (ID: `wu-test`)" in res
     assert "- **品牌**: 测试品牌" in res
     assert "- **相似度分数**: 0.8500" in res
@@ -301,10 +258,10 @@ def test_kb_semantic_search_tool(
     assert "- **路径**: `kb/raw/test.md`" in res
 
 
-@patch("apps.wu_tanchang_api.agent_factory.kb_search._ensure_loaded")
-def test_kb_semantic_search_tool_handles_missing_db_error(mock_ensure) -> None:
+@patch("apps.wu_tanchang_api.agent_factory.kb_search._get_kb_connection")
+def test_kb_semantic_search_tool_handles_missing_db_error(mock_get_conn: MagicMock) -> None:
     """Test the @tool handles FileNotFoundError gracefully and returns fallback string."""
-    mock_ensure.side_effect = FileNotFoundError("SQLite database file not found")
-    
+    mock_get_conn.side_effect = FileNotFoundError("SQLite database file not found")
+
     res = kb_semantic_search.invoke({"query": "测试", "k": 1})
     assert "错误: 知识库向量索引未构建" in res

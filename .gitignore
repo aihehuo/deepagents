@@ -218,6 +218,7 @@ cython_debug/
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
 #  refer to https://docs.cursor.com/context/ignore-files
+.cursor/
 .cursorignore
 .cursorindexingignore
 
@@ -263,6 +264,7 @@ apps/wu_tanchang_api/workspace_*/kb/extracted/
 apps/wu_tanchang_api/workspace_*/kb/chunks/
 apps/wu_tanchang_api/workspace_*/kb/index.json
 apps/wu_tanchang_api/workspace_*/kb/INDEX.md
+apps/wu_tanchang_api/workspace_*/search_results.md
 
 CLAUDE.md
 .worktrees/

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-from apps.wu_tanchang_api.agent_factory.agent import create_agent
+from apps.wu_tanchang_api.agent_factory.agent import (
+    create_agent,
+    register_active_agent,
+    unregister_active_agent,
+)
 from apps.wu_tanchang_api.agent_factory.kb_search import kb_semantic_search
 
 
@@ -73,17 +76,34 @@ def test_semantic_search_registered_in_kb_analyst(monkeypatch: pytest.MonkeyPatc
 
 def test_falls_back_when_chroma_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Verify that kb_semantic_search returns a fallback error message when Chroma DB directory is missing."""
-    # Point vector dir and db path to non-existent directories
-    monkeypatch.setenv("WU_KB_DB_PATH", str(tmp_path / "non_existent_kb.db"))
-    monkeypatch.setenv("WU_KB_VECTOR_DIR", str(tmp_path / "non_existent_chroma"))
-    
-    # We need to clear any cached client from global state in kb_search
+    runtime_dir = tmp_path / "runtime"
+    workspace = "workspace_test"
+    kb_dir = runtime_dir / workspace / "kb"
+    kb_dir.mkdir(parents=True)
+    (kb_dir / "kb.db").touch()
+
+    thread_id = "test-kb-missing-chroma"
+    agent = SimpleNamespace(
+        workspace_name=workspace,
+        backend=SimpleNamespace(root_dir=str(runtime_dir)),
+    )
+
     import apps.wu_tanchang_api.agent_factory.kb_search as kb_search
+
+    # We need to clear any cached client from global state in kb_search.
+    kb_search._clients_cache.clear()
     kb_search._chroma_client = None
     kb_search._collection = None
-    
-    # Invoke the tool
-    res = kb_semantic_search.invoke({"query": "咖啡店", "k": 5})
-    
-    # Assert it returns the expected error message indicating database/vector missing
-    assert "错误: 知识库向量索引未构建" in res
+
+    register_active_agent(thread_id, agent)
+    try:
+        res = kb_semantic_search.invoke(
+            {"query": "咖啡店", "k": 5},
+            config={"configurable": {"thread_id": thread_id}},
+        )
+
+        assert "错误: 知识库向量索引未构建" in res
+        assert "ChromaDB directory not found or empty" in res
+    finally:
+        unregister_active_agent(thread_id)
+        kb_search._clients_cache.clear()

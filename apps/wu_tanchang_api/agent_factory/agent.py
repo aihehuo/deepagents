@@ -407,8 +407,21 @@ def create_agent(
         kb_skills.append(f"/{effective_workspace}/skills/default/")
 
     # Check if tenant-level local skills exist in workspace, and load them dynamically
-    if (workspace_path / "skills" / "local").exists():
+    local_skills_path = workspace_path / "skills" / "local"
+    if local_skills_path.exists():
         kb_skills.append(f"/{effective_workspace}/skills/local/")
+        try:
+            local_skills = [item.name for item in local_skills_path.iterdir() if item.is_dir()]
+            _logger.info(
+                "[Agent] Detected %d local skill(s) on disk for workspace %s: %s",
+                len(local_skills),
+                effective_workspace,
+                local_skills,
+            )
+        except Exception as e:
+            _logger.warning("[Agent] Error scanning local skills: %s", e)
+
+    _logger.info("[Agent] Configuring kb_skills for %s: %s", effective_workspace, kb_skills)
 
     # Enforce strict multi-tenant isolation:
     # 1. Format prompt to use tenant-specific path

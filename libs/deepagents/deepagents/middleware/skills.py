@@ -975,6 +975,11 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
                 all_skills[skill["name"]] = skill
 
         skills = list(all_skills.values())
+        logger.info(
+            "SkillsMiddleware loaded %d skills: %s",
+            len(skills),
+            [s["name"] for s in skills],
+        )
         update = SkillsStateUpdate(skills_metadata=skills)
         if skills_load_errors:
             # Log even when `system_prompt_template is None`, otherwise the
@@ -1021,6 +1026,11 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
                 all_skills[skill["name"]] = skill
 
         skills = list(all_skills.values())
+        logger.info(
+            "SkillsMiddleware loaded %d skills: %s",
+            len(skills),
+            [s["name"] for s in skills],
+        )
         update = SkillsStateUpdate(skills_metadata=skills)
         if skills_load_errors:
             # Log even when `system_prompt_template is None`, otherwise the

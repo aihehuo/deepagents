@@ -1,3 +1,8 @@
+---
+name: yc-kb
+description: Search and retrieve YC startup method notes for consulting and coaching replies
+---
+
 # YC Startup Knowledge Base Search
 
 Search and retrieve YC's startup method notes for consulting and coaching replies.

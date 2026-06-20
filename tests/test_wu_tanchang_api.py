@@ -888,7 +888,7 @@ def test_strict_multi_tenant_isolation(tmp_path: Path) -> None:
             )
             assert (
                 _check_fs_permission(
-                    perms, "read", "/workspace_1/skills/local/wu-tanchang-kb/SKILL.md"
+                    perms, "read", "/workspace_1/skills/local/yc-kb/SKILL.md"
                 )
                 == "allow"
             )

@@ -125,7 +125,12 @@ async def call_async(
         with state.active_callback_threads_lock:
             state.active_callback_threads.pop(tid, None)
         state.finish_agent_run(tid, "call_async")
-        _logger.exception("POST /call_async failed thread_id=%s", tid)
+        import traceback
+        _logger.error(
+            "POST /call_async failed thread_id=%s\n%s",
+            tid,
+            traceback.format_exc(),
+        )
         return CallWuTanchangAsyncResponse(
             success=False,
             session_id=tid,

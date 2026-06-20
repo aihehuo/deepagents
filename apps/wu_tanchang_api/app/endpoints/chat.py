@@ -260,6 +260,14 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                     if hasattr(agent, "checkpointer") and hasattr(agent.checkpointer, "flush"):
                         agent.checkpointer.flush()
             except Exception as exc:  # noqa: BLE001
+                import traceback
+                _logger.error(
+                    "POST /chat failed thread_id=%s user_id=%s conversation_id=%s\n%s",
+                    tid,
+                    req.user_id,
+                    req.conversation_id,
+                    traceback.format_exc(),
+                )
                 raise HTTPException(
                     status_code=502,
                     detail={
@@ -400,8 +408,13 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
                 except Exception as exc:  # noqa: BLE001
+                    import traceback
                     _logger.error(
-                        "[ChatStream] Error: %s: %s", type(exc).__name__, str(exc)
+                        "[ChatStream] Error thread_id=%s user_id=%s conversation_id=%s\n%s",
+                        tid,
+                        req.user_id,
+                        req.conversation_id,
+                        traceback.format_exc(),
                     )
                     detail = {
                         "error_type": type(exc).__name__,

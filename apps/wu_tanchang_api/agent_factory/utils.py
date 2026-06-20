@@ -121,6 +121,8 @@ def ensure_runtime_workspace(*, workspace_src: Path, runtime_dir: Path) -> Path:
 
             # 2. Deploy skills as copies so we can format their path variables dynamically
             tenant_skills_dir = dest / "skills"
+            if tenant_skills_dir.is_symlink():
+                tenant_skills_dir.unlink()
             tenant_skills_dir.mkdir(parents=True, exist_ok=True)
 
             # Deploy default skills into tenant workspace skills folder

@@ -512,6 +512,41 @@ def test_ensure_runtime_workspace_isolation(tmp_path: Path) -> None:
     assert (custom_ws / "identity.md").read_text(encoding="utf-8") == "identity source"
 
 
+def test_ensure_runtime_workspace_removes_old_skills_symlink(tmp_path: Path) -> None:
+    import os
+    from apps.wu_tanchang_api.agent_factory.utils import ensure_runtime_workspace
+
+    # 1. Setup source workspace structure
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "kb").mkdir()
+
+    # Add a custom workspace folder
+    custom_ws = tmp_path / "workspace_custom"
+    custom_ws.mkdir()
+    (custom_ws / "identity.md").write_text("identity source", encoding="utf-8")
+
+    # 2. Setup target runtime dir with a pre-existing symlink for skills
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    tenant_runtime_dir = runtime_dir / "workspace_custom"
+    tenant_runtime_dir.mkdir()
+    
+    # Create a pre-existing symlink for dest/skills pointing to some other directory
+    dummy_dir = tmp_path / "dummy_dir"
+    dummy_dir.mkdir()
+    os.symlink(dummy_dir, tenant_runtime_dir / "skills")
+    
+    assert (tenant_runtime_dir / "skills").is_symlink()
+
+    # 3. Deploy to runtime
+    ensure_runtime_workspace(workspace_src=src_dir, runtime_dir=runtime_dir)
+
+    # 4. Assert that skills is no longer a symlink but a directory
+    assert not (tenant_runtime_dir / "skills").is_symlink()
+    assert (tenant_runtime_dir / "skills").is_dir()
+
+
 def test_task_tool_blocks_kb_analyst_after_delivered_dynamic_owner() -> None:
     import json
     from unittest.mock import MagicMock

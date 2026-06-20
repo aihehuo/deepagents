@@ -398,6 +398,14 @@ def create_agent(
     from deepagents.middleware.filesystem import FilesystemPermission
 
     kb_skills = []
+    # Load app-level default skills if they exist
+    default_skills_path = workspace_path / "skills" / "default"
+    if default_skills_path.exists():
+        for item in default_skills_path.iterdir():
+            if item.is_dir():
+                kb_skills.append(f"/{effective_workspace}/skills/default/{item.name}/")
+        kb_skills.append(f"/{effective_workspace}/skills/default/")
+
     # Check if tenant-level local skills exist in workspace, and load them dynamically
     if (workspace_path / "skills" / "local").exists():
         kb_skills.append(f"/{effective_workspace}/skills/local/")

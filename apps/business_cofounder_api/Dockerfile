@@ -10,7 +10,11 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+<<<<<<< HEAD
     PYTHONPATH="/app/libs/deepagents:/app/libs/deepagents-cli"
+=======
+    PYTHONPATH="/app/libs/deepagents:/app/libs/cli"
+>>>>>>> main
 
 # System deps
 # NOTE: Avoid apt-get in this image because some environments cannot validate Debian repo signatures
@@ -28,11 +32,21 @@ RUN groupadd -r appuser -g 1000 && \
 # Minimal runtime deps for the API layer (FastAPI/Uvicorn + optional langdetect).
 COPY apps/business_cofounder_api/requirements.txt /app/apps/business_cofounder_api/requirements.txt
 
+<<<<<<< HEAD
 RUN pip install -r /app/apps/business_cofounder_api/requirements.txt
 
 # Copy deepagents + deepagents-cli source (imported via PYTHONPATH; no pip editable install)
 COPY libs/deepagents /app/libs/deepagents
 COPY libs/deepagents-cli /app/libs/deepagents-cli
+=======
+RUN pip install --no-cache-dir \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    -r /app/apps/business_cofounder_api/requirements.txt
+
+# Copy deepagents + cli source (imported via PYTHONPATH; no pip editable install)
+COPY libs/deepagents /app/libs/deepagents
+COPY libs/cli /app/libs/cli
+>>>>>>> main
 
 # Copy application code
 COPY apps/business_cofounder_api /app/apps/business_cofounder_api
@@ -58,5 +72,8 @@ ENTRYPOINT ["/app/docker-entrypoint.sh"]
 # - loop: asyncio (avoid uvloop)
 # - http: h11 (avoid httptools)
 CMD ["python", "-m", "uvicorn", "apps.business_cofounder_api.app:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "asyncio", "--http", "h11"]
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> main

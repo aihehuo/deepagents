@@ -30,7 +30,11 @@ pip install -r requirements.txt
 
 ```bash
 # From project root
+<<<<<<< HEAD
 export PYTHONPATH="libs/deepagents:libs/deepagents-cli:$PYTHONPATH"
+=======
+export PYTHONPATH="libs/deepagents:libs/cli:$PYTHONPATH"
+>>>>>>> main
 # Uses host.docker.internal:6379 by default
 celery -A apps.business_cofounder_worker.celery_app worker --loglevel=info --pool=solo
 ```

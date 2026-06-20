@@ -27,7 +27,11 @@ else
 fi
 
 # Set PYTHONPATH
+<<<<<<< HEAD
 export PYTHONPATH="$PROJECT_ROOT/libs/deepagents:$PROJECT_ROOT/libs/deepagents-cli:$PYTHONPATH"
+=======
+export PYTHONPATH="$PROJECT_ROOT/libs/deepagents:$PROJECT_ROOT/libs/cli:$PYTHONPATH"
+>>>>>>> main
 
 # Start worker
 cd "$PROJECT_ROOT"

@@ -2,16 +2,27 @@ from __future__ import annotations
 
 import json
 import os
+<<<<<<< HEAD
 import queue
 import threading
 import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
+=======
+import time
+import urllib.error
+import urllib.request
+>>>>>>> main
 from typing import Any
 
 import pytest
 
+<<<<<<< HEAD
+=======
+from tests.test_utils import CallbackServer
+
+>>>>>>> main
 
 def _base_url() -> str:
     """Base URL for the Business Co-Founder API."""
@@ -43,6 +54,7 @@ def _http_json(method: str, url: str, payload: dict | None = None, *, timeout_s:
         return e.code, parsed
 
 
+<<<<<<< HEAD
 def _create_callback_handler(callback_queue: queue.Queue) -> type[BaseHTTPRequestHandler]:
     """Create a callback handler class with the given queue."""
     
@@ -135,6 +147,8 @@ class CallbackServer:
         return callbacks
 
 
+=======
+>>>>>>> main
 @pytest.mark.timeout(300)
 def test_deep_agent_call_async() -> None:
     """
@@ -163,28 +177,44 @@ def test_deep_agent_call_async() -> None:
         msg = (
             f"Live server not reachable at {base} ({e}).\n\n"
             "Start it in another terminal, e.g.:\n"
+<<<<<<< HEAD
             '  PYTHONPATH="libs/deepagents:libs/deepagents-cli" '
+=======
+            '  PYTHONPATH="libs/deepagents:libs/cli" '
+>>>>>>> main
             "uvicorn apps.business_cofounder_api.app:app --host 0.0.0.0 --port 8001\n\n"
             "Or set BC_API_BASE_URL to point at the running server."
         )
         if strict:
             pytest.fail(msg)
         pytest.skip(msg)
+<<<<<<< HEAD
     
+=======
+
+>>>>>>> main
     assert status == 200, payload
     assert payload.get("status") == "ok"
 
     # Start callback server
     callback_server = CallbackServer()
     callback_url = callback_server.start()
+<<<<<<< HEAD
     
+=======
+
+>>>>>>> main
     try:
         # Prepare test data - use a message that will trigger tool calls (todo creation and file operations)
         user_id = f"pytest-async-{int(time.time())}"
         conversation_id = "default"
         # Use a business idea that will trigger the agent to create todos and use tools
         test_message = """I have a business idea: An AI-powered personal finance app that helps people track expenses and save money.
+<<<<<<< HEAD
         
+=======
+
+>>>>>>> main
 Target customers: Young professionals aged 25-35 who struggle with budgeting.
 Value proposition: Automatically categorize expenses and provide personalized saving tips.
 
@@ -220,7 +250,11 @@ Please help me develop this idea. Create a todo list and start working through t
         # Note: With LLM-driven callbacks, the LLM decides when to send callbacks.
         # We may not receive callbacks immediately or for every action.
         # The test verifies that when callbacks are sent, they have the correct structure.
+<<<<<<< HEAD
         
+=======
+
+>>>>>>> main
         if len(callbacks) == 0:
             print(f"WARNING: No callbacks received within {callback_timeout}s.")
             print("This is expected if the LLM hasn't decided to send callbacks yet.")
@@ -241,12 +275,20 @@ Please help me develop this idea. Create a todo list and start working through t
             assert callback["session_id"] == session_id, f"Callback session_id mismatch: expected {session_id}, got {callback['session_id']}"
             assert "timestamp" in callback, f"Callback missing 'timestamp' key: {callback}"
             assert isinstance(callback["timestamp"], str), f"Callback timestamp should be a string, got: {type(callback['timestamp'])}"
+<<<<<<< HEAD
             
+=======
+
+>>>>>>> main
             # Each callback should have either "message" (assistant content) or "status" (status update)
             assert "message" in callback or "status" in callback, (
                 f"Callback missing both 'message' and 'status' keys: {callback}"
             )
+<<<<<<< HEAD
             
+=======
+
+>>>>>>> main
             # Handle assistant messages (extracted content, no "Assistant:" prefix)
             if "message" in callback:
                 message = callback["message"]
@@ -254,13 +296,21 @@ Please help me develop this idea. Create a todo list and start working through t
                 assert len(message) > 0, "Callback message should not be empty"
                 assistant_messages.append(message)
                 print(f"Received assistant message: {message}")
+<<<<<<< HEAD
             
+=======
+
+>>>>>>> main
             # Handle status updates (tool calls, completions, errors, processing, etc.)
             if "status" in callback:
                 status = callback["status"]
                 assert isinstance(status, str), f"Callback status should be a string, got: {type(status)} - {status}"
                 assert len(status) > 0, "Callback status should not be empty"
+<<<<<<< HEAD
                 
+=======
+
+>>>>>>> main
                 # Categorize status messages
                 if status.startswith("Error:"):
                     error_messages.append(status)
@@ -290,7 +340,11 @@ Please help me develop this idea. Create a todo list and start working through t
         # With LLM-driven callbacks, we can't assert specific callback types
         # since the LLM decides when and what to send.
         # We verify that any callbacks received have the correct structure.
+<<<<<<< HEAD
         
+=======
+
+>>>>>>> main
         if len(callbacks) > 0:
             total_tool_related = len(tool_call_messages) + len(tool_completed_messages)
             print(f"✓ Received {len(callbacks)} callbacks with correct structure")
@@ -326,7 +380,11 @@ def test_deep_agent_call_async_immediate_response() -> None:
     # Use an unreachable callback URL
     user_id = f"pytest-async-unreachable-{int(time.time())}"
     conversation_id = "default"
+<<<<<<< HEAD
     
+=======
+
+>>>>>>> main
     # Call with unreachable callback URL (should still return immediately)
     status, payload = _http_json(
         "POST",

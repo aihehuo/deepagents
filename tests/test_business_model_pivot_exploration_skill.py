@@ -43,7 +43,11 @@ def test_business_model_pivot_exploration_skill_discovery(tmp_path: Path) -> Non
     skills_dir.mkdir(parents=True, exist_ok=True)
     
     # Copy business-model-pivot-exploration skill from examples
+<<<<<<< HEAD
     example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-model-pivot-exploration"
+=======
+    example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-model-pivot-exploration"
+>>>>>>> main
     if not example_skill_dir.exists():
         pytest.skip(f"Example skill directory not found: {example_skill_dir}")
     
@@ -105,8 +109,13 @@ def test_business_model_pivot_exploration_with_complete_idea(tmp_path: Path) -> 
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy business-idea-evaluation and business-model-pivot-exploration skills
+<<<<<<< HEAD
         example_business_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
         example_pivot_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-model-pivot-exploration"
+=======
+        example_business_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+        example_pivot_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-model-pivot-exploration"
+>>>>>>> main
         
         if not example_business_skill_dir.exists():
             pytest.skip(f"Example business-idea-evaluation skill directory not found: {example_business_skill_dir}")
@@ -362,8 +371,13 @@ def test_business_model_pivot_exploration_with_chinese_input(tmp_path: Path) -> 
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy both skills
+<<<<<<< HEAD
         example_business_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
         example_pivot_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-model-pivot-exploration"
+=======
+        example_business_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+        example_pivot_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-model-pivot-exploration"
+>>>>>>> main
         
         if not example_business_skill_dir.exists():
             pytest.skip(f"Example business-idea-evaluation skill directory not found: {example_business_skill_dir}")

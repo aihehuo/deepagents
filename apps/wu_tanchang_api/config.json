@@ -1,0 +1,478 @@
+{
+  "model_provider": "env:WU_API_MODEL_PROVIDER",
+  "default_model_provider": "qwen",
+  "agents": {
+    "defaults": {
+      "provider": "env:WU_API_MODEL_PROVIDER",
+      "model": "deepseek-v4-flash",
+      "max_tokens": 800,
+      "workspace": "workspace"
+    },
+    "list": [
+      {
+        "name": "default",
+        "default": true,
+        "model": "deepseek-v4-flash",
+        "workspace": "workspace"
+      },
+      {
+        "name": "owner",
+        "model": "deepseek-v4-flash",
+        "max_tokens": 4000,
+        "workspace": "workspace_owner"
+      },
+      {
+        "name": "aihehuo",
+        "model": "deepseek-v4-flash",
+        "workspace": "workspace_aihehuo"
+      }
+    ]
+  },
+  "pricing": {
+    "currency": "CNY",
+    "unit": "per_1k_tokens",
+    "description": "中国大陆（华北2北京）LLM API token 计价。单价为每千 Token（元/1k），由百炼官网「每百万 Token」价格除以 1000 得到。阶梯计费：单次请求输入 Token 总量决定整单适用档位，该档单价应用于本单全部 Token。",
+    "last_updated": "2026-05-31T18:00:00+08:00"
+  },
+  "providers": {
+    "deepseek": {
+      "name": "DeepSeek 官方 API",
+      "api_type": "openai-compatible",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "env:WU_DEEPSEEK_API_KEY",
+      "default_model": "deepseek-v4-flash",
+      "max_tokens": "env:WU_DEEPSEEK_MAX_TOKENS",
+      "timeout_s": "env:WU_DEEPSEEK_TIMEOUT_S",
+      "temperature": "env:WU_DEEPSEEK_TEMPERATURE",
+      "models": {
+        "deepseek-v4-flash": {
+          "display_name": "DeepSeek V4 Flash (百炼第三方)",
+          "context_length": 131072,
+          "pricing": {
+            "input": {
+              "normal": 0.001
+            },
+            "output": {
+              "normal": 0.002
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_cache": true,
+          "billing_description": "百炼 DashScope 兼容模式 fallback；输出为思维链+回答"
+        },
+        "deepseek-v4-pro": {
+          "display_name": "DeepSeek V4 Pro (百炼第三方)",
+          "context_length": 131072,
+          "pricing": {
+            "input": {
+              "normal": 0.012
+            },
+            "output": {
+              "normal": 0.024
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_cache": true
+        }
+      }
+    },
+    "qwen": {
+      "name": "阿里云通义千问 / 百炼 DashScope（中国内地）",
+      "api_type": "openai-compatible",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key": "env:WU_DASHSCOPE_API_KEY",
+      "default_model": "qwen-flash",
+      "max_tokens": "env:WU_DASHSCOPE_MAX_TOKENS",
+      "timeout_s": "env:WU_DASHSCOPE_TIMEOUT_S",
+      "temperature": "env:WU_DASHSCOPE_TEMPERATURE",
+      "models": {
+        "qwen3.7-max": {
+          "display_name": "Qwen 3.7 Max",
+          "context_length": 1000000,
+          "pricing": {
+            "tiered": {
+              "0-1m": {
+                "input": 0.012,
+                "output": 0.036
+              }
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_thinking": true,
+          "supports_batch_api": true,
+          "supports_cache": true,
+          "billing_type": "tiered_based_on_input_tokens",
+          "billing_description": "非思考/思考模式；输出为思维链+回答合计价"
+        },
+        "qwen3-max": {
+          "display_name": "Qwen 3 Max",
+          "context_length": 256000,
+          "pricing": {
+            "tiered": {
+              "0-32k": {
+                "input": 0.0025,
+                "output": 0.01
+              },
+              "32k-128k": {
+                "input": 0.004,
+                "output": 0.016
+              },
+              "128k-256k": {
+                "input": 0.007,
+                "output": 0.028
+              }
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_thinking": true,
+          "supports_batch_api": true,
+          "supports_cache": true,
+          "billing_type": "tiered_based_on_input_tokens"
+        },
+        "qwen-max": {
+          "display_name": "Qwen Max",
+          "context_length": 131072,
+          "pricing": {
+            "input": {
+              "normal": 0.0024,
+              "batch_price_percentage": 0.5
+            },
+            "output": {
+              "normal": 0.0096,
+              "batch_price_percentage": 0.5
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_batch_api": true,
+          "billing_type": "flat",
+          "billing_description": "无阶梯；仅非思考模式"
+        },
+        "qwen-max-latest": {
+          "display_name": "Qwen Max Latest (已弃用)",
+          "context_length": 131072,
+          "pricing": {
+            "input": {
+              "normal": 0.0024,
+              "batch_price_percentage": 0.5
+            },
+            "output": {
+              "normal": 0.0096,
+              "batch_price_percentage": 0.5
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_batch_api": true,
+          "deprecated": true,
+          "billing_description": "与 qwen-max 同价；请改用 qwen-max"
+        },
+        "deepseek-v4-flash": {
+          "display_name": "DeepSeek V4 Flash (百炼第三方)",
+          "context_length": 131072,
+          "pricing": {
+            "input": {
+              "normal": 0.001
+            },
+            "output": {
+              "normal": 0.002
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_cache": true,
+          "billing_description": "百炼 DashScope 兼容模式 fallback；输出为思维链+回答"
+        },
+        "deepseek-v4-pro": {
+          "display_name": "DeepSeek V4 Pro (百炼第三方)",
+          "context_length": 131072,
+          "pricing": {
+            "input": {
+              "normal": 0.012
+            },
+            "output": {
+              "normal": 0.024
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_cache": true
+        },
+        "qwen-plus": {
+          "display_name": "Qwen Plus",
+          "context_length": 1000000,
+          "pricing": {
+            "tiered": {
+              "0-128k": {
+                "input": 0.0008,
+                "output": 0.002,
+                "output_thinking": 0.008
+              },
+              "128k-256k": {
+                "input": 0.0024,
+                "output": 0.02,
+                "output_thinking": 0.024
+              },
+              "256k-1m": {
+                "input": 0.0048,
+                "output": 0.048,
+                "output_thinking": 0.064
+              }
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_thinking": true,
+          "supports_batch_api": true,
+          "billing_type": "tiered_based_on_input_tokens",
+          "billing_description": "output 为非思考模式；output_thinking 为思考模式（思维链+回答）"
+        },
+        "qwen-plus-latest": {
+          "display_name": "Qwen Plus Latest",
+          "context_length": 1000000,
+          "pricing": {
+            "tiered": {
+              "0-128k": {
+                "input": 0.0008,
+                "output": 0.002,
+                "output_thinking": 0.008
+              },
+              "128k-256k": {
+                "input": 0.0024,
+                "output": 0.02,
+                "output_thinking": 0.024
+              },
+              "256k-1m": {
+                "input": 0.0048,
+                "output": 0.048,
+                "output_thinking": 0.064
+              }
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_thinking": true,
+          "supports_batch_api": true,
+          "billing_type": "tiered_based_on_input_tokens",
+          "billing_description": "与 qwen-plus 同价结构"
+        },
+        "qwen-flash": {
+          "display_name": "Qwen Flash",
+          "context_length": 1000000,
+          "pricing": {
+            "tiered": {
+              "0-128k": {
+                "input": 0.00015,
+                "output": 0.0015
+              },
+              "128k-256k": {
+                "input": 0.0006,
+                "output": 0.006
+              },
+              "256k-1m": {
+                "input": 0.0012,
+                "output": 0.012
+              }
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_thinking": true,
+          "supports_batch_api": true,
+          "supports_cache": true,
+          "billing_type": "tiered_based_on_input_tokens",
+          "billing_description": "输出为思维链+回答合计价"
+        },
+        "qwen-turbo": {
+          "display_name": "Qwen Turbo",
+          "context_length": 1000000,
+          "pricing": {
+            "input": {
+              "normal": 0.0003,
+              "batch_price_percentage": 0.5
+            },
+            "output": {
+              "normal": 0.0006,
+              "output_thinking": 0.003,
+              "batch_price_percentage": 0.5
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_thinking": true,
+          "supports_batch_api": true,
+          "billing_description": "output 非思考；output_thinking 思考模式"
+        },
+        "qwen-turbo-latest": {
+          "display_name": "Qwen Turbo Latest",
+          "context_length": 1000000,
+          "pricing": {
+            "input": {
+              "normal": 0.0003,
+              "batch_price_percentage": 0.5
+            },
+            "output": {
+              "normal": 0.0006,
+              "output_thinking": 0.003,
+              "batch_price_percentage": 0.5
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_thinking": true,
+          "supports_batch_api": true
+        },
+        "qwen-long": {
+          "display_name": "Qwen Long",
+          "context_length": 10000000,
+          "pricing": {
+            "input": {
+              "normal": 0.0005,
+              "batch_price_percentage": 0.5
+            },
+            "output": {
+              "normal": 0.002,
+              "batch_price_percentage": 0.5
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_batch_api": true,
+          "billing_type": "flat"
+        },
+        "qwen-long-latest": {
+          "display_name": "Qwen Long Latest",
+          "context_length": 10000000,
+          "pricing": {
+            "input": {
+              "normal": 0.0005,
+              "batch_price_percentage": 0.5
+            },
+            "output": {
+              "normal": 0.002,
+              "batch_price_percentage": 0.5
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "supports_batch_api": true,
+          "billing_type": "flat"
+        },
+        "qwen-vl-max": {
+          "display_name": "Qwen VL Max",
+          "context_length": 131072,
+          "pricing": {
+            "input": {
+              "normal": 0.0016,
+              "batch_price_percentage": 0.5
+            },
+            "output": {
+              "normal": 0.004,
+              "batch_price_percentage": 0.5
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": true,
+          "supports_tools": false,
+          "supports_cache": true,
+          "supports_batch_api": true,
+          "billing_type": "flat",
+          "billing_description": "无阶梯计价（当前能力档）"
+        },
+        "qwen-vl-plus": {
+          "display_name": "Qwen VL Plus",
+          "context_length": 131072,
+          "pricing": {
+            "input": {
+              "normal": 0.0008,
+              "batch_price_percentage": 0.5
+            },
+            "output": {
+              "normal": 0.002,
+              "batch_price_percentage": 0.5
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": true,
+          "supports_tools": false,
+          "supports_cache": true,
+          "supports_batch_api": true,
+          "billing_type": "flat"
+        },
+        "qwen3-vl-flash": {
+          "display_name": "Qwen 3 VL Flash",
+          "context_length": 256000,
+          "pricing": {
+            "tiered": {
+              "0-32k": {
+                "input": 0.00015,
+                "output": 0.0015
+              },
+              "32k-128k": {
+                "input": 0.0003,
+                "output": 0.003
+              },
+              "128k-256k": {
+                "input": 0.0006,
+                "output": 0.006
+              }
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": true,
+          "supports_tools": false,
+          "supports_cache": true,
+          "supports_batch_api": true,
+          "billing_type": "tiered_based_on_input_tokens"
+        },
+        "farui-plus": {
+          "display_name": "通义法睿 Plus",
+          "context_length": 131072,
+          "pricing": {
+            "input": {
+              "normal": 0.02
+            },
+            "output": {
+              "normal": 0.02
+            }
+          },
+          "unit": "per_1k_tokens",
+          "supports_vision": false,
+          "supports_tools": true,
+          "billing_type": "flat"
+        }
+      },
+      "embedding_models": {
+        "text-embedding-v3": {
+          "dimension": 1024,
+          "max_tokens_per_chunk": 8192,
+          "pricing": {
+            "input": {
+              "normal": 0.0007
+            },
+            "unit": "per_1k_tokens"
+          }
+        }
+      }
+    }
+  }
+}

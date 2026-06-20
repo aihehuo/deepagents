@@ -7,15 +7,25 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+<<<<<<< HEAD
     PYTHONPATH="/app/libs/deepagents:/app/libs/deepagents-cli"
+=======
+    PYTHONPATH="/app/libs/deepagents:/app/libs/cli"
+>>>>>>> main
 
 # Install Python dependencies
 COPY apps/business_cofounder_worker/requirements.txt /app/apps/business_cofounder_worker/requirements.txt
 RUN pip install --no-cache-dir -r /app/apps/business_cofounder_worker/requirements.txt
 
+<<<<<<< HEAD
 # Copy deepagents + deepagents-cli source (imported via PYTHONPATH; no pip editable install)
 COPY libs/deepagents /app/libs/deepagents
 COPY libs/deepagents-cli /app/libs/deepagents-cli
+=======
+# Copy deepagents + cli source (imported via PYTHONPATH; no pip editable install)
+COPY libs/deepagents /app/libs/deepagents
+COPY libs/cli /app/libs/cli
+>>>>>>> main
 
 # Copy application code
 COPY apps/business_cofounder_worker /app/apps/business_cofounder_worker

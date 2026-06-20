@@ -55,13 +55,34 @@ All scripts take the app name as the first parameter:
 ./apps/deploy_to_prod2.sh business_cofounder_worker
 ```
 
+<<<<<<< HEAD
+=======
+### Wu Tanchang API
+
+```bash
+# Build and push
+./apps/build_and_push.sh wu_tanchang_api
+./apps/build_and_push.sh wu_tanchang_api 0.1.0
+
+# Run locally (external port 8002, internal port 8001)
+./apps/pull_and_run.sh wu_tanchang_api 8002
+
+# Deploy to production (external port 8002)
+./apps/deploy_to_prod2.sh wu_tanchang_api 8002
+```
+
+>>>>>>> main
 ## Configuration
 
 Each app should have its own `.deploy.env` file in its directory (e.g., `apps/business_cofounder_api/.deploy.env`):
 
 ```bash
 # Registry
+<<<<<<< HEAD
 ALIYUN_DOCKER_REGISTRY=crpi-lp1jelcmhkef5y0u.cn-qingdao.personal.cr.aliyuncs.com
+=======
+ALIYUN_DOCKER_REGISTRY=your-registry.example.com
+>>>>>>> main
 ALIYUN_DOCKER_USERNAME=your-username
 ALIYUN_DOCKER_PASSWORD=your-password
 
@@ -84,6 +105,7 @@ PORT=8001
 - **Port**: `8001` (can be overridden)
 - **Data directory**: `apps/<app-name>/.tmp_home/.deepagents/<app-name>` (local) or `/mnt/<app-name>/data` (production)
 
+<<<<<<< HEAD
 ## Migration from App-Specific Scripts
 
 The old scripts in `apps/business_cofounder_api/` can be removed. The new generic scripts in `apps/` replace them:
@@ -92,3 +114,10 @@ The old scripts in `apps/business_cofounder_api/` can be removed. The new generi
 - `apps/business_cofounder_api/pull_and_run.sh` → `apps/pull_and_run.sh business_cofounder_api`
 - `apps/business_cofounder_api/deploy_to_prod2.sh` → `apps/deploy_to_prod2.sh business_cofounder_api`
 
+=======
+## App-Specific Scripts
+
+Use the shared scripts in `apps/` for all app images. The older
+`business_cofounder_api`-specific deployment scripts have been removed to keep
+build, pull, and production deployment behavior consistent across apps.
+>>>>>>> main

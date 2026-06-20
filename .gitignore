@@ -15,6 +15,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!libs/cli/frontend/src/lib/
 lib64/
 parts/
 sdist/
@@ -57,6 +58,7 @@ cover/
 
 # Django stuff:
 *.log
+*.log.*
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -99,6 +101,7 @@ ipython_config.py
 #   This is especially recommended for binary packages to ensure reproducibility, and is more
 #   commonly ignored for libraries.
 #uv.lock
+.local_deps/
 
 # poetry
 #   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
@@ -138,12 +141,28 @@ celerybeat.pid
 .env
 .env.*
 .envrc
+env.local
+*.env.local
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Local credentials and secrets
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+credentials.json
+token.json
+Cookies
+Cookies.db
+cookies.sqlite
+cookies.txt
 
 # Spyder project settings
 .spyderproject
@@ -183,11 +202,11 @@ cython_debug/
 .abstra/
 
 # Visual Studio Code
-#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
+#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
 #  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#  and can be added to the global gitignore or merged into this file. However, if you prefer, 
+#  and can be added to the global gitignore or merged into this file. However, if you prefer,
 #  you could uncomment the following to ignore the entire vscode folder
-# .vscode/
+.vscode/
 
 # Ruff stuff:
 .ruff_cache/
@@ -199,6 +218,7 @@ cython_debug/
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
 #  refer to https://docs.cursor.com/context/ignore-files
+.cursor/
 .cursorignore
 .cursorindexingignore
 
@@ -214,6 +234,15 @@ __marimo__/
 .claude
 
 .idea
+<<<<<<< HEAD
+=======
+
+/tmp/
+
+# macOS
+.DS_Store
+*/tmp/.DS_Store
+>>>>>>> main
 .tmp_home
 .docker.env
 .deploy.env
@@ -221,3 +250,32 @@ __marimo__/
 tests/*.md
 aihehuo_mcp
 BPGenerationAgent
+<<<<<<< HEAD
+=======
+*.lock
+
+# Wu Tanchang KB DB & Vectors
+apps/wu_tanchang_api/workspace/kb/chroma/
+apps/wu_tanchang_api/workspace/kb/kb.db
+apps/wu_tanchang_api/workspace/kb/raw/
+apps/wu_tanchang_api/workspace/kb/extracted/
+apps/wu_tanchang_api/workspace/kb/chunks/brands/
+
+# Custom Workspace KB Private Data (e.g. workspace_1, workspace_2, etc.)
+apps/wu_tanchang_api/workspace_*/kb/chroma/
+apps/wu_tanchang_api/workspace_*/kb/kb.db
+apps/wu_tanchang_api/workspace_*/kb/raw/
+apps/wu_tanchang_api/workspace_*/kb/extracted/
+apps/wu_tanchang_api/workspace_*/kb/chunks/
+apps/wu_tanchang_api/workspace_*/kb/index.json
+apps/wu_tanchang_api/workspace_*/kb/INDEX.md
+apps/wu_tanchang_api/workspace_*/search_results.md
+
+CLAUDE.md
+.worktrees/
+
+# Frontend build artifacts (source tree; package data under libs/cli/deepagents_cli/deploy/frontend_dist/ is tracked)
+libs/cli/frontend/node_modules/
+libs/cli/frontend/dist/
+node_modules/
+>>>>>>> main

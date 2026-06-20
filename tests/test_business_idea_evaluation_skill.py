@@ -43,7 +43,11 @@ def test_business_idea_evaluation_skill_discovery(tmp_path: Path) -> None:
     skills_dir.mkdir(parents=True, exist_ok=True)
     
     # Copy business-idea-evaluation skill from examples
+<<<<<<< HEAD
     example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
+=======
+    example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+>>>>>>> main
     if not example_skill_dir.exists():
         pytest.skip(f"Example skill directory not found: {example_skill_dir}")
     
@@ -106,7 +110,11 @@ def test_business_idea_evaluation_with_complete_idea(tmp_path: Path) -> None:
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy business-idea-evaluation skill from examples
+<<<<<<< HEAD
         example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
+=======
+        example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+>>>>>>> main
         if not example_skill_dir.exists():
             pytest.skip(f"Example skill directory not found: {example_skill_dir}")
         
@@ -321,7 +329,11 @@ def test_business_idea_evaluation_with_incomplete_idea(tmp_path: Path) -> None:
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir(parents=True, exist_ok=True)
         
+<<<<<<< HEAD
         example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
+=======
+        example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+>>>>>>> main
         if not example_skill_dir.exists():
             pytest.skip(f"Example skill directory not found: {example_skill_dir}")
         
@@ -432,7 +444,11 @@ def test_business_idea_evaluation_with_chinese_input(tmp_path: Path) -> None:
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy business-idea-evaluation skill from examples
+<<<<<<< HEAD
         example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
+=======
+        example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+>>>>>>> main
         if not example_skill_dir.exists():
             pytest.skip(f"Example skill directory not found: {example_skill_dir}")
         
@@ -675,7 +691,11 @@ def test_business_idea_evaluation_skill_not_called_after_completion(tmp_path: Pa
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy business-idea-evaluation skill from examples
+<<<<<<< HEAD
         example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
+=======
+        example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+>>>>>>> main
         if not example_skill_dir.exists():
             pytest.skip(f"Example skill directory not found: {example_skill_dir}")
         

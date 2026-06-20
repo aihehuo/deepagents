@@ -13,7 +13,11 @@ pip install fastapi uvicorn
 Run (from repo root):
 
 ```bash
+<<<<<<< HEAD
 PYTHONPATH="libs/deepagents:libs/deepagents-cli" \
+=======
+PYTHONPATH="libs/deepagents:libs/cli" \
+>>>>>>> main
   uvicorn apps.business_cofounder_api.app:app --host 0.0.0.0 --port 8000
 ```
 

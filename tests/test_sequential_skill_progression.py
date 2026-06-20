@@ -51,7 +51,11 @@ def test_complete_sequential_skill_progression(tmp_path: Path) -> None:
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy all required skills from examples
+<<<<<<< HEAD
         example_skills_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills"
+=======
+        example_skills_dir = repo_root / "libs" / "cli" / "examples" / "skills"
+>>>>>>> main
         required_skills = [
             "business-idea-evaluation",
             "persona-clarification",

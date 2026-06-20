@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+<<<<<<< HEAD
+=======
+from importlib import import_module
+>>>>>>> main
 from pathlib import Path
 from typing import Any
 
@@ -53,10 +57,23 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     agent = _FakeAgent(checkpointer=checkpointer)
     checkpoints_path = tmp_path / "checkpoints.pkl"
 
+<<<<<<< HEAD
     def _fake_create_business_cofounder_agent(*, agent_id: str) -> tuple[object, Path]:
         return agent, checkpoints_path
 
     monkeypatch.setattr(app_module, "create_business_cofounder_agent", _fake_create_business_cofounder_agent)
+=======
+    def _fake_create_business_cofounder_agent(
+        *,
+        agent_id: str,
+        provider: str | None = None,
+    ) -> tuple[object, Path]:
+        return agent, checkpoints_path
+
+    startup_module = import_module("apps.business_cofounder_api.app.startup")
+    monkeypatch.setenv("BC_API_USE_DUAL_AGENT", "0")
+    monkeypatch.setattr(startup_module, "create_business_cofounder_agent", _fake_create_business_cofounder_agent)
+>>>>>>> main
 
     with TestClient(app_module.app) as c:
         # Expose fakes for assertions (without relying on globals).
@@ -123,5 +140,8 @@ def test_reset_deletes_thread_in_checkpointer(client: TestClient) -> None:
 
     checkpointer = client._fake_checkpointer  # type: ignore[attr-defined]
     assert "bc::u3::c9" in checkpointer.deleted_threads
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> main

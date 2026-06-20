@@ -43,7 +43,11 @@ def test_painpoint_enhancement_skill_discovery(tmp_path: Path) -> None:
     skills_dir.mkdir(parents=True, exist_ok=True)
     
     # Copy painpoint-enhancement skill from examples
+<<<<<<< HEAD
     example_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "painpoint-enhancement"
+=======
+    example_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "painpoint-enhancement"
+>>>>>>> main
     if not example_skill_dir.exists():
         pytest.skip(f"Example skill directory not found: {example_skill_dir}")
     
@@ -105,8 +109,13 @@ def test_painpoint_enhancement_with_complete_idea(tmp_path: Path) -> None:
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy both business-idea-evaluation and painpoint-enhancement skills
+<<<<<<< HEAD
         example_business_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
         example_painpoint_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "painpoint-enhancement"
+=======
+        example_business_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+        example_painpoint_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "painpoint-enhancement"
+>>>>>>> main
         
         if not example_business_skill_dir.exists():
             pytest.skip(f"Example business-idea-evaluation skill directory not found: {example_business_skill_dir}")
@@ -393,8 +402,13 @@ def test_painpoint_enhancement_with_chinese_input(tmp_path: Path) -> None:
         skills_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy both skills
+<<<<<<< HEAD
         example_business_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "business-idea-evaluation"
         example_painpoint_skill_dir = repo_root / "libs" / "deepagents-cli" / "examples" / "skills" / "painpoint-enhancement"
+=======
+        example_business_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "business-idea-evaluation"
+        example_painpoint_skill_dir = repo_root / "libs" / "cli" / "examples" / "skills" / "painpoint-enhancement"
+>>>>>>> main
         
         if not example_business_skill_dir.exists():
             pytest.skip(f"Example business-idea-evaluation skill directory not found: {example_business_skill_dir}")

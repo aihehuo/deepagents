@@ -107,6 +107,7 @@ def test_agent_has_filesystem_middleware(
     monkeypatch.setattr(agent, "create_deep_agent", fake_create_deep_agent)
     monkeypatch.setattr(agent, "default_runtime_dir", lambda: tmp_path / "runtime")
 
+    (tmp_path / "workspace" / "skills" / "local").mkdir(parents=True, exist_ok=True)
     created_agent, checkpoints_path = agent.create_agent(
         backend_root=tmp_path, provider="deepseek"
     )
@@ -117,7 +118,7 @@ def test_agent_has_filesystem_middleware(
     kb_spec = next(
         spec for spec in captured["subagents"] if spec["name"] == "kb_analyst"
     )
-    assert kb_spec["skills"] == ["/workspace/skills/default/kb_analyst/"]
+    assert kb_spec["skills"] == ["/workspace/skills/local/"]
 
 
 def test_config_resolves_env_references(
@@ -691,7 +692,6 @@ def test_create_agent_loads_local_skills_dynamically(tmp_path: Path) -> None:
         subagents = kwargs.get("subagents", [])
         kb_sub = next(s for s in subagents if s["name"] == "kb_analyst")
 
-        assert "/workspace_test/skills/default/kb_analyst/" in kb_sub["skills"]
         assert "/workspace_test/skills/local/" in kb_sub["skills"]
 
 

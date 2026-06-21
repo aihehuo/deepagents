@@ -2,6 +2,19 @@
 
 # Changelog
 
+## [0.0.9](https://github.com/aihehuo/deepagents/compare/deepagents-acp==0.0.8...deepagents-acp==0.0.9) (2026-06-21)
+
+
+### Features
+
+* **sdk:** surface subagents via inherited `lc_agent_name` projection ([e0a1ed2](https://github.com/aihehuo/deepagents/commit/e0a1ed24e6b44c31d0aac3358aeee0d6cb66b2c4))
+
+
+### Bug Fixes
+
+* **acp:** require `agent-client-protocol>=0.9.0` ([#3733](https://github.com/aihehuo/deepagents/issues/3733)) ([376d981](https://github.com/aihehuo/deepagents/commit/376d9816833ef02a00fd4f1c4ccdf625629c36a4))
+* **sdk:** stable `HumanMessage` IDs across resumed threads ([#3591](https://github.com/aihehuo/deepagents/issues/3591)) ([82c3194](https://github.com/aihehuo/deepagents/commit/82c31947f9dc938ffc71e1cea96d162a39aec3a1))
+
 ## [0.0.8](https://github.com/langchain-ai/deepagents/compare/deepagents-acp==0.0.7...deepagents-acp==0.0.8) (2026-06-03)
 
 ### Bug Fixes

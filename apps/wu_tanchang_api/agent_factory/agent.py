@@ -601,36 +601,18 @@ def create_agent(
         tools = [mark_material_delivered, save_meeting_prep]
         
         # Build dynamic front-end system prompt based on aihehuo_skills availability
-        is_workspace_1 = "workspace_1" in str(workspace_path)
         frontend_rules = [
             "- 严格按照人格文件中的指导行事",
             "- 你**没有**文件系统访问权限，无法直接读取任何工作区文件",
         ]
-        if is_workspace_1:
-            frontend_rules.append(
-                "- 你的工作流程分为信息收集、材料产出和后续对话辅导。产出材料并调用 `mark_material_delivered` 后，你依然可以与用户进行正常的业务对话、回答问题并提供辅导服务。"
-            )
-        else:
-            frontend_rules.append(
-                "- 你的工作流程：收集信息 → 调用 kb_analyst（一次）→ 产出材料 → 引导预约"
-            )
 
         if aihehuo_skills:
             frontend_rules.append(
                 "- 如果用户询问爱合伙平台的相关数据、博客、微信群、项目或常见问题等信息，你可以随时调用子代理 `aihehuo_cruncher` 来获取最新数据并回复用户。"
             )
         frontend_rules.extend([
-            "- **不要做分析、不要给建议、不要做预算拆解**",
             "- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**",
         ])
-        if is_workspace_1:
-            frontend_rules.append(
-                "- 材料交付后，仍可继续与用户正常对话和辅导探讨，引导预约可在对话进展到适当时机进行"
-            )
-        else:
-            frontend_rules.append(
-                "- 材料交付后，只引导预约，不再深入探讨"
-            )
         
         rules_text = "\n".join(frontend_rules)
         dynamic_frontend_prompt = f"""你是一个通用智能助手。

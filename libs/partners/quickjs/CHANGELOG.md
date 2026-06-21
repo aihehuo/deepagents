@@ -2,6 +2,34 @@
 
 # Changelog
 
+## [0.3.0](https://github.com/aihehuo/deepagents/compare/langchain-quickjs==0.2.0...langchain-quickjs==0.3.0) (2026-06-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **quickjs:** upgrade to 0.2.0 quickjs-rs ([#4067](https://github.com/aihehuo/deepagents/issues/4067))
+* **quickjs:** add default `subagent` bridge ([#3850](https://github.com/aihehuo/deepagents/issues/3850))
+* **quickjs:** remove `skills_backend` ([#3843](https://github.com/aihehuo/deepagents/issues/3843))
+
+### Features
+
+* **quickjs:** add default `subagent` bridge ([#3850](https://github.com/aihehuo/deepagents/issues/3850)) ([85fd7c2](https://github.com/aihehuo/deepagents/commit/85fd7c283da6744e403a01861e17e99e13e0f481))
+* **quickjs:** add REPL persistence modes ([#3557](https://github.com/aihehuo/deepagents/issues/3557)) ([0cda6f3](https://github.com/aihehuo/deepagents/commit/0cda6f3ab28bc83cd16ec9fcc48229bdf6f2dc1a))
+* **quickjs:** add swarm task tool ([#3472](https://github.com/aihehuo/deepagents/issues/3472)) ([2c28b7b](https://github.com/aihehuo/deepagents/commit/2c28b7b8c2ac7571fc3a1f0d8d00f5697fe3e90e))
+* **quickjs:** prompt tuning on task global ([#4066](https://github.com/aihehuo/deepagents/issues/4066)) ([a47696f](https://github.com/aihehuo/deepagents/commit/a47696f6d3e57eccb5ea19fb344305a7995ecc76))
+* **quickjs:** upgrade to 0.2.0 quickjs-rs ([#4067](https://github.com/aihehuo/deepagents/issues/4067)) ([4ffea88](https://github.com/aihehuo/deepagents/commit/4ffea88690418207b5e4fa800ee8c1abfa454bec))
+* **sdk:** surface subagents via inherited `lc_agent_name` projection ([e0a1ed2](https://github.com/aihehuo/deepagents/commit/e0a1ed24e6b44c31d0aac3358aeee0d6cb66b2c4))
+
+
+### Bug Fixes
+
+* **quickjs:** auto-await final-expression Promise in eval REPL ([#3499](https://github.com/aihehuo/deepagents/issues/3499)) ([f7f894a](https://github.com/aihehuo/deepagents/commit/f7f894aa9f313cf8157bc6d7711013f5509d0b46))
+* **quickjs:** remove `skills_backend` ([#3843](https://github.com/aihehuo/deepagents/issues/3843)) ([1159e50](https://github.com/aihehuo/deepagents/commit/1159e504abaeec4f81d5e777ecde6a6cee641edb))
+* **quickjs:** scope REPL prompt sandbox bullet to the runtime ([#3528](https://github.com/aihehuo/deepagents/issues/3528)) ([1b395ab](https://github.com/aihehuo/deepagents/commit/1b395ab9699b1f384a85efeeef732ea7e4fc523a))
+* **quickjs:** swarm subagent doesn't allow configuring middleware ([#3757](https://github.com/aihehuo/deepagents/issues/3757)) ([3394a9d](https://github.com/aihehuo/deepagents/commit/3394a9d9c7c89c0a28fa1328c9f6bae68a83ff14))
+* **quickjs:** update system prompt snapshots ([#3450](https://github.com/aihehuo/deepagents/issues/3450)) ([9f9220d](https://github.com/aihehuo/deepagents/commit/9f9220d80737208faa9262c0bdfb3eeafc0e13c8))
+* **sdk:** stable `HumanMessage` IDs across resumed threads ([#3591](https://github.com/aihehuo/deepagents/issues/3591)) ([82c3194](https://github.com/aihehuo/deepagents/commit/82c31947f9dc938ffc71e1cea96d162a39aec3a1))
+
 ## [0.2.0](https://github.com/langchain-ai/deepagents/compare/langchain-quickjs==0.1.4...langchain-quickjs==0.2.0) (2026-06-12)
 
 ### ⚠ BREAKING CHANGES

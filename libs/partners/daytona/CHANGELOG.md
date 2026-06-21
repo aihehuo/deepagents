@@ -2,6 +2,18 @@
 
 # Changelog
 
+## [0.0.8](https://github.com/aihehuo/deepagents/compare/langchain-daytona==0.0.7...langchain-daytona==0.0.8) (2026-06-21)
+
+
+### Features
+
+* **sdk:** surface subagents via inherited `lc_agent_name` projection ([e0a1ed2](https://github.com/aihehuo/deepagents/commit/e0a1ed24e6b44c31d0aac3358aeee0d6cb66b2c4))
+
+
+### Bug Fixes
+
+* **sdk:** stable `HumanMessage` IDs across resumed threads ([#3591](https://github.com/aihehuo/deepagents/issues/3591)) ([82c3194](https://github.com/aihehuo/deepagents/commit/82c31947f9dc938ffc71e1cea96d162a39aec3a1))
+
 ## [0.0.7](https://github.com/langchain-ai/deepagents/compare/langchain-daytona==0.0.6...langchain-daytona==0.0.7) (2026-06-03)
 
 * Version bumps

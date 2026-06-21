@@ -128,3 +128,13 @@ def get_agent_checkpointer(agent: Any) -> Any | None:
     while hasattr(bound_agent, "bound"):
         bound_agent = bound_agent.bound
     return getattr(bound_agent, "checkpointer", None)
+
+
+async def aget_agent_state(agent: Any, config: dict[str, Any]) -> Any:
+    """Get the state from the agent, unwrapping any RunnableBinding/RunnableConfigurable wrappers."""
+    bound_agent = agent
+    while hasattr(bound_agent, "bound"):
+        bound_agent = bound_agent.bound
+    if hasattr(bound_agent, "aget_state"):
+        return await bound_agent.aget_state(config)
+    return None

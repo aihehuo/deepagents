@@ -14,7 +14,12 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, Too
 
 from apps.wu_tanchang_api.app.models import ChatRequest, ChatResponse
 from apps.wu_tanchang_api.app.state import AppState
-from apps.wu_tanchang_api.app.utils import get_progress_status, thread_id, get_agent_checkpointer
+from apps.wu_tanchang_api.app.utils import (
+    get_progress_status,
+    thread_id,
+    get_agent_checkpointer,
+    aget_agent_state,
+)
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -155,6 +160,7 @@ async def resolve_dynamic_agent(
                     state.agent_configs[cache_key] = agent_cfg
 
     from apps.wu_tanchang_api.agent_factory.utils import get_workspace_agent_id
+
     workspace_path = backend_path / resolved_workspace
     parsed_id = get_workspace_agent_id(workspace_path)
     if parsed_id == "andy01":
@@ -177,13 +183,10 @@ async def _has_delivered_material(agent: Any, tid: str) -> bool:
 
     Looks for a `mark_material_delivered` tool call in the checkpoint history.
     """
-    checkpointer = get_agent_checkpointer(agent)
-    if checkpointer is None:
+    state_snapshot = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
+    if state_snapshot is None or not state_snapshot.values:
         return False
-    checkpoint = await checkpointer.aget({"configurable": {"thread_id": tid}})
-    if checkpoint is None:
-        return False
-    messages = checkpoint.get("channel_values", {}).get("messages", [])
+    messages = state_snapshot.values.get("messages", [])
     for msg in messages:
         # Check for ToolMessage with matching name
         if (
@@ -223,17 +226,29 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
         async with lock:
             try:
                 # Record existing message count to isolate this round's new messages
-                checkpointer = get_agent_checkpointer(agent)
-                checkpoint = (
-                    await checkpointer.aget({"configurable": {"thread_id": tid}})
-                    if checkpointer is not None
-                    else None
+                agent_state = await aget_agent_state(
+                    agent, {"configurable": {"thread_id": tid}}
                 )
+                _logger.info(
+                    "[WuChat] tid=%s agent_state_exists=%s",
+                    tid,
+                    agent_state is not None,
+                )
+                if agent_state and agent_state.values:
+                    _logger.info(
+                        "[WuChat] state values keys: %s",
+                        list(agent_state.values.keys()),
+                    )
+                    _logger.info(
+                        "[WuChat] state messages count: %s",
+                        len(agent_state.values.get("messages", [])),
+                    )
                 msg_count_before = (
-                    len(checkpoint.get("channel_values", {}).get("messages", []))
-                    if checkpoint
+                    len(agent_state.values.get("messages", []))
+                    if agent_state and agent_state.values
                     else 0
                 )
+                _logger.info("[WuChat] msg_count_before = %d", msg_count_before)
 
                 from apps.wu_tanchang_api.agent_factory.agent import (
                     register_active_agent,
@@ -263,6 +278,7 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                         checkpointer.flush()
             except Exception as exc:  # noqa: BLE001
                 import traceback
+
                 _logger.error(
                     "POST /chat failed thread_id=%s user_id=%s conversation_id=%s\n%s",
                     tid,
@@ -342,17 +358,12 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
             async with lock:
                 try:
                     # Record existing message count to isolate this round's new messages
-                    checkpointer = get_agent_checkpointer(agent)
-                    checkpoint = (
-                        await checkpointer.aget(
-                            {"configurable": {"thread_id": tid}}
-                        )
-                        if checkpointer is not None
-                        else None
+                    agent_state = await aget_agent_state(
+                        agent, {"configurable": {"thread_id": tid}}
                     )
                     msg_count_before = (
-                        len(checkpoint.get("channel_values", {}).get("messages", []))
-                        if checkpoint
+                        len(agent_state.values.get("messages", []))
+                        if agent_state and agent_state.values
                         else 0
                     )
 
@@ -388,7 +399,9 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                                 subgraph_path,
                                 current_stream_mode,
                                 data,
-                                workspace_name=getattr(agent, "workspace_name", "workspace"),
+                                workspace_name=getattr(
+                                    agent, "workspace_name", "workspace"
+                                ),
                             )
                             if status and status != last_status:
                                 last_status = status
@@ -412,6 +425,7 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
 
                 except Exception as exc:  # noqa: BLE001
                     import traceback
+
                     _logger.error(
                         "[ChatStream] Error thread_id=%s user_id=%s conversation_id=%s\n%s",
                         tid,
@@ -441,8 +455,8 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
         # Fallback: if no text was streamed, extract from checkpoint messages
         if not reply:
             messages = (
-                checkpoint.get("channel_values", {}).get("messages", [])
-                if checkpoint
+                agent_state.values.get("messages", [])
+                if agent_state and agent_state.values
                 else []
             )
             new_messages = messages[msg_count_before:]

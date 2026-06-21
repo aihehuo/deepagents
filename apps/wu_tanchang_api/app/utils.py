@@ -120,3 +120,11 @@ def get_progress_status(
                 return "正在为您生成会议准备材料..."
 
     return None
+
+
+def get_agent_checkpointer(agent: Any) -> Any | None:
+    """Get the checkpointer from the agent, unwrapping any RunnableBinding wrappers."""
+    bound_agent = agent
+    while hasattr(bound_agent, "bound"):
+        bound_agent = bound_agent.bound
+    return getattr(bound_agent, "checkpointer", None)

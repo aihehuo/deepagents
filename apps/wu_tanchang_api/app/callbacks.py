@@ -15,7 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from pathlib import Path
-from apps.wu_tanchang_api.app.utils import get_progress_status
+from apps.wu_tanchang_api.app.utils import get_progress_status, get_agent_checkpointer
 from apps.wu_tanchang_api.agent_factory.utils import get_workspace_agent_id
 
 _logger = logging.getLogger("uvicorn.error")
@@ -365,8 +365,9 @@ def run_async_stream_with_callback(
             )
         finally:
             unregister_active_agent(thread_id)
-            if hasattr(agent, "checkpointer") and hasattr(agent.checkpointer, "flush"):
-                agent.checkpointer.flush()
+            checkpointer = get_agent_checkpointer(agent)
+            if checkpointer is not None and hasattr(checkpointer, "flush"):
+                checkpointer.flush()
             heartbeat_stop.set()
             try:
                 await asyncio.wait_for(heartbeat_task, timeout=2)

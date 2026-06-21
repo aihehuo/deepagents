@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, Too
 
 from apps.wu_tanchang_api.app.models import ChatRequest, ChatResponse
 from apps.wu_tanchang_api.app.state import AppState
-from apps.wu_tanchang_api.app.utils import get_progress_status, thread_id
+from apps.wu_tanchang_api.app.utils import get_progress_status, thread_id, get_agent_checkpointer
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -177,7 +177,7 @@ async def _has_delivered_material(agent: Any, tid: str) -> bool:
 
     Looks for a `mark_material_delivered` tool call in the checkpoint history.
     """
-    checkpointer = getattr(agent, "checkpointer", None)
+    checkpointer = get_agent_checkpointer(agent)
     if checkpointer is None:
         return False
     checkpoint = await checkpointer.aget({"configurable": {"thread_id": tid}})
@@ -223,9 +223,10 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
         async with lock:
             try:
                 # Record existing message count to isolate this round's new messages
+                checkpointer = get_agent_checkpointer(agent)
                 checkpoint = (
-                    await agent.checkpointer.aget({"configurable": {"thread_id": tid}})
-                    if hasattr(agent, "checkpointer")
+                    await checkpointer.aget({"configurable": {"thread_id": tid}})
+                    if checkpointer is not None
                     else None
                 )
                 msg_count_before = (
@@ -257,8 +258,9 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                     )
                 finally:
                     unregister_active_agent(tid)
-                    if hasattr(agent, "checkpointer") and hasattr(agent.checkpointer, "flush"):
-                        agent.checkpointer.flush()
+                    checkpointer = get_agent_checkpointer(agent)
+                    if checkpointer is not None and hasattr(checkpointer, "flush"):
+                        checkpointer.flush()
             except Exception as exc:  # noqa: BLE001
                 import traceback
                 _logger.error(
@@ -340,11 +342,12 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
             async with lock:
                 try:
                     # Record existing message count to isolate this round's new messages
+                    checkpointer = get_agent_checkpointer(agent)
                     checkpoint = (
-                        await agent.checkpointer.aget(
+                        await checkpointer.aget(
                             {"configurable": {"thread_id": tid}}
                         )
-                        if hasattr(agent, "checkpointer")
+                        if checkpointer is not None
                         else None
                     )
                     msg_count_before = (
@@ -428,8 +431,9 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
 
             unregister_active_agent(tid)
             state.finish_agent_run(tid, "chat_stream")
-            if hasattr(agent, "checkpointer") and hasattr(agent.checkpointer, "flush"):
-                agent.checkpointer.flush()
+            checkpointer = get_agent_checkpointer(agent)
+            if checkpointer is not None and hasattr(checkpointer, "flush"):
+                checkpointer.flush()
 
         # Build final reply from all collected text
         reply = "".join(final_parts).strip()

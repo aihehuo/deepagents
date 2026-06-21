@@ -1051,3 +1051,76 @@ def test_compiled_subagent_tool_stack_permissions() -> None:
     # the permission-aware subagent result through the task tool.
     assert "write /workspace_test/kb/new.txt permission denied" in task_result.content
     assert "read /kb/index.json permission denied" in task_result.content
+
+
+def test_run_aihehuo_skill_script_validation(tmp_path) -> None:
+    """Test validation of run_aihehuo_skill_script tool."""
+    from unittest.mock import patch
+    from apps.wu_tanchang_api.agent_factory.agent import run_aihehuo_skill_script
+
+    # Setup dummy script structure inside tmp_path so it passes the file exists check
+    skill_dir = tmp_path / "workspace" / "skills" / "local_aihehuo" / "get-ai-blog"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    script_path = skill_dir / "run.py"
+    script_path.write_text("print('ok')\n", encoding="utf-8")
+
+    # Test invalid skill name validation (does not require script to exist as it fails early)
+    res = run_aihehuo_skill_script.func(
+        skill_name="get-ai-blog; rm -rf /",
+        arguments=[],
+        config={"configurable": {"thread_id": "test-thread"}},
+    )
+    assert "错误：不支持的技能名称" in res
+
+    # Test invalid arguments validation (requires script to exist, so patch runtime dir)
+    with patch("apps.wu_tanchang_api.agent_factory.utils.default_runtime_dir", return_value=tmp_path):
+        res = run_aihehuo_skill_script.func(
+            skill_name="get-ai-blog",
+            arguments=["--page", "1; rm -rf /"],
+            config={"configurable": {"thread_id": "test-thread"}},
+        )
+        assert "错误：参数中包含非法字符" in res
+
+
+def test_run_aihehuo_skill_script_execution(tmp_path) -> None:
+    """Test execution of run_aihehuo_skill_script tool with a dummy script."""
+    from unittest.mock import patch
+    from apps.wu_tanchang_api.agent_factory.agent import run_aihehuo_skill_script
+
+    # Setup dummy script structure inside tmp_path:
+    # tmp_path / "workspace" / "skills" / "local_aihehuo" / "get-ai-blog" / "run.py"
+    skill_dir = tmp_path / "workspace" / "skills" / "local_aihehuo" / "get-ai-blog"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    script_path = skill_dir / "run.py"
+
+    script_path.write_text(
+        "import sys\n"
+        "print('Args:', sys.argv[1:])\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+
+    with patch("apps.wu_tanchang_api.agent_factory.utils.default_runtime_dir", return_value=tmp_path):
+        res = run_aihehuo_skill_script.func(
+            skill_name="get-ai-blog",
+            arguments=["--page", "2", "test_val"],
+            config={"configurable": {"thread_id": "test-thread"}},
+        )
+        assert "Args: ['--page', '2', 'test_val']" in res
+
+    # Test script execution failure (non-zero exit code)
+    script_path.write_text(
+        "import sys\n"
+        "print('Some error occurred', file=sys.stderr)\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    with patch("apps.wu_tanchang_api.agent_factory.utils.default_runtime_dir", return_value=tmp_path):
+        res = run_aihehuo_skill_script.func(
+            skill_name="get-ai-blog",
+            arguments=[],
+            config={"configurable": {"thread_id": "test-thread"}},
+        )
+        assert "错误：脚本执行失败" in res
+        assert "Exit code 1" in res
+

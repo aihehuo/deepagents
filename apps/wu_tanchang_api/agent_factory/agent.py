@@ -316,6 +316,84 @@ def save_meeting_prep(
         return f"保存失败：网络或接口调用异常 {type(e).__name__}: {e!s}"
 
 
+@tool(parse_docstring=True)
+def run_aihehuo_skill_script(
+    skill_name: str,
+    arguments: list[str] | None = None,
+    *,
+    config: RunnableConfig,
+) -> str:
+    """运行爱合伙数据接口技能脚本以获取最新的平台数据（如博客文章、常见问题、微信群动态等）。
+
+    Args:
+        skill_name: 技能名称，必须是合法的爱合伙技能（例如 'get-ai-blog', 'get-ai-faqs', 'get-ai-ideas', 'get-ai-projects', 'get-ai-users', 'get-ai-wechat-group-details', 'get-ai-wechat-groups', 'get-ai-weekly-trends'）。
+        arguments: 传给脚本的参数列表，例如 ['--page', '1', '--per', '10']。
+    """
+    import subprocess
+    import sys
+    import re
+    from apps.wu_tanchang_api.agent_factory.agent import get_active_agent
+    from apps.wu_tanchang_api.agent_factory.utils import default_runtime_dir
+
+    # 1. Validate skill_name to prevent shell injection or path traversal
+    if not re.fullmatch(r"^get-ai-[a-z0-9\-]+$", skill_name):
+        return f"错误：不支持的技能名称 '{skill_name}'"
+
+    # 2. Resolve active workspace name
+    config_configurable = config.get("configurable") or {}
+    tid = config_configurable.get("thread_id")
+    active_agent = get_active_agent(tid) if tid else None
+    workspace_name = (
+        getattr(active_agent, "workspace_name", "workspace")
+        if active_agent
+        else "workspace"
+    )
+
+    # 3. Locate script file
+    runtime_dir = default_runtime_dir()
+    script_path = (
+        runtime_dir
+        / workspace_name
+        / "skills"
+        / "local_aihehuo"
+        / skill_name
+        / "run.py"
+    )
+
+    if not script_path.exists():
+        return f"错误：在工作区 '{workspace_name}' 下找不到该技能脚本"
+
+    # 4. Prepare command and arguments
+    cmd = [sys.executable, str(script_path)]
+    if arguments:
+        # Prevent any potentially dangerous argument inputs
+        safe_args = []
+        for arg in arguments:
+            # Simple sanitization to ensure arguments are safe string patterns
+            if re.fullmatch(r"^[A-Za-z0-9_\-\.\=\?\&\/\:\,\u4e00-\u9fa5]+$", str(arg)):
+                safe_args.append(str(arg))
+            else:
+                return f"错误：参数中包含非法字符 '{arg}'"
+        cmd.extend(safe_args)
+
+    # 5. Execute script in subprocess and capture stdout/stderr
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode == 0:
+            return result.stdout
+        return f"错误：脚本执行失败 (Exit code {result.returncode})\nStdout:\n{result.stdout}\nStderr:\n{result.stderr}"
+    except subprocess.TimeoutExpired:
+        return "错误：执行超时 (30秒)"
+    except Exception as e:
+        return f"错误：无法执行脚本 {type(e).__name__}: {e!s}"
+
+
 def _load_persona_files(workspace_path: Path) -> str:
     """Load all .md personality files from workspace root into a single string.
 
@@ -570,7 +648,7 @@ def create_agent(
                 "name": "aihehuo_cruncher",
                 "description": "调用爱合伙数据接口技能获取博客、问答、用户、项目、微信群等数据，进行汇总分析",
                 "model": model,
-                "tools": [],
+                "tools": [run_aihehuo_skill_script],
                 "system_prompt": aihehuo_cruncher_prompt,
                 "skills": aihehuo_skills,
                 "permissions": kb_permissions,

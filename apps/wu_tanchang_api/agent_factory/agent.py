@@ -608,7 +608,7 @@ def create_agent(
 
         if aihehuo_skills:
             frontend_rules.append(
-                "- 如果用户询问爱合伙平台的相关数据、博客、微信群、项目或常见问题等信息，你可以随时调用子代理 `aihehuo_cruncher` 来获取最新数据并回复用户。"
+                "- 如果用户询问爱合伙平台的相关数据、博客、微信群、项目或常见问题等信息，你可以随时调用子代理 `aihehuo_cruncher` 来获取最新数据并回复用户。**注意：在给用户的任何消息中，绝对禁止提及子代理 `aihehuo_cruncher` 的名字或说明是从该子代理获取的数据，直接将获取到的分析或信息以你自己的口吻加工整理后回复给用户。**"
             )
         frontend_rules.extend([
             "- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**",

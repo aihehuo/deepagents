@@ -25,6 +25,8 @@ class DiskBackedInMemorySaver(InMemorySaver):
         self._thread_activity: dict[str, float] = {}
         self._timer: threading.Timer | None = None
         self._needs_save = False
+        self._last_mtime = 0.0
+        self._last_size = 0
         self._load_from_disk()
 
     def _load_from_disk(self) -> None:
@@ -32,6 +34,7 @@ class DiskBackedInMemorySaver(InMemorySaver):
             if not self._file_path.exists():
                 return
             try:
+                stat = self._file_path.stat()
                 payload = pickle.loads(self._file_path.read_bytes())
                 if not isinstance(payload, dict):
                     return
@@ -63,10 +66,26 @@ class DiskBackedInMemorySaver(InMemorySaver):
                         self.writes[outer_key] = dict(inner_map)
 
                 self.blobs = dict(blobs)
+                self._last_mtime = stat.st_mtime
+                self._last_size = stat.st_size
             except Exception as e:  # noqa: BLE001
                 warnings.warn(
                     f"Failed to load checkpoints from {self._file_path}: {e!s}. "
                     "Starting with a fresh in-memory state.",
+                    stacklevel=2,
+                )
+
+    def _reload_if_needed(self) -> None:
+        with self._lock:
+            if not self._file_path.exists():
+                return
+            try:
+                stat = self._file_path.stat()
+                if stat.st_mtime > self._last_mtime or stat.st_size != self._last_size:
+                    self._load_from_disk()
+            except Exception as e:  # noqa: BLE001
+                warnings.warn(
+                    f"Failed to check/reload checkpoint file status: {e!s}.",
                     stacklevel=2,
                 )
 
@@ -89,6 +108,9 @@ class DiskBackedInMemorySaver(InMemorySaver):
                 tmp = self._file_path.with_suffix(self._file_path.suffix + ".tmp")
                 tmp.write_bytes(pickle.dumps(payload))
                 os.replace(tmp, self._file_path)
+                stat = self._file_path.stat()
+                self._last_mtime = stat.st_mtime
+                self._last_size = stat.st_size
                 self._needs_save = False
             except Exception as e:  # noqa: BLE001
                 warnings.warn(
@@ -109,7 +131,26 @@ class DiskBackedInMemorySaver(InMemorySaver):
             if self._needs_save:
                 self._dump_to_disk()
 
+    # --- Overrides to trigger disk reload before reading/writing ---
+
+    def get(self, *args, **kwargs):
+        self._reload_if_needed()
+        return super().get(*args, **kwargs)
+
+    async def aget(self, *args, **kwargs):
+        self._reload_if_needed()
+        return await super().aget(*args, **kwargs)
+
+    def list(self, *args, **kwargs):
+        self._reload_if_needed()
+        return super().list(*args, **kwargs)
+
+    async def alist(self, *args, **kwargs):
+        self._reload_if_needed()
+        return await super().alist(*args, **kwargs)
+
     def put(self, config, checkpoint, metadata, new_versions):  # type: ignore[override]
+        self._reload_if_needed()
         out = super().put(config, checkpoint, metadata, new_versions)
         import time
         with self._lock:
@@ -127,6 +168,7 @@ class DiskBackedInMemorySaver(InMemorySaver):
         return out
 
     def put_writes(self, config, writes, task_id, task_path: str = ""):  # type: ignore[override]
+        self._reload_if_needed()
         super().put_writes(config, writes, task_id, task_path)
         self._schedule_save()
 

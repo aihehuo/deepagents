@@ -4,6 +4,28 @@
 
 From 0.2.0 onward, `deepagents-cli` exposes `init`, `deploy`, `agents`, and `mcp-servers` against the Managed Deep Agents `/v1/deepagents/*` API. The coding agent (interactive TUI & headless CLI) moved to [`deepagents-code`](https://github.com/langchain-ai/deepagents/blob/main/libs/code/CHANGELOG.md).
 
+## [0.3.0](https://github.com/aihehuo/deepagents/compare/deepagents-cli==0.2.2...deepagents-cli==0.3.0) (2026-06-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** `deepagents deploy` now targets the Managed Deep Agents API; `deepagents dev`, `deepagents.toml`, and the `--config`/`--dry-run` flags are removed. Run `deepagents init` to re-scaffold (`agent.json` + `tools.json`). See [PR](https://github.com/langchain-ai/deepagents/pull/3609) for the full migration guide.
+* **cli:** removes the interactive TUI / coding-agent surface from `deepagents-cli`. The package now only ships the `deploy` command and supporting config. Users relying on the chat REPL, sessions, MCP tooling, skills, and related widgets should migrate to `deepagents-code`.
+
+### Features
+
+* **cli:** add `--host` option to `deepagents dev` command ([#3444](https://github.com/aihehuo/deepagents/issues/3444)) ([0bb1e74](https://github.com/aihehuo/deepagents/commit/0bb1e74bba8097b38f204e3db6e6ebad7e0f5317))
+* **cli:** migrate deepagents deploy to use managed deep agents api [AB-2470] ([#3609](https://github.com/aihehuo/deepagents/issues/3609)) ([72aef52](https://github.com/aihehuo/deepagents/commit/72aef52542a3fd4a7eebcb3dba40e28adf1aa044))
+* **cli:** remove coding agent ([#3422](https://github.com/aihehuo/deepagents/issues/3422)) ([c7b3119](https://github.com/aihehuo/deepagents/commit/c7b311933da6245267f4bded050c36279973de1e))
+* **sdk:** surface subagents via inherited `lc_agent_name` projection ([e0a1ed2](https://github.com/aihehuo/deepagents/commit/e0a1ed24e6b44c31d0aac3358aeee0d6cb66b2c4))
+
+
+### Bug Fixes
+
+* **cli:** expand `${VAR}` in `mcp.json` header values ([#3523](https://github.com/aihehuo/deepagents/issues/3523)) ([6cfc5f9](https://github.com/aihehuo/deepagents/commit/6cfc5f9004271c23c486a0b05e8f9f0002e75e2b))
+* **cli:** support `state` deploy backend ([#3790](https://github.com/aihehuo/deepagents/issues/3790)) ([04b4bb9](https://github.com/aihehuo/deepagents/commit/04b4bb946fc5ff914b8cccc8c9543d10533de0f8))
+* **sdk:** stable `HumanMessage` IDs across resumed threads ([#3591](https://github.com/aihehuo/deepagents/issues/3591)) ([82c3194](https://github.com/aihehuo/deepagents/commit/82c31947f9dc938ffc71e1cea96d162a39aec3a1))
+
 ## [0.2.2](https://github.com/langchain-ai/deepagents/compare/deepagents-cli==0.2.1...deepagents-cli==0.2.2) (2026-06-07)
 
 

@@ -14,6 +14,12 @@ from typing import Any, Literal
 
 from apps.group_agent_api.agent_factory.disclosure import (
     filter_member_for_visibility,
+    public_match_basis,
+    stable_candidate_user_id,
+)
+from apps.group_agent_api.agent_factory.content_quality import (
+    is_need_shaped_doing,
+    is_preference_shaped_offer,
 )
 from apps.group_agent_api.agent_factory.guard import _AT_PATTERN
 from apps.group_agent_api.agent_factory.match_stub import MAX_CANDIDATES
@@ -155,10 +161,18 @@ def _build_directed_elements(
     force_complete: bool = True,
 ) -> dict[str, str]:
     """Assemble five elements. Reasons only use confirmed_public + uncertainty."""
-    doing = _profile_value(profile, "doing") or "一件正在推进的事"
-    offer = _profile_value(profile, "offer") or "一些手头资源"
-    who = f"我在做{doing}"
-    resources = f"目前手上有：{offer}"
+    doing = _profile_value(profile, "doing")
+    offer = _profile_value(profile, "offer")
+    who = (
+        "我在做的具体项目还没补充清楚"
+        if not doing or is_need_shaped_doing(doing)
+        else f"我在做的项目：{doing}"
+    )
+    resources = (
+        "我能提供的具体资源或能力还没补充清楚"
+        if not offer or is_preference_shaped_offer(offer)
+        else f"我能提供的资源或能力：{offer}"
+    )
     topic_line = topic
 
     why_parts: list[str] = []
@@ -169,7 +183,11 @@ def _build_directed_elements(
         uid = str(c.get("user_id") or "").strip()
         handle = uid or _display_name(c).replace(" ", "")
         doing_pub = _public_value(c.get("doing"))
-        hook = doing_pub or "相关公开经验"
+        if not doing_pub:
+            # Defense in depth: callers should already have passed the
+            # candidate-evidence guard. Never invent a generic basis here.
+            continue
+        hook = doing_pub
         # AI-03: worth a chat + explicit uncertainty; never「很适合当合伙人」
         # REQ-007: candidate narration = doing only
         why_parts.append(
@@ -210,9 +228,14 @@ def render_undirected_text(
     topic: str,
     honest_note: str | None,
 ) -> str:
-    doing = _profile_value(profile, "doing") or "正在推进的方向"
+    doing = _profile_value(profile, "doing")
+    doing_line = (
+        "我在做的具体项目还没补充清楚。"
+        if not doing or is_need_shaped_doing(doing)
+        else f"我在做的项目：{doing}。"
+    )
     parts = [
-        f"我在做{doing}。",
+        doing_line,
         f"想抛个群话题：{topic}",
         "群里有经验的朋友欢迎冒个泡，开放聊聊就好，不点名也行。",
     ]
@@ -345,17 +368,43 @@ def generate_invite_copy(
 ) -> InviteResult:
     """Generate directed or undirected copy with assert → alert → retry."""
     # Re-apply disclosure filter so 2b never narrates non-public fields
-    safe_candidates = [
-        filter_member_for_visibility(c) | {
-            "source_group_id": c.get("source_group_id") or c.get("group_id"),
-            "match_confidence": c.get("match_confidence"),
-            "match_score": c.get("match_score"),
-            "confidence_note": c.get("confidence_note"),
-        }
-        for c in (candidates or [])
-    ]
+    safe_candidates: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    accepted_ids: set[str] = set()
+    for candidate in candidates or []:
+        user_id_value = stable_candidate_user_id(candidate)
+        if user_id_value is None:
+            _logger.warning("action=invite_candidate_gate violation=missing_candidate_id")
+            continue
+        if user_id_value in seen_ids:
+            _logger.warning(
+                "action=invite_candidate_gate violation=duplicate_candidate_id:%s",
+                user_id_value,
+            )
+        seen_ids.add(user_id_value)
+        if user_id_value in accepted_ids:
+            continue
+        if not public_match_basis(candidate):
+            continue
+        visible = filter_member_for_visibility(candidate)
+        visible.update(
+            {
+                "source_group_id": candidate.get("source_group_id")
+                or candidate.get("group_id"),
+                "match_confidence": candidate.get("match_confidence"),
+                "match_score": candidate.get("match_score"),
+                "confidence_note": candidate.get("confidence_note"),
+            }
+        )
+        accepted_ids.add(user_id_value)
+        safe_candidates.append(visible)
+    effective_match_status = (
+        "empty"
+        if match_status == "matched" and not safe_candidates
+        else match_status
+    )
     kind = decide_delivery(
-        match_status=match_status,
+        match_status=effective_match_status,
         candidates=safe_candidates,
         willing_to_at=willing_to_at,
     )
@@ -366,7 +415,7 @@ def generate_invite_copy(
     if kind == "undirected" and not safe_candidates:
         topic_res = derive_common_topic(profile, [])
 
-    honest = _honest_note_for(match_status, willing_to_at=willing_to_at)
+    honest = _honest_note_for(effective_match_status, willing_to_at=willing_to_at)
 
     mentioned: list[str] = []
     elements: dict[str, str] | None = None
@@ -411,7 +460,7 @@ def generate_invite_copy(
                 kind=kind,
                 text=text,
                 topic=topic_res.topic,
-                match_status=match_status,
+                match_status=effective_match_status,
                 willing_to_at=willing_to_at,
                 mentioned_user_ids=mentioned,
                 elements=elements,
@@ -434,7 +483,7 @@ def generate_invite_copy(
         kind=kind,
         text="",
         topic=topic_res.topic,
-        match_status=match_status,
+        match_status=effective_match_status,
         willing_to_at=willing_to_at,
         mentioned_user_ids=[],
         elements=None,

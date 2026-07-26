@@ -6,12 +6,26 @@ match_only / inferred_unconfirmed / 未分级 → 剔除。
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from apps.group_agent_api.agent_factory.profile_schema import DisclosureLevel
 
 
 PUBLIC = DisclosureLevel.confirmed_public
+_STABLE_CANDIDATE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def stable_user_id_value(raw: Any) -> str | None:
+    """Return a native, already-canonical user ID; never coerce or normalize."""
+    if not isinstance(raw, str) or not raw or raw != raw.strip():
+        return None
+    return raw if _STABLE_CANDIDATE_ID.fullmatch(raw) else None
+
+
+def stable_candidate_user_id(candidate: dict[str, Any]) -> str | None:
+    """Return an already-canonical native string ID; never normalize input."""
+    return stable_user_id_value(candidate.get("user_id"))
 
 
 def _field_public(field: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -57,6 +71,23 @@ def filter_member_for_visibility(raw: dict[str, Any]) -> dict[str, Any]:
         if k.lower() in banned_keys:
             out.pop(k, None)
     return out
+
+
+def public_match_basis(candidate: dict[str, Any]) -> dict[str, str]:
+    """Return the auditable basis allowed by the directed-match contract.
+
+    REQ-015 intentionally requires confirmed-public ``doing``. Public offer
+    may still be visible in a candidate payload, but it is not sufficient on
+    its own to justify a directed recommendation.
+    """
+    doing = _field_public(
+        candidate.get("doing")
+        if isinstance(candidate.get("doing"), dict)
+        else None
+    )
+    if doing is None:
+        return {}
+    return {"doing": str(doing["value"])}
 
 
 def assert_visible_fields_public_only(candidate: dict[str, Any]) -> list[str]:

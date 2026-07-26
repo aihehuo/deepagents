@@ -7,6 +7,7 @@ import os
 import re
 from typing import Any
 
+from apps.group_agent_api.agent_factory.disclosure import stable_user_id_value
 from apps.group_agent_api.agent_factory.integrations.config import llm_polish_enabled
 from apps.group_agent_api.agent_factory.invite_copy import (
     InviteResult,
@@ -14,6 +15,7 @@ from apps.group_agent_api.agent_factory.invite_copy import (
     assert_undirected_invite,
     generate_invite_copy,
 )
+from apps.group_agent_api.agent_factory.guard import extract_at_identities
 from apps.group_agent_api.agent_factory.profile_schema import GroupProfile
 
 _logger = logging.getLogger("uvicorn.error")
@@ -44,7 +46,13 @@ _UNDIRECTED_POLISH_PROMPT = """你是群内智能体文案润色器。润色「�
 """
 
 _ELEMENT_PREFIXES = (
+    "我在做的项目：",
+    "我在做的项目",
+    "我在做的具体项目",
     "我在做",
+    "我能提供的资源或能力：",
+    "我能提供的资源或能力",
+    "我能提供的具体资源或能力",
     "目前手上有：",
     "目前手上有",
     "想聊聊：",
@@ -99,6 +107,32 @@ def assert_elements_present_in_text(
     why = (elements.get("why_invite") or "").strip()
     if not why:
         violations.append("missing_element:why_invite")
+    return violations
+
+
+def assert_exact_polished_mentions(
+    *,
+    text: str,
+    expected_user_ids: list[str],
+) -> list[str]:
+    """Require no missing, added, or duplicate @ identities after polish."""
+    actual = extract_at_identities(text)
+    violations: list[str] = []
+    if any(stable_user_id_value(user_id) is None for user_id in expected_user_ids):
+        violations.append("polished_invalid_expected_mention_id")
+    if any(stable_user_id_value(user_id) is None for user_id in actual):
+        violations.append("polished_invalid_actual_mention_id")
+    if violations:
+        return violations
+    expected = list(expected_user_ids)
+    if len(actual) != len(set(actual)):
+        violations.append("polished_duplicate_mentions")
+    if set(expected) - set(actual):
+        violations.append("polished_missing_mentions")
+    if set(actual) - set(expected):
+        violations.append("polished_added_mentions")
+    if len(actual) != len(expected) and not violations:
+        violations.append("polished_mention_count_mismatch")
     return violations
 
 
@@ -164,6 +198,12 @@ def generate_invite_with_optional_llm(
         scaffold = dict(base.elements or {})
         # Gate: each scaffold element core must still appear in polished text.
         presence = assert_elements_present_in_text(text=polished, elements=scaffold)
+        presence.extend(
+            assert_exact_polished_mentions(
+                text=polished,
+                expected_user_ids=base.mentioned_user_ids,
+            )
+        )
         missing_keys = {
             v.split(":", 1)[1]
             for v in presence

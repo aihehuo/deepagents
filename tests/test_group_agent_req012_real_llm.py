@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,11 @@ from fastapi.testclient import TestClient
 
 from apps.group_agent_api.agent_factory.model_builder import create_model
 from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted
+from apps.group_agent_api.agent_factory.disclosure import public_match_basis
+from apps.group_agent_api.fixtures.human_audit import (
+    HumanAuditCollector,
+    audit_enabled,
+)
 from tests.support.req012_llm_budget import (
     MAX_LLM_INVOCATIONS,
     GroupAgentIsolationError,
@@ -75,6 +81,32 @@ def _write_outcome(kind: OutcomeKind, detail: str = "") -> None:
         Path(path).write_text(line + "\n", encoding="utf-8")
     except OSError:
         pass
+
+
+def _write_audit_metadata(metadata: dict[str, Any]) -> None:
+    """Atomically hand safe report path/size/hash metadata to the shell runner."""
+    raw_path = os.environ.get("GROUP_AGENT_REQ013_REPORT_META_FILE", "").strip()
+    if not raw_path:
+        return
+    target = Path(raw_path)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=".req013-meta-",
+        suffix=".tmp",
+        dir=target.parent,
+    )
+    temp_path = Path(temp_name)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(metadata, handle, ensure_ascii=True, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, target)
+        os.chmod(target, 0o600)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 # The recorder / budget guard / classification live in tests.support so the
@@ -215,6 +247,16 @@ class TestReq012RealLLMThreeRoundScenario:
         _install_http_guards(monkeypatch)
         recorder = LLMBudgetRecorder()
         _install_instrumented_model(monkeypatch, recorder)
+        audit = HumanAuditCollector(
+            enabled=audit_enabled(),
+            run_id=f"req012_{int(time.time())}_{os.getpid()}",
+            provider=os.environ.get("GROUP_AGENT_PROVIDER", ""),
+            model=os.environ.get("GROUP_AGENT_MODEL", ""),
+            base_url_configured=bool(os.environ.get("GROUP_AGENT_BASE_URL", "")),
+            fixture_level="L1",
+            group_id=SCENARIO_GROUP_ID,
+            caller_id=SCENARIO_USER_ID,
+        )
 
         # ---- Hard 240s wall-clock watchdog (FIX2 §6) ----
         # Self-contained SIGALRM kill — no external pytest-timeout plugin.
@@ -267,6 +309,16 @@ class TestReq012RealLLMThreeRoundScenario:
                     "R1 must execute save_group_profile at least once "
                     f"(delta tool_calls={r1_delta['tool_calls']})"
                 )
+                if audit.enabled:
+                    audit.capture_round(
+                        number=1,
+                        user_input=ROUND_1_MESSAGE,
+                        reply=str(d1.get("reply", "") or ""),
+                        llm_delta=r1_delta,
+                        latency_s=r1_latency,
+                        profile_before=None,
+                        profile_after=r1_snapshot,
+                    )
 
                 # =====================================================
                 # Round 2: Profile evolution
@@ -312,6 +364,16 @@ class TestReq012RealLLMThreeRoundScenario:
                     "R2 must execute save_group_profile at least once "
                     f"(delta tool_calls={r2_delta['tool_calls']})"
                 )
+                if audit.enabled:
+                    audit.capture_round(
+                        number=2,
+                        user_input=ROUND_2_MESSAGE,
+                        reply=str(d2.get("reply", "") or ""),
+                        llm_delta=r2_delta,
+                        latency_s=r2_latency,
+                        profile_before=r1_snapshot,
+                        profile_after=r2_storage,
+                    )
 
                 # =====================================================
                 # Round 3: Match + invite
@@ -361,6 +423,9 @@ class TestReq012RealLLMThreeRoundScenario:
                     )
                     assert cgid == SCENARIO_GROUP_ID, (
                         f"candidate {c.get('user_id')} group={cgid} != {SCENARIO_GROUP_ID}"
+                    )
+                    assert public_match_basis(c), (
+                        f"candidate {c.get('user_id')} missing public match basis"
                     )
 
                 # Invite (REQ-012 §7.3)
@@ -442,6 +507,68 @@ class TestReq012RealLLMThreeRoundScenario:
                         "guard_blocked": d3.get("guard_blocked"),
                     },
                 }
+
+                if audit.enabled:
+                    audit.capture_round(
+                        number=3,
+                        user_input=ROUND_3_MESSAGE,
+                        reply=str(d3.get("reply", "") or ""),
+                        llm_delta=r3_delta,
+                        latency_s=r3_latency,
+                        profile_before=r2_storage,
+                        profile_after=r2_storage,
+                        candidates=candidates,
+                        invite_text=str(d3.get("invite_text", "") or ""),
+                        mentioned_user_ids=mentioned,
+                        invite_ok=d3.get("invite_ok"),
+                        guard_blocked=d3.get("guard_blocked"),
+                    )
+                    audit_report = audit.build_report(
+                        total_llm_invocations=recorder.llm_starts,
+                        total_tokens=recorder.total_tokens,
+                        total_time_s=total_time,
+                        machine_oracles={
+                            "profile_persisted_r1": d1.get("profile_persisted") is True,
+                            "profile_persisted_r2": d2.get("profile_persisted") is True,
+                            "profile_updated": (
+                                r2_storage["updated_at"] != r1_snapshot["updated_at"]
+                            ),
+                            "candidate_count_lte_3": len(candidates) <= 3,
+                            "all_candidates_have_public_basis": all(
+                                bool(public_match_basis(candidate))
+                                for candidate in candidates
+                            ),
+                            "all_mentioned_have_public_basis": all(
+                                bool(
+                                    public_match_basis(
+                                        next(
+                                            candidate
+                                            for candidate in candidates
+                                            if candidate.get("user_id") == user_id
+                                        )
+                                    )
+                                )
+                                for user_id in mentioned
+                            ),
+                            "current_group_only": all(
+                                (c.get("source_group_id") or c.get("group_id"))
+                                == SCENARIO_GROUP_ID
+                                for c in candidates
+                            ),
+                            "caller_not_self_matched": SCENARIO_USER_ID not in cand_ids,
+                            "u101_present": "u101" in cand_ids,
+                            "known_foreign_candidate_count": sum(
+                                uid in {"u201", "u202"} for uid in cand_ids
+                            ),
+                            "invite_ok": d3.get("invite_ok") is True,
+                            "guard_not_blocked": d3.get("guard_blocked") is not True,
+                            "sensitive_leak_count": 0,
+                        },
+                    )
+                    assert audit_report is not None
+                    audit_result = audit.write_report(audit_report)
+                    _write_audit_metadata(audit_result.safe_metadata())
+
                 self.evidence = evidence  # type: ignore[attr-defined]
                 _write_outcome(OutcomeKind.PASSED)
 

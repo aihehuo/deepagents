@@ -95,6 +95,9 @@ async def invite(
     candidates = guarded.candidates
     if not unlocks_network(tier):
         match_status = "skipped"
+    elif match_status == "matched" and not candidates:
+        match_status = "empty"
+        match_reason = "no_auditable_public_match_basis"
 
     invite_res = await asyncio.to_thread(
         generate_invite_with_optional_llm,

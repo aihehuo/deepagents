@@ -282,3 +282,9 @@ node_modules/
 
 # Orchestrator notebook communication log (internal files)
 .orchestrator/
+
+# Local dual-remote version-management policy (contains internal workflow context).
+/docs/VERSION_MANAGEMENT.md
+
+# Opt-in Real-LLM human-audit artifacts (local evidence; never public source).
+/.local-artifacts/

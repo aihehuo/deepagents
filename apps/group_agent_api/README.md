@@ -158,3 +158,44 @@ Runner 行为：仅当 `GROUP_AGENT_REAL_LLM_TEST=1` 时运行，否则 skip；�
 未知值一律 fail-closed，**禁止「只要不是 stub 就当 real」**；`real`（含留空）+ `provider=qwen` 在发起网络请求前强制要求
 `GROUP_AGENT_MODEL` / `GROUP_AGENT_BASE_URL` / `DASHSCOPE_API_KEY|GROUP_AGENT_API_KEY` 均非空，缺任一项即失败，
 禁止 real 模式静默降级为 stub。
+
+### 人工可读的对话内容审计报告（REQ-013）
+
+REQ-012 的机器 Oracle 负责判断画像保存、群隔离、匹配和邀请契约；如果还需要由人类审核回复是否自然、
+准确和有帮助，可在一次获批的真实 Qwen 运行中显式开启旁路报告：
+
+```bash
+export GROUP_AGENT_REAL_LLM_TEST=1
+export GROUP_AGENT_HUMAN_AUDIT_REPORT=1
+# 可选；仓库内路径必须位于已忽略的 .local-artifacts 下。
+export GROUP_AGENT_HUMAN_AUDIT_OUTPUT_DIR=".local-artifacts/group-agent-audit"
+
+bash apps/group_agent_api/scripts/run_req012_real_llm.sh
+```
+
+默认不启用，也不会读取或保存用户可见回复片段。启用后不会增加任何 LLM 调用；报告使用同一次三轮
+Scenario 的实际 `reply` / `invite_text`，以确定性规则选择原文高价值片段，并输出：
+
+- `.local-artifacts/group-agent-audit/req013-audit-<run_id>/req013-audit-<run_id>.md`
+- `.local-artifacts/group-agent-audit/req013-audit-<run_id>/req013-audit-<run_id>.json`
+- `.local-artifacts/group-agent-audit/req013-audit-<run_id>/READY.json`
+
+报告包含固定 L1 Mock 用户输入、原文片段及原文哈希、每轮 LLM/tool delta、画像 before/after、
+公开候选依据、逐位 mentioned 候选的可核验依据、自动内容检查和留空的人工评分栏。定向候选必须
+至少具有非空 `confirmed_public doing`；无依据者会在计数、回复、点名和邀请前被剔除，全部被剔除时
+诚实降级为不点名结果，禁止用“相关公开经验”伪造推荐理由。可选 LLM 润色不得删除、新增或重复任何
+`@`。候选还必须具有非空稳定 `user_id`，同一身份只保留首个通过群、披露和依据检查的安全记录，
+禁止一人占多个候选名额。ID 必须是无需修剪的原生 ASCII 字符串；带首尾空白、数字/布尔类型、
+Unicode 或非法标点不会被静默转换，而是直接拒绝；Human Audit 会从实际 invite 正文提取 `@` 并与 mentioned/逐人依据交叉校验。它不会保存完整模型回复、系统指令、隐藏推理、
+tool schema、checkpoint、密钥或 fixture 敏感值；脱敏失败会以
+`FAILED:HUMAN_AUDIT_REDACTION` 终止整个验收。Markdown、JSON 与 READY 先在同一隐藏 staging 目录完整
+生成并校验，再通过单次目录 rename 发布；读取方只承认带有效 READY 的完整文件对。历史 run_id 禁止
+覆盖，文件权限为 `0600`，且所在目录被 Git 忽略。
+
+每类片段最多保留 4 个完整句或换行语义段（不按逗号切断），总覆盖率不超过原响应的 50%，报告会记录实际 coverage。JSON 保留
+选中片段原文作为证据；Markdown 展示层会统一中和 heading、table、raw HTML、图片、链接与 code fence，
+避免模型文本伪造审计结构或触发外部资源请求。Alpha L1 Scenario 还会阻断所有非公开画像值及全部外群
+身份/画像值，即使这些值没有使用 phone/email 等显式敏感字段名。
+
+该报告只是人工内容审核证据，不替代 REQ-012 的机器 Oracle。仓库不包含真实报告；必须在获得真实
+Qwen 调用授权后重新运行 Scenario，才能产生真实对话片段。本轮 REQ-013 开发和无网测试不会调用 LLM。

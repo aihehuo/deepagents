@@ -16,6 +16,8 @@
 # 可选：
 #   GROUP_AGENT_MAX_TOKENS=800           # 默认 800
 #   GROUP_AGENT_TIMEOUT_S=60             # 默认 60
+#   GROUP_AGENT_HUMAN_AUDIT_REPORT=1     # 生成 REQ-013 人工内容审计报告
+#   GROUP_AGENT_HUMAN_AUDIT_OUTPUT_DIR=  # 可选；默认 .local-artifacts/group-agent-audit
 #
 # Usage:
 #   export GROUP_AGENT_REAL_LLM_TEST=1
@@ -77,6 +79,9 @@ echo "[REQ-012] Using isolated runtime: ${RUNTIME_DIR}"
 cleanup() {
     echo "[REQ-012] Cleaning up runtime: ${RUNTIME_DIR}"
     rm -rf "${RUNTIME_DIR}"
+    if [ -n "${AUDIT_META_FILE:-}" ]; then
+        rm -f "${AUDIT_META_FILE}"
+    fi
 }
 trap cleanup EXIT
 
@@ -103,6 +108,8 @@ echo "[REQ-012] pytest -v tests/test_group_agent_req012_real_llm.py -m real_llm"
 # reads ONLY this file for its verdict (never parses full pytest output — FIX2 §3).
 OUTCOME_FILE="$(mktemp /tmp/req012_outcome.XXXXXX)"
 export GROUP_AGENT_REQ012_OUTCOME_FILE="${OUTCOME_FILE}"
+AUDIT_META_FILE="$(mktemp /tmp/req013_audit_meta.XXXXXX)"
+export GROUP_AGENT_REQ013_REPORT_META_FILE="${AUDIT_META_FILE}"
 
 set +e
 "${REPO_DIR}/.venv/bin/pytest" \
@@ -145,6 +152,86 @@ echo ""
 
 # Exit code reflects the reconciled verdict: 0 only when it is exactly PASSED.
 if [ "${VERDICT}" = "PASSED" ]; then
+    if [ "${GROUP_AGENT_HUMAN_AUDIT_REPORT:-}" = "1" ]; then
+        # Validate the structured metadata AND the final files before printing
+        # only absolute path, byte size and SHA-256. Never print report content.
+        set +e
+        AUDIT_LINES="$(GROUP_AGENT_REQ013_META="${AUDIT_META_FILE}" \
+            "${REPO_DIR}/.venv/bin/python" - <<'PYEOF'
+import hashlib
+import json
+import os
+import re
+from pathlib import Path
+
+meta_path = Path(os.environ["GROUP_AGENT_REQ013_META"])
+try:
+    payload = json.loads(meta_path.read_text(encoding="utf-8"))
+    lines = []
+    validated = {}
+    for kind in ("markdown", "json"):
+        item = payload[kind]
+        path = Path(item["path"])
+        size = item["size"]
+        expected = item["sha256"]
+        if not path.is_absolute() or any(ord(ch) < 32 for ch in str(path)):
+            raise ValueError("unsafe path")
+        if not isinstance(size, int) or size < 1:
+            raise ValueError("invalid size")
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise ValueError("invalid sha256")
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if path.stat().st_size != size or actual != expected:
+            raise ValueError("metadata mismatch")
+        validated[kind] = {
+            "path": path,
+            "size": size,
+            "sha256": expected,
+        }
+        lines.append(f"REQ-013 AUDIT {kind}: path={path} size={size} sha256={expected}")
+    ready_item = payload["ready"]
+    ready_path = Path(ready_item["path"])
+    ready_expected = ready_item["sha256"]
+    if (
+        not ready_path.is_absolute()
+        or ready_path.name != "READY.json"
+        or any(ord(ch) < 32 for ch in str(ready_path))
+        or not isinstance(ready_expected, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", ready_expected)
+    ):
+        raise ValueError("invalid READY metadata")
+    ready_bytes = ready_path.read_bytes()
+    if hashlib.sha256(ready_bytes).hexdigest() != ready_expected:
+        raise ValueError("READY hash mismatch")
+    ready = json.loads(ready_bytes)
+    if (
+        ready.get("schema_version") != "GA-HUMAN-AUDIT-V1"
+        or ready.get("run_id") not in ready_path.parent.name
+    ):
+        raise ValueError("READY identity mismatch")
+    for kind in ("markdown", "json"):
+        item = ready["files"][kind]
+        actual = validated[kind]
+        if (
+            actual["path"].parent != ready_path.parent
+            or item["name"] != actual["path"].name
+            or item["size"] != actual["size"]
+            or item["sha256"] != actual["sha256"]
+        ):
+            raise ValueError("READY pair mismatch")
+except Exception:
+    raise SystemExit(1)
+print("\n".join(lines))
+PYEOF
+        )"
+        AUDIT_META_STATUS=$?
+        set -e
+        if [ "${AUDIT_META_STATUS}" -ne 0 ]; then
+            echo "[ERROR] REQ-013 audit metadata validation failed"
+            exit 1
+        fi
+        echo "${AUDIT_LINES}"
+    fi
     echo "[INFO] 非 real-LLM 回归测试请运行:"
     echo "  pytest tests/test_group_agent_req010.py -v -m 'not real_llm'"
     exit 0

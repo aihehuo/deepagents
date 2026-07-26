@@ -19,6 +19,9 @@ from apps.group_agent_api.agent_factory.integrations.group_bind import (
 )
 from apps.group_agent_api.agent_factory.integrations.match_backend import run_match
 from apps.group_agent_api.agent_factory.invite_llm import generate_invite_with_optional_llm
+from apps.group_agent_api.agent_factory.content_quality import (
+    finalize_and_guard_user_visible_reply,
+)
 from apps.group_agent_api.agent_factory.match_stub import build_query_from_profile
 from apps.group_agent_api.agent_factory.profile_store import (
     alert_persist_failure,
@@ -311,6 +314,9 @@ async def chat(
     if guarded.blocked and not unlocks_network(tier):
         match_status = "skipped"
         match_reason = f"capability_{tier.value}_guard_blocked"
+    elif match_status == "matched" and not guarded.candidates:
+        match_status = "empty"
+        match_reason = "no_auditable_public_match_basis"
 
     delivery_kind = None
     invite_text = None
@@ -319,16 +325,12 @@ async def chat(
     invite_ok = None
     invite_violations: list[str] = []
 
-    if req.run_invite and profile_ok:
+    if req.run_invite and profile_ok and unlocks_network(tier):
         profile = load_profile(state.base_dir, user_id, group_id)
         if profile is not None:
             invite_status = match_status
             invite_candidates = guarded.candidates
             willing = req.willing_to_at
-            if not unlocks_network(tier):
-                invite_status = "empty"
-                invite_candidates = []
-                willing = False
 
             def _gen_invite():
                 return generate_invite_with_optional_llm(
@@ -359,23 +361,41 @@ async def chat(
         f"assert_attempts={assert_attempts} latency_ms={latency_ms}"
     )
 
+    final_profile = load_profile(state.base_dir, user_id, group_id) if profile_ok else None
+    final_guarded = finalize_and_guard_user_visible_reply(
+        tier=tier,
+        caller_group_id=group_id,
+        user_id=user_id,
+        original_reply=guarded.reply,
+        profile=final_profile,
+        profile_persisted=profile_ok,
+        match_status=match_status,
+        candidates=guarded.candidates,
+        delivery_kind=delivery_kind,
+        invite_ok=invite_ok,
+    )
+    combined_guard_violations = list(
+        dict.fromkeys([*guarded.violations, *final_guarded.violations])
+    )
+    combined_guard_blocked = guarded.blocked or final_guarded.blocked
+
     return ChatResponse(
         user_id=user_id,
         group_id=group_id,
         conversation_id=req.conversation_id,
         thread_id=tid,
-        reply=guarded.reply,
+        reply=final_guarded.reply,
         profile_persisted=profile_ok,
         profile_path=profile_path,
         assert_attempts=assert_attempts,
         persist_alert=None if profile_ok else persist_alert,
         capability=tier.value,  # type: ignore[arg-type]
         capability_source=session.membership.source,
-        match_status=match_status if guarded.candidates or match_status in {"empty", "skipped", "weak"} else "empty",  # noqa: E501
-        candidates=guarded.candidates,
+        match_status=match_status if final_guarded.candidates or match_status in {"empty", "skipped", "weak"} else "empty",  # noqa: E501
+        candidates=final_guarded.candidates,
         match_reason=match_reason,
-        guard_blocked=guarded.blocked,
-        guard_violations=guarded.violations,
+        guard_blocked=combined_guard_blocked,
+        guard_violations=combined_guard_violations,
         delivery_kind=delivery_kind,
         invite_text=invite_text,
         topic=topic,

@@ -41,6 +41,7 @@ class OutcomeKind(str, enum.Enum):
     BUDGET = "FAILED:BUDGET"
     ISOLATION = "FAILED:ISOLATION"
     INTERNAL = "FAILED:INTERNAL"
+    AUDIT_REDACTION = "FAILED:HUMAN_AUDIT_REDACTION"
     TIMEOUT = "BLOCKED_EXTERNAL:UNKNOWN_TIMEOUT"
 
     @property
@@ -49,7 +50,12 @@ class OutcomeKind(str, enum.Enum):
 
     @property
     def is_failure(self) -> bool:
-        return self in {OutcomeKind.BUDGET, OutcomeKind.ISOLATION, OutcomeKind.INTERNAL}
+        return self in {
+            OutcomeKind.BUDGET,
+            OutcomeKind.ISOLATION,
+            OutcomeKind.INTERNAL,
+            OutcomeKind.AUDIT_REDACTION,
+        }
 
 
 # --- Type-name / status whitelists (REQ-012-FIX3 §1) ---
@@ -101,6 +107,7 @@ _AMBIGUOUS_STATUSES = frozenset({500, 502})
 # Our own control exception type names.
 _BUDGET_TYPES = frozenset({"llmbudgetexceeded"})
 _ISOLATION_TYPES = frozenset({"groupagentisolationerror"})
+_AUDIT_REDACTION_TYPES = frozenset({"humanauditredactionerror"})
 
 
 def classify_exception_type(type_name: str) -> OutcomeKind:
@@ -114,6 +121,8 @@ def classify_exception_type(type_name: str) -> OutcomeKind:
         return OutcomeKind.BUDGET
     if t in _ISOLATION_TYPES:
         return OutcomeKind.ISOLATION
+    if t in _AUDIT_REDACTION_TYPES:
+        return OutcomeKind.AUDIT_REDACTION
     if t in _PROVIDER_NETWORK_TYPES:
         return OutcomeKind.PROVIDER_NETWORK
     return OutcomeKind.INTERNAL
@@ -327,4 +336,3 @@ def decide_runner_result(exit_code: int, outcome_text: str | None) -> str:
     if canonical == passed:
         return internal
     return label  # keep the diagnostic tail for supported non-pass labels
-

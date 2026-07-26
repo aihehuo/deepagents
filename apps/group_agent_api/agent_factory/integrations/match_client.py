@@ -36,7 +36,10 @@ def _normalize_candidate(raw: dict[str, Any], *, fallback_group: str) -> dict[st
         doing = None
 
     normalized = {
-        "user_id": str(raw.get("user_id") or ""),
+        # Preserve the raw type/value for the downstream stable-ID gate.
+        # Coercing 101/True/" u101 " here would silently canonicalize an
+        # invalid external identity into a different accepted identity.
+        "user_id": raw.get("user_id"),
         "group_id": str(raw.get("group_id") or fallback_group),
         "source_group_id": str(
             raw.get("source_group_id") or raw.get("group_id") or fallback_group

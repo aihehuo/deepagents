@@ -17,6 +17,8 @@ from apps.group_agent_api.agent_factory.capability import (
 )
 from apps.group_agent_api.agent_factory.disclosure import (
     assert_visible_fields_public_only,
+    public_match_basis,
+    stable_candidate_user_id,
 )
 from apps.group_agent_api.agent_factory.match_stub import MAX_CANDIDATES
 
@@ -37,6 +39,11 @@ class GuardResult:
     reply: str = ""
     violations: list[str] = field(default_factory=list)
     blocked: bool = False
+
+
+def extract_at_identities(text: str) -> list[str]:
+    """Return every visible @ identity in source order, including duplicates."""
+    return [match[1:] for match in _AT_PATTERN.findall(text or "")]
 
 
 def alert_capability_violation(
@@ -113,21 +120,37 @@ def enforce_capability_guard(
     # in_group: still enforce pool/disclosure/count/cross-group
     if len(safe_candidates) > MAX_CANDIDATES:
         violations.append(f"too_many_candidates:{len(safe_candidates)}")
-        safe_candidates = safe_candidates[:MAX_CANDIDATES]
 
     filtered: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    accepted_ids: set[str] = set()
     for c in safe_candidates:
+        user_id_value = stable_candidate_user_id(c)
+        if user_id_value is None:
+            violations.append("missing_candidate_id")
+            continue
+        duplicate_seen = user_id_value in seen_ids
+        if duplicate_seen:
+            violations.append(f"duplicate_candidate_id:{user_id_value}")
+        seen_ids.add(user_id_value)
         src = str(c.get("source_group_id") or c.get("group_id") or "")
         if src != caller_group_id:
-            violations.append(f"cross_group:{c.get('user_id')}:{src}")
+            violations.append(f"cross_group:{user_id_value}:{src}")
             continue
         leaks = assert_visible_fields_public_only(c)
         if leaks:
             violations.extend(
-                f"disclosure_leak:{c.get('user_id')}:{x}" for x in leaks
+                f"disclosure_leak:{user_id_value}:{x}" for x in leaks
             )
             continue
+        if not public_match_basis(c):
+            violations.append(f"missing_public_match_basis:{user_id_value}")
+            continue
+        if user_id_value in accepted_ids:
+            continue
+        accepted_ids.add(user_id_value)
         filtered.append(c)
+    filtered = filtered[:MAX_CANDIDATES]
 
     if violations:
         alert_capability_violation(

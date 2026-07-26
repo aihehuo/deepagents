@@ -15,6 +15,10 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from apps.group_agent_api.agent_factory.model_builder import create_model
+from apps.group_agent_api.agent_factory.content_quality import (
+    is_need_shaped_doing,
+    is_preference_shaped_offer,
+)
 from apps.group_agent_api.agent_factory.profile_schema import (
     DisclosureLevel,
     profile_from_flat,
@@ -48,9 +52,12 @@ SYSTEM_PROMPT = """你是「群内智能体」对话助手（切片 2a：挖需�
 - 开口简洁，一次只聚焦缺的维度。
 - 用户惜字（很短/敷衍）→ **最多再追问 1 次**，然后必须根据已有信息尽力生成三维画像并落库。
 - 1–2 轮内应调用 `save_group_profile` 写出完整画像。
+- 工具调用成功后，用具体的 doing / need / offer 简洁确认你理解了什么，并给出一个明确下一步；禁止只回复问候、致谢或「随时告诉我」。
+- 你在正式匹配管线之前看不到候选结果，不要声称「不能推荐」「没有人选」或「已经找到人选」；最终匹配状态由系统在你回复后统一收口。
 
 ## 落库（FR-06 · 强制）
 - 三维字段齐备后，**必须调用** `save_group_profile`（不要用 write_file 写自由 Markdown）。
+- 后续消息若只是在重复/细化 need 或表达合作偏好，不得把 doing 改写成「找某类负责人/工程师」，也不得把 offer 改写成只有「合作方式可以谈/希望尽快启动」；应从对话历史重提仍有效的 doing/offer。若用户明确撤回资源，offer 写「暂无可提供资源」，不得沿用旧资源。
 - 未确认的推断：disclosure 用 `inferred_unconfirmed`。
 - 用户明确说可公开的：`confirmed_public`；仅用于匹配：`match_only`。
 
@@ -71,6 +78,9 @@ SYSTEM_PROMPT = """你是「群内智能体」对话助手（切片 2a：挖需�
 FORCE_SAVE_PROMPT = (
     "系统校验：本轮结束后该用户×群的结构化画像尚未落库。"
     "请立即根据对话内容调用 save_group_profile，补全 doing/need/offer 三维后保存。"
+    "doing 必须是用户在推进的项目而不是正在找的人；offer 必须是实际资源/能力，"
+    "不能只有合作偏好。未发生变化的维度从对话历史重提；"
+    "用户撤回资源时明确写「暂无可提供资源」。"
     "不要再追问；不要推荐任何人；不要生成邀请词。"
 )
 
@@ -112,6 +122,21 @@ def save_group_profile(
     try:
         for raw in (doing_disclosure, need_disclosure, offer_disclosure):
             DisclosureLevel(raw)
+        # REQ-014-FIX: reject semantic projections observably.  Never restore a
+        # historical value here: this tool cannot prove whether the user kept
+        # it or explicitly withdrew it during the current turn.
+        semantic_errors: list[str] = []
+        if is_need_shaped_doing(doing):
+            semantic_errors.append("doing_describes_need")
+        if is_preference_shaped_offer(offer):
+            semantic_errors.append("offer_describes_preference")
+        if semantic_errors:
+            reason = ",".join(semantic_errors)
+            UC34Observer.warn(
+                f"action=save_group_profile_rejected user_id={user_id} "
+                f"group_id={group_id} reason={reason} status=resubmit_required"
+            )
+            return f"error: semantic_projection:{reason}; resubmit_required"
         profile = profile_from_flat(
             user_id=user_id,
             group_id=group_id,

@@ -118,3 +118,43 @@ bash apps/group_agent_api/scripts/run_req010_e2e.sh
 
 ### 职责边界说明
 本套测试属于 **Deep Agents 独立模块验收**，验证 API 契约、Callback 协议、HMAC/seq/终态、群隔离与安全边界；不替代后续配合 micro 服务的真实双端端到端联调。
+
+---
+
+## 6. Real-LLM + L1 Mock Scenario 验收 (REQ-012)
+
+在**不依赖 Micro / New API / WebSocket / callback / Docker** 的前提下，使用**真实 Qwen LLM** +
+**L1 Mock Fixture**，进程内完整跑通 3 轮 Group Agent 对话，验证真实模型能理解 doing/need/offer、
+发出正式 `save_group_profile` tool call、随多轮演进画像、仅在本群匹配候选、生成受安全约束的邀请词，
+且不泄漏跨群候选或敏感字段。
+
+### ⚠️ 费用 / 额度警告
+- 本测试**消耗真实 Qwen/DashScope LLM 额度**（每次约 8–10 次 LLM 调用、~5–7 万 token）。
+- 默认门禁**不运行**：普通 `pytest` 与 CI 不会消耗额度（`real_llm` marker + `GROUP_AGENT_REAL_LLM_TEST` 门）。
+- 请在确认额度后手动运行。
+
+### 运行命令
+
+```bash
+# 仅当显式 opt-in 时运行。密钥只从进程环境读取，脚本不会 echo 密钥值。
+export GROUP_AGENT_REAL_LLM_TEST=1
+export GROUP_AGENT_PROVIDER=qwen
+export GROUP_AGENT_MODEL=qwen-turbo
+export GROUP_AGENT_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+export DASHSCOPE_API_KEY="sk-..."           # 或 GROUP_AGENT_API_KEY
+
+bash apps/group_agent_api/scripts/run_req012_real_llm.sh
+```
+
+Runner 行为：仅当 `GROUP_AGENT_REAL_LLM_TEST=1` 时运行，否则 skip；用 `mktemp -d` 创建全新 runtime 并在退出时清理；
+显式设置 `GROUP_AGENT_MODEL_MODE=real / INTEGRATION=stub / ENV=test / TEST_LEVEL=L1`；对 membership / match / callback
+三个生产 HTTP client 设置「调用即失败」guard；退出码非 0 表示验收失败。
+
+### 硬预算
+- Scenario 1 个 / 对话 3 轮；单轮 `GROUP_AGENT_MAX_TOKENS<=800`；单请求 timeout `<=60s`；整体 `<=240s`；最大真实 LLM 调用 `<=12`。
+
+### Fail-Closed 模式校验
+`GROUP_AGENT_MODEL_MODE` 仅接受 `stub` / `real`（留空 `≡ real`，走同一套 real 前置校验，不再有更宽松的隐式路径）。
+未知值一律 fail-closed，**禁止「只要不是 stub 就当 real」**；`real`（含留空）+ `provider=qwen` 在发起网络请求前强制要求
+`GROUP_AGENT_MODEL` / `GROUP_AGENT_BASE_URL` / `DASHSCOPE_API_KEY|GROUP_AGENT_API_KEY` 均非空，缺任一项即失败，
+禁止 real 模式静默降级为 stub。

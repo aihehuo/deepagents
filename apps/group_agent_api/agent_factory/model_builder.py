@@ -163,10 +163,46 @@ def create_model(*, log_prefix: str = "[GroupAgentModel]") -> ChatOpenAI:
     model_mode = (os.environ.get("GROUP_AGENT_MODEL_MODE") or "").strip().lower()
     env = (os.environ.get("GROUP_AGENT_ENV") or os.environ.get("APP_ENV") or "development").strip().lower()
 
+    # REQ-012 §2 (+FIX): explicit, validated mode. Only "stub", "real", or
+    # unset are accepted; any other non-empty value fails closed — we must NOT
+    # treat "anything that isn't stub" as real (prevents a typo'd mode silently
+    # reaching a real provider). FIX §6: unset ("") is *tightened* to behave
+    # exactly like "real" — it is subject to the SAME provider preconditions
+    # below (no laxer implicit-real path that skips model/base_url checks).
+    _VALID_MODES = {"", "stub", "real"}
+    if model_mode not in _VALID_MODES:
+        raise RuntimeError(
+            f"Invalid GROUP_AGENT_MODEL_MODE='{model_mode}'. "
+            "Must be one of: 'stub', 'real' (or unset≡real). Fail-closed: "
+            "unknown values are never silently treated as real."
+        )
+
     if model_mode == "stub":
         if integration == "http" or env in {"production", "prod"}:
             raise RuntimeError("GROUP_AGENT_MODEL_MODE=stub is strictly forbidden in http/production integration")
         return _build_stub_model()
+
+    # Unset ≡ real (tightened): both go through the real construction path and
+    # its hard preconditions. No silent downgrade to stub.
+    is_real = model_mode in {"real", ""}
+
+    # REQ-012 §2.3/2.4/2.5: real mode must construct a real OpenAI-compatible
+    # client and, for the Qwen/DashScope provider, requires model + base_url +
+    # key to be present BEFORE any network request. Fail-closed on any gap.
+    if is_real and provider in {"qwen", "dashscope"}:
+        missing: list[str] = []
+        if not (os.environ.get("GROUP_AGENT_MODEL") or "").strip():
+            missing.append("GROUP_AGENT_MODEL")
+        if not base_url:
+            missing.append("GROUP_AGENT_BASE_URL")
+        if api_key == "EMPTY" or not api_key:
+            missing.append("GROUP_AGENT_API_KEY|DASHSCOPE_API_KEY")
+        if missing:
+            raise RuntimeError(
+                "GROUP_AGENT_MODEL_MODE=real (provider=qwen) requires "
+                f"non-empty: {', '.join(missing)}. Refusing to start a real "
+                "LLM call with an incomplete configuration (fail-closed)."
+            )
 
     if api_key == "EMPTY" or not api_key:
         raise RuntimeError(

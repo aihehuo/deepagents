@@ -104,6 +104,14 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
     backend_root = str(Path.home() / ".deepagents" / "business_cofounder_api")
     docs_dir = str(Path.home() / ".deepagents" / "business_cofounder_api" / "docs")
 
+    # Set up observability logs in persistent data volume
+    from deepagents.observability import UCObserver
+    UCObserver.set_log_dir(Path(backend_root) / "logs")
+    _logger.info("  Observability log directory: %s", Path(backend_root) / "logs")
+
+    # Determine provider from environment
+    model_provider = os.environ.get("BC_API_MODEL_PROVIDER", "deepseek")
+
     if use_dual_agent:
         _logger.info("  Initializing DUAL-AGENT architecture...")
         _logger.info("  - Frontend: Facilitator Agent (natural conversation)")
@@ -112,7 +120,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         # Create facilitator agent (frontend)
         facilitator_agent, facilitator_checkpoints = create_facilitator_agent(
             agent_id="facilitator",
-            provider="deepseek",
+            provider=model_provider,
             sync_interval=5,
         )
         _logger.info("  ✓ Facilitator Agent initialized")
@@ -125,7 +133,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
 
         expert_agent, expert_checkpoints = create_expert_agent(
             agent_id="expert_analyzer",
-            provider="deepseek",
+            provider=model_provider,
             expertise_type=assigned_expertise,
         )
         _logger.info("  ✓ Expert Agent initialized")
@@ -145,7 +153,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         # Create simulated user agent (for testing/simulation)
         user_agent, user_agent_checkpoints = create_user_agent(
             agent_id="simulated_user",
-            provider="deepseek",
+            provider=model_provider,
         )
         _logger.info("  ✓ Simulated User Agent initialized")
         _logger.info("    Checkpoints: %s", user_agent_checkpoints)
@@ -175,17 +183,17 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         # Legacy single-agent mode
         primary_agent, checkpoints_path = create_business_cofounder_agent(
             agent_id="business_cofounder_agent",
-            provider="deepseek"
+            provider=model_provider
         )
         fallback_agent, _ = create_business_cofounder_agent(
             agent_id="business_cofounder_agent",
-            provider="deepseek"
+            provider=model_provider
         )
 
         # Create simulated user agent (for testing/simulation)
         user_agent, user_agent_checkpoints = create_user_agent(
             agent_id="simulated_user",
-            provider="deepseek",
+            provider=model_provider,
         )
         _logger.info("  ✓ Simulated User Agent initialized")
         _logger.info("    Checkpoints: %s", user_agent_checkpoints)

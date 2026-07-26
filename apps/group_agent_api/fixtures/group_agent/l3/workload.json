@@ -1,0 +1,12 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L3",
+  "workload_spec": {
+    "num_requests": 1000,
+    "concurrency_limit": 300,
+    "idempotency_duplicate_ratio": 0.1,
+    "conflict_ratio": 0.05,
+    "slow_callback_ratio": 0.05,
+    "retry_ratio": 0.05
+  }
+}

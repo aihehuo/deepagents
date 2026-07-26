@@ -11,6 +11,7 @@ from deepagents.middleware.subagents import (
     SubAgent,
     SubAgentMiddleware,
 )
+from deepagents.observability import UCObserver
 from deepagents.profiles.harness.harness_profiles import (
     GeneralPurposeSubagentProfile,
     HarnessProfile,
@@ -37,6 +38,7 @@ __all__ = [
     "RubricMiddleware",
     "SubAgent",
     "SubAgentMiddleware",
+    "UCObserver",
     "__version__",
     "create_deep_agent",
     "register_harness_profile",

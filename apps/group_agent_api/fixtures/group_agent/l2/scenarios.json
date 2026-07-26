@@ -1,0 +1,426 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L2",
+  "scenarios": [
+    {
+      "scenario_id": "l2_sc_01",
+      "title": "Multi-round scenario 1 (4 rounds) for pytorch in group_l2_01_ai_llm",
+      "caller_user_id": "user_l2_006",
+      "group_id": "group_l2_01_ai_llm",
+      "conversation_id": "conv_l2_01",
+      "messages": [
+        "[Round 1] 在 L2 Group: AI & LLM Technology 中，我们需要找到关于 pytorch 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 langchain 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 pytorch 相关项目架构经验，能独立带团队。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_02",
+      "title": "Multi-round scenario 2 (5 rounds) for tiktok in group_l2_02_ecommerce",
+      "caller_user_id": "user_l2_011",
+      "group_id": "group_l2_02_ecommerce",
+      "conversation_id": "conv_l2_02",
+      "messages": [
+        "[Round 1] 在 L2 Group: Cross-Border E-Commerce 中，我们需要找到关于 tiktok 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 logistics 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 tiktok 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_03",
+      "title": "Multi-round scenario 3 (6 rounds) for defi in group_l2_03_fintech",
+      "caller_user_id": "user_l2_016",
+      "group_id": "group_l2_03_fintech",
+      "conversation_id": "conv_l2_03",
+      "messages": [
+        "[Round 1] 在 L2 Group: FinTech & Web3 中，我们需要找到关于 defi 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 blockchain 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 defi 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_04",
+      "title": "Multi-round scenario 4 (7 rounds) for sales in group_l2_04_saas",
+      "caller_user_id": "user_l2_021",
+      "group_id": "group_l2_04_saas",
+      "conversation_id": "conv_l2_04",
+      "messages": [
+        "[Round 1] 在 L2 Group: Enterprise B2B SaaS 中，我们需要找到关于 sales 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 crm 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 sales 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。",
+        "[Round 7] 有意向的朋友可以随时在群里回复。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_05",
+      "title": "Multi-round scenario 5 (8 rounds) for embedded in group_l2_05_hardware",
+      "caller_user_id": "user_l2_026",
+      "group_id": "group_l2_05_hardware",
+      "conversation_id": "conv_l2_05",
+      "messages": [
+        "[Round 1] 在 L2 Group: IoT & Robotics 中，我们需要找到关于 embedded 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 circuit 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 embedded 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。",
+        "[Round 7] 有意向的朋友可以随时在群里回复。",
+        "[Round 8] 感谢大家，本轮需求确认完毕。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_06",
+      "title": "Multi-round scenario 6 (3 rounds) for clinical in group_l2_06_healthcare",
+      "caller_user_id": "user_l2_031",
+      "group_id": "group_l2_06_healthcare",
+      "conversation_id": "conv_l2_06",
+      "messages": [
+        "[Round 1] 在 L2 Group: BioTech & Digital Health 中，我们需要找到关于 clinical 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 genomics 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_07",
+      "title": "Multi-round scenario 7 (4 rounds) for video in group_l2_07_education",
+      "caller_user_id": "user_l2_036",
+      "group_id": "group_l2_07_education",
+      "conversation_id": "conv_l2_07",
+      "messages": [
+        "[Round 1] 在 L2 Group: EdTech & Content 中，我们需要找到关于 video 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 online_course 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 video 相关项目架构经验，能独立带团队。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_08",
+      "title": "Multi-round scenario 8 (5 rounds) for d2c in group_l2_08_consumer",
+      "caller_user_id": "user_l2_041",
+      "group_id": "group_l2_08_consumer",
+      "conversation_id": "conv_l2_08",
+      "messages": [
+        "[Round 1] 在 L2 Group: Consumer Brands 中，我们需要找到关于 d2c 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 branding 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 d2c 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_09",
+      "title": "Multi-round scenario 9 (6 rounds) for rag in group_l2_01_ai_llm",
+      "caller_user_id": "user_l2_046",
+      "group_id": "group_l2_01_ai_llm",
+      "conversation_id": "conv_l2_09",
+      "messages": [
+        "[Round 1] 在 L2 Group: AI & LLM Technology 中，我们需要找到关于 rag 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 python 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 rag 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_10",
+      "title": "Multi-round scenario 10 (7 rounds) for shopify in group_l2_02_ecommerce",
+      "caller_user_id": "user_l2_051",
+      "group_id": "group_l2_02_ecommerce",
+      "conversation_id": "conv_l2_10",
+      "messages": [
+        "[Round 1] 在 L2 Group: Cross-Border E-Commerce 中，我们需要找到关于 shopify 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 amazon 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 shopify 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。",
+        "[Round 7] 有意向的朋友可以随时在群里回复。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_11",
+      "title": "Multi-round scenario 11 (8 rounds) for defi in group_l2_03_fintech",
+      "caller_user_id": "user_l2_056",
+      "group_id": "group_l2_03_fintech",
+      "conversation_id": "conv_l2_11",
+      "messages": [
+        "[Round 1] 在 L2 Group: FinTech & Web3 中，我们需要找到关于 defi 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 blockchain 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 defi 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。",
+        "[Round 7] 有意向的朋友可以随时在群里回复。",
+        "[Round 8] 感谢大家，本轮需求确认完毕。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_12",
+      "title": "Multi-round scenario 12 (3 rounds) for devops in group_l2_04_saas",
+      "caller_user_id": "user_l2_061",
+      "group_id": "group_l2_04_saas",
+      "conversation_id": "conv_l2_12",
+      "messages": [
+        "[Round 1] 在 L2 Group: Enterprise B2B SaaS 中，我们需要找到关于 devops 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 kubernetes 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_13",
+      "title": "Multi-round scenario 13 (4 rounds) for ros in group_l2_05_hardware",
+      "caller_user_id": "user_l2_066",
+      "group_id": "group_l2_05_hardware",
+      "conversation_id": "conv_l2_13",
+      "messages": [
+        "[Round 1] 在 L2 Group: IoT & Robotics 中，我们需要找到关于 ros 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 manufacturing 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 ros 相关项目架构经验，能独立带团队。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_14",
+      "title": "Multi-round scenario 14 (5 rounds) for clinical in group_l2_06_healthcare",
+      "caller_user_id": "user_l2_071",
+      "group_id": "group_l2_06_healthcare",
+      "conversation_id": "conv_l2_14",
+      "messages": [
+        "[Round 1] 在 L2 Group: BioTech & Digital Health 中，我们需要找到关于 clinical 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 genomics 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 clinical 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_15",
+      "title": "Multi-round scenario 15 (6 rounds) for video in group_l2_07_education",
+      "caller_user_id": "user_l2_076",
+      "group_id": "group_l2_07_education",
+      "conversation_id": "conv_l2_15",
+      "messages": [
+        "[Round 1] 在 L2 Group: EdTech & Content 中，我们需要找到关于 video 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 online_course 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 video 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_16",
+      "title": "Multi-round scenario 16 (7 rounds) for d2c in group_l2_08_consumer",
+      "caller_user_id": "user_l2_081",
+      "group_id": "group_l2_08_consumer",
+      "conversation_id": "conv_l2_16",
+      "messages": [
+        "[Round 1] 在 L2 Group: Consumer Brands 中，我们需要找到关于 d2c 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 branding 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 d2c 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。",
+        "[Round 7] 有意向的朋友可以随时在群里回复。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_17",
+      "title": "Multi-round scenario 17 (8 rounds) for langchain in group_l2_01_ai_llm",
+      "caller_user_id": "user_l2_086",
+      "group_id": "group_l2_01_ai_llm",
+      "conversation_id": "conv_l2_17",
+      "messages": [
+        "[Round 1] 在 L2 Group: AI & LLM Technology 中，我们需要找到关于 langchain 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 agent 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 langchain 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。",
+        "[Round 7] 有意向的朋友可以随时在群里回复。",
+        "[Round 8] 感谢大家，本轮需求确认完毕。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_18",
+      "title": "Multi-round scenario 18 (3 rounds) for logistics in group_l2_02_ecommerce",
+      "caller_user_id": "user_l2_091",
+      "group_id": "group_l2_02_ecommerce",
+      "conversation_id": "conv_l2_18",
+      "messages": [
+        "[Round 1] 在 L2 Group: Cross-Border E-Commerce 中，我们需要找到关于 logistics 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 ad_placement 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_19",
+      "title": "Multi-round scenario 19 (4 rounds) for defi in group_l2_03_fintech",
+      "caller_user_id": "user_l2_096",
+      "group_id": "group_l2_03_fintech",
+      "conversation_id": "conv_l2_19",
+      "messages": [
+        "[Round 1] 在 L2 Group: FinTech & Web3 中，我们需要找到关于 defi 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 blockchain 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 defi 相关项目架构经验，能独立带团队。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_20",
+      "title": "Multi-round scenario 20 (5 rounds) for crm in group_l2_04_saas",
+      "caller_user_id": "user_l2_101",
+      "group_id": "group_l2_04_saas",
+      "conversation_id": "conv_l2_20",
+      "messages": [
+        "[Round 1] 在 L2 Group: Enterprise B2B SaaS 中，我们需要找到关于 crm 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 erp 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 crm 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_21",
+      "title": "Multi-round scenario 21 (6 rounds) for circuit in group_l2_05_hardware",
+      "caller_user_id": "user_l2_106",
+      "group_id": "group_l2_05_hardware",
+      "conversation_id": "conv_l2_21",
+      "messages": [
+        "[Round 1] 在 L2 Group: IoT & Robotics 中，我们需要找到关于 circuit 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 robotics 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 circuit 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_22",
+      "title": "Multi-round scenario 22 (7 rounds) for clinical in group_l2_06_healthcare",
+      "caller_user_id": "user_l2_111",
+      "group_id": "group_l2_06_healthcare",
+      "conversation_id": "conv_l2_22",
+      "messages": [
+        "[Round 1] 在 L2 Group: BioTech & Digital Health 中，我们需要找到关于 clinical 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 genomics 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 clinical 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。",
+        "[Round 7] 有意向的朋友可以随时在群里回复。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_23",
+      "title": "Multi-round scenario 23 (8 rounds) for video in group_l2_07_education",
+      "caller_user_id": "user_l2_116",
+      "group_id": "group_l2_07_education",
+      "conversation_id": "conv_l2_23",
+      "messages": [
+        "[Round 1] 在 L2 Group: EdTech & Content 中，我们需要找到关于 video 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 online_course 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。",
+        "[Round 4] 最好具备 3 年以上 video 相关项目架构经验，能独立带团队。",
+        "[Round 5] 我们提供股权和基础薪资，群里有合适的人选推荐吗？",
+        "[Round 6] 另外我们也在考察海外市场的推广渠道。",
+        "[Round 7] 有意向的朋友可以随时在群里回复。",
+        "[Round 8] 感谢大家，本轮需求确认完毕。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    },
+    {
+      "scenario_id": "l2_sc_24",
+      "title": "Multi-round scenario 24 (3 rounds) for d2c in group_l2_08_consumer",
+      "caller_user_id": "user_l2_121",
+      "group_id": "group_l2_08_consumer",
+      "conversation_id": "conv_l2_24",
+      "messages": [
+        "[Round 1] 在 L2 Group: Consumer Brands 中，我们需要找到关于 d2c 的技术合伙人或顾问。",
+        "[Round 2] 我们主要专注在 branding 的落地上，需要有实际实操经验。",
+        "[Round 3] 项目已经完成 MVP，现在寻找能够全职投入的联合创始人。"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": [],
+      "multi_round": true
+    }
+  ]
+}

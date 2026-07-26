@@ -1,0 +1,11 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L3",
+  "seed": 20260725,
+  "profile": {
+    "num_groups": 30,
+    "num_members": 10000,
+    "concurrent_conversations": 300,
+    "total_call_async": 1000
+  }
+}

@@ -244,6 +244,12 @@ __marimo__/
 .docker.env
 .deploy.env
 
+# Real production deploy/compose assets — kept locally, never tracked in public repo.
+# Digit-class globs match the real numbered-environment files precisely while
+# leaving the tracked *.example.* companions untouched (no digit after "prod").
+/apps/deploy_to_prod[0-9].sh
+/apps/docker-compose.prod[0-9].yml
+
 tests/*.md
 aihehuo_mcp
 BPGenerationAgent
@@ -273,3 +279,6 @@ CLAUDE.md
 libs/cli/frontend/node_modules/
 libs/cli/frontend/dist/
 node_modules/
+
+# Orchestrator notebook communication log (internal files)
+.orchestrator/

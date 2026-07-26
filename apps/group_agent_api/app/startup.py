@@ -1,0 +1,66 @@
+"""Startup for group_agent_api."""
+
+from __future__ import annotations
+
+import logging
+import os
+from pathlib import Path
+
+from apps.group_agent_api.agent_factory import create_agent
+from apps.group_agent_api.agent_factory.agent import APP_NAME, default_runtime_dir
+from apps.group_agent_api.agent_factory.integrations.config import (
+    assert_startup_security,
+    integration_mode,
+)
+from apps.group_agent_api.app.state import AppState
+from deepagents.observability import UCObserver
+
+_logger = logging.getLogger("uvicorn.error")
+
+
+def _load_dotenv_if_present() -> None:
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        os.environ.setdefault(key, val)
+
+
+async def startup(state_ref: dict[str, AppState | None]) -> None:
+    _load_dotenv_if_present()
+    assert_startup_security()
+    runtime = Path(os.environ.get("GROUP_AGENT_RUNTIME_DIR", str(default_runtime_dir())))
+    runtime.mkdir(parents=True, exist_ok=True)
+    UCObserver.set_log_dir(runtime / "logs")
+
+    agent, ckpt_path = create_agent(base_dir=runtime)
+    polish_model = None
+    try:
+        from apps.group_agent_api.agent_factory.integrations.config import (
+            llm_polish_enabled,
+        )
+        from apps.group_agent_api.agent_factory.model_builder import create_model
+
+        if llm_polish_enabled():
+            polish_model = create_model(log_prefix="[GroupAgentPolish]")
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("polish model unavailable: %s", exc)
+
+    state_ref["state"] = AppState(
+        agent=agent,
+        base_dir=runtime,
+        checkpoints_path=str(ckpt_path),
+        polish_model=polish_model,
+    )
+    _logger.info(
+        "%s ready runtime=%s integration=%s",
+        APP_NAME,
+        runtime,
+        integration_mode(),
+    )

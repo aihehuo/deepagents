@@ -29,6 +29,12 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         os.environ.get("WU_API_WORKSPACE", str(default_workspace_path()))
     )
     runtime_dir = default_runtime_dir()
+
+    # Set up UCObserver log directory to persistent runtime_dir/logs
+    from deepagents.observability import UCObserver
+    UCObserver.set_log_dir(runtime_dir / "logs")
+    _logger.info("  Observability log directory: %s", runtime_dir / "logs")
+
     backend_root = ensure_runtime_workspace(
         workspace_src=workspace_src, runtime_dir=runtime_dir
     )

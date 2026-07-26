@@ -1,0 +1,98 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L2",
+  "groups": [
+    {
+      "group_id": "group_l2_01_ai_llm",
+      "name": "L2 Group: AI & LLM Technology",
+      "description": "Dedicated group for AI & LLM Technology",
+      "topic_tags": [
+        "python",
+        "pytorch",
+        "langchain",
+        "agent",
+        "rag"
+      ]
+    },
+    {
+      "group_id": "group_l2_02_ecommerce",
+      "name": "L2 Group: Cross-Border E-Commerce",
+      "description": "Dedicated group for Cross-Border E-Commerce",
+      "topic_tags": [
+        "shopify",
+        "amazon",
+        "tiktok",
+        "logistics",
+        "ad_placement"
+      ]
+    },
+    {
+      "group_id": "group_l2_03_fintech",
+      "name": "L2 Group: FinTech & Web3",
+      "description": "Dedicated group for FinTech & Web3",
+      "topic_tags": [
+        "blockchain",
+        "payment_gateway",
+        "compliance",
+        "defi"
+      ]
+    },
+    {
+      "group_id": "group_l2_04_saas",
+      "name": "L2 Group: Enterprise B2B SaaS",
+      "description": "Dedicated group for Enterprise B2B SaaS",
+      "topic_tags": [
+        "crm",
+        "erp",
+        "devops",
+        "kubernetes",
+        "sales"
+      ]
+    },
+    {
+      "group_id": "group_l2_05_hardware",
+      "name": "L2 Group: IoT & Robotics",
+      "description": "Dedicated group for IoT & Robotics",
+      "topic_tags": [
+        "embedded",
+        "circuit",
+        "robotics",
+        "ros",
+        "manufacturing"
+      ]
+    },
+    {
+      "group_id": "group_l2_06_healthcare",
+      "name": "L2 Group: BioTech & Digital Health",
+      "description": "Dedicated group for BioTech & Digital Health",
+      "topic_tags": [
+        "medical_ai",
+        "fda",
+        "clinical",
+        "genomics"
+      ]
+    },
+    {
+      "group_id": "group_l2_07_education",
+      "name": "L2 Group: EdTech & Content",
+      "description": "Dedicated group for EdTech & Content",
+      "topic_tags": [
+        "online_course",
+        "k12",
+        "learning_lms",
+        "video"
+      ]
+    },
+    {
+      "group_id": "group_l2_08_consumer",
+      "name": "L2 Group: Consumer Brands",
+      "description": "Dedicated group for Consumer Brands",
+      "topic_tags": [
+        "d2c",
+        "branding",
+        "supply_chain",
+        "packaging"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3161 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L2",
+  "members": [
+    {
+      "user_id": "user_l2_001",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 1 (python)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "owner",
+      "profile": {
+        "doing": "Working on python for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for pytorch",
+        "offer": "Expertise in python and langchain"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_002",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 2 (pytorch)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on pytorch for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for langchain",
+        "offer": "Expertise in pytorch and agent"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_003",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 3 (langchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on langchain for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for agent",
+        "offer": "Expertise in langchain and rag"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_004",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 4 (agent)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on agent for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for rag",
+        "offer": "Expertise in agent and python"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_005",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 5 (rag)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on rag for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for python",
+        "offer": "Expertise in rag and pytorch"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000005",
+      "wechat": "wx_user_l2_005"
+    },
+    {
+      "user_id": "user_l2_006",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 6 (python)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on python for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for pytorch",
+        "offer": "Expertise in python and langchain"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_007",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 7 (pytorch)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on pytorch for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for langchain",
+        "offer": "Expertise in pytorch and agent"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_008",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 8 (langchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on langchain for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for agent",
+        "offer": "Expertise in langchain and rag"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_009",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 9 (agent)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on agent for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for rag",
+        "offer": "Expertise in agent and python"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_010",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 10 (rag)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on rag for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for python",
+        "offer": "Expertise in rag and pytorch"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000010",
+      "wechat": "wx_user_l2_010"
+    },
+    {
+      "user_id": "user_l2_011",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 11 (python)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on python for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for pytorch",
+        "offer": "Expertise in python and langchain"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_012",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 12 (pytorch)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on pytorch for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for langchain",
+        "offer": "Expertise in pytorch and agent"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_013",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 13 (langchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on langchain for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for agent",
+        "offer": "Expertise in langchain and rag"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_014",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 14 (agent)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on agent for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for rag",
+        "offer": "Expertise in agent and python"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_015",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 15 (rag)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on rag for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for python",
+        "offer": "Expertise in rag and pytorch"
+      },
+      "disclosure_level": "inferred_unconfirmed",
+      "phone": "+8613900000015",
+      "wechat": "wx_user_l2_015"
+    },
+    {
+      "user_id": "user_l2_016",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 16 (python)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on python for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for pytorch",
+        "offer": "Expertise in python and langchain"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_017",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 17 (pytorch)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on pytorch for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for langchain",
+        "offer": "Expertise in pytorch and agent"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_018",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 18 (langchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on langchain for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for agent",
+        "offer": "Expertise in langchain and rag"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_019",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 19 (agent)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on agent for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for rag",
+        "offer": "Expertise in agent and python"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_020",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 20 (rag)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on rag for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for python",
+        "offer": "Expertise in rag and pytorch"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000020",
+      "wechat": "wx_user_l2_020"
+    },
+    {
+      "user_id": "user_l2_021",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 21 (python)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on python for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for pytorch",
+        "offer": "Expertise in python and langchain"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_022",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 22 (pytorch)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on pytorch for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for langchain",
+        "offer": "Expertise in pytorch and agent"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_023",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 23 (langchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on langchain for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for agent",
+        "offer": "Expertise in langchain and rag"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_024",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 24 (agent)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on agent for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for rag",
+        "offer": "Expertise in agent and python"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_025",
+      "group_id": "group_l2_01_ai_llm",
+      "display_name": "User 25 (rag)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on rag for group L2 Group: AI & LLM Technology",
+        "need": "Need partner for python",
+        "offer": "Expertise in rag and pytorch"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000025",
+      "wechat": "wx_user_l2_025"
+    },
+    {
+      "user_id": "user_l2_026",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 26 (shopify)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "owner",
+      "profile": {
+        "doing": "Working on shopify for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for amazon",
+        "offer": "Expertise in shopify and tiktok"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_027",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 27 (amazon)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on amazon for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for tiktok",
+        "offer": "Expertise in amazon and logistics"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_028",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 28 (tiktok)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on tiktok for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for logistics",
+        "offer": "Expertise in tiktok and ad_placement"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_029",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 29 (logistics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on logistics for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for ad_placement",
+        "offer": "Expertise in logistics and shopify"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_030",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 30 (ad_placement)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on ad_placement for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for shopify",
+        "offer": "Expertise in ad_placement and amazon"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000030",
+      "wechat": "wx_user_l2_030"
+    },
+    {
+      "user_id": "user_l2_031",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 31 (shopify)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on shopify for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for amazon",
+        "offer": "Expertise in shopify and tiktok"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_032",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 32 (amazon)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on amazon for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for tiktok",
+        "offer": "Expertise in amazon and logistics"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_033",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 33 (tiktok)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on tiktok for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for logistics",
+        "offer": "Expertise in tiktok and ad_placement"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_034",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 34 (logistics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on logistics for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for ad_placement",
+        "offer": "Expertise in logistics and shopify"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_035",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 35 (ad_placement)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on ad_placement for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for shopify",
+        "offer": "Expertise in ad_placement and amazon"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000035",
+      "wechat": "wx_user_l2_035"
+    },
+    {
+      "user_id": "user_l2_036",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 36 (shopify)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on shopify for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for amazon",
+        "offer": "Expertise in shopify and tiktok"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_037",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 37 (amazon)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on amazon for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for tiktok",
+        "offer": "Expertise in amazon and logistics"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_038",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 38 (tiktok)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on tiktok for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for logistics",
+        "offer": "Expertise in tiktok and ad_placement"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_039",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 39 (logistics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on logistics for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for ad_placement",
+        "offer": "Expertise in logistics and shopify"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_040",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 40 (ad_placement)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on ad_placement for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for shopify",
+        "offer": "Expertise in ad_placement and amazon"
+      },
+      "disclosure_level": "inferred_unconfirmed",
+      "phone": "+8613900000040",
+      "wechat": "wx_user_l2_040"
+    },
+    {
+      "user_id": "user_l2_041",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 41 (shopify)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on shopify for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for amazon",
+        "offer": "Expertise in shopify and tiktok"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_042",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 42 (amazon)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on amazon for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for tiktok",
+        "offer": "Expertise in amazon and logistics"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_043",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 43 (tiktok)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on tiktok for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for logistics",
+        "offer": "Expertise in tiktok and ad_placement"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_044",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 44 (logistics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on logistics for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for ad_placement",
+        "offer": "Expertise in logistics and shopify"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_045",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 45 (ad_placement)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on ad_placement for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for shopify",
+        "offer": "Expertise in ad_placement and amazon"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000045",
+      "wechat": "wx_user_l2_045"
+    },
+    {
+      "user_id": "user_l2_046",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 46 (shopify)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on shopify for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for amazon",
+        "offer": "Expertise in shopify and tiktok"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_047",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 47 (amazon)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on amazon for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for tiktok",
+        "offer": "Expertise in amazon and logistics"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_048",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 48 (tiktok)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on tiktok for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for logistics",
+        "offer": "Expertise in tiktok and ad_placement"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_049",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 49 (logistics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on logistics for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for ad_placement",
+        "offer": "Expertise in logistics and shopify"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_050",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "User 50 (ad_placement)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on ad_placement for group L2 Group: Cross-Border E-Commerce",
+        "need": "Need partner for shopify",
+        "offer": "Expertise in ad_placement and amazon"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000050",
+      "wechat": "wx_user_l2_050"
+    },
+    {
+      "user_id": "user_l2_051",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 51 (blockchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "owner",
+      "profile": {
+        "doing": "Working on blockchain for group L2 Group: FinTech & Web3",
+        "need": "Need partner for payment_gateway",
+        "offer": "Expertise in blockchain and compliance"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_052",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 52 (payment_gateway)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on payment_gateway for group L2 Group: FinTech & Web3",
+        "need": "Need partner for compliance",
+        "offer": "Expertise in payment_gateway and defi"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_053",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 53 (compliance)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on compliance for group L2 Group: FinTech & Web3",
+        "need": "Need partner for defi",
+        "offer": "Expertise in compliance and blockchain"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_054",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 54 (defi)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on defi for group L2 Group: FinTech & Web3",
+        "need": "Need partner for blockchain",
+        "offer": "Expertise in defi and payment_gateway"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_055",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 55 (blockchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on blockchain for group L2 Group: FinTech & Web3",
+        "need": "Need partner for payment_gateway",
+        "offer": "Expertise in blockchain and compliance"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000055",
+      "wechat": "wx_user_l2_055"
+    },
+    {
+      "user_id": "user_l2_056",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 56 (payment_gateway)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on payment_gateway for group L2 Group: FinTech & Web3",
+        "need": "Need partner for compliance",
+        "offer": "Expertise in payment_gateway and defi"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_057",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 57 (compliance)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on compliance for group L2 Group: FinTech & Web3",
+        "need": "Need partner for defi",
+        "offer": "Expertise in compliance and blockchain"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_058",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 58 (defi)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on defi for group L2 Group: FinTech & Web3",
+        "need": "Need partner for blockchain",
+        "offer": "Expertise in defi and payment_gateway"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_059",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 59 (blockchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on blockchain for group L2 Group: FinTech & Web3",
+        "need": "Need partner for payment_gateway",
+        "offer": "Expertise in blockchain and compliance"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_060",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 60 (payment_gateway)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on payment_gateway for group L2 Group: FinTech & Web3",
+        "need": "Need partner for compliance",
+        "offer": "Expertise in payment_gateway and defi"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000060",
+      "wechat": "wx_user_l2_060"
+    },
+    {
+      "user_id": "user_l2_061",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 61 (compliance)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on compliance for group L2 Group: FinTech & Web3",
+        "need": "Need partner for defi",
+        "offer": "Expertise in compliance and blockchain"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_062",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 62 (defi)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on defi for group L2 Group: FinTech & Web3",
+        "need": "Need partner for blockchain",
+        "offer": "Expertise in defi and payment_gateway"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_063",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 63 (blockchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on blockchain for group L2 Group: FinTech & Web3",
+        "need": "Need partner for payment_gateway",
+        "offer": "Expertise in blockchain and compliance"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_064",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 64 (payment_gateway)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on payment_gateway for group L2 Group: FinTech & Web3",
+        "need": "Need partner for compliance",
+        "offer": "Expertise in payment_gateway and defi"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_065",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 65 (compliance)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on compliance for group L2 Group: FinTech & Web3",
+        "need": "Need partner for defi",
+        "offer": "Expertise in compliance and blockchain"
+      },
+      "disclosure_level": "inferred_unconfirmed",
+      "phone": "+8613900000065",
+      "wechat": "wx_user_l2_065"
+    },
+    {
+      "user_id": "user_l2_066",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 66 (defi)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on defi for group L2 Group: FinTech & Web3",
+        "need": "Need partner for blockchain",
+        "offer": "Expertise in defi and payment_gateway"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_067",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 67 (blockchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on blockchain for group L2 Group: FinTech & Web3",
+        "need": "Need partner for payment_gateway",
+        "offer": "Expertise in blockchain and compliance"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_068",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 68 (payment_gateway)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on payment_gateway for group L2 Group: FinTech & Web3",
+        "need": "Need partner for compliance",
+        "offer": "Expertise in payment_gateway and defi"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_069",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 69 (compliance)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on compliance for group L2 Group: FinTech & Web3",
+        "need": "Need partner for defi",
+        "offer": "Expertise in compliance and blockchain"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_070",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 70 (defi)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on defi for group L2 Group: FinTech & Web3",
+        "need": "Need partner for blockchain",
+        "offer": "Expertise in defi and payment_gateway"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000070",
+      "wechat": "wx_user_l2_070"
+    },
+    {
+      "user_id": "user_l2_071",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 71 (blockchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on blockchain for group L2 Group: FinTech & Web3",
+        "need": "Need partner for payment_gateway",
+        "offer": "Expertise in blockchain and compliance"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_072",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 72 (payment_gateway)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on payment_gateway for group L2 Group: FinTech & Web3",
+        "need": "Need partner for compliance",
+        "offer": "Expertise in payment_gateway and defi"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_073",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 73 (compliance)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on compliance for group L2 Group: FinTech & Web3",
+        "need": "Need partner for defi",
+        "offer": "Expertise in compliance and blockchain"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_074",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 74 (defi)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on defi for group L2 Group: FinTech & Web3",
+        "need": "Need partner for blockchain",
+        "offer": "Expertise in defi and payment_gateway"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_075",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "User 75 (blockchain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on blockchain for group L2 Group: FinTech & Web3",
+        "need": "Need partner for payment_gateway",
+        "offer": "Expertise in blockchain and compliance"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000075",
+      "wechat": "wx_user_l2_075"
+    },
+    {
+      "user_id": "user_l2_076",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 76 (crm)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "owner",
+      "profile": {
+        "doing": "Working on crm for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for erp",
+        "offer": "Expertise in crm and devops"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_077",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 77 (erp)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on erp for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for devops",
+        "offer": "Expertise in erp and kubernetes"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_078",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 78 (devops)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on devops for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for kubernetes",
+        "offer": "Expertise in devops and sales"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_079",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 79 (kubernetes)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on kubernetes for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for sales",
+        "offer": "Expertise in kubernetes and crm"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_080",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 80 (sales)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on sales for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for crm",
+        "offer": "Expertise in sales and erp"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000080",
+      "wechat": "wx_user_l2_080"
+    },
+    {
+      "user_id": "user_l2_081",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 81 (crm)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on crm for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for erp",
+        "offer": "Expertise in crm and devops"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_082",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 82 (erp)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on erp for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for devops",
+        "offer": "Expertise in erp and kubernetes"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_083",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 83 (devops)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on devops for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for kubernetes",
+        "offer": "Expertise in devops and sales"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_084",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 84 (kubernetes)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on kubernetes for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for sales",
+        "offer": "Expertise in kubernetes and crm"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_085",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 85 (sales)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on sales for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for crm",
+        "offer": "Expertise in sales and erp"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000085",
+      "wechat": "wx_user_l2_085"
+    },
+    {
+      "user_id": "user_l2_086",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 86 (crm)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on crm for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for erp",
+        "offer": "Expertise in crm and devops"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_087",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 87 (erp)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on erp for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for devops",
+        "offer": "Expertise in erp and kubernetes"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_088",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 88 (devops)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on devops for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for kubernetes",
+        "offer": "Expertise in devops and sales"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_089",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 89 (kubernetes)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on kubernetes for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for sales",
+        "offer": "Expertise in kubernetes and crm"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_090",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 90 (sales)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on sales for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for crm",
+        "offer": "Expertise in sales and erp"
+      },
+      "disclosure_level": "inferred_unconfirmed",
+      "phone": "+8613900000090",
+      "wechat": "wx_user_l2_090"
+    },
+    {
+      "user_id": "user_l2_091",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 91 (crm)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on crm for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for erp",
+        "offer": "Expertise in crm and devops"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_092",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 92 (erp)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on erp for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for devops",
+        "offer": "Expertise in erp and kubernetes"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_093",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 93 (devops)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on devops for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for kubernetes",
+        "offer": "Expertise in devops and sales"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_094",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 94 (kubernetes)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on kubernetes for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for sales",
+        "offer": "Expertise in kubernetes and crm"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_095",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 95 (sales)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on sales for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for crm",
+        "offer": "Expertise in sales and erp"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000095",
+      "wechat": "wx_user_l2_095"
+    },
+    {
+      "user_id": "user_l2_096",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 96 (crm)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on crm for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for erp",
+        "offer": "Expertise in crm and devops"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_097",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 97 (erp)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on erp for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for devops",
+        "offer": "Expertise in erp and kubernetes"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_098",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 98 (devops)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on devops for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for kubernetes",
+        "offer": "Expertise in devops and sales"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_099",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 99 (kubernetes)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on kubernetes for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for sales",
+        "offer": "Expertise in kubernetes and crm"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_100",
+      "group_id": "group_l2_04_saas",
+      "display_name": "User 100 (sales)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on sales for group L2 Group: Enterprise B2B SaaS",
+        "need": "Need partner for crm",
+        "offer": "Expertise in sales and erp"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000100",
+      "wechat": "wx_user_l2_100"
+    },
+    {
+      "user_id": "user_l2_101",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 101 (embedded)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "owner",
+      "profile": {
+        "doing": "Working on embedded for group L2 Group: IoT & Robotics",
+        "need": "Need partner for circuit",
+        "offer": "Expertise in embedded and robotics"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_102",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 102 (circuit)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on circuit for group L2 Group: IoT & Robotics",
+        "need": "Need partner for robotics",
+        "offer": "Expertise in circuit and ros"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_103",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 103 (robotics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on robotics for group L2 Group: IoT & Robotics",
+        "need": "Need partner for ros",
+        "offer": "Expertise in robotics and manufacturing"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_104",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 104 (ros)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on ros for group L2 Group: IoT & Robotics",
+        "need": "Need partner for manufacturing",
+        "offer": "Expertise in ros and embedded"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_105",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 105 (manufacturing)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on manufacturing for group L2 Group: IoT & Robotics",
+        "need": "Need partner for embedded",
+        "offer": "Expertise in manufacturing and circuit"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000105",
+      "wechat": "wx_user_l2_105"
+    },
+    {
+      "user_id": "user_l2_106",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 106 (embedded)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on embedded for group L2 Group: IoT & Robotics",
+        "need": "Need partner for circuit",
+        "offer": "Expertise in embedded and robotics"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_107",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 107 (circuit)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on circuit for group L2 Group: IoT & Robotics",
+        "need": "Need partner for robotics",
+        "offer": "Expertise in circuit and ros"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_108",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 108 (robotics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on robotics for group L2 Group: IoT & Robotics",
+        "need": "Need partner for ros",
+        "offer": "Expertise in robotics and manufacturing"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_109",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 109 (ros)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on ros for group L2 Group: IoT & Robotics",
+        "need": "Need partner for manufacturing",
+        "offer": "Expertise in ros and embedded"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_110",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 110 (manufacturing)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on manufacturing for group L2 Group: IoT & Robotics",
+        "need": "Need partner for embedded",
+        "offer": "Expertise in manufacturing and circuit"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000110",
+      "wechat": "wx_user_l2_110"
+    },
+    {
+      "user_id": "user_l2_111",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 111 (embedded)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on embedded for group L2 Group: IoT & Robotics",
+        "need": "Need partner for circuit",
+        "offer": "Expertise in embedded and robotics"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_112",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 112 (circuit)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on circuit for group L2 Group: IoT & Robotics",
+        "need": "Need partner for robotics",
+        "offer": "Expertise in circuit and ros"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_113",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 113 (robotics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on robotics for group L2 Group: IoT & Robotics",
+        "need": "Need partner for ros",
+        "offer": "Expertise in robotics and manufacturing"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_114",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 114 (ros)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on ros for group L2 Group: IoT & Robotics",
+        "need": "Need partner for manufacturing",
+        "offer": "Expertise in ros and embedded"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_115",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 115 (manufacturing)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on manufacturing for group L2 Group: IoT & Robotics",
+        "need": "Need partner for embedded",
+        "offer": "Expertise in manufacturing and circuit"
+      },
+      "disclosure_level": "inferred_unconfirmed",
+      "phone": "+8613900000115",
+      "wechat": "wx_user_l2_115"
+    },
+    {
+      "user_id": "user_l2_116",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 116 (embedded)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on embedded for group L2 Group: IoT & Robotics",
+        "need": "Need partner for circuit",
+        "offer": "Expertise in embedded and robotics"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_117",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 117 (circuit)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on circuit for group L2 Group: IoT & Robotics",
+        "need": "Need partner for robotics",
+        "offer": "Expertise in circuit and ros"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_118",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 118 (robotics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on robotics for group L2 Group: IoT & Robotics",
+        "need": "Need partner for ros",
+        "offer": "Expertise in robotics and manufacturing"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_119",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 119 (ros)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on ros for group L2 Group: IoT & Robotics",
+        "need": "Need partner for manufacturing",
+        "offer": "Expertise in ros and embedded"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_120",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 120 (manufacturing)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on manufacturing for group L2 Group: IoT & Robotics",
+        "need": "Need partner for embedded",
+        "offer": "Expertise in manufacturing and circuit"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000120",
+      "wechat": "wx_user_l2_120"
+    },
+    {
+      "user_id": "user_l2_121",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 121 (embedded)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on embedded for group L2 Group: IoT & Robotics",
+        "need": "Need partner for circuit",
+        "offer": "Expertise in embedded and robotics"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_122",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 122 (circuit)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on circuit for group L2 Group: IoT & Robotics",
+        "need": "Need partner for robotics",
+        "offer": "Expertise in circuit and ros"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_123",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 123 (robotics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on robotics for group L2 Group: IoT & Robotics",
+        "need": "Need partner for ros",
+        "offer": "Expertise in robotics and manufacturing"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_124",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 124 (ros)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on ros for group L2 Group: IoT & Robotics",
+        "need": "Need partner for manufacturing",
+        "offer": "Expertise in ros and embedded"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_125",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "User 125 (manufacturing)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on manufacturing for group L2 Group: IoT & Robotics",
+        "need": "Need partner for embedded",
+        "offer": "Expertise in manufacturing and circuit"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000125",
+      "wechat": "wx_user_l2_125"
+    },
+    {
+      "user_id": "user_l2_126",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 126 (medical_ai)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "owner",
+      "profile": {
+        "doing": "Working on medical_ai for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for fda",
+        "offer": "Expertise in medical_ai and clinical"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_127",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 127 (fda)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on fda for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for clinical",
+        "offer": "Expertise in fda and genomics"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_128",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 128 (clinical)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on clinical for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for genomics",
+        "offer": "Expertise in clinical and medical_ai"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_129",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 129 (genomics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on genomics for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for medical_ai",
+        "offer": "Expertise in genomics and fda"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_130",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 130 (medical_ai)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on medical_ai for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for fda",
+        "offer": "Expertise in medical_ai and clinical"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000130",
+      "wechat": "wx_user_l2_130"
+    },
+    {
+      "user_id": "user_l2_131",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 131 (fda)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on fda for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for clinical",
+        "offer": "Expertise in fda and genomics"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_132",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 132 (clinical)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on clinical for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for genomics",
+        "offer": "Expertise in clinical and medical_ai"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_133",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 133 (genomics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on genomics for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for medical_ai",
+        "offer": "Expertise in genomics and fda"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_134",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 134 (medical_ai)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on medical_ai for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for fda",
+        "offer": "Expertise in medical_ai and clinical"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_135",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 135 (fda)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on fda for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for clinical",
+        "offer": "Expertise in fda and genomics"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000135",
+      "wechat": "wx_user_l2_135"
+    },
+    {
+      "user_id": "user_l2_136",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 136 (clinical)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on clinical for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for genomics",
+        "offer": "Expertise in clinical and medical_ai"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_137",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 137 (genomics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on genomics for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for medical_ai",
+        "offer": "Expertise in genomics and fda"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_138",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 138 (medical_ai)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on medical_ai for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for fda",
+        "offer": "Expertise in medical_ai and clinical"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_139",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 139 (fda)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on fda for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for clinical",
+        "offer": "Expertise in fda and genomics"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_140",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 140 (clinical)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on clinical for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for genomics",
+        "offer": "Expertise in clinical and medical_ai"
+      },
+      "disclosure_level": "inferred_unconfirmed",
+      "phone": "+8613900000140",
+      "wechat": "wx_user_l2_140"
+    },
+    {
+      "user_id": "user_l2_141",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 141 (genomics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on genomics for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for medical_ai",
+        "offer": "Expertise in genomics and fda"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_142",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 142 (medical_ai)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on medical_ai for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for fda",
+        "offer": "Expertise in medical_ai and clinical"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_143",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 143 (fda)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on fda for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for clinical",
+        "offer": "Expertise in fda and genomics"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_144",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 144 (clinical)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on clinical for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for genomics",
+        "offer": "Expertise in clinical and medical_ai"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_145",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 145 (genomics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on genomics for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for medical_ai",
+        "offer": "Expertise in genomics and fda"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000145",
+      "wechat": "wx_user_l2_145"
+    },
+    {
+      "user_id": "user_l2_146",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 146 (medical_ai)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on medical_ai for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for fda",
+        "offer": "Expertise in medical_ai and clinical"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_147",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 147 (fda)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on fda for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for clinical",
+        "offer": "Expertise in fda and genomics"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_148",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 148 (clinical)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on clinical for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for genomics",
+        "offer": "Expertise in clinical and medical_ai"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_149",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 149 (genomics)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on genomics for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for medical_ai",
+        "offer": "Expertise in genomics and fda"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_150",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "User 150 (medical_ai)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on medical_ai for group L2 Group: BioTech & Digital Health",
+        "need": "Need partner for fda",
+        "offer": "Expertise in medical_ai and clinical"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000150",
+      "wechat": "wx_user_l2_150"
+    },
+    {
+      "user_id": "user_l2_151",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 151 (online_course)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "owner",
+      "profile": {
+        "doing": "Working on online_course for group L2 Group: EdTech & Content",
+        "need": "Need partner for k12",
+        "offer": "Expertise in online_course and learning_lms"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_152",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 152 (k12)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on k12 for group L2 Group: EdTech & Content",
+        "need": "Need partner for learning_lms",
+        "offer": "Expertise in k12 and video"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_153",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 153 (learning_lms)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on learning_lms for group L2 Group: EdTech & Content",
+        "need": "Need partner for video",
+        "offer": "Expertise in learning_lms and online_course"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_154",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 154 (video)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on video for group L2 Group: EdTech & Content",
+        "need": "Need partner for online_course",
+        "offer": "Expertise in video and k12"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_155",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 155 (online_course)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on online_course for group L2 Group: EdTech & Content",
+        "need": "Need partner for k12",
+        "offer": "Expertise in online_course and learning_lms"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000155",
+      "wechat": "wx_user_l2_155"
+    },
+    {
+      "user_id": "user_l2_156",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 156 (k12)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on k12 for group L2 Group: EdTech & Content",
+        "need": "Need partner for learning_lms",
+        "offer": "Expertise in k12 and video"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_157",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 157 (learning_lms)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on learning_lms for group L2 Group: EdTech & Content",
+        "need": "Need partner for video",
+        "offer": "Expertise in learning_lms and online_course"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_158",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 158 (video)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on video for group L2 Group: EdTech & Content",
+        "need": "Need partner for online_course",
+        "offer": "Expertise in video and k12"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_159",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 159 (online_course)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on online_course for group L2 Group: EdTech & Content",
+        "need": "Need partner for k12",
+        "offer": "Expertise in online_course and learning_lms"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_160",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 160 (k12)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on k12 for group L2 Group: EdTech & Content",
+        "need": "Need partner for learning_lms",
+        "offer": "Expertise in k12 and video"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000160",
+      "wechat": "wx_user_l2_160"
+    },
+    {
+      "user_id": "user_l2_161",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 161 (learning_lms)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on learning_lms for group L2 Group: EdTech & Content",
+        "need": "Need partner for video",
+        "offer": "Expertise in learning_lms and online_course"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_162",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 162 (video)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on video for group L2 Group: EdTech & Content",
+        "need": "Need partner for online_course",
+        "offer": "Expertise in video and k12"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_163",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 163 (online_course)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on online_course for group L2 Group: EdTech & Content",
+        "need": "Need partner for k12",
+        "offer": "Expertise in online_course and learning_lms"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_164",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 164 (k12)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on k12 for group L2 Group: EdTech & Content",
+        "need": "Need partner for learning_lms",
+        "offer": "Expertise in k12 and video"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_165",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 165 (learning_lms)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on learning_lms for group L2 Group: EdTech & Content",
+        "need": "Need partner for video",
+        "offer": "Expertise in learning_lms and online_course"
+      },
+      "disclosure_level": "inferred_unconfirmed",
+      "phone": "+8613900000165",
+      "wechat": "wx_user_l2_165"
+    },
+    {
+      "user_id": "user_l2_166",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 166 (video)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on video for group L2 Group: EdTech & Content",
+        "need": "Need partner for online_course",
+        "offer": "Expertise in video and k12"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_167",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 167 (online_course)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on online_course for group L2 Group: EdTech & Content",
+        "need": "Need partner for k12",
+        "offer": "Expertise in online_course and learning_lms"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_168",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 168 (k12)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on k12 for group L2 Group: EdTech & Content",
+        "need": "Need partner for learning_lms",
+        "offer": "Expertise in k12 and video"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_169",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 169 (learning_lms)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on learning_lms for group L2 Group: EdTech & Content",
+        "need": "Need partner for video",
+        "offer": "Expertise in learning_lms and online_course"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_170",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 170 (video)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on video for group L2 Group: EdTech & Content",
+        "need": "Need partner for online_course",
+        "offer": "Expertise in video and k12"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000170",
+      "wechat": "wx_user_l2_170"
+    },
+    {
+      "user_id": "user_l2_171",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 171 (online_course)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on online_course for group L2 Group: EdTech & Content",
+        "need": "Need partner for k12",
+        "offer": "Expertise in online_course and learning_lms"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_172",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 172 (k12)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on k12 for group L2 Group: EdTech & Content",
+        "need": "Need partner for learning_lms",
+        "offer": "Expertise in k12 and video"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_173",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 173 (learning_lms)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on learning_lms for group L2 Group: EdTech & Content",
+        "need": "Need partner for video",
+        "offer": "Expertise in learning_lms and online_course"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_174",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 174 (video)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on video for group L2 Group: EdTech & Content",
+        "need": "Need partner for online_course",
+        "offer": "Expertise in video and k12"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_175",
+      "group_id": "group_l2_07_education",
+      "display_name": "User 175 (online_course)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on online_course for group L2 Group: EdTech & Content",
+        "need": "Need partner for k12",
+        "offer": "Expertise in online_course and learning_lms"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000175",
+      "wechat": "wx_user_l2_175"
+    },
+    {
+      "user_id": "user_l2_176",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 176 (d2c)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "owner",
+      "profile": {
+        "doing": "Working on d2c for group L2 Group: Consumer Brands",
+        "need": "Need partner for branding",
+        "offer": "Expertise in d2c and supply_chain"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_177",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 177 (branding)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on branding for group L2 Group: Consumer Brands",
+        "need": "Need partner for supply_chain",
+        "offer": "Expertise in branding and packaging"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_178",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 178 (supply_chain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {
+        "doing": "Working on supply_chain for group L2 Group: Consumer Brands",
+        "need": "Need partner for packaging",
+        "offer": "Expertise in supply_chain and d2c"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_179",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 179 (packaging)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on packaging for group L2 Group: Consumer Brands",
+        "need": "Need partner for d2c",
+        "offer": "Expertise in packaging and branding"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_180",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 180 (d2c)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on d2c for group L2 Group: Consumer Brands",
+        "need": "Need partner for branding",
+        "offer": "Expertise in d2c and supply_chain"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000180",
+      "wechat": "wx_user_l2_180"
+    },
+    {
+      "user_id": "user_l2_181",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 181 (branding)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on branding for group L2 Group: Consumer Brands",
+        "need": "Need partner for supply_chain",
+        "offer": "Expertise in branding and packaging"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_182",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 182 (supply_chain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on supply_chain for group L2 Group: Consumer Brands",
+        "need": "Need partner for packaging",
+        "offer": "Expertise in supply_chain and d2c"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_183",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 183 (packaging)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on packaging for group L2 Group: Consumer Brands",
+        "need": "Need partner for d2c",
+        "offer": "Expertise in packaging and branding"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_184",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 184 (d2c)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on d2c for group L2 Group: Consumer Brands",
+        "need": "Need partner for branding",
+        "offer": "Expertise in d2c and supply_chain"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_185",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 185 (branding)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on branding for group L2 Group: Consumer Brands",
+        "need": "Need partner for supply_chain",
+        "offer": "Expertise in branding and packaging"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000185",
+      "wechat": "wx_user_l2_185"
+    },
+    {
+      "user_id": "user_l2_186",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 186 (supply_chain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on supply_chain for group L2 Group: Consumer Brands",
+        "need": "Need partner for packaging",
+        "offer": "Expertise in supply_chain and d2c"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_187",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 187 (packaging)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on packaging for group L2 Group: Consumer Brands",
+        "need": "Need partner for d2c",
+        "offer": "Expertise in packaging and branding"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_188",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 188 (d2c)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on d2c for group L2 Group: Consumer Brands",
+        "need": "Need partner for branding",
+        "offer": "Expertise in d2c and supply_chain"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_189",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 189 (branding)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on branding for group L2 Group: Consumer Brands",
+        "need": "Need partner for supply_chain",
+        "offer": "Expertise in branding and packaging"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_190",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 190 (supply_chain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on supply_chain for group L2 Group: Consumer Brands",
+        "need": "Need partner for packaging",
+        "offer": "Expertise in supply_chain and d2c"
+      },
+      "disclosure_level": "inferred_unconfirmed",
+      "phone": "+8613900000190",
+      "wechat": "wx_user_l2_190"
+    },
+    {
+      "user_id": "user_l2_191",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 191 (packaging)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on packaging for group L2 Group: Consumer Brands",
+        "need": "Need partner for d2c",
+        "offer": "Expertise in packaging and branding"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_192",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 192 (d2c)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on d2c for group L2 Group: Consumer Brands",
+        "need": "Need partner for branding",
+        "offer": "Expertise in d2c and supply_chain"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_193",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 193 (branding)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on branding for group L2 Group: Consumer Brands",
+        "need": "Need partner for supply_chain",
+        "offer": "Expertise in branding and packaging"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_194",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 194 (supply_chain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on supply_chain for group L2 Group: Consumer Brands",
+        "need": "Need partner for packaging",
+        "offer": "Expertise in supply_chain and d2c"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_195",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 195 (packaging)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on packaging for group L2 Group: Consumer Brands",
+        "need": "Need partner for d2c",
+        "offer": "Expertise in packaging and branding"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000195",
+      "wechat": "wx_user_l2_195"
+    },
+    {
+      "user_id": "user_l2_196",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 196 (d2c)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on d2c for group L2 Group: Consumer Brands",
+        "need": "Need partner for branding",
+        "offer": "Expertise in d2c and supply_chain"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_197",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 197 (branding)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on branding for group L2 Group: Consumer Brands",
+        "need": "Need partner for supply_chain",
+        "offer": "Expertise in branding and packaging"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_198",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 198 (supply_chain)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on supply_chain for group L2 Group: Consumer Brands",
+        "need": "Need partner for packaging",
+        "offer": "Expertise in supply_chain and d2c"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_199",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 199 (packaging)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on packaging for group L2 Group: Consumer Brands",
+        "need": "Need partner for d2c",
+        "offer": "Expertise in packaging and branding"
+      },
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "user_l2_200",
+      "group_id": "group_l2_08_consumer",
+      "display_name": "User 200 (d2c)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Working on d2c for group L2 Group: Consumer Brands",
+        "need": "Need partner for branding",
+        "offer": "Expertise in d2c and supply_chain"
+      },
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613900000200",
+      "wechat": "wx_user_l2_200"
+    },
+    {
+      "user_id": "user_l2_005",
+      "group_id": "group_l2_02_ecommerce",
+      "display_name": "Dual Identity user_l2_005 in group_l2_02_ecommerce",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Cross-domain consulting in group_l2_02_ecommerce",
+        "need": "Co-founder",
+        "offer": "Secondary domain skills"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_010",
+      "group_id": "group_l2_03_fintech",
+      "display_name": "Dual Identity user_l2_010 in group_l2_03_fintech",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Cross-domain consulting in group_l2_03_fintech",
+        "need": "Co-founder",
+        "offer": "Secondary domain skills"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_015",
+      "group_id": "group_l2_04_saas",
+      "display_name": "Dual Identity user_l2_015 in group_l2_04_saas",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Cross-domain consulting in group_l2_04_saas",
+        "need": "Co-founder",
+        "offer": "Secondary domain skills"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_020",
+      "group_id": "group_l2_05_hardware",
+      "display_name": "Dual Identity user_l2_020 in group_l2_05_hardware",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Cross-domain consulting in group_l2_05_hardware",
+        "need": "Co-founder",
+        "offer": "Secondary domain skills"
+      },
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "user_l2_025",
+      "group_id": "group_l2_06_healthcare",
+      "display_name": "Dual Identity user_l2_025 in group_l2_06_healthcare",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {
+        "doing": "Cross-domain consulting in group_l2_06_healthcare",
+        "need": "Co-founder",
+        "offer": "Secondary domain skills"
+      },
+      "disclosure_level": "confirmed_public"
+    }
+  ]
+}

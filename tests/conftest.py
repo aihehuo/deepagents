@@ -1,5 +1,6 @@
 """Pytest configuration for tests."""
 
+import os
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -27,6 +28,22 @@ except ImportError:
 
 
 # ========== Dual-Agent Test Fixtures ==========
+
+
+@pytest.fixture(autouse=True)
+def _default_group_agent_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide a non-routable placeholder New API base for group_agent tests.
+
+    Production/http mode now requires GROUP_AGENT_NEW_API_BASE to be set
+    explicitly (no baked-in production URL). Tests that exercise http mode but
+    don't care about the exact host get a safe example.invalid placeholder so
+    they don't fail closed on the missing base. Tests that assert the
+    fail-closed behavior itself pop this var explicitly.
+    """
+    if not os.environ.get("GROUP_AGENT_NEW_API_BASE"):
+        monkeypatch.setenv(
+            "GROUP_AGENT_NEW_API_BASE", "http://new-api.example.invalid:3000"
+        )
 
 
 @pytest.fixture

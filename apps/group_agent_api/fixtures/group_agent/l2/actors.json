@@ -1,0 +1,46 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L2",
+  "actors": [
+    {
+      "actor_id": "actor_01",
+      "name": "Test Actor 1"
+    },
+    {
+      "actor_id": "actor_02",
+      "name": "Test Actor 2"
+    },
+    {
+      "actor_id": "actor_03",
+      "name": "Test Actor 3"
+    },
+    {
+      "actor_id": "actor_04",
+      "name": "Test Actor 4"
+    },
+    {
+      "actor_id": "actor_05",
+      "name": "Test Actor 5"
+    },
+    {
+      "actor_id": "actor_06",
+      "name": "Test Actor 6"
+    },
+    {
+      "actor_id": "actor_07",
+      "name": "Test Actor 7"
+    },
+    {
+      "actor_id": "actor_08",
+      "name": "Test Actor 8"
+    },
+    {
+      "actor_id": "actor_09",
+      "name": "Test Actor 9"
+    },
+    {
+      "actor_id": "actor_10",
+      "name": "Test Actor 10"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L1",
+  "groups": [
+    {
+      "group_id": "group_l1_alpha",
+      "name": "AI Co-founder Alpha Group",
+      "description": "AI startup co-founders and tech leaders",
+      "topic_tags": ["ai", "tech", "cofounder"]
+    },
+    {
+      "group_id": "group_l1_beta",
+      "name": "E-Commerce Beta Group",
+      "description": "Cross-border e-commerce and supply chain",
+      "topic_tags": ["ecommerce", "supply_chain", "marketing"]
+    }
+  ]
+}

@@ -10,7 +10,7 @@ from apps.wu_tanchang_api.app.callbacks import (
     build_callback_thread,
     validate_callback_url,
 )
-from apps.wu_tanchang_api.app.endpoints.chat import resolve_dynamic_agent
+from apps.wu_tanchang_api.app.endpoints.chat import resolve_dynamic_agent, UC18Observer
 from apps.wu_tanchang_api.app.models import (
     CallWuTanchangAsyncRequest,
     CallWuTanchangAsyncResponse,
@@ -45,6 +45,9 @@ async def call_async(
     )
     tid = thread_id(
         agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id
+    )
+    UC18Observer.info(
+        f"action=consult_async_start user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} message_len={len(req.message or '')} callback={req.callback}"
     )
 
     try:
@@ -116,6 +119,9 @@ async def call_async(
             agent_name,
             tid,
         )
+        UC18Observer.info(
+            f"action=consult_async_success user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid}"
+        )
         return CallWuTanchangAsyncResponse(
             success=True,
             session_id=tid,
@@ -130,6 +136,9 @@ async def call_async(
             "POST /call_async failed thread_id=%s\n%s",
             tid,
             traceback.format_exc(),
+        )
+        UC18Observer.error(
+            f"action=consult_async_error user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} error_type={type(exc).__name__} error_message={str(exc)}"
         )
         return CallWuTanchangAsyncResponse(
             success=False,

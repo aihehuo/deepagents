@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -23,10 +24,19 @@ from apps.wu_tanchang_api.app.utils import (
 
 _logger = logging.getLogger("uvicorn.error")
 
-# The guide message shown once material has been delivered
-_GUIDE_MESSAGE = """这份材料我已经准备好了。建议你预约吴探长一对一深聊，他会基于这份材料针对你的情况给出具体方案。
+from deepagents.observability import UCObserver
 
-你可以直接联系吴探长预约时间，或者告诉我你需要什么帮助来安排这次深聊？"""
+
+class UC18Observer(UCObserver):
+    """Observer for UC-18 (吴探长前置咨询)."""
+
+    uc_name = "18_wu_tanchang_consult"
+
+
+class UC25Observer(UCObserver):
+    """Observer for UC-25 (会议准备材料)."""
+
+    uc_name = "25_meeting_prep"
 
 
 async def resolve_dynamic_agent(
@@ -178,32 +188,11 @@ async def _resolve_agent(state: AppState, agent_name: str) -> tuple[str, Any]:
     return await resolve_dynamic_agent(state, "", {}, agent_name)
 
 
-async def _has_delivered_material(agent: Any, tid: str) -> bool:
-    """Check if the agent has already delivered material for this thread.
-
-    Looks for a `mark_material_delivered` tool call in the checkpoint history.
-    """
-    state_snapshot = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
-    if state_snapshot is None or not state_snapshot.values:
-        return False
-    messages = state_snapshot.values.get("messages", [])
-    for msg in messages:
-        # Check for ToolMessage with matching name
-        if (
-            isinstance(msg, ToolMessage)
-            and getattr(msg, "name", None) == "mark_material_delivered"
-        ):
-            return True
-        # Check for tool_calls on AIMessage
-        if isinstance(msg, AIMessage):
-            for tc in msg.tool_calls or []:
-                if tc.get("name") == "mark_material_delivered":
-                    return True
-    return False
 
 
 async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
     """Handle a conversation turn."""
+    start_time = time.time()
     agent_name, agent = await resolve_dynamic_agent(
         state, req.user_id, req.metadata or {}, req.agent_name
     )
@@ -211,7 +200,14 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
         agent_name=agent_name, user_id=req.user_id, conversation_id=req.conversation_id
     )
 
+    UC18Observer.info(
+        f"action=consult_start user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} message_len={len(req.message)}"
+    )
+
     if not state.try_start_agent_run(tid, "chat"):
+        UC18Observer.warn(
+            f"action=consult_rejected user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} reason=run_already_in_progress"
+        )
         raise HTTPException(
             status_code=409,
             detail={
@@ -286,6 +282,10 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                     req.conversation_id,
                     traceback.format_exc(),
                 )
+                latency_ms = int((time.time() - start_time) * 1000)
+                UC18Observer.error(
+                    f"action=consult_error user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} latency_ms={latency_ms} error_type={type(exc).__name__} error_message={str(exc)}"
+                )
                 raise HTTPException(
                     status_code=502,
                     detail={
@@ -316,6 +316,11 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
         parts.append(content)
     reply = "\n\n".join(parts)
 
+    latency_ms = int((time.time() - start_time) * 1000)
+    UC18Observer.info(
+        f"action=consult_success user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} reply_len={len(reply)} latency_ms={latency_ms}"
+    )
+
     return ChatResponse(
         user_id=req.user_id,
         conversation_id=req.conversation_id,
@@ -342,12 +347,21 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
 
     async def _gen() -> None:
         final_parts: list[str] = []
+        request_start_time = time.time()
+
+        UC18Observer.info(
+            f"action=consult_stream_start user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid}"
+        )
+
         if not state.try_start_agent_run(tid, "chat_stream"):
             detail = {
                 "error": "stream_in_progress",
                 "message": "Agent run already in progress for this conversation",
                 "thread_id": tid,
             }
+            UC18Observer.warn(
+                f"action=consult_stream_rejected user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} reason=run_already_in_progress"
+            )
             yield f"data: {json.dumps({'type': 'error', 'detail': detail}, ensure_ascii=False)}\n\n"
             return
         from apps.wu_tanchang_api.agent_factory.agent import register_active_agent
@@ -433,6 +447,10 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                         req.conversation_id,
                         traceback.format_exc(),
                     )
+                    latency_ms = int((time.time() - request_start_time) * 1000)
+                    UC18Observer.error(
+                        f"action=consult_stream_error user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} latency_ms={latency_ms} error_type={type(exc).__name__} error_message={str(exc)}"
+                    )
                     detail = {
                         "error_type": type(exc).__name__,
                         "error_message": str(exc),
@@ -472,6 +490,10 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                 parts.append(content)
             reply = "\n\n".join(parts)
 
+        latency_ms = int((time.time() - request_start_time) * 1000)
+        UC18Observer.info(
+            f"action=consult_stream_success user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} reply_len={len(reply)} latency_ms={latency_ms}"
+        )
         yield f"data: {json.dumps({'type': 'final', 'text': reply}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(_gen(), media_type="text/event-stream; charset=utf-8")

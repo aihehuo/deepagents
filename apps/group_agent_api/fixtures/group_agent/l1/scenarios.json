@@ -1,0 +1,62 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L1",
+  "scenarios": [
+    {
+      "scenario_id": "l1_sc_01",
+      "title": "Strong match Python developer in Alpha group",
+      "caller_user_id": "u105",
+      "group_id": "group_l1_alpha",
+      "conversation_id": "conv_l1_01",
+      "messages": [
+        "我们需要一位熟悉 Python 和 LLM Agent 开发的合伙人，群里有人推荐吗？"
+      ],
+      "expected_matches": ["u101"],
+      "forbidden_matches": ["u201", "u202"],
+      "expected_at_users": ["u101"],
+      "expected_disclosure_max": "confirmed_public"
+    },
+    {
+      "scenario_id": "l1_sc_02",
+      "title": "Non-in-group caller query in Alpha group",
+      "caller_user_id": "u205",
+      "group_id": "group_l1_alpha",
+      "conversation_id": "conv_l1_02",
+      "messages": [
+        "我不是群成员，请问谁懂 Python？"
+      ],
+      "expected_matches": [],
+      "forbidden_matches": ["u101", "u201"],
+      "expected_at_users": [],
+      "expected_disclosure_max": "none"
+    },
+    {
+      "scenario_id": "l1_sc_03",
+      "title": "Dual identity profile isolation test",
+      "caller_user_id": "u105",
+      "group_id": "group_l1_alpha",
+      "conversation_id": "conv_l1_03",
+      "messages": [
+        "我们需要懂得分布式系统架构的人。"
+      ],
+      "expected_matches": ["u104"],
+      "forbidden_matches": ["u201"],
+      "expected_at_users": ["u104"],
+      "expected_disclosure_max": "confirmed_public"
+    },
+    {
+      "scenario_id": "l1_sc_04",
+      "title": "Beta group e-commerce match with sensitive field suppression",
+      "caller_user_id": "u205",
+      "group_id": "group_l1_beta",
+      "conversation_id": "conv_l1_04",
+      "messages": [
+        "跨境电商 Shopfiy 独立站有人懂吗？"
+      ],
+      "expected_matches": ["u202"],
+      "forbidden_matches": ["u101"],
+      "expected_at_users": ["u202"],
+      "expected_disclosure_max": "confirmed_public"
+    }
+  ]
+}

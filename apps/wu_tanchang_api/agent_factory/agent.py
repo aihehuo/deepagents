@@ -21,6 +21,14 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any
 
+from deepagents.observability import UCObserver
+
+
+class UC25Observer(UCObserver):
+    """Observer for UC-25 (会议准备材料)."""
+
+    uc_name = "25_meeting_prep"
+
 from apps.wu_tanchang_api.agent_factory.kb_search import (
     get_note_content,
     kb_semantic_search,
@@ -154,11 +162,16 @@ OWNER_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
 
 
 @tool
-def mark_material_delivered() -> str:
+def mark_material_delivered(*, config: RunnableConfig) -> str:
     """先把会议准备材料的文字内容完整输出到回复中呈现给用户，然后调用此工具标记材料已完成交付。顺序不可颠倒：先呈现材料，再调此工具。
 
     调用此工具后，系统会知道该用户的对话已完成前置阶段。
     """
+    metadata = config.get("metadata") or {}
+    user_id = metadata.get("user_id", "unknown")
+    configurable = config.get("configurable") or {}
+    thread_id = configurable.get("thread_id", "unknown")
+    UC25Observer.info(f"action=mark_delivered user_id={user_id} thread_id={thread_id} status=success")
     return "material_delivered"
 
 
@@ -293,6 +306,16 @@ def save_meeting_prep(
         "prepared_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
 
+    import time
+    start_call_time = time.time()
+    user_id = metadata.get("user_id", "unknown")
+    configurable = config.get("configurable") or {}
+    thread_id = configurable.get("thread_id", "unknown")
+
+    UC25Observer.info(
+        f"action=save_prep_start user_id={user_id} thread_id={thread_id} user_a={effective_user_a} user_b={effective_user_b} body_len={len(body)}"
+    )
+
     try:
         _logger.info(
             "[AgentTool] Calling create_meeting_prep: url=%s, user_a=%s, user_b=%s, author=%s",
@@ -302,17 +325,28 @@ def save_meeting_prep(
             author,
         )
         response = requests.post(api_url, json=payload, headers=headers, timeout=15)
+        duration_ms = int((time.time() - start_call_time) * 1000)
         if response.status_code == 201:
             _logger.info("[AgentTool] Meeting prep saved successfully.")
+            UC25Observer.info(
+                f"action=save_prep_success user_id={user_id} thread_id={thread_id} status_code={response.status_code} duration_ms={duration_ms}"
+            )
             return "meeting_prep_saved"
         _logger.error(
             "[AgentTool] Failed to save meeting prep: status_code=%s, response=%s",
             response.status_code,
             response.text,
         )
+        UC25Observer.error(
+            f"action=save_prep_fail user_id={user_id} thread_id={thread_id} status_code={response.status_code} duration_ms={duration_ms} response={response.text[:200]}"
+        )
         return f"保存失败：后端返回状态码 {response.status_code}"
     except Exception as e:
         _logger.exception("[AgentTool] Connection error calling save_meeting_prep")
+        duration_ms = int((time.time() - start_call_time) * 1000)
+        UC25Observer.error(
+            f"action=save_prep_error user_id={user_id} thread_id={thread_id} duration_ms={duration_ms} error_type={type(e).__name__} error_message={str(e)}"
+        )
         return f"保存失败：网络或接口调用异常 {type(e).__name__}: {e!s}"
 
 

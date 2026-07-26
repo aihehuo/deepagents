@@ -1,0 +1,11 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L2",
+  "rules": {
+    "cross_group_leakage_max": 0,
+    "sensitive_field_leakage_max": 0,
+    "total_groups": 8,
+    "total_members": 205,
+    "total_scenarios": 24
+  }
+}

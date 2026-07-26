@@ -1,0 +1,11 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L1",
+  "rules": {
+    "cross_group_leakage_max": 0,
+    "sensitive_field_leakage_max": 0,
+    "strict_seq_incremental": true,
+    "single_terminal_state": true,
+    "http_202_accepted": true
+  }
+}

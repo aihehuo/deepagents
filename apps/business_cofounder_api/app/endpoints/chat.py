@@ -30,6 +30,14 @@ from apps.business_cofounder_api.app.utils import (
 # Use uvicorn's configured logger so output reliably shows up in the terminal.
 _logger = logging.getLogger("uvicorn.error")
 
+from deepagents.observability import UCObserver
+
+
+class UC16Observer(UCObserver):
+    """Observer for UC-16 (AI 商业合伙人对话)."""
+
+    uc_name = "16_ai_cofounder"
+
 
 async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
     """Synchronous chat endpoint.
@@ -48,6 +56,10 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
         len(req.message),
     )
     tid = thread_id(user_id=req.user_id, conversation_id=req.conversation_id)
+    start_time = time.time()
+    UC16Observer.info(
+        f"action=chat_start user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} message_len={len(req.message)}"
+    )
 
     lock = state.thread_locks.get(tid)
     if lock is None:
@@ -127,6 +139,9 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                 type(e).__name__,
                 str(e),
             )
+            UC16Observer.warn(
+                f"action=primary_failed user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} error_type={type(e).__name__} error_message={str(e)}"
+            )
             _logger.info("[ModelFallback] Falling back to deepseek...")
             try:
                 result = await state.fallback_agent.ainvoke(
@@ -148,6 +163,10 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
                     "[ModelFallback] Fallback agent (deepseek) also failed: %s: %s",
                     type(fallback_error).__name__,
                     str(fallback_error),
+                )
+                latency_ms = int((time.time() - start_time) * 1000)
+                UC16Observer.error(
+                    f"action=chat_error user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} latency_ms={latency_ms} error_type={type(fallback_error).__name__} error_message={str(fallback_error)}"
                 )
                 # Print a full traceback to server logs for local debugging.
                 _logger.exception(
@@ -177,6 +196,22 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
     messages = result.get("messages", [])
     ai_messages = [m for m in messages if getattr(m, "type", None) == "ai"]
     reply = str(ai_messages[-1].content) if ai_messages else ""
+
+    latency_ms = int((time.time() - start_time) * 1000)
+    token_info = ""
+    if ai_messages:
+        last_msg = ai_messages[-1]
+        response_metadata = getattr(last_msg, "response_metadata", {}) or {}
+        token_usage = response_metadata.get("token_usage") or {}
+        if token_usage:
+            token_info = f" prompt_tokens={token_usage.get('prompt_tokens', 0)} completion_tokens={token_usage.get('completion_tokens', 0)}"
+        model_provider = response_metadata.get("model_provider", "")
+        if model_provider:
+            token_info += f" model_provider={model_provider}"
+
+    UC16Observer.info(
+        f"action=chat_success user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} reply_len={len(reply)} latency_ms={latency_ms}{token_info}"
+    )
 
     log_chat_io(
         user_id=req.user_id,
@@ -225,6 +260,9 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
         len(req.message),
     )
     tid = thread_id(user_id=req.user_id, conversation_id=req.conversation_id)
+    UC16Observer.info(
+        f"action=chat_stream_start user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} message_len={len(req.message)}"
+    )
 
     lock = state.thread_locks.get(tid)
     if lock is None:
@@ -748,12 +786,19 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                     user_message=req.message,
                     reply=final_text,
                 )
+                latency_ms = int((time.time() - request_start_time) * 1000)
+                UC16Observer.info(
+                    f"action=chat_stream_success user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} reply_len={len(final_text)} latency_ms={latency_ms} agent_type=primary"
+                )
                 yield f"data: {json.dumps({'type':'final','text':final_text}, ensure_ascii=False)}\n\n"
             except Exception as e:  # noqa: BLE001
                 _logger.warning(
                     "[ModelFallback] Primary agent (qwen) failed during stream: %s: %s",
                     type(e).__name__,
                     str(e),
+                )
+                UC16Observer.warn(
+                    f"action=primary_stream_failed user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} error_type={type(e).__name__} error_message={str(e)}"
                 )
                 _logger.info("[ModelFallback] Falling back to deepseek...")
                 try:
@@ -1224,6 +1269,10 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                         user_message=req.message,
                         reply=final_text,
                     )
+                    latency_ms = int((time.time() - request_start_time) * 1000)
+                    UC16Observer.info(
+                        f"action=chat_stream_success user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} reply_len={len(final_text)} latency_ms={latency_ms} agent_type=fallback"
+                    )
                     yield f"data: {json.dumps({'type':'final','text':final_text}, ensure_ascii=False)}\n\n"
                     
                     # Check if expert sync is needed (dual-agent mode only)
@@ -1251,6 +1300,10 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                         "[ModelFallback] Fallback agent (deepseek) also failed during stream: %s: %s",
                         type(fallback_error).__name__,
                         str(fallback_error),
+                    )
+                    latency_ms = int((time.time() - request_start_time) * 1000)
+                    UC16Observer.error(
+                        f"action=chat_stream_error user_id={req.user_id} conversation_id={req.conversation_id} thread_id={tid} latency_ms={latency_ms} error_type={type(fallback_error).__name__} error_message={str(fallback_error)}"
                     )
                     _logger.exception(
                         "POST /chat/stream failed user_id=%s conversation_id=%s thread_id=%s error_type=%s error_message=%s",

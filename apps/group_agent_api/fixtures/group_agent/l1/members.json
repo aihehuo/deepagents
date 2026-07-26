@@ -1,0 +1,122 @@
+{
+  "schema_version": "GA-FIXTURE-V1",
+  "level": "L1",
+  "members": [
+    {
+      "user_id": "u101",
+      "group_id": "group_l1_alpha",
+      "display_name": "Alice AI Dev",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {"doing": "Building LLM agents", "need": "Frontend cofounder", "offer": "Python, LangChain, PyTorch"},
+      "disclosure_level": "confirmed_public",
+      "phone": "+8613800000001",
+      "wechat": "alice_wx",
+      "email": "alice@example.com"
+    },
+    {
+      "user_id": "u102",
+      "group_id": "group_l1_alpha",
+      "display_name": "Bob Analyst",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {"doing": "Data analysis for retail", "need": "Growth hacker", "offer": "SQL, Excel"},
+      "disclosure_level": "match_only",
+      "phone": "+8613800000002",
+      "private_notes": "Very sensitive contact info"
+    },
+    {
+      "user_id": "u103",
+      "group_id": "group_l1_alpha",
+      "display_name": "Charlie Silent",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {"doing": "Exploring opportunities", "need": "Ideas", "offer": "Angel investment"},
+      "disclosure_level": "inferred_unconfirmed"
+    },
+    {
+      "user_id": "u104",
+      "group_id": "group_l1_alpha",
+      "display_name": "David Tech Lead",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {"doing": "Distributed systems", "need": "AI researcher", "offer": "System architecture"},
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "u105",
+      "group_id": "group_l1_alpha",
+      "display_name": "Eve Caller Alpha",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "owner",
+      "profile": {"doing": "Starting AI agency", "need": "Python and LLM Agent developer", "offer": "Business BD"},
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "u201",
+      "group_id": "group_l1_beta",
+      "display_name": "Frank Super AI bait (Beta Group)",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {"doing": "Chief AI Architect in Beta group", "need": "Huge Projects", "offer": "World-class AI Expert"},
+      "disclosure_level": "confirmed_public",
+      "wechat": "frank_super_ai"
+    },
+    {
+      "user_id": "u202",
+      "group_id": "group_l1_beta",
+      "display_name": "Grace Ecomm",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {"doing": "Shopify store scaling", "need": "Supply chain expert", "offer": "FB ads, TikTok Shop"},
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "u203",
+      "group_id": "group_l1_beta",
+      "display_name": "Heidi Supply",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "member",
+      "profile": {"doing": "Overseas warehouse manager", "need": "Seller clients", "offer": "Logistics discount"},
+      "disclosure_level": "match_only"
+    },
+    {
+      "user_id": "u104",
+      "group_id": "group_l1_beta",
+      "display_name": "David Ecomm Investor",
+      "bound": true,
+      "membership": "in_group",
+      "reachable": true,
+      "role": "admin",
+      "profile": {"doing": "Investing in e-commerce SaaS", "need": "Profitable sellers", "offer": "Seed capital"},
+      "disclosure_level": "confirmed_public"
+    },
+    {
+      "user_id": "u205",
+      "group_id": "group_l1_beta",
+      "display_name": "Ivan Non-member Caller",
+      "bound": false,
+      "membership": "not_in_group",
+      "reachable": false,
+      "role": "guest",
+      "profile": {"doing": "Outside guest", "need": "Contacts", "offer": "None"},
+      "disclosure_level": "confirmed_public"
+    }
+  ]
+}

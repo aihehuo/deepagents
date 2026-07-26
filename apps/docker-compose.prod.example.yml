@@ -1,0 +1,96 @@
+# Example docker-compose for deploying DeepAgents apps.
+#
+# This is a GENERIC template. It contains no real registry, hostnames, mount
+# paths, or credentials. Copy it to your own private, untracked compose file
+# and adapt it to your infrastructure.
+#
+# Image references are REQUIRED and have no defaults: compose fails closed if
+# an image variable is unset, so it can never silently pull an unconfigured
+# or wrong image. Provide them via your environment or a private .env file:
+#
+#   BUSINESS_COFOUNDER_API_IMAGE=registry.example.invalid/deepagents/business-cofounder-api:<tag>
+#   WU_TANCHANG_API_IMAGE=registry.example.invalid/deepagents/wu-tanchang-api:<tag>
+#   GROUP_AGENT_API_IMAGE=registry.example.invalid/deepagents/group-agent-api:<40-char-sha>
+#
+# Ports bind to loopback (127.0.0.1) only. Do NOT expose the service on all
+# interfaces in production; put a reverse proxy in front if you need external
+# access.
+
+services:
+  business-cofounder-api:
+    image: ${BUSINESS_COFOUNDER_API_IMAGE:?BUSINESS_COFOUNDER_API_IMAGE is required}
+    container_name: business-cofounder-api
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:8001:8001"
+    env_file:
+      # Path to your own private, untracked env file (never commit real secrets).
+      - ./business-cofounder-api.docker.env
+    environment:
+      HOME: /home/appuser
+    volumes:
+      - ./data/business-cofounder-api:/home/appuser/.deepagents/business_cofounder_api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - agent_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  wu-tanchang-api:
+    image: ${WU_TANCHANG_API_IMAGE:?WU_TANCHANG_API_IMAGE is required}
+    container_name: wu-tanchang-api
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:8002:8001"
+    env_file:
+      - ./wu-tanchang-api.docker.env
+    environment:
+      HOME: /home/appuser
+    volumes:
+      - ./data/wu-tanchang-api:/home/appuser/.deepagents/wu_tanchang_api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - agent_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  group-agent-api:
+    image: ${GROUP_AGENT_API_IMAGE:?GROUP_AGENT_API_IMAGE is required}
+    container_name: group-agent-api
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:8003:8001"
+    env_file:
+      - ./group-agent-api.docker.env
+    environment:
+      HOME: /home/appuser
+    volumes:
+      - ./data/group-agent-api:/home/appuser/.deepagents/group_agent_api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - agent_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  agent_net:
+    external: true
+    name: agent_net

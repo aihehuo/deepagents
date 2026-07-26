@@ -29,6 +29,38 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP_DIR="${SCRIPT_DIR}/${APP_NAME}"
 
+if [ "$APP_NAME" = "group_agent_api" ]; then
+  if [ $# -lt 2 ] || [ -z "$2" ] || [ "$2" = "latest" ]; then
+    echo "Error: group_agent_api requires an explicit full 40-character commit SHA tag. 'latest' or empty tag is rejected."
+    exit 1
+  fi
+
+  if [[ ! "$TAG" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "Error: group_agent_api tag must be a full 40-character commit SHA, got: $TAG"
+    exit 1
+  fi
+
+  CURRENT_HEAD="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
+  if [ "$TAG" != "$CURRENT_HEAD" ]; then
+    echo "Error: Provided tag ($TAG) does not match current git HEAD ($CURRENT_HEAD)"
+    exit 1
+  fi
+
+  TRACKED_CHANGES="$(git -C "$REPO_ROOT" status --porcelain -uno 2>/dev/null || true)"
+  if [ -n "$TRACKED_CHANGES" ]; then
+    echo "Error: Working tree has tracked modifications. Commit all changes before building/deploying group_agent_api:"
+    echo "$TRACKED_CHANGES"
+    exit 1
+  fi
+
+  COPY_UNTRACKED="$(git -C "$REPO_ROOT" status --porcelain libs/deepagents apps/group_agent_api 2>/dev/null | grep '^\?\?' || true)"
+  if [ -n "$COPY_UNTRACKED" ]; then
+    echo "Error: Docker COPY source paths (libs/deepagents, apps/group_agent_api) contain untracked files:"
+    echo "$COPY_UNTRACKED"
+    exit 1
+  fi
+fi
+
 if [ ! -d "$APP_DIR" ]; then
   echo "Error: App directory not found: $APP_DIR"
   exit 1
@@ -76,19 +108,21 @@ echo ""
 echo "$ALIYUN_DOCKER_PASSWORD" | docker login --username "$USERNAME" --password-stdin "$REGISTRY"
 
 docker build -t "$IMAGE_NAME:$TAG" -f "${APP_DIR}/Dockerfile" "$REPO_ROOT"
-docker build -t "$IMAGE_NAME:latest" -f "${APP_DIR}/Dockerfile" "$REPO_ROOT"
-
 FULL_IMAGE="$REGISTRY/$IMAGE_NAME:$TAG"
-FULL_IMAGE_LATEST="$REGISTRY/$IMAGE_NAME:latest"
-
 docker tag "$IMAGE_NAME:$TAG" "$FULL_IMAGE"
-docker tag "$IMAGE_NAME:latest" "$FULL_IMAGE_LATEST"
-
 docker push "$FULL_IMAGE"
-docker push "$FULL_IMAGE_LATEST"
+
+if [ "$APP_NAME" != "group_agent_api" ]; then
+  docker build -t "$IMAGE_NAME:latest" -f "${APP_DIR}/Dockerfile" "$REPO_ROOT"
+  FULL_IMAGE_LATEST="$REGISTRY/$IMAGE_NAME:latest"
+  docker tag "$IMAGE_NAME:latest" "$FULL_IMAGE_LATEST"
+  docker push "$FULL_IMAGE_LATEST"
+fi
 
 echo ""
 echo "Pushed:"
 echo " - $FULL_IMAGE"
-echo " - $FULL_IMAGE_LATEST"
+if [ "$APP_NAME" != "group_agent_api" ]; then
+  echo " - $FULL_IMAGE_LATEST"
+fi
 

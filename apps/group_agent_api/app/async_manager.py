@@ -12,17 +12,19 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from apps.group_agent_api.agent_factory.agent import (
     FORCE_SAVE_PROMPT,
     PROFILE_SUPERSEDED_RESULT_PREFIX,
     UC34Observer,
+    save_group_profile,
 )
 from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
@@ -48,6 +50,7 @@ from apps.group_agent_api.app.utils import aget_agent_state, get_agent_checkpoin
 _logger = logging.getLogger("uvicorn.error")
 
 _MAX_IDEMPOTENCY_CACHE = 5_000
+_DETERMINISTIC_SAVE_TOOL_CALL_ID = "harness_deterministic_save"
 
 
 @dataclass
@@ -85,6 +88,7 @@ def determine_persistence_failure_reason(
 ) -> str:
     """Extract a desensitized, actionable failure reason from execution message traces."""
     save_tool_called = False
+    save_tool_call_ids: set[str] = set()
     last_tool_error: str | None = None
 
     for message in messages[start:]:
@@ -96,10 +100,23 @@ def determine_persistence_failure_reason(
                 name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
                 if name == "save_group_profile":
                     save_tool_called = True
+                    tool_call_id = (
+                        tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                    )
+                    if tool_call_id:
+                        save_tool_call_ids.add(str(tool_call_id))
 
-        if isinstance(message, ToolMessage) or (
-            hasattr(message, "name") and getattr(message, "name") == "save_group_profile"
-        ):
+    for message in messages[start:]:
+        if not isinstance(message, ToolMessage):
+            continue
+        tool_name = getattr(message, "name", None)
+        tool_call_id = str(getattr(message, "tool_call_id", "") or "")
+        is_save_result = (
+            tool_name == "save_group_profile"
+            or (bool(tool_call_id) and tool_call_id in save_tool_call_ids)
+        )
+        if is_save_result:
+            save_tool_called = True
             content = str(getattr(message, "content", "") or "").strip()
             if content.startswith("error:"):
                 last_tool_error = content
@@ -125,6 +142,85 @@ def determine_persistence_failure_reason(
 
     return "tool_execution_error"
 
+
+_EXPLICIT_PATTERNS = [
+    re.compile(
+        r"^\s*(?:正在推进|在做|做|项目|业务)[：:]?\s*(?P<doing>.+?)[，,；;\n]\s*"
+        r"(?:希望|需要|需求|寻找|求|缺)[：:]?\s*(?P<need>.+?)[，,；;\n]\s*"
+        r"(?:可以提供|可提供|提供|资源|技能)[：:]?\s*(?P<offer>.+?)[。.!！]?\s*$"
+    ),
+    re.compile(
+        r".*?(?:doing|在做|做|项目)[：:]\s*(?P<doing>[^\n,；;]+).*?"
+        r"(?:need|需求|需要|缺)[：:]\s*(?P<need>[^\n,；;]+).*?"
+        r"(?:offer|提供|资源)[：:]\s*(?P<offer>[^\n,；;.!！]+).*",
+        re.DOTALL | re.IGNORECASE,
+    ),
+]
+
+
+def extract_explicit_profile_dimensions(message: str) -> dict[str, str] | None:
+    """Extract a complete profile only from an explicit, unambiguous user statement.
+
+    This is deliberately narrower than model-based extraction. It provides a
+    deterministic last-resort path for explicit statement shapes
+    without guessing missing fields or weakening fail-closed behavior.
+    """
+    if not message or len(message) > 2_000:
+        return None
+    for pattern in _EXPLICIT_PATTERNS:
+        matched = pattern.fullmatch(message) or pattern.match(message)
+        if matched is not None:
+            dimensions = {
+                field_name: matched.group(field_name).strip()
+                for field_name in ("doing", "need", "offer")
+            }
+            if all(bool(value) for value in dimensions.values()):
+                return dimensions
+    return None
+
+
+async def _attempt_deterministic_profile_save(
+    *,
+    message: str,
+    config: dict[str, Any],
+    messages: list[Any],
+) -> bool:
+    """Invoke the real profile tool once for an explicitly complete statement."""
+    dimensions = extract_explicit_profile_dimensions(message)
+    if dimensions is None:
+        return False
+
+    tool_args = {
+        **dimensions,
+        "doing_disclosure": "inferred_unconfirmed",
+        "need_disclosure": "inferred_unconfirmed",
+        "offer_disclosure": "inferred_unconfirmed",
+    }
+    messages.append(
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "save_group_profile",
+                    "args": tool_args,
+                    "id": _DETERMINISTIC_SAVE_TOOL_CALL_ID,
+                }
+            ],
+        )
+    )
+    tool_result = await asyncio.to_thread(
+        save_group_profile.invoke,
+        tool_args,
+        config,
+    )
+    messages.append(
+        ToolMessage(
+            content=str(tool_result),
+            name="save_group_profile",
+            tool_call_id=_DETERMINISTIC_SAVE_TOOL_CALL_ID,
+        )
+    )
+    return True
 
 
 def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession) -> str:
@@ -485,7 +581,28 @@ async def _execute_core_agent(
                     config,
                 )
                 messages = result.get("messages", [])
-                retry_reply = _extract_reply(messages, before_retry)
+                start_idx = before_retry if before_retry < len(messages) else 0
+                retry_reply = _extract_reply(messages, start_idx)
+                if retry_reply:
+                    reply = f"{reply}\n\n{retry_reply}".strip()
+
+            if not profile_ok and profile_status == "failed":
+                fallback_attempted = await _attempt_deterministic_profile_save(
+                    message=req.message,
+                    config=config,
+                    messages=messages,
+                )
+                if fallback_attempted:
+                    if _profile_was_superseded(messages, msg_count_before):
+                        profile_status = "superseded"
+                    else:
+                        assertion = assert_profile_persisted(
+                            state.base_dir, user_id, group_id
+                        )
+                        if _turn_persist_ok(assertion):
+                            profile_ok = True
+                            profile_status = "persisted"
+
             persistence_failure_reason: str | None = None
             if not profile_ok and profile_status == "failed":
                 last_reason = assertion.reason if not assertion.ok else None

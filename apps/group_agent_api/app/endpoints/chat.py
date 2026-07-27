@@ -268,26 +268,46 @@ async def chat(
                         config,
                     )
                     messages = result.get("messages", [])
-                    retry_reply = _extract_reply(messages, before_retry)
+                    start_idx = before_retry if before_retry < len(messages) else 0
+                    retry_reply = _extract_reply(messages, start_idx)
                     if retry_reply:
                         reply = f"{reply}\n\n{retry_reply}".strip()
 
                 persistence_failure_reason: str | None = None
                 if not profile_ok:
                     from apps.group_agent_api.app.async_manager import (
+                        _attempt_deterministic_profile_save,
                         _profile_was_superseded,
                         determine_persistence_failure_reason,
                     )
-                    if _profile_was_superseded(messages, msg_count_before):
-                        profile_status_val = "superseded"
-                    else:
-                        profile_status_val = "failed"
-                        persistence_failure_reason = determine_persistence_failure_reason(
-                            messages,
-                            msg_count_before,
-                            attempt=assert_attempts,
-                            last_assertion_reason=persist_alert,
-                        )
+                    fallback_attempted = await _attempt_deterministic_profile_save(
+                        message=req.message,
+                        config=config,
+                        messages=messages,
+                    )
+                    if fallback_attempted:
+                        if _profile_was_superseded(messages, msg_count_before):
+                            profile_status_val = "superseded"
+                        else:
+                            assertion = assert_profile_persisted(
+                                state.base_dir, user_id, group_id
+                            )
+                            if _turn_persist_ok(assertion):
+                                profile_ok = True
+                                profile_path = assertion.path
+                                profile_status_val = "persisted"
+                                persist_alert = None
+                    if not profile_ok:
+                        if _profile_was_superseded(messages, msg_count_before):
+                            profile_status_val = "superseded"
+                        else:
+                            profile_status_val = "failed"
+                            persistence_failure_reason = determine_persistence_failure_reason(
+                                messages,
+                                msg_count_before,
+                                attempt=assert_attempts,
+                                last_assertion_reason=persist_alert,
+                            )
                 else:
                     profile_status_val = "persisted"
 

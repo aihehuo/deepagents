@@ -506,6 +506,7 @@ async def _execute_core_agent(
     reply = ""
     profile_ok = False
     profile_status = "failed"
+    persistence_failure_reason: str | None = None
 
     async with lock:
         try:
@@ -545,9 +546,6 @@ async def _execute_core_agent(
                 run_id=req.run_id,
                 conversation_id=req.conversation_id,
             )
-            before_profile = assert_profile_persisted(state.base_dir, user_id, group_id)
-            before_updated_at = before_profile.profile.updated_at if before_profile.ok else None
-
             result = await agent.ainvoke(
                 {"messages": [HumanMessage(content=req.message)]},
                 config,
@@ -555,65 +553,69 @@ async def _execute_core_agent(
             messages = result.get("messages", [])
             reply = _extract_reply(messages, msg_count_before)
 
-            def _turn_persist_ok(assertion) -> bool:
-                if not assertion.ok:
-                    return False
-                if before_updated_at is None:
-                    return True
-                return assertion.profile is not None and (assertion.profile.updated_at != before_updated_at)
+            assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
 
-            for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
-                if _profile_was_superseded(messages, msg_count_before):
-                    profile_status = "superseded"
-                    break
-                assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
-                if _turn_persist_ok(assertion):
-                    profile_ok = True
-                    profile_status = "persisted"
-                    break
-
-                if attempt >= MAX_PERSIST_ATTEMPTS:
-                    break
-
-                before_retry = len(messages)
-                result = await agent.ainvoke(
-                    {"messages": [HumanMessage(content=FORCE_SAVE_PROMPT)]},
-                    config,
-                )
-                messages = result.get("messages", [])
-                start_idx = before_retry if before_retry < len(messages) else 0
-                retry_reply = _extract_reply(messages, start_idx)
-                if retry_reply:
-                    reply = f"{reply}\n\n{retry_reply}".strip()
-
-            if not profile_ok and profile_status == "failed":
-                fallback_attempted = await _attempt_deterministic_profile_save(
-                    message=req.message,
-                    config=config,
-                    messages=messages,
-                )
-                if fallback_attempted:
+            if _profile_was_superseded(messages, msg_count_before):
+                profile_status = "superseded"
+                profile_ok = False
+            elif assertion.ok:
+                profile_ok = True
+                profile_status = "persisted"
+            else:
+                for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
                     if _profile_was_superseded(messages, msg_count_before):
                         profile_status = "superseded"
-                    else:
-                        assertion = assert_profile_persisted(
-                            state.base_dir, user_id, group_id
-                        )
-                        if _turn_persist_ok(assertion):
-                            profile_ok = True
-                            profile_status = "persisted"
+                        profile_ok = False
+                        break
 
-            persistence_failure_reason: str | None = None
-            if not profile_ok and profile_status == "failed":
-                last_reason = assertion.reason if not assertion.ok else None
-                persistence_failure_reason = determine_persistence_failure_reason(
-                    messages, msg_count_before, attempt=attempt, last_assertion_reason=last_reason
-                )
-                UC34Observer.warn(
-                    f"action=profile_persistence_failed user_id={user_id} "
-                    f"group_id={group_id} run_id={req.run_id} "
-                    f"reason={persistence_failure_reason}"
-                )
+                    assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
+                    if assertion.ok:
+                        profile_ok = True
+                        profile_status = "persisted"
+                        break
+
+                    if attempt >= MAX_PERSIST_ATTEMPTS:
+                        break
+
+                    before_retry = len(messages)
+                    result = await agent.ainvoke(
+                        {"messages": [HumanMessage(content=FORCE_SAVE_PROMPT)]},
+                        config,
+                    )
+                    messages = result.get("messages", [])
+                    start_idx = before_retry if before_retry < len(messages) else 0
+                    retry_reply = _extract_reply(messages, start_idx)
+                    if retry_reply:
+                        reply = f"{reply}\n\n{retry_reply}".strip()
+
+                if not profile_ok and profile_status == "failed":
+                    fallback_attempted = await _attempt_deterministic_profile_save(
+                        message=req.message,
+                        config=config,
+                        messages=messages,
+                    )
+                    if fallback_attempted:
+                        if _profile_was_superseded(messages, msg_count_before):
+                            profile_status = "superseded"
+                            profile_ok = False
+                        else:
+                            assertion = assert_profile_persisted(
+                                state.base_dir, user_id, group_id
+                            )
+                            if assertion.ok:
+                                profile_ok = True
+                                profile_status = "persisted"
+
+                if not profile_ok and profile_status == "failed":
+                    last_reason = assertion.reason if not assertion.ok else None
+                    persistence_failure_reason = determine_persistence_failure_reason(
+                        messages, msg_count_before, attempt=attempt, last_assertion_reason=last_reason
+                    )
+                    UC34Observer.warn(
+                        f"action=profile_persistence_failed user_id={user_id} "
+                        f"group_id={group_id} run_id={req.run_id} "
+                        f"reason={persistence_failure_reason}"
+                    )
 
         finally:
             checkpointer = get_agent_checkpointer(agent)
@@ -624,7 +626,9 @@ async def _execute_core_agent(
     match_status = "skipped"
     candidates: list[dict[str, Any]] = []
     match_reason: str | None = (
-        "profile_superseded" if profile_status == "superseded" else None
+        "profile_superseded"
+        if profile_status == "superseded"
+        else ("profile_persistence_failed" if not profile_ok else None)
     )
 
     if profile_status == "superseded":

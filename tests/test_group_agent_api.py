@@ -116,9 +116,10 @@ async def test_chat_detects_stale_profile_without_update(tmp_path: Path) -> None
         ),
         _state(agent, tmp_path),
     )
-    assert resp.profile_persisted is False
-    assert resp.persist_alert == "stale_profile_not_updated"
-    assert agent.invoke_count == 2
+    # REQ-022: Pre-existing healthy profile remains ready and persisted even if model calls no save tool
+    assert resp.profile_persisted is True
+    assert resp.profile_status == "persisted"
+    assert agent.invoke_count == 1
 
 
 

@@ -997,15 +997,14 @@ async def test_profile_evolution_no_tool_call_fails_gracefully(monkeypatch, tmp_
     save_profile(tmp_path, p_old)
     old_updated_at = p_old.updated_at
 
-    # The model never calls save_group_profile, so the profile stays unchanged.
-    # With the is_stub bypass removed, profile_ok must be False.
+    # REQ-022: Pre-existing healthy profile remains ready and persisted (profile_persisted=True) even if model calls no save tool
     r = await chat(
         ChatRequest(user_id="u101", group_id="group_l1_alpha", conversation_id="conv_no_tool",
                      message="我也在找技术合伙人"),
         state,
     )
-    assert not r.profile_persisted, (
-        f"profile_persisted should be False when no tool-call occurs and profile hasn't changed, "
+    assert r.profile_persisted, (
+        f"profile_persisted should be True when pre-seeded healthy profile exists under REQ-022, "
         f"got {r.profile_persisted}"
     )
 

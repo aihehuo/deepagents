@@ -33,7 +33,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - agent_net
+      - aihehuo-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)\" || exit 1"]
@@ -57,7 +57,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - agent_net
+      - aihehuo-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)\" || exit 1"]
@@ -81,7 +81,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - agent_net
+      - aihehuo-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import http.client; conn = http.client.HTTPConnection('localhost', 8001); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)\" || exit 1"]
@@ -91,6 +91,6 @@ services:
       start_period: 40s
 
 networks:
-  agent_net:
+  aihehuo-net:
     external: true
-    name: agent_net
+    name: aihehuo-net

@@ -54,6 +54,8 @@ class ChatResponse(BaseModel):
     reply: str
     profile_persisted: bool = False
     profile_path: str | None = None
+    profile_status: str = "failed"
+    persistence_failure_reason: str | None = None
     assert_attempts: int = 0
     persist_alert: str | None = None
     capability: MembershipSignal = "unknown"

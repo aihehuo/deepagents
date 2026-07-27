@@ -272,6 +272,25 @@ async def chat(
                     if retry_reply:
                         reply = f"{reply}\n\n{retry_reply}".strip()
 
+                persistence_failure_reason: str | None = None
+                if not profile_ok:
+                    from apps.group_agent_api.app.async_manager import (
+                        _profile_was_superseded,
+                        determine_persistence_failure_reason,
+                    )
+                    if _profile_was_superseded(messages, msg_count_before):
+                        profile_status_val = "superseded"
+                    else:
+                        profile_status_val = "failed"
+                        persistence_failure_reason = determine_persistence_failure_reason(
+                            messages,
+                            msg_count_before,
+                            attempt=assert_attempts,
+                            last_assertion_reason=persist_alert,
+                        )
+                else:
+                    profile_status_val = "persisted"
+
             except Exception as exc:  # noqa: BLE001
                 import traceback
 
@@ -393,6 +412,8 @@ async def chat(
         reply=final_guarded.reply,
         profile_persisted=profile_ok,
         profile_path=profile_path,
+        profile_status=profile_status_val,
+        persistence_failure_reason=persistence_failure_reason,
         assert_attempts=assert_attempts,
         persist_alert=None if profile_ok else persist_alert,
         capability=tier.value,  # type: ignore[arg-type]

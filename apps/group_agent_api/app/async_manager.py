@@ -77,6 +77,56 @@ def _profile_was_superseded(messages: list[Any], start: int) -> bool:
     return False
 
 
+def determine_persistence_failure_reason(
+    messages: list[Any],
+    start: int,
+    attempt: int = 1,
+    last_assertion_reason: str | None = None,
+) -> str:
+    """Extract a desensitized, actionable failure reason from execution message traces."""
+    save_tool_called = False
+    last_tool_error: str | None = None
+
+    for message in messages[start:]:
+        tool_calls = getattr(message, "tool_calls", None)
+        if not tool_calls and hasattr(message, "additional_kwargs"):
+            tool_calls = message.additional_kwargs.get("tool_calls")
+        if tool_calls:
+            for tc in tool_calls:
+                name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                if name == "save_group_profile":
+                    save_tool_called = True
+
+        if isinstance(message, ToolMessage) or (
+            hasattr(message, "name") and getattr(message, "name") == "save_group_profile"
+        ):
+            content = str(getattr(message, "content", "") or "").strip()
+            if content.startswith("error:"):
+                last_tool_error = content
+
+    if not save_tool_called:
+        if attempt >= 2:
+            return "force_save_failed:tool_not_called"
+        return "tool_not_called"
+
+    if last_tool_error:
+        if "semantic_projection" in last_tool_error or "missing user_id" in last_tool_error:
+            return "validation_error"
+        if "profile_database" in last_tool_error:
+            return "remote_ack_failed"
+        return "tool_execution_error"
+
+    if attempt >= 2:
+        return "force_save_failed"
+
+    if last_assertion_reason:
+        if "invalid_schema" in last_assertion_reason or "incomplete" in last_assertion_reason:
+            return "validation_error"
+
+    return "tool_execution_error"
+
+
+
 def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession) -> str:
     """Construct complete canonical request fingerprint derived from TrustedSession & canonical callback URL."""
     canonical_url = validate_and_normalize_callback_url(req.callback_url)
@@ -436,8 +486,17 @@ async def _execute_core_agent(
                 )
                 messages = result.get("messages", [])
                 retry_reply = _extract_reply(messages, before_retry)
-                if retry_reply:
-                    reply = f"{reply}\n\n{retry_reply}".strip()
+            persistence_failure_reason: str | None = None
+            if not profile_ok and profile_status == "failed":
+                last_reason = assertion.reason if not assertion.ok else None
+                persistence_failure_reason = determine_persistence_failure_reason(
+                    messages, msg_count_before, attempt=attempt, last_assertion_reason=last_reason
+                )
+                UC34Observer.warn(
+                    f"action=profile_persistence_failed user_id={user_id} "
+                    f"group_id={group_id} run_id={req.run_id} "
+                    f"reason={persistence_failure_reason}"
+                )
 
         finally:
             checkpointer = get_agent_checkpointer(agent)
@@ -542,6 +601,7 @@ async def _execute_core_agent(
         "reply": final_guarded.reply,
         "profile_persisted": profile_ok,
         "profile_status": profile_status,
+        "persistence_failure_reason": persistence_failure_reason,
         "capability": tier.value,
         "capability_source": session.membership.source,
         "match_status": match_status if final_guarded.candidates or match_status in {"empty", "skipped", "weak"} else "empty",

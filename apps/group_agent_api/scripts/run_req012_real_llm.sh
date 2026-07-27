@@ -11,7 +11,7 @@
 #   GROUP_AGENT_PROVIDER=qwen            # 当前仅支持 qwen
 #   GROUP_AGENT_MODEL=...                # 例如 qwen-turbo-0624
 #   GROUP_AGENT_BASE_URL=...             # 例如 https://dashscope.aliyuncs.com/compatible-mode/v1
-#   DASHSCOPE_API_KEY=...                # 或 GROUP_AGENT_API_KEY
+#   DASHSCOPE_API_KEY=...
 #
 # 可选：
 #   GROUP_AGENT_MAX_TOKENS=800           # 默认 800
@@ -45,7 +45,7 @@ echo "[REQ-012] Verifying real-LLM configuration..."
 PROVIDER="${GROUP_AGENT_PROVIDER:-qwen}"
 MODEL="${GROUP_AGENT_MODEL:-}"
 BASE_URL="${GROUP_AGENT_BASE_URL:-}"
-API_KEY="${GROUP_AGENT_API_KEY:-${DASHSCOPE_API_KEY:-}}"
+API_KEY="${DASHSCOPE_API_KEY:-}"
 
 FAILED=0
 if [ -z "$MODEL" ]; then
@@ -57,13 +57,13 @@ if [ -z "$BASE_URL" ]; then
     FAILED=1
 fi
 if [ -z "$API_KEY" ]; then
-    echo "[FAIL] GROUP_AGENT_API_KEY / DASHSCOPE_API_KEY is not set"
+    echo "[FAIL] DASHSCOPE_API_KEY is not set"
     FAILED=1
 fi
 
 if [ "$FAILED" -eq 1 ]; then
     echo "[ERROR] Missing required real-LLM configuration. Aborting."
-    echo "[INFO]  Required: GROUP_AGENT_MODEL, GROUP_AGENT_BASE_URL, and DASHSCOPE_API_KEY (or GROUP_AGENT_API_KEY)"
+    echo "[INFO]  Required: GROUP_AGENT_MODEL, GROUP_AGENT_BASE_URL, and DASHSCOPE_API_KEY"
     exit 1
 fi
 

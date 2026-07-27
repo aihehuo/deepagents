@@ -321,7 +321,8 @@ def test_docker_env_example_aligned_with_model_builder():
     assert "GROUP_AGENT_PROVIDER=qwen" in content
     assert "GROUP_AGENT_MODEL=qwen-plus" in content
     assert "GROUP_AGENT_BASE_URL" in content
-    assert "GROUP_AGENT_API_KEY" in content
+    assert "DASHSCOPE_API_KEY" in content
+    assert "GROUP_AGENT_API_KEY" not in content
 
     # Test model_builder reads environment variables
     from apps.group_agent_api.agent_factory.model_builder import create_model
@@ -329,13 +330,13 @@ def test_docker_env_example_aligned_with_model_builder():
     old_provider = os.environ.get("GROUP_AGENT_PROVIDER")
     old_model = os.environ.get("GROUP_AGENT_MODEL")
     old_base_url = os.environ.get("GROUP_AGENT_BASE_URL")
-    old_key = os.environ.get("GROUP_AGENT_API_KEY")
+    old_key = os.environ.get("DASHSCOPE_API_KEY")
 
     try:
         os.environ["GROUP_AGENT_PROVIDER"] = "qwen"
         os.environ["GROUP_AGENT_MODEL"] = "qwen-plus"
         os.environ["GROUP_AGENT_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        os.environ["GROUP_AGENT_API_KEY"] = "test-qwen-key"
+        os.environ["DASHSCOPE_API_KEY"] = "test-qwen-key"
 
         model = create_model()
         assert model.model_name == "qwen-plus"
@@ -346,7 +347,7 @@ def test_docker_env_example_aligned_with_model_builder():
             ("GROUP_AGENT_PROVIDER", old_provider),
             ("GROUP_AGENT_MODEL", old_model),
             ("GROUP_AGENT_BASE_URL", old_base_url),
-            ("GROUP_AGENT_API_KEY", old_key),
+            ("DASHSCOPE_API_KEY", old_key),
         ]:
             if v is not None:
                 os.environ[k] = v

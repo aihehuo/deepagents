@@ -397,7 +397,8 @@ def test_model_builder_keyless_raises_runtime_error(monkeypatch):
     monkeypatch.setenv("GROUP_AGENT_MODEL_MODE", "")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.delenv("GROUP_AGENT_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
     with pytest.raises(RuntimeError):
         create_model()
 
@@ -409,7 +410,8 @@ def test_model_builder_keyless_in_stub_integration_without_explicit_stub_mode_ra
     monkeypatch.setenv("GROUP_AGENT_MODEL_MODE", "")  # Empty!
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.delenv("GROUP_AGENT_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
     with pytest.raises(RuntimeError):
         create_model()
 

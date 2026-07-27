@@ -285,7 +285,7 @@ def _base_mode_env(monkeypatch):
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "stub")
     monkeypatch.setenv("GROUP_AGENT_ENV", "test")
     monkeypatch.setenv("GROUP_AGENT_PROVIDER", "qwen")
-    for k in ("GROUP_AGENT_MODEL", "GROUP_AGENT_BASE_URL", "GROUP_AGENT_API_KEY", "DASHSCOPE_API_KEY"):
+    for k in ("GROUP_AGENT_MODEL", "GROUP_AGENT_BASE_URL", "DASHSCOPE_API_KEY", "QWEN_API_KEY"):
         monkeypatch.delenv(k, raising=False)
 
 
@@ -304,10 +304,10 @@ def test_unknown_model_mode_fails_closed(monkeypatch, bad_mode):
         (),                                   # all three missing
         ("GROUP_AGENT_MODEL",),               # only model
         ("GROUP_AGENT_BASE_URL",),            # only base_url
-        ("GROUP_AGENT_API_KEY",),             # only key
+        ("DASHSCOPE_API_KEY",),               # only key
         ("GROUP_AGENT_MODEL", "GROUP_AGENT_BASE_URL"),  # missing key
-        ("GROUP_AGENT_MODEL", "GROUP_AGENT_API_KEY"),   # missing base_url
-        ("GROUP_AGENT_BASE_URL", "GROUP_AGENT_API_KEY"),  # missing model
+        ("GROUP_AGENT_MODEL", "DASHSCOPE_API_KEY"),   # missing base_url
+        ("GROUP_AGENT_BASE_URL", "DASHSCOPE_API_KEY"),  # missing model
     ],
 )
 def test_qwen_real_or_empty_mode_missing_config_fails_closed(monkeypatch, mode, present):
@@ -318,7 +318,7 @@ def test_qwen_real_or_empty_mode_missing_config_fails_closed(monkeypatch, mode, 
     values = {
         "GROUP_AGENT_MODEL": "qwen-turbo",
         "GROUP_AGENT_BASE_URL": "https://example.invalid/v1",
-        "GROUP_AGENT_API_KEY": "test-key-not-real",
+        "DASHSCOPE_API_KEY": "test-key-not-real",
     }
     for k in present:
         monkeypatch.setenv(k, values[k])
@@ -336,7 +336,7 @@ def test_qwen_real_or_empty_mode_complete_config_builds(monkeypatch, mode):
     monkeypatch.setenv("GROUP_AGENT_MODEL_MODE", mode)
     monkeypatch.setenv("GROUP_AGENT_MODEL", "qwen-turbo")
     monkeypatch.setenv("GROUP_AGENT_BASE_URL", "https://example.invalid/v1")
-    monkeypatch.setenv("GROUP_AGENT_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key-not-real")
     model = create_model()
     assert model.__class__.__name__ == "ChatOpenAI"
 

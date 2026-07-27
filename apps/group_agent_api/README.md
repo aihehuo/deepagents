@@ -141,7 +141,7 @@ export GROUP_AGENT_REAL_LLM_TEST=1
 export GROUP_AGENT_PROVIDER=qwen
 export GROUP_AGENT_MODEL=qwen-turbo
 export GROUP_AGENT_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-export DASHSCOPE_API_KEY="sk-..."           # 或 GROUP_AGENT_API_KEY
+export DASHSCOPE_API_KEY="sk-..."
 
 bash apps/group_agent_api/scripts/run_req012_real_llm.sh
 ```
@@ -156,7 +156,7 @@ Runner 行为：仅当 `GROUP_AGENT_REAL_LLM_TEST=1` 时运行，否则 skip；�
 ### Fail-Closed 模式校验
 `GROUP_AGENT_MODEL_MODE` 仅接受 `stub` / `real`（留空 `≡ real`，走同一套 real 前置校验，不再有更宽松的隐式路径）。
 未知值一律 fail-closed，**禁止「只要不是 stub 就当 real」**；`real`（含留空）+ `provider=qwen` 在发起网络请求前强制要求
-`GROUP_AGENT_MODEL` / `GROUP_AGENT_BASE_URL` / `DASHSCOPE_API_KEY|GROUP_AGENT_API_KEY` 均非空，缺任一项即失败，
+`GROUP_AGENT_MODEL` / `GROUP_AGENT_BASE_URL` / `DASHSCOPE_API_KEY` 均非空，缺任一项即失败，
 禁止 real 模式静默降级为 stub。
 
 ### 人工可读的对话内容审计报告（REQ-013）

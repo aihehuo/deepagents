@@ -201,11 +201,9 @@ def llm_polish_enabled() -> bool:
         provider_fallback_key = os.environ.get("DEEPSEEK_API_KEY")
 
     key = (
-        os.environ.get("GROUP_AGENT_API_KEY")
-        or os.environ.get(f"{prefix}_API_KEY")
+        os.environ.get(f"{prefix}_API_KEY")
         or provider_fallback_key
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("AIHEHUO_API_KEY")
-        or os.environ.get("GROUP_AGENT_NEW_API_TOKEN")
     )
     return bool(key and key.strip() and key.strip() != "EMPTY")

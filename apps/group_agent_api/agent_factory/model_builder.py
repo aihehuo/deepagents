@@ -130,9 +130,10 @@ def create_model(*, log_prefix: str = "[GroupAgentModel]") -> ChatOpenAI:
     elif provider == "deepseek":
         provider_fallback_key = os.environ.get("DEEPSEEK_API_KEY")
 
+    # Provider-native keys only (DASHSCOPE_API_KEY / DEEPSEEK_API_KEY).
+    # Do not use GROUP_AGENT_API_KEY — it collided semantically with NEW_API_TOKEN.
     api_key = (
-        os.environ.get("GROUP_AGENT_API_KEY")
-        or os.environ.get(f"{prefix}_API_KEY")
+        os.environ.get(f"{prefix}_API_KEY")
         or provider_fallback_key
         or "EMPTY"
     )
@@ -196,7 +197,7 @@ def create_model(*, log_prefix: str = "[GroupAgentModel]") -> ChatOpenAI:
         if not base_url:
             missing.append("GROUP_AGENT_BASE_URL")
         if api_key == "EMPTY" or not api_key:
-            missing.append("GROUP_AGENT_API_KEY|DASHSCOPE_API_KEY")
+            missing.append("DASHSCOPE_API_KEY")
         if missing:
             raise RuntimeError(
                 "GROUP_AGENT_MODEL_MODE=real (provider=qwen) requires "

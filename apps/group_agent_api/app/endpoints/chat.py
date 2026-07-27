@@ -51,6 +51,8 @@ _RESERVED_META_KEYS = frozenset(
         "unionid",
         "group_token",
         "user_token",
+        "run_id",
+        "conversation_id",
     }
 )
 
@@ -75,6 +77,8 @@ def _invoke_config(
     base_dir: str,
     membership: str,
     metadata: dict,
+    run_id: str | None = None,
+    conversation_id: str | None = None,
 ) -> dict:
     turn_id = f"{tid}::{uuid.uuid4().hex}"
     safe_meta = {
@@ -91,6 +95,8 @@ def _invoke_config(
             "group_id": group_id,
             "base_dir": base_dir,
             "membership": membership,
+            **({"run_id": run_id} if run_id else {}),
+            **({"conversation_id": conversation_id} if conversation_id else {}),
         },
     }
 

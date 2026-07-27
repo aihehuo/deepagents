@@ -14,11 +14,16 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from apps.group_agent_api.agent_factory.model_builder import create_model
 from apps.group_agent_api.agent_factory.content_quality import (
     is_need_shaped_doing,
     is_preference_shaped_offer,
 )
+from apps.group_agent_api.agent_factory.integrations.config import integration_mode
+from apps.group_agent_api.agent_factory.integrations.profile_client import (
+    ProfileHttpError,
+    persist_group_profile,
+)
+from apps.group_agent_api.agent_factory.model_builder import create_model
 from apps.group_agent_api.agent_factory.profile_schema import (
     DisclosureLevel,
     profile_from_flat,
@@ -32,6 +37,7 @@ from deepagents.observability import UCObserver
 _logger = logging.getLogger("uvicorn.error")
 
 APP_NAME = "group_agent_api"
+PROFILE_SUPERSEDED_RESULT_PREFIX = "ok: profile_superseded;"
 
 
 class UC34Observer(UCObserver):
@@ -115,6 +121,7 @@ def save_group_profile(
     group_id = str(metadata.get("group_id") or "").strip()
     base_dir_raw = metadata.get("base_dir") or str(default_runtime_dir())
     base_dir = Path(str(base_dir_raw))
+    run_id = str(metadata.get("run_id") or "").strip()
 
     if not user_id or not group_id:
         return "error: missing user_id or group_id in metadata"
@@ -147,7 +154,19 @@ def save_group_profile(
             need_disclosure=need_disclosure,
             offer_disclosure=offer_disclosure,
         )
-        path = save_profile(base_dir, profile)
+        remote_ack: dict[str, Any] | None = None
+        if integration_mode() == "http":
+            remote_ack = persist_group_profile(profile=profile, run_id=run_id)
+        if remote_ack is None or remote_ack["status"] != "stale_ignored":
+            path = save_profile(base_dir, profile)
+        else:
+            path = None
+    except ProfileHttpError as exc:
+        UC34Observer.error(
+            f"action=save_group_profile_remote_error user_id={user_id} "
+            f"group_id={group_id} error={exc}"
+        )
+        return f"error: profile_database:{exc}"
     except Exception as exc:  # noqa: BLE001
         UC34Observer.error(
             f"action=save_group_profile_error user_id={user_id} "
@@ -159,6 +178,16 @@ def save_group_profile(
         f"action=save_group_profile user_id={user_id} group_id={group_id} "
         f"path={path} status=success"
     )
+    if remote_ack is not None:
+        if remote_ack["status"] == "stale_ignored":
+            return (
+                f"{PROFILE_SUPERSEDED_RESULT_PREFIX} database kept a newer profile "
+                f"(version={remote_ack['profile_version']}); local cache unchanged"
+            )
+        return (
+            "ok: saved profile to database "
+            f"(version={remote_ack['profile_version']}) and local cache"
+        )
     return f"ok: saved profile to /users/{user_id}/groups/{group_id}/profile.json"
 
 

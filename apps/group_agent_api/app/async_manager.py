@@ -17,9 +17,13 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
-from apps.group_agent_api.agent_factory.agent import FORCE_SAVE_PROMPT, UC34Observer
+from apps.group_agent_api.agent_factory.agent import (
+    FORCE_SAVE_PROMPT,
+    PROFILE_SUPERSEDED_RESULT_PREFIX,
+    UC34Observer,
+)
 from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
 from apps.group_agent_api.agent_factory.integrations.callback_client import (
@@ -60,6 +64,17 @@ class IdempotencySlot:
 _idempotency_store: OrderedDict[str, IdempotencySlot] = OrderedDict()
 _run_id_store: dict[str, str] = {}
 _idempotency_lock = asyncio.Lock()
+
+
+def _profile_was_superseded(messages: list[Any], start: int) -> bool:
+    """Return whether a new tool result reports a stale/superseded profile."""
+    for message in messages[start:]:
+        if not isinstance(message, ToolMessage):
+            continue
+        content = str(message.content or "").strip()
+        if content.startswith(PROFILE_SUPERSEDED_RESULT_PREFIX):
+            return True
+    return False
 
 
 def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession) -> str:
@@ -344,6 +359,7 @@ async def _execute_core_agent(
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
     reply = ""
     profile_ok = False
+    profile_status = "failed"
 
     async with lock:
         try:
@@ -380,6 +396,8 @@ async def _execute_core_agent(
                 base_dir=str(state.base_dir),
                 membership=tier.value,
                 metadata=req.metadata or {},
+                run_id=req.run_id,
+                conversation_id=req.conversation_id,
             )
             before_profile = assert_profile_persisted(state.base_dir, user_id, group_id)
             before_updated_at = before_profile.profile.updated_at if before_profile.ok else None
@@ -399,9 +417,13 @@ async def _execute_core_agent(
                 return assertion.profile is not None and (assertion.profile.updated_at != before_updated_at)
 
             for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
+                if _profile_was_superseded(messages, msg_count_before):
+                    profile_status = "superseded"
+                    break
                 assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
                 if _turn_persist_ok(assertion):
                     profile_ok = True
+                    profile_status = "persisted"
                     break
 
                 if attempt >= MAX_PERSIST_ATTEMPTS:
@@ -425,7 +447,15 @@ async def _execute_core_agent(
     # Step: Match pipeline
     match_status = "skipped"
     candidates: list[dict[str, Any]] = []
-    match_reason: str | None = None
+    match_reason: str | None = (
+        "profile_superseded" if profile_status == "superseded" else None
+    )
+
+    if profile_status == "superseded":
+        reply = (
+            "这次画像更新已被较新的运行结果取代。"
+            "我没有覆盖当前权威画像，也没有继续匹配或生成邀请。"
+        )
 
     if req.run_match and unlocks_network(tier) and profile_ok:
         assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
@@ -510,6 +540,8 @@ async def _execute_core_agent(
 
     final_payload = {
         "reply": final_guarded.reply,
+        "profile_persisted": profile_ok,
+        "profile_status": profile_status,
         "capability": tier.value,
         "capability_source": session.membership.source,
         "match_status": match_status if final_guarded.candidates or match_status in {"empty", "skipped", "weak"} else "empty",

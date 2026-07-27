@@ -34,7 +34,7 @@ DeliveryKind = Literal["directed", "undirected"]
 MatchStatusLike = Literal["matched", "weak", "empty", "skipped"]
 
 _PARTNERSHIP_BAN = re.compile(r"(合伙|股份|股权|当合伙人|一起创业搭班子)")
-_PARTNERSHIP_ALLOW = ("不谈合伙", "不提合伙", "不是谈合伙")
+_PARTNERSHIP_ALLOW = ("爱合伙", "不谈合伙", "不提合伙", "不是谈合伙")
 
 
 def _has_partnership_language(text: str) -> bool:

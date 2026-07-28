@@ -91,9 +91,7 @@ def test_directed_invite_five_elements_and_at_subset() -> None:
     assert result.elements is not None
     for key in ("who_doing", "resources", "topic", "why_invite", "low_pressure"):
         assert result.elements[key].strip()
-    assert "当合伙人" not in result.text
-    assert "股份" not in result.text
-    assert "不谈合伙" in result.text  # allowed negation
+    assert "聊聊就好" in result.text
     assert "不一定" in result.text or "值得聊" in result.text
     for uid in result.mentioned_user_ids:
         assert uid in {c["user_id"] for c in cands}
@@ -123,7 +121,7 @@ def test_directed_missing_element_blocked_then_retry(
     assert any("invite_assert_failed" in r.message for r in caplog.records)
 
 
-def test_assert_rejects_partnership_and_foreign_at() -> None:
+def test_assert_rejects_foreign_at() -> None:
     elements = {
         "who_doing": "我在做X",
         "resources": "有Y",
@@ -142,8 +140,9 @@ def test_assert_rejects_partnership_and_foreign_at() -> None:
         }
     ]
     v = assert_directed_invite(text=text, elements=elements, candidates=cands)
-    assert "partnership_language" in v
+    assert "partnership_language" not in v
     assert any(x.startswith("at_not_in_candidates") for x in v)
+
 
 
 # ---------------------------------------------------------------------------

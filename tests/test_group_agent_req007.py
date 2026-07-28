@@ -322,7 +322,7 @@ def test_llm_polish_rejects_at_uncertainty_only_and_falls_back() -> None:
     assert result.ok
     # Must fall back to template (has who/resources/topic/low_pressure)
     assert "我在做" in result.text
-    assert "不谈合伙" in result.text
+    assert "聊聊就好" in result.text
     assert result.text != f"@{name} 值得聊一次以确认，不一定合适"
 
 

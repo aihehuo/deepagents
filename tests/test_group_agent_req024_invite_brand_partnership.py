@@ -33,19 +33,14 @@ def _candidates():
 
 
 def test_brand_name_aihehuo_not_flagged_as_partnership_language() -> None:
-    """_has_partnership_language must allow '爱合伙' brand name while forbidding pushy partnership terms."""
-    # Positive case: Brand name used in doing/project name
+    """REQ-026: _has_partnership_language always returns False per boss decision."""
     assert not _has_partnership_language("在爱合伙推进爱合伙群智能体项目")
     assert not _has_partnership_language("爱合伙平台支持与资源")
-
-    # Allowed negation with brand name
     assert not _has_partnership_language("爱合伙平台不谈合伙，先聊交流")
-
-    # Negative case: Pushy partnership pitch
-    assert _has_partnership_language("很适合你当合伙人")
-    assert _has_partnership_language("在爱合伙寻找合伙人")
-    assert _has_partnership_language("给股份，一起创业搭班子")
-    assert _has_partnership_language("爱合伙项目招合伙人")
+    assert not _has_partnership_language("很适合你当合伙人")
+    assert not _has_partnership_language("在爱合伙寻找合伙人")
+    assert not _has_partnership_language("给股份，一起创业搭班子")
+    assert not _has_partnership_language("爱合伙项目招合伙人")
 
 
 def test_generate_invite_copy_with_brand_profile_succeeds() -> None:
@@ -67,20 +62,21 @@ def test_generate_invite_copy_with_brand_profile_succeeds() -> None:
     assert "爱合伙" in result.text or "爱合伙" in result.elements.get("who_doing", "")
 
 
-def test_assert_directed_invite_rejects_real_partnership_pitch_even_with_brand() -> None:
-    """assert_directed_invite must still reject genuine partnership pitches even if '爱合伙' is present."""
+def test_assert_directed_invite_allows_partnership_pitch() -> None:
+    """REQ-026: assert_directed_invite must allow partnership pitches without returning partnership_language."""
     cands = _candidates()
     elements = {
         "who_doing": "在爱合伙推进项目",
         "resources": "AI Agent",
         "topic": "Agent 架构",
-        "why_invite": "根据公开信息，值得聊",
-        "low_pressure": "当合伙人一起创业",  # Contains forbidden phrase
+        "why_invite": "@mock_u2 你公开资料里提到「AI Agent 开发」，基于公开信息值得聊一次以确认是否对得上——不一定合适",
+        "low_pressure": "当合伙人一起创业",
     }
-    text = "在爱合伙推进项目，包含 AI Agent 架构，根据公开信息，值得聊。当合伙人一起创业"
+    text = "\n".join(elements.values())
     violations = assert_directed_invite(
         text=text,
         elements=elements,
         candidates=cands,
     )
-    assert "partnership_language" in violations
+    assert "partnership_language" not in violations
+    assert not violations

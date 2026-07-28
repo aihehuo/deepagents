@@ -33,15 +33,10 @@ _logger = logging.getLogger("uvicorn.error")
 DeliveryKind = Literal["directed", "undirected"]
 MatchStatusLike = Literal["matched", "weak", "empty", "skipped"]
 
-_PARTNERSHIP_BAN = re.compile(r"(合伙|股份|股权|当合伙人|一起创业搭班子)")
-_PARTNERSHIP_ALLOW = ("爱合伙", "不谈合伙", "不提合伙", "不是谈合伙")
-
-
 def _has_partnership_language(text: str) -> bool:
-    cleaned = text or ""
-    for phrase in _PARTNERSHIP_ALLOW:
-        cleaned = cleaned.replace(phrase, "")
-    return bool(_PARTNERSHIP_BAN.search(cleaned))
+    """REQ-026: Partnership language ban removed per boss decision. Invites can express partnership intent."""
+    return False
+
 _VAGUE_TOPIC_BAN = re.compile(r"^(想认识一下|交流交流|互相认识一下)$")
 _UNCERTAINTY_HINT = re.compile(r"(不一定|不确定|值得聊|供参考|公开信息|以确认)")
 
@@ -195,7 +190,7 @@ def _build_directed_elements(
             f"基于公开信息值得聊一次以确认是否对得上——不一定合适"
         )
     why = "\n".join(why_parts) if why_parts else ""
-    low_pressure = "聊聊就好，不耽误大家太多时间，不谈合伙"
+    low_pressure = "聊聊就好，不耽误大家太多时间，有合伙意向也可顺便交流"
 
     elements = {
         "who_doing": who,
@@ -250,7 +245,7 @@ def assert_directed_invite(
     elements: dict[str, str],
     candidates: list[dict[str, Any]],
 ) -> list[str]:
-    """FR-05 post-assert: five elements, @ ⊆ candidates ≤3, no partnership."""
+    """FR-05 post-assert: five elements, @ ⊆ candidates ≤3 (REQ-026: no partnership ban)."""
     violations: list[str] = []
     required = ("who_doing", "resources", "topic", "why_invite", "low_pressure")
     for key in required:
@@ -259,9 +254,6 @@ def assert_directed_invite(
             violations.append(f"missing_element:{key}")
         elif key == "topic" and _VAGUE_TOPIC_BAN.match(val):
             violations.append("vague_topic")
-
-    if _has_partnership_language(text or ""):
-        violations.append("partnership_language")
 
     allowed_names = set()
     for c in candidates:
@@ -320,11 +312,10 @@ def assert_undirected_invite(*, text: str) -> list[str]:
         violations.append("undirected_contains_at")
     if re.search(r"(推荐对象|候选人)", text or ""):
         violations.append("undirected_points_candidates")
-    if _has_partnership_language(text or ""):
-        violations.append("partnership_language")
     if _VAGUE_TOPIC_BAN.search((text or "").strip()):
         violations.append("vague_topic")
     return violations
+
 
 
 def alert_invite_failure(

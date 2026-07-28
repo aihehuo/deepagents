@@ -39,8 +39,49 @@ def _has_partnership_language(text: str) -> bool:
 
 _VAGUE_TOPIC_BAN = re.compile(r"^(想认识一下|交流交流|互相认识一下)$")
 _UNCERTAINTY_HINT = re.compile(r"(不一定|不确定|值得聊|供参考|公开信息|以确认)")
+_FIELD_LINE = re.compile(r"^([^:：]{1,24})[:：]\s*(.+)$")
+_INLINE_FIELD_LABELS = re.compile(
+    r"(用户名|所在地|所在行业|细分行业|个人目标|具体介绍|合伙需求|教育和工作经历)[:：]\s*"
+)
 
 MAX_INVITE_ATTEMPTS = 2
+# WeChat group paste: keep invites skimmable (PRC AI-02「一屏读完」)
+MAX_HOOK_CHARS = 40
+MAX_SELF_CHARS = 48
+MAX_TOPIC_CHARS = 64
+MAX_INVITE_CHARS = 520
+
+
+def compact_doing_for_invite(raw: str, *, max_chars: int = MAX_HOOK_CHARS) -> str:
+    """Turn profile dumps into a short invite hook — never paste full bios."""
+    text = str(raw or "").replace("\\n", "\n").replace("\r", "").strip()
+    if not text:
+        return ""
+
+    fields: dict[str, str] = {}
+    for line in text.split("\n"):
+        m = _FIELD_LINE.match(line.strip())
+        if m:
+            fields[m.group(1).strip()] = m.group(2).strip()
+
+    if fields:
+        prefer = (
+            fields.get("具体介绍")
+            or fields.get("个人目标")
+            or fields.get("合伙需求")
+            or fields.get("细分行业")
+            or fields.get("所在行业")
+        )
+        if prefer:
+            text = prefer
+        else:
+            text = max(fields.values(), key=len)
+
+    text = _INLINE_FIELD_LABELS.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip(" ，,;；。.")
+    if len(text) > max_chars:
+        text = text[: max_chars - 1].rstrip(" ，,;；。.") + "…"
+    return text
 
 
 @dataclass
@@ -114,34 +155,39 @@ def derive_common_topic(
 
     candidate_doings: list[str] = []
     for c in candidates:
-        val = _public_value(c.get("doing"))
+        val = compact_doing_for_invite(_public_value(c.get("doing")))
         if val:
             candidate_doings.append(val)
 
+    user_need = compact_doing_for_invite(user_need, max_chars=MAX_TOPIC_CHARS)
+    user_offer = compact_doing_for_invite(user_offer, max_chars=MAX_HOOK_CHARS)
+    user_doing = compact_doing_for_invite(user_doing, max_chars=MAX_HOOK_CHARS)
+
     if user_need and candidate_doings:
         hook = candidate_doings[0]
-        topic = f"{user_need}这块，想请教下做过「{hook}」的朋友一般怎么落地最稳"
+        topic = f"{user_need}这块，想请教做过「{hook}」的朋友怎么落地"
+        if len(topic) > MAX_TOPIC_CHARS:
+            topic = f"想请教「{hook}」相关落地经验"
         if _VAGUE_TOPIC_BAN.match(topic.strip()):
             topic = f"想请教「{hook}」相关的选型思路"
         return TopicResult(topic=topic, degraded=False)
 
     if user_offer and candidate_doings:
         hook = candidate_doings[0]
-        topic = f"我这边有{user_offer}，想请教「{hook}」怎么对接最稳"
+        topic = f"我这边有「{user_offer}」，想聊聊「{hook}」怎么协作"
+        if len(topic) > MAX_TOPIC_CHARS:
+            topic = f"想聊聊「{hook}」怎么协作"
         return TopicResult(topic=topic, degraded=False)
 
     if candidate_doings:
         hook = candidate_doings[0]
-        return TopicResult(
-            topic=f"想请教「{hook}」相关的实践经验",
-            degraded=True,
-        )
+        topic = f"想请教「{hook}」相关经验"
+        return TopicResult(topic=topic, degraded=True)
 
-    seed = user_need or user_doing or "当前卡点"
-    return TopicResult(
-        topic=f"想请教群里做过类似「{seed}」的朋友怎么破局",
-        degraded=True,
-    )
+    seed = compact_doing_for_invite(
+        user_need or user_doing or "当前卡点", max_chars=MAX_HOOK_CHARS
+    ) or "当前卡点"
+    return TopicResult(topic=f"想请教「{seed}」相关的落地思路", degraded=True)
 
 
 def _display_name(c: dict[str, Any]) -> str:
@@ -156,16 +202,18 @@ def _build_directed_elements(
     force_complete: bool = True,
 ) -> dict[str, str]:
     """Assemble five elements. Reasons only use confirmed_public + uncertainty."""
-    doing = _profile_value(profile, "doing")
-    offer = _profile_value(profile, "offer")
+    doing_raw = _profile_value(profile, "doing")
+    offer_raw = _profile_value(profile, "offer")
+    doing = compact_doing_for_invite(doing_raw, max_chars=MAX_SELF_CHARS)
+    offer = compact_doing_for_invite(offer_raw, max_chars=MAX_SELF_CHARS)
     who = (
         "我在做的具体项目还没补充清楚"
-        if not doing or is_need_shaped_doing(doing)
+        if not doing or is_need_shaped_doing(doing_raw)
         else f"我在做的项目：{doing}"
     )
     resources = (
         "我能提供的具体资源或能力还没补充清楚"
-        if not offer or is_preference_shaped_offer(offer)
+        if not offer or is_preference_shaped_offer(offer_raw)
         else f"我能提供的资源或能力：{offer}"
     )
     topic_line = topic
@@ -182,12 +230,14 @@ def _build_directed_elements(
             # Defense in depth: callers should already have passed the
             # candidate-evidence guard. Never invent a generic basis here.
             continue
-        hook = doing_pub
+        hook = compact_doing_for_invite(doing_pub, max_chars=MAX_HOOK_CHARS)
+        if not hook:
+            continue
         # AI-03: worth a chat + explicit uncertainty; never「很适合当合伙人」
-        # REQ-007: candidate narration = doing only
+        # REQ-007: candidate narration = doing only (compact hook, never full bio dump)
         why_parts.append(
-            f"@{handle} 你公开资料里提到「{hook}」，"
-            f"基于公开信息值得聊一次以确认是否对得上——不一定合适"
+            f"@{handle} 公开资料提到「{hook}」相关方向，"
+            f"值得聊一次确认是否对得上——不一定合适"
         )
     why = "\n".join(why_parts) if why_parts else ""
     low_pressure = "聊聊就好，不耽误大家太多时间，有合伙意向也可顺便交流"
@@ -223,10 +273,11 @@ def render_undirected_text(
     topic: str,
     honest_note: str | None,
 ) -> str:
-    doing = _profile_value(profile, "doing")
+    doing_raw = _profile_value(profile, "doing")
+    doing = compact_doing_for_invite(doing_raw, max_chars=MAX_SELF_CHARS)
     doing_line = (
         "我在做的具体项目还没补充清楚。"
-        if not doing or is_need_shaped_doing(doing)
+        if not doing or is_need_shaped_doing(doing_raw)
         else f"我在做的项目：{doing}。"
     )
     parts = [
@@ -247,6 +298,15 @@ def assert_directed_invite(
 ) -> list[str]:
     """FR-05 post-assert: five elements, @ ⊆ candidates ≤3 (REQ-026: no partnership ban)."""
     violations: list[str] = []
+    body = text or ""
+    if len(body) > MAX_INVITE_CHARS:
+        violations.append(f"invite_too_long:{len(body)}")
+    if re.search(
+        r"(用户名|所在地|所在行业|细分行业|个人目标|具体介绍|合伙需求|教育和工作经历)[:：]",
+        body,
+    ):
+        violations.append("invite_profile_dump")
+
     required = ("who_doing", "resources", "topic", "why_invite", "low_pressure")
     for key in required:
         val = (elements.get(key) or "").strip()

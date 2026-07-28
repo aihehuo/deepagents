@@ -214,7 +214,10 @@ def test_topic_and_invite_ignore_non_public_candidate_fields() -> None:
     )
     assert "秘密融资" not in result.text
     assert "推断有钱" not in result.text
-    assert "公开固件" in result.text
+    # Public doing is evidence for matching/@ only — not pasted into invite body.
+    assert "公开固件" not in result.text
+    assert "@阿秘" in result.text
+    assert "秘密融资" not in (result.elements or {}).get("why_invite", "")
 
 
 # ---------------------------------------------------------------------------

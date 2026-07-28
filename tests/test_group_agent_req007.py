@@ -215,9 +215,10 @@ def test_derive_topic_uses_candidate_doing_and_initiator_need() -> None:
         }
     ]
     topic = derive_common_topic(_profile(), cands)
-    assert "量产固件" in topic.topic
+    # Topic centers initiator need for natural group paste (not candidate ad paste).
     assert "联网" in topic.topic or "固件" in topic.topic
     assert "不应被使用" not in topic.topic
+    assert topic.degraded is False
 
 
 # ---------------------------------------------------------------------------

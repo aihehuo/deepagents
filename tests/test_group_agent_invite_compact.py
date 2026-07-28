@@ -1,4 +1,4 @@
-"""Invite copy must stay WeChat-paste short — no full profile dumps."""
+"""Invite copy: natural WeChat paste — @ people, no ads / no formal public cites."""
 
 from __future__ import annotations
 
@@ -19,43 +19,56 @@ _DUMP = (
     "同时覆盖B端方案与内容分发。"
 )
 
+_AD = "梦日自助播报站项目找合伙人，微信18580542346"
+_AD_TAG = "【大健康赛道】寻找投资人，已有健康管理app产品"
 
-def test_compact_doing_prefers_具体介绍_and_truncates() -> None:
-    hook = compact_doing_for_invite(_DUMP, max_chars=40)
+
+def test_compact_strips_ads_phones_and_field_dumps() -> None:
+    hook = compact_doing_for_invite(_DUMP, max_chars=24)
     assert "所在地" not in hook
-    assert "个人目标" not in hook
     assert "具体介绍" not in hook
-    assert "AI漫画" in hook or "文创" in hook
-    assert len(hook) <= 40
+    assert len(hook) <= 24
+
+    ad = compact_doing_for_invite(_AD, max_chars=24)
+    assert "185" not in ad
+    assert "微信" not in ad
+    assert "找合伙人" not in ad
+
+    tagged = compact_doing_for_invite(_AD_TAG, max_chars=24)
+    assert "投资人" not in tagged
+    assert "大健康" in tagged
 
 
-def test_directed_invite_from_profile_dump_stays_short() -> None:
+def test_directed_invite_natural_at_names_no_ad_quote() -> None:
     profile = profile_from_flat(
         user_id="u_me",
         group_id="g1",
-        doing="推广爱合伙群智能体产品，找AI agent拓客合伙人",
-        need="有AI agent客户拓展经验的合伙人",
+        doing="推广爱合伙群智能体产品",
+        need="有AI agent客户拓展经验的人",
         offer="产品设计与技术协作",
     )
     candidates = [
         {
-            "user_id": "19887",
-            "display_name": "候选甲",
+            "user_id": "342662",
+            "display_name": "严淑贤",
             "source_group_id": "g1",
             "group_id": "g1",
-            "doing": {"value": _DUMP, "disclosure": "confirmed_public"},
+            "doing": {"value": _AD, "disclosure": "confirmed_public"},
         },
         {
-            "user_id": "61970",
-            "display_name": "候选乙",
+            "user_id": "12798",
+            "display_name": "Tomi",
+            "source_group_id": "g1",
+            "group_id": "g1",
+            "doing": {"value": _AD_TAG, "disclosure": "confirmed_public"},
+        },
+        {
+            "user_id": "362609",
+            "display_name": "柳志强",
             "source_group_id": "g1",
             "group_id": "g1",
             "doing": {
-                "value": (
-                    "所在地: 上海\n"
-                    "个人目标: 连续创业者，做过跨境电商与品牌出海。\n"
-                    "具体介绍: 正在做跨境供应链数字化与品牌增长咨询。"
-                ),
+                "value": "【DeepSeek大模型医疗AI智慧医院解决方案】招商",
                 "disclosure": "confirmed_public",
             },
         },
@@ -68,13 +81,19 @@ def test_directed_invite_from_profile_dump_stays_short() -> None:
     )
     assert result.ok
     assert result.kind == "directed"
-    assert result.text
-    assert len(result.text) <= MAX_INVITE_CHARS
-    assert "所在地" not in result.text
-    assert "个人目标" not in result.text
-    assert "具体介绍" not in result.text
-    assert "@19887" in result.text
-    assert "@61970" in result.text
+    text = result.text
+    assert len(text) <= MAX_INVITE_CHARS
+    assert "@严淑贤" in text
+    assert "@Tomi" in text
+    assert "@柳志强" in text
+    assert "@342662" not in text
+    assert "公开资料" not in text
+    assert "18580542346" not in text
+    assert "微信" not in text
+    assert "找合伙人" not in text
+    assert "寻找投资人" not in text
+    assert "AI agent" in text.lower() or "拓展" in text
+    assert "不一定" in text or "供参考" in text
 
 
 def test_three_candidate_invite_stays_within_budget() -> None:

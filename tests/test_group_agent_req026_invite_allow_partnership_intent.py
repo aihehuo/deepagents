@@ -66,7 +66,7 @@ def test_explicit_partnership_intent_and_equity_terms_allowed() -> None:
         "who_doing": "我在寻找技术合伙人",
         "resources": "有前期启动资金与股份",
         "topic": "技术架构与合伙机制",
-        "why_invite": "@u123 你公开资料里提到「后端开发」，基于公开信息值得聊一次以确认是否对得上——不一定合适",
+        "why_invite": "@u123，想请教几位一起对齐一下——不一定对得上，供参考，聊聊看就好",
         "low_pressure": "聊聊就好，不耽误大家太多时间，有合伙意向也可顺便交流",
     }
     text = "\n".join(elements.values())

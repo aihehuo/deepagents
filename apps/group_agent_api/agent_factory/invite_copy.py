@@ -43,20 +43,33 @@ _FIELD_LINE = re.compile(r"^([^:：]{1,24})[:：]\s*(.+)$")
 _INLINE_FIELD_LABELS = re.compile(
     r"(用户名|所在地|所在行业|细分行业|个人目标|具体介绍|合伙需求|教育和工作经历)[:：]\s*"
 )
+_PHONE_OR_CONTACT = re.compile(
+    r"(?:\+?86[-\s]?)?1[3-9]\d[\d\s-]{8,12}"
+    r"|(?:微信|wx|WeChat)[:：\s]*[A-Za-z0-9_-]{4,}"
+    r"|(?:电话|手机|联系)[:：\s]*\d[\d\s-]{6,}",
+    re.IGNORECASE,
+)
+_SOLICIT_AD = re.compile(
+    r"(找合伙人|寻求合伙人|寻找投资人|招募合伙人|招商加盟|加我微信|私聊详谈|详谈请)"
+)
+_BRACKET_TAG = re.compile(r"【([^】]{2,20})】")
 
 MAX_INVITE_ATTEMPTS = 2
 # WeChat group paste: keep invites skimmable (PRC AI-02「一屏读完」)
-MAX_HOOK_CHARS = 40
+MAX_HOOK_CHARS = 24
 MAX_SELF_CHARS = 48
-MAX_TOPIC_CHARS = 64
+MAX_TOPIC_CHARS = 48
 MAX_INVITE_CHARS = 520
 
 
 def compact_doing_for_invite(raw: str, *, max_chars: int = MAX_HOOK_CHARS) -> str:
-    """Turn profile dumps into a short invite hook — never paste full bios."""
+    """Turn profile dumps / ads into a short topical hook — never paste bios or contacts."""
     text = str(raw or "").replace("\\n", "\n").replace("\r", "").strip()
     if not text:
         return ""
+
+    tag = _BRACKET_TAG.search(text)
+    tag_hint = tag.group(1).strip() if tag else ""
 
     fields: dict[str, str] = {}
     for line in text.split("\n"):
@@ -66,19 +79,30 @@ def compact_doing_for_invite(raw: str, *, max_chars: int = MAX_HOOK_CHARS) -> st
 
     if fields:
         prefer = (
-            fields.get("具体介绍")
+            fields.get("细分行业")
+            or fields.get("所在行业")
+            or fields.get("具体介绍")
             or fields.get("个人目标")
             or fields.get("合伙需求")
-            or fields.get("细分行业")
-            or fields.get("所在行业")
         )
         if prefer:
             text = prefer
         else:
             text = max(fields.values(), key=len)
 
+    if tag_hint and (
+        not text
+        or _SOLICIT_AD.search(text)
+        or _PHONE_OR_CONTACT.search(text)
+        or len(text) > max_chars * 2
+    ):
+        text = tag_hint
+
     text = _INLINE_FIELD_LABELS.sub("", text)
-    text = re.sub(r"\s+", " ", text).strip(" ，,;；。.")
+    text = _PHONE_OR_CONTACT.sub("", text)
+    text = _SOLICIT_AD.sub("", text)
+    text = re.sub(r"[【】\[\]]", "", text)
+    text = re.sub(r"\s+", " ", text).strip(" ，,;；。.|/、")
     if len(text) > max_chars:
         text = text[: max_chars - 1].rstrip(" ，,;；。.") + "…"
     return text
@@ -165,16 +189,17 @@ def derive_common_topic(
 
     if user_need and candidate_doings:
         hook = candidate_doings[0]
-        topic = f"{user_need}这块，想请教做过「{hook}」的朋友怎么落地"
+        # Prefer initiator need as the group topic — don't paste candidate ads into topic.
+        topic = f"想请教「{user_need}」怎么落地"
         if len(topic) > MAX_TOPIC_CHARS:
-            topic = f"想请教「{hook}」相关落地经验"
+            topic = f"想请教「{user_need[:18].rstrip('…')}」相关经验"
         if _VAGUE_TOPIC_BAN.match(topic.strip()):
             topic = f"想请教「{hook}」相关的选型思路"
         return TopicResult(topic=topic, degraded=False)
 
     if user_offer and candidate_doings:
         hook = candidate_doings[0]
-        topic = f"我这边有「{user_offer}」，想聊聊「{hook}」怎么协作"
+        topic = f"我这边有「{user_offer}」，想找人对齐一下"
         if len(topic) > MAX_TOPIC_CHARS:
             topic = f"想聊聊「{hook}」怎么协作"
         return TopicResult(topic=topic, degraded=False)
@@ -192,6 +217,15 @@ def derive_common_topic(
 
 def _display_name(c: dict[str, Any]) -> str:
     return str(c.get("display_name") or c.get("name") or c.get("user_id") or "").strip()
+
+
+def _at_handle(c: dict[str, Any]) -> str:
+    """Prefer a paste-friendly display name; fall back to user_id when name has spaces."""
+    uid = str(c.get("user_id") or "").strip()
+    dn = _display_name(c)
+    if dn and not re.search(r"\s", dn):
+        return dn
+    return uid or dn.replace(" ", "")
 
 
 def _build_directed_elements(
@@ -218,29 +252,27 @@ def _build_directed_elements(
     )
     topic_line = topic
 
-    why_parts: list[str] = []
+    # Evidence gate: only @ candidates that still have confirmed_public doing.
+    # Do NOT paste their doing / ads into the group message (AI-05 + paste UX).
+    handles: list[str] = []
     for c in candidates[:MAX_CANDIDATES]:
-        # Precise mention identity: use the stable, whitespace-free user_id as the @handle.
-        # display_name may contain spaces (e.g. "Alice AI Dev"), which _AT_PATTERN truncates
-        # at the first space — that ambiguity is exactly what a prefix allowlist must NOT paper over.
-        uid = str(c.get("user_id") or "").strip()
-        handle = uid or _display_name(c).replace(" ", "")
         doing_pub = _public_value(c.get("doing"))
         if not doing_pub:
-            # Defense in depth: callers should already have passed the
-            # candidate-evidence guard. Never invent a generic basis here.
             continue
         hook = compact_doing_for_invite(doing_pub, max_chars=MAX_HOOK_CHARS)
         if not hook:
             continue
-        # AI-03: worth a chat + explicit uncertainty; never「很适合当合伙人」
-        # REQ-007: candidate narration = doing only (compact hook, never full bio dump)
-        why_parts.append(
-            f"@{handle} 公开资料提到「{hook}」相关方向，"
-            f"值得聊一次确认是否对得上——不一定合适"
+        handles.append(_at_handle(c))
+
+    if handles:
+        ats = " ".join(f"@{h}" for h in handles)
+        why = (
+            f"{ats}，想请教几位一起对齐一下——"
+            f"不一定对得上，供参考，聊聊看就好"
         )
-    why = "\n".join(why_parts) if why_parts else ""
-    low_pressure = "聊聊就好，不耽误大家太多时间，有合伙意向也可顺便交流"
+    else:
+        why = ""
+    low_pressure = "聊聊就好，不耽误大家太多时间，有意向也可顺便交流"
 
     elements = {
         "who_doing": who,
@@ -306,6 +338,10 @@ def assert_directed_invite(
         body,
     ):
         violations.append("invite_profile_dump")
+    if _PHONE_OR_CONTACT.search(body):
+        violations.append("invite_leaks_contact")
+    if "公开资料" in body:
+        violations.append("invite_too_formal_public_cite")
 
     required = ("who_doing", "resources", "topic", "why_invite", "low_pressure")
     for key in required:

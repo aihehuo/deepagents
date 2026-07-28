@@ -69,7 +69,7 @@ def test_assert_directed_invite_allows_partnership_pitch() -> None:
         "who_doing": "在爱合伙推进项目",
         "resources": "AI Agent",
         "topic": "Agent 架构",
-        "why_invite": "@mock_u2 你公开资料里提到「AI Agent 开发」，基于公开信息值得聊一次以确认是否对得上——不一定合适",
+        "why_invite": "@mock_u2，想请教几位一起对齐一下——不一定对得上，供参考，聊聊看就好",
         "low_pressure": "当合伙人一起创业",
     }
     text = "\n".join(elements.values())

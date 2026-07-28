@@ -14,6 +14,7 @@ from typing import Any
 from apps.group_agent_api.agent_factory.capability import CapabilityTier, unlocks_network
 from apps.group_agent_api.agent_factory.guard import GuardResult, enforce_capability_guard
 from apps.group_agent_api.agent_factory.profile_schema import GroupProfile
+from apps.group_agent_api.agent_factory.revisit import RevisitHint, build_revisit_opener
 
 _NEED_SHAPED_DOING = re.compile(
     r"^\s*(?:找|寻找|寻求|需要|缺少|想找|希望找)"
@@ -84,6 +85,7 @@ def finalize_user_visible_reply(
     delivery_kind: str | None,
     invite_ok: bool | None,
     network_unlocked: bool,
+    revisit_hint: RevisitHint | None = None,
 ) -> str:
     """Build a reply consistent with the persisted profile and formal result.
 
@@ -91,9 +93,18 @@ def finalize_user_visible_reply(
     trusted structured profile to confirm.  Once persistence succeeded, the
     deterministic result becomes authoritative and replaces any pre-match
     statement from the dialogue model.
+
+    REQ-028: when Micro injects ``revisit_hint.has_prior_invite``, the first
+    user-visible sentence mentions the prior recommendation and offers
+    有回 / 换人换题 / 开新一轮 branches (PRC-01 §9.2).
     """
+    opener = build_revisit_opener(revisit_hint) if network_unlocked else None
+
     if not profile_persisted or profile is None:
-        return (original_reply or "").strip()
+        original = (original_reply or "").strip()
+        if opener and original:
+            return f"{opener}\n\n{original}"
+        return opener or original
 
     doing, need, offer = profile_confirmation_parts(profile)
     confirmation = f"我理解并已更新画像：你{doing}；{need}；{offer}。"
@@ -163,7 +174,10 @@ def finalize_user_visible_reply(
             "可交流的人选，并按你的意愿决定是否点名邀请。"
         )
 
-    return f"{confirmation}{next_step}"
+    body = f"{confirmation}{next_step}"
+    if opener:
+        return f"{opener}\n\n{body}"
+    return body
 
 
 def finalize_and_guard_user_visible_reply(
@@ -178,6 +192,7 @@ def finalize_and_guard_user_visible_reply(
     candidates: list[dict[str, Any]],
     delivery_kind: str | None,
     invite_ok: bool | None,
+    revisit_hint: RevisitHint | None = None,
 ) -> GuardResult:
     """Finalize from authoritative state, then apply the capability guard.
 
@@ -195,6 +210,7 @@ def finalize_and_guard_user_visible_reply(
         delivery_kind=delivery_kind,
         invite_ok=invite_ok,
         network_unlocked=unlocks_network(tier),
+        revisit_hint=revisit_hint,
     )
     guarded = enforce_capability_guard(
         tier=tier,

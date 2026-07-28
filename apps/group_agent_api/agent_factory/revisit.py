@@ -1,0 +1,141 @@
+"""Revisit context from Micro-trusted call_async metadata (REQ-028 / TSD-03).
+
+Only Micro Path A injection is authoritative. Browser metadata must not forge
+these fields; AsyncCallRequest validates shape, and Micro strips client copies
+before re-injecting server values.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Any
+
+MAX_PRIOR_CANDIDATE_IDS = 100
+MAX_CANDIDATE_NAME_LEN = 64
+MAX_CANDIDATE_NAMES = 5
+MAX_TOPIC_SUMMARY_LEN = 256
+MAX_ID_LEN = 64
+
+
+@dataclass(frozen=True)
+class RevisitHint:
+    has_prior_invite: bool = False
+    candidate_names: tuple[str, ...] = ()
+    topic_summary: str | None = None
+
+
+def normalize_prior_candidate_ids(raw: Any) -> list[str]:
+    """Normalize prior ids to unique non-empty strings (order preserved)."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw[:MAX_PRIOR_CANDIDATE_IDS]:
+        if isinstance(item, bool) or not isinstance(item, (str, int)):
+            continue
+        value = str(item).strip()
+        if not value or len(value) > MAX_ID_LEN or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def parse_revisit_hint(raw: Any) -> RevisitHint:
+    """Parse revisit_hint; unknown/malformed shapes fail closed to no-op."""
+    if not isinstance(raw, dict):
+        return RevisitHint()
+    has_prior = bool(raw.get("has_prior_invite"))
+    names_raw = raw.get("candidate_names") or []
+    names: list[str] = []
+    if isinstance(names_raw, list):
+        for item in names_raw[:MAX_CANDIDATE_NAMES]:
+            if not isinstance(item, str):
+                continue
+            name = item.strip()
+            if not name or len(name) > MAX_CANDIDATE_NAME_LEN:
+                continue
+            names.append(name)
+    topic_raw = raw.get("topic_summary")
+    topic: str | None = None
+    if isinstance(topic_raw, str):
+        topic = topic_raw.strip()[:MAX_TOPIC_SUMMARY_LEN] or None
+    return RevisitHint(
+        has_prior_invite=has_prior,
+        candidate_names=tuple(names),
+        topic_summary=topic,
+    )
+
+
+def parse_revisit_from_metadata(metadata: dict[str, Any] | None) -> tuple[list[str], RevisitHint]:
+    meta = metadata or {}
+    return (
+        normalize_prior_candidate_ids(meta.get("prior_candidate_ids")),
+        parse_revisit_hint(meta.get("revisit_hint")),
+    )
+
+
+def excluded_ids_for_match(
+    user_id: str,
+    metadata: dict[str, Any] | None = None,
+    *,
+    prior_candidate_ids: list[str] | None = None,
+) -> list[str]:
+    """Self + Micro prior ids. Exclude strategy (not demote) — matches new_api."""
+    priors = (
+        list(prior_candidate_ids)
+        if prior_candidate_ids is not None
+        else normalize_prior_candidate_ids((metadata or {}).get("prior_candidate_ids"))
+    )
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in [str(user_id).strip(), *priors]:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def build_revisit_opener(hint: RevisitHint | None) -> str | None:
+    """PRC-01 §9.2 first-sentence revisit branch; None when no prior invite."""
+    if hint is None or not hint.has_prior_invite:
+        return None
+    if hint.candidate_names:
+        who = "、".join(hint.candidate_names)
+        base = f"上次我给你推荐过{who}"
+    else:
+        base = "上次我已经给你做过一轮推荐"
+    if hint.topic_summary:
+        base += f"（围绕「{hint.topic_summary}」）"
+    return (
+        f"{base}。对方有回音吗？"
+        "若没有，要换人、换题，还是开新一轮？"
+    )
+
+
+_REMATCH_INTENT = re.compile(
+    r"(换人|换一批|换题|再找|重新推荐|重新匹配|再匹配|另找|开新一轮.*找)"
+)
+
+
+def wants_rematch(message: str | None) -> bool:
+    """True when the user explicitly asks to rematch / change candidates."""
+    text = (message or "").strip()
+    if not text:
+        return False
+    return bool(_REMATCH_INTENT.search(text))
+
+
+def should_skip_auto_match(
+    *,
+    revisit_hint: RevisitHint | None,
+    message: str | None,
+) -> bool:
+    """REQ-028: with prior invite, do not force rematch unless user asks."""
+    if revisit_hint is None or not revisit_hint.has_prior_invite:
+        return False
+    return not wants_rematch(message)

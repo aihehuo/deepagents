@@ -11,6 +11,98 @@ MatchStatus = Literal["matched", "weak", "empty", "skipped"]
 DeliveryKind = Literal["directed", "undirected"]
 
 
+def validate_group_agent_metadata(v: dict[str, Any]) -> dict[str, Any]:
+    """Shared metadata gate for ChatRequest + AsyncCallRequest (REQ-028)."""
+    if not isinstance(v, dict):
+        raise ValueError("metadata must be a dictionary")
+    if len(v) > 20:
+        raise ValueError("metadata contains too many keys (max 20)")
+    forbidden_keys = {
+        "candidates",
+        "candidate_pool",
+        "mock_candidates",
+        "override_group_id",
+        "trusted_group_id",
+    }
+    for key, val in v.items():
+        if key.lower() in forbidden_keys:
+            raise ValueError(
+                f"metadata key '{key}' is forbidden "
+                "(candidate injection / group override strictly prohibited)"
+            )
+        if not isinstance(key, str) or len(key) > 64:
+            raise ValueError(
+                f"metadata key '{key}' must be a string with max length 64"
+            )
+        if key == "prior_candidate_ids":
+            _validate_prior_candidate_ids(val)
+            continue
+        if key == "revisit_hint":
+            _validate_revisit_hint(val)
+            continue
+        if isinstance(val, str) and len(val) > 1024:
+            raise ValueError(
+                f"metadata value for key '{key}' exceeds max length 1024"
+            )
+        if not isinstance(val, (int, float, bool, str, type(None))):
+            raise ValueError(
+                f"metadata value for key '{key}' must be a primitive scalar type"
+            )
+    return v
+
+
+def _validate_prior_candidate_ids(val: Any) -> None:
+    if not isinstance(val, list):
+        raise ValueError("metadata prior_candidate_ids must be a list")
+    if len(val) > 100:
+        raise ValueError("metadata prior_candidate_ids exceeds max length 100")
+    for item in val:
+        if isinstance(item, bool) or not isinstance(item, (str, int)):
+            raise ValueError(
+                "metadata prior_candidate_ids items must be string or int ids"
+            )
+        text = str(item).strip()
+        if not text or len(text) > 64:
+            raise ValueError(
+                "metadata prior_candidate_ids items must be 1..64 chars"
+            )
+
+
+def _validate_revisit_hint(val: Any) -> None:
+    if not isinstance(val, dict):
+        raise ValueError("metadata revisit_hint must be an object")
+    allowed = {"has_prior_invite", "candidate_names", "topic_summary"}
+    unknown = set(val) - allowed
+    if unknown:
+        raise ValueError(
+            f"metadata revisit_hint has unknown keys: {sorted(unknown)}"
+        )
+    if "has_prior_invite" in val and not isinstance(val["has_prior_invite"], bool):
+        raise ValueError("metadata revisit_hint.has_prior_invite must be bool")
+    if "candidate_names" in val:
+        names = val["candidate_names"]
+        if not isinstance(names, list):
+            raise ValueError(
+                "metadata revisit_hint.candidate_names must be a list"
+            )
+        if len(names) > 5:
+            raise ValueError(
+                "metadata revisit_hint.candidate_names exceeds max length 5"
+            )
+        for name in names:
+            if not isinstance(name, str) or not name.strip() or len(name) > 64:
+                raise ValueError(
+                    "metadata revisit_hint.candidate_names items must be "
+                    "non-empty strings ≤64 chars"
+                )
+    if "topic_summary" in val and val["topic_summary"] is not None:
+        topic = val["topic_summary"]
+        if not isinstance(topic, str) or len(topic) > 256:
+            raise ValueError(
+                "metadata revisit_hint.topic_summary must be a string ≤256 chars"
+            )
+
+
 class ChatRequest(BaseModel):
     user_id: str = Field(
         ...,
@@ -44,6 +136,11 @@ class ChatRequest(BaseModel):
     willing_to_at: bool = Field(True)
     run_invite: bool = Field(True)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, v: dict[str, Any]) -> dict[str, Any]:
+        return validate_group_agent_metadata(v)
 
 
 class ChatResponse(BaseModel):
@@ -182,21 +279,7 @@ class AsyncCallRequest(BaseModel):
     @field_validator("metadata")
     @classmethod
     def validate_metadata(cls, v: dict[str, Any]) -> dict[str, Any]:
-        if not isinstance(v, dict):
-            raise ValueError("metadata must be a dictionary")
-        if len(v) > 20:
-            raise ValueError("metadata contains too many keys (max 20)")
-        forbidden_keys = {"candidates", "candidate_pool", "mock_candidates", "override_group_id", "trusted_group_id"}
-        for key, val in v.items():
-            if key.lower() in forbidden_keys:
-                raise ValueError(f"metadata key '{key}' is forbidden (candidate injection / group override strictly prohibited)")
-            if not isinstance(key, str) or len(key) > 64:
-                raise ValueError(f"metadata key '{key}' must be a string with max length 64")
-            if isinstance(val, str) and len(val) > 1024:
-                raise ValueError(f"metadata value for key '{key}' exceeds max length 1024")
-            elif not isinstance(val, (int, float, bool, str, type(None))):
-                raise ValueError(f"metadata value for key '{key}' must be a primitive scalar type")
-        return v
+        return validate_group_agent_metadata(v)
 
 
 class AsyncCallResponse(BaseModel):

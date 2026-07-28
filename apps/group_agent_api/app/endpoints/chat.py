@@ -28,6 +28,11 @@ from apps.group_agent_api.agent_factory.profile_store import (
     assert_profile_persisted,
     load_profile,
 )
+from apps.group_agent_api.agent_factory.revisit import (
+    excluded_ids_for_match,
+    parse_revisit_from_metadata,
+    should_skip_auto_match,
+)
 from apps.group_agent_api.app.models import ChatRequest, ChatResponse
 from apps.group_agent_api.app.session import resolve_trusted_session
 from apps.group_agent_api.app.state import AppState
@@ -111,6 +116,7 @@ def _run_match_pipeline(
     run_match_flag: bool,
     group_token: str | None,
     user_token: str | None,
+    metadata: dict[str, Any] | None = None,
 ) -> tuple[str, list[dict[str, Any]], str | None]:
     """Returns (match_status, candidates, match_reason). caller_group_id = trusted group_id."""
     if not run_match_flag:
@@ -128,7 +134,7 @@ def _run_match_pipeline(
     result = run_match(
         query=query,
         group_id=group_id,
-        excluded_ids=[user_id],
+        excluded_ids=excluded_ids_for_match(user_id, metadata),
         group_token=group_token,
         user_bearer=user_token,
     )
@@ -345,6 +351,11 @@ async def chat(
     finally:
         state.finish_agent_run(tid, "chat")
 
+    _, revisit_hint = parse_revisit_from_metadata(req.metadata or {})
+    effective_run_match = req.run_match and not should_skip_auto_match(
+        revisit_hint=revisit_hint,
+        message=req.message,
+    )
     match_status, candidates, match_reason = await asyncio.to_thread(
         _run_match_pipeline,
         state=state,
@@ -352,10 +363,18 @@ async def chat(
         group_id=group_id,
         tier=tier,
         profile_ok=profile_ok,
-        run_match_flag=req.run_match,
+        run_match_flag=effective_run_match,
         group_token=session.group_token,
         user_token=user_token,
+        metadata=req.metadata or {},
     )
+    if (
+        req.run_match
+        and not effective_run_match
+        and match_status == "skipped"
+        and match_reason == "run_match_disabled"
+    ):
+        match_reason = "revisit_awaiting_user_branch"
 
     guarded = enforce_capability_guard(
         tier=tier,
@@ -378,7 +397,7 @@ async def chat(
     invite_ok = None
     invite_violations: list[str] = []
 
-    if req.run_invite and profile_ok and unlocks_network(tier):
+    if req.run_invite and profile_ok and unlocks_network(tier) and effective_run_match:
         profile = load_profile(state.base_dir, user_id, group_id)
         if profile is not None:
             invite_status = match_status
@@ -426,6 +445,7 @@ async def chat(
         candidates=guarded.candidates,
         delivery_kind=delivery_kind,
         invite_ok=invite_ok,
+        revisit_hint=revisit_hint,
     )
     combined_guard_violations = list(
         dict.fromkeys([*guarded.violations, *final_guarded.violations])

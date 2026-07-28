@@ -41,6 +41,11 @@ from apps.group_agent_api.agent_factory.content_quality import (
 )
 from apps.group_agent_api.agent_factory.match_stub import build_query_from_profile
 from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted, load_profile
+from apps.group_agent_api.agent_factory.revisit import (
+    excluded_ids_for_match,
+    parse_revisit_from_metadata,
+    should_skip_auto_match,
+)
 from apps.group_agent_api.app.endpoints.chat import MAX_PERSIST_ATTEMPTS, _extract_reply, _invoke_config
 from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse, CallbackEnvelope
 from apps.group_agent_api.app.session import TrustedSession
@@ -637,7 +642,13 @@ async def _execute_core_agent(
             "我没有覆盖当前权威画像，也没有继续匹配或生成邀请。"
         )
 
-    if req.run_match and unlocks_network(tier) and profile_ok:
+    _, revisit_hint = parse_revisit_from_metadata(req.metadata or {})
+    effective_run_match = req.run_match and not should_skip_auto_match(
+        revisit_hint=revisit_hint,
+        message=req.message,
+    )
+
+    if effective_run_match and unlocks_network(tier) and profile_ok:
         assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
         if assertion.ok and assertion.profile is not None:
             query = build_query_from_profile(assertion.profile)
@@ -645,13 +656,20 @@ async def _execute_core_agent(
                 return run_match(
                     query=query,
                     group_id=group_id,
-                    excluded_ids=[user_id],
+                    excluded_ids=excluded_ids_for_match(user_id, req.metadata or {}),
                     group_token=session.group_token,
                     user_bearer=user_token,
                 )
             match_res = await asyncio.to_thread(_match_job)
             aligned = align_match_to_trusted_group(match_res, trusted_group_id=group_id)
             match_status, candidates, match_reason = aligned.status, aligned.candidates, aligned.reason
+    elif (
+        req.run_match
+        and not effective_run_match
+        and profile_ok
+        and match_reason is None
+    ):
+        match_reason = "revisit_awaiting_user_branch"
     _logger.info("Core match debug run_id=%s tier=%s profile_ok=%s match_status=%s candidates_count=%d", req.run_id, tier.value, profile_ok, match_status, len(candidates))
 
     guarded = enforce_capability_guard(
@@ -674,7 +692,7 @@ async def _execute_core_agent(
     mentioned_user_ids: list[str] = []
     invite_ok = None
 
-    if req.run_invite and profile_ok and unlocks_network(tier):
+    if req.run_invite and profile_ok and unlocks_network(tier) and effective_run_match:
         profile = load_profile(state.base_dir, user_id, group_id)
         if profile is not None:
             invite_status = match_status
@@ -712,6 +730,7 @@ async def _execute_core_agent(
         candidates=guarded.candidates,
         delivery_kind=delivery_kind,
         invite_ok=invite_ok,
+        revisit_hint=revisit_hint,
     )
     combined_guard_violations = list(
         dict.fromkeys([*guarded.violations, *final_guarded.violations])

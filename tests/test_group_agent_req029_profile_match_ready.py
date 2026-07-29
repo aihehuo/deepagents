@@ -70,6 +70,20 @@ def test_length_gate_rejects_short_fields() -> None:
     assert any(r.endswith("_too_short") for r in q.reasons)
 
 
+def test_length_gate_accepts_compact_chinese_doing() -> None:
+    """Whitespace must not make「做 AI 教育」fail the doing length gate."""
+    p = profile_from_flat(
+        user_id="u1",
+        group_id="g1",
+        doing="做 AI 教育",
+        need="缺能落地课程产品的教育产品经理",
+        offer="有一个私域客户群",
+    )
+    q = assess_length_and_role(p)
+    assert q.ready
+    assert q.layer_failed is None
+
+
 def test_wants_force_match() -> None:
     assert wants_force_match("先匹配一下吧")
     assert wants_force_match("不用再问了，先搜一下")
@@ -158,7 +172,7 @@ def test_llm_unavailable_does_not_count_thin_skip(tmp_path: Path) -> None:
 def test_finalize_asks_on_too_thin() -> None:
     profile = _rich_profile(Path("/tmp"))
     text = finalize_user_visible_reply(
-        original_reply="原始",
+        original_reply="",
         profile=profile,
         profile_persisted=True,
         match_status="skipped",
@@ -171,6 +185,25 @@ def test_finalize_asks_on_too_thin() -> None:
     )
     assert "再确认" in text
     assert "最卡" in text
+    assert "定向邀请" not in text
+
+
+def test_finalize_keeps_agent_followup_when_too_thin() -> None:
+    profile = _rich_profile(Path("/tmp"))
+    text = finalize_user_visible_reply(
+        original_reply="已记下：具体产品是 AI 单词记忆。还想确认你的目标用户是谁？",
+        profile=profile,
+        profile_persisted=True,
+        match_status="skipped",
+        candidate_count=0,
+        delivery_kind=None,
+        invite_ok=None,
+        network_unlocked=True,
+        match_reason="profile_too_thin",
+        quality_gaps=["你在做的具体产品或场景，再多说一两句？"],
+    )
+    assert "AI 单词记忆" in text
+    assert "再多说一两句" not in text or "若还没说到" in text
     assert "定向邀请" not in text
 
 

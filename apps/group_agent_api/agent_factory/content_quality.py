@@ -123,7 +123,15 @@ def finalize_user_visible_reply(
 
     if network_unlocked and match_reason == "profile_too_thin":
         ask = gap or "你在做的具体场景，以及现在最卡的点，再补一句？"
-        next_step = f"我还想再确认一下再帮你找人：{ask}"
+        original = (original_reply or "").strip()
+        # Prefer the dialogue model's follow-up when it already asked something
+        # concrete — don't drown user answers under a repeated template gap.
+        if original and not original.startswith("我理解并已更新画像"):
+            next_step = original
+            if ask and ask not in original:
+                next_step = f"{original}\n\n（若还没说到：{ask}）"
+        else:
+            next_step = f"我还想再确认一下再帮你找人：{ask}"
     elif network_unlocked and match_reason == "profile_quality_unavailable":
         next_step = (
             "我先把需求再对齐一下："

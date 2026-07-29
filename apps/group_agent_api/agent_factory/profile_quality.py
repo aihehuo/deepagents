@@ -23,9 +23,9 @@ from apps.group_agent_api.agent_factory.profile_store import validate_id
 
 _logger = logging.getLogger("uvicorn.error")
 
-MIN_DOING_CHARS = 8
-MIN_NEED_CHARS = 8
-MIN_OFFER_CHARS = 6
+MIN_DOING_CHARS = 5
+MIN_NEED_CHARS = 6
+MIN_OFFER_CHARS = 4
 MAX_THIN_SKIPS_BEFORE_DEGRADED = 3
 
 _FORCE_MATCH_INTENT = re.compile(
@@ -86,6 +86,11 @@ def _field_value(profile: GroupProfile, name: str) -> str:
     return str(getattr(field_obj, "value", "") or "").strip()
 
 
+def _length_for_gate(text: str) -> int:
+    """Count chars for length gates; ignore whitespace so「做 AI 教育」≈「做AI教育」."""
+    return len(re.sub(r"\s+", "", text or ""))
+
+
 def profile_fingerprint(profile: GroupProfile) -> str:
     raw = "|".join(
         [
@@ -105,13 +110,13 @@ def assess_length_and_role(profile: GroupProfile) -> ProfileQuality:
     reasons: list[str] = []
     gaps: list[str] = []
 
-    if len(doing) < MIN_DOING_CHARS:
+    if _length_for_gate(doing) < MIN_DOING_CHARS:
         reasons.append("doing_too_short")
         gaps.append("你在做的具体产品或场景，再多说一两句？")
-    if len(need) < MIN_NEED_CHARS:
+    if _length_for_gate(need) < MIN_NEED_CHARS:
         reasons.append("need_too_short")
         gaps.append("你现在最卡的是哪一类帮助（人/渠道/技术等）？")
-    if len(offer) < MIN_OFFER_CHARS:
+    if _length_for_gate(offer) < MIN_OFFER_CHARS:
         reasons.append("offer_too_short")
         gaps.append("你这边能提供的具体资源或能力是什么？")
 

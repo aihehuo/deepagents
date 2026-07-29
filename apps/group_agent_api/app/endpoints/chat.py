@@ -19,6 +19,7 @@ from apps.group_agent_api.agent_factory.integrations.group_bind import (
 )
 from apps.group_agent_api.agent_factory.integrations.match_backend import run_match
 from apps.group_agent_api.agent_factory.invite_llm import generate_invite_with_optional_llm
+from apps.group_agent_api.agent_factory.invite_copy import should_emit_invite_artifact
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
@@ -612,15 +613,18 @@ async def chat(
     invite_ok = None
     invite_violations: list[str] = []
 
-    # Invite only after a real match attempt (ready or thin-degraded), never on thin skip.
+    # Invite only when match found people — empty match must not auto-emit
+    # undirected topic/invite cards while dialogue is still clarifying.
     if (
         req.run_invite
         and profile_ok
         and unlocks_network(tier)
         and effective_run_match
-        and match_status != "skipped"
-        and match_reason
-        not in {"profile_too_thin", "profile_quality_unavailable"}
+        and should_emit_invite_artifact(
+            match_status=match_status,
+            match_reason=match_reason,
+            candidate_count=len(guarded.candidates),
+        )
     ):
         profile = load_profile(state.base_dir, user_id, group_id)
         if profile is not None:

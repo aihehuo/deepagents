@@ -36,6 +36,7 @@ from apps.group_agent_api.agent_factory.integrations.config import async_run_tim
 from apps.group_agent_api.agent_factory.integrations.group_bind import align_match_to_trusted_group
 from apps.group_agent_api.agent_factory.integrations.match_backend import run_match
 from apps.group_agent_api.agent_factory.invite_llm import generate_invite_with_optional_llm
+from apps.group_agent_api.agent_factory.invite_copy import should_emit_invite_artifact
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
@@ -877,9 +878,11 @@ async def _execute_core_agent(
         and profile_ok
         and unlocks_network(tier)
         and effective_run_match
-        and match_status != "skipped"
-        and match_reason
-        not in {"profile_too_thin", "profile_quality_unavailable"}
+        and should_emit_invite_artifact(
+            match_status=match_status,
+            match_reason=match_reason,
+            candidate_count=len(guarded.candidates),
+        )
     ):
         profile = load_profile(state.base_dir, user_id, group_id)
         if profile is not None:
@@ -905,6 +908,16 @@ async def _execute_core_agent(
             mentioned_user_ids = invite_res.mentioned_user_ids
             invite_ok = invite_res.ok
             _logger.info("Invite debug run_id=%s willing=%s kind=%s text_len=%d mentioned_count=%d", req.run_id, willing, delivery_kind, len(invite_text or ""), len(mentioned_user_ids))
+    elif (
+        req.run_invite
+        and profile_ok
+        and effective_run_match
+        and match_status == "empty"
+    ):
+        _logger.info(
+            "Invite skipped run_id=%s reason=empty_match_no_artifact",
+            req.run_id,
+        )
 
     final_profile = load_profile(state.base_dir, user_id, group_id) if profile_ok else None
     final_guarded = finalize_and_guard_user_visible_reply(

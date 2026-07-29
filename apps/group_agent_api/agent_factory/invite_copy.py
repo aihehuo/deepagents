@@ -145,6 +145,27 @@ def decide_delivery(
     return "undirected"
 
 
+def should_emit_invite_artifact(
+    *,
+    match_status: str,
+    match_reason: str | None,
+    candidate_count: int,
+) -> bool:
+    """Whether the chat/async pipeline should attach invite/topic cards.
+
+    Empty match must NOT auto-emit an undirected invite while the dialogue is
+    still clarifying — that felt like「过早跳出邀请词」. Invite artifacts are
+    only for turns that actually have candidates (matched/weak).
+    """
+    if match_status in {"skipped", "empty"}:
+        return False
+    if match_reason in {"profile_too_thin", "profile_quality_unavailable"}:
+        return False
+    if candidate_count <= 0:
+        return False
+    return True
+
+
 def _public_value(field: dict[str, Any] | None) -> str:
     if not field or not isinstance(field, dict):
         return ""

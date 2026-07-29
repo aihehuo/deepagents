@@ -50,12 +50,14 @@ def _normalize_candidate(raw: dict[str, Any], *, fallback_group: str) -> dict[st
         "match_score": raw.get("match_score"),
         "match_confidence": raw.get("match_confidence"),
         "confidence_note": raw.get("confidence_note"),
+        "is_reachable": raw.get("is_reachable") if raw.get("is_reachable") is not None else True,
+        "group_info": raw.get("group_info"),
     }
     if doing:
         normalized["doing"] = doing
     # Explicitly drop need/offer (doing-only contract)
     visible = filter_member_for_visibility(normalized)
-    for k in ("match_score", "match_confidence", "confidence_note", "source_group_id"):
+    for k in ("match_score", "match_confidence", "confidence_note", "source_group_id", "is_reachable", "group_info"):
         if normalized.get(k) is not None:
             visible[k] = normalized[k]
     return visible

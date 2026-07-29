@@ -31,11 +31,13 @@ class PoolMember:
     need: dict[str, str]
     offer: dict[str, str]
     profile_url: str = ""
+    is_reachable: bool = True
+    group_info: dict[str, Any] | None = None
     # Internal match signals (never exposed raw)
     keywords: list[str] = field(default_factory=list)
 
     def to_raw_dict(self) -> dict[str, Any]:
-        return {
+        res = {
             "user_id": self.user_id,
             "group_id": self.group_id,
             "bound": self.bound,
@@ -44,7 +46,11 @@ class PoolMember:
             "need": self.need,
             "offer": self.offer,
             "profile_url": self.profile_url or f"/users/{self.user_id}",
+            "is_reachable": self.is_reachable,
         }
+        if self.group_info is not None:
+            res["group_info"] = self.group_info
+        return res
 
 
 @dataclass
@@ -167,7 +173,7 @@ class MatchStub:
                         )
                     )
             return fixture_members
-        return [m for m in self.pool if m.group_id == gid and m.bound]
+        return [m for m in self.pool if (m.group_id == gid or m.is_reachable is False) and m.bound]
 
     def search(
         self,
@@ -224,8 +230,8 @@ class MatchStub:
 
         candidates: list[dict[str, Any]] = []
         for score, member in top:
-            # 越权硬约束：来源群必须等于调用群
-            if member.group_id != gid:
+            # 越权硬约束：来源群必须等于调用群 (除非 is_reachable == False 允许跨群候选人)
+            if member.group_id != gid and member.is_reachable is not False:
                 continue
             visible = filter_member_for_visibility(member.to_raw_dict())
             visible["source_group_id"] = member.group_id
@@ -235,6 +241,10 @@ class MatchStub:
             )
             if status == "weak":
                 visible["confidence_note"] = "关联度一般，供参考"
+            if "is_reachable" not in visible:
+                visible["is_reachable"] = member.is_reachable
+            if member.group_info is not None and "group_info" not in visible:
+                visible["group_info"] = member.group_info
             candidates.append(visible)
 
         if not candidates:

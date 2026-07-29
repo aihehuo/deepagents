@@ -264,6 +264,8 @@ def _build_directed_elements(
     # Do NOT paste their doing / ads into the group message (AI-05 + paste UX).
     handles: list[str] = []
     for c in candidates[:MAX_CANDIDATES]:
+        if c.get("is_reachable") is False:
+            continue
         doing_pub = _public_value(c.get("doing"))
         if not doing_pub:
             continue

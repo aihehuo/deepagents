@@ -134,7 +134,8 @@ def enforce_capability_guard(
             violations.append(f"duplicate_candidate_id:{user_id_value}")
         seen_ids.add(user_id_value)
         src = str(c.get("source_group_id") or c.get("group_id") or "")
-        if src != caller_group_id:
+        is_reachable = c.get("is_reachable")
+        if is_reachable is not False and src != caller_group_id:
             violations.append(f"cross_group:{user_id_value}:{src}")
             continue
         leaks = assert_visible_fields_public_only(c)

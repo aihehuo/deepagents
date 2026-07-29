@@ -88,6 +88,7 @@ def finalize_user_visible_reply(
     revisit_hint: RevisitHint | None = None,
     match_reason: str | None = None,
     quality_gaps: list[str] | None = None,
+    candidates: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build a reply consistent with the persisted profile and formal result.
 
@@ -227,6 +228,38 @@ def finalize_user_visible_reply(
             "可交流的人选，并按你的意愿决定是否点名邀请。"
         )
 
+    unreachable_cands = [
+        c for c in (candidates or [])
+        if isinstance(c, dict) and c.get("is_reachable") is False
+    ]
+    if unreachable_cands:
+        unreachable_lines = []
+        for c in unreachable_cands:
+            name = str(
+                c.get("display_name") or c.get("name") or c.get("user_id") or "候选人"
+            ).strip()
+            gi = c.get("group_info")
+            gname = ""
+            if isinstance(gi, dict):
+                gname = str(
+                    gi.get("name")
+                    or gi.get("group_name")
+                    or gi.get("title")
+                    or gi.get("id")
+                    or gi.get("group_id")
+                    or ""
+                ).strip()
+            elif isinstance(gi, str):
+                gname = gi.strip()
+            if not gname:
+                gname = str(c.get("source_group_id") or c.get("group_id") or "对应群").strip()
+            unreachable_lines.append(
+                f"候选人【{name}】在【{gname}】，你目前不在该群，可以申请加入【{gname}】"
+            )
+        unreachable_text = "\n".join(unreachable_lines)
+        if unreachable_text not in next_step:
+            next_step = f"{next_step}\n\n{unreachable_text}" if next_step else unreachable_text
+
     original = (original_reply or "").strip()
     is_simple_fallback_stub = any(
         original.startswith(prefix)
@@ -318,6 +351,7 @@ def finalize_and_guard_user_visible_reply(
         revisit_hint=revisit_hint,
         match_reason=match_reason,
         quality_gaps=quality_gaps,
+        candidates=candidates,
     )
     guarded = enforce_capability_guard(
         tier=tier,

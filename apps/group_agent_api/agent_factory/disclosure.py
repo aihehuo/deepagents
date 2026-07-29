@@ -62,6 +62,10 @@ def filter_member_for_visibility(raw: dict[str, Any]) -> dict[str, Any]:
         "profile_url": raw.get("profile_url") or "",
         "bound": bool(raw.get("bound", True)),
     }
+    if "is_reachable" in raw and raw["is_reachable"] is not None:
+        out["is_reachable"] = bool(raw["is_reachable"])
+    if "group_info" in raw and raw["group_info"] is not None:
+        out["group_info"] = raw["group_info"]
     for dim in ("doing", "need", "offer"):
         pub = _field_public(raw.get(dim) if isinstance(raw.get(dim), dict) else None)
         if pub is not None:

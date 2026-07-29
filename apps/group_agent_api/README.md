@@ -199,3 +199,14 @@ tool schema、checkpoint、密钥或 fixture 敏感值；脱敏失败会以
 
 该报告只是人工内容审核证据，不替代 REQ-012 的机器 Oracle。仓库不包含真实报告；必须在获得真实
 Qwen 调用授权后重新运行 Scenario，才能产生真实对话片段。本轮 REQ-013 开发和无网测试不会调用 LLM。
+
+## 调试导出（前端包 + 后端 turn trace）
+
+排障时用户会从日历暗入口点「导出调试」粘贴前端 JSON。完整 Human/AI/Tool 链需在 prod3 打开
+`GROUP_AGENT_DEBUG_TRACE=1` 后从 `debug_traces/` **压缩拉取**。
+
+操作手册（含 prod3 路径、gzip 流程、Micro 只读核对、复盘顺序）：
+
+→ [`docs/runbooks/group-agent-debug-export.md`](../../docs/runbooks/group-agent-debug-export.md)
+
+同内容亦镜像在工作区 `aihehuo_total/docs/runbooks/group-agent-debug-export.md`。

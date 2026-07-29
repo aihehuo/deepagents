@@ -572,6 +572,8 @@ async def _execute_core_agent(
     profile_ok = False
     profile_status = "failed"
     persistence_failure_reason: str | None = None
+    messages: list[Any] = []
+    msg_count_before = 0
 
     async with lock:
         try:
@@ -900,5 +902,34 @@ async def _execute_core_agent(
         "invite_ok": invite_ok,
         "willing_to_at": req.willing_to_at,
     }
+
+    from apps.group_agent_api.agent_factory.debug_trace import write_turn_trace
+    from apps.group_agent_api.agent_factory.profile_quality import episode_key_from_metadata
+
+    meta = req.metadata or {}
+    trace_path = write_turn_trace(
+        base_dir=state.base_dir,
+        run_id=req.run_id,
+        thread_id=tid,
+        user_id=user_id,
+        group_id=group_id,
+        conversation_id=req.conversation_id,
+        episode_id=episode_key_from_metadata(meta),
+        user_message=req.message,
+        messages=messages,
+        msg_count_before=msg_count_before,
+        reply=final_guarded.reply,
+        profile_status=profile_status,
+        match_status=final_payload["match_status"],
+        match_reason=match_reason,
+        extra={
+            "revisit_hint": meta.get("revisit_hint"),
+            "prior_candidate_ids_count": len(meta.get("prior_candidate_ids") or []),
+            "delivery_kind": delivery_kind,
+            "invite_ok": invite_ok,
+        },
+    )
+    if trace_path:
+        final_payload["debug_trace_path"] = trace_path
 
     await emit_callback("final", final_payload)

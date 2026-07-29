@@ -108,3 +108,22 @@ def test_english_short_prefix_deduplication() -> None:
     merged = _merge_force_save_reply(a, b)
     assert merged == b
     assert merged.count("I help match people") == 1
+
+
+def test_extract_reply_ignores_pre_tool_call_intermediate_message() -> None:
+    from langchain_core.messages import AIMessage, ToolMessage
+    from apps.group_agent_api.app.endpoints.chat import _extract_reply
+
+    msg1 = AIMessage(
+        content="Yes.\n\nI don't have prior knowledge about you...",
+        tool_calls=[{"name": "save_group_profile", "args": {}, "id": "call_1"}],
+    )
+    msg2 = ToolMessage(content='{"ok": true}', tool_call_id="call_1")
+    msg3 = AIMessage(
+        content="Got it — 'work on an AI project' is a start. To sharpen...",
+        tool_calls=[],
+    )
+
+    messages = [msg1, msg2, msg3]
+    extracted = _extract_reply(messages, 0)
+    assert extracted == "Got it — 'work on an AI project' is a start. To sharpen..."

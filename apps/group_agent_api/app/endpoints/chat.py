@@ -110,13 +110,32 @@ _RESERVED_META_KEYS = frozenset(
 
 
 def _extract_reply(messages: list, msg_count_before: int) -> str:
+    ai_msgs = [
+        msg
+        for msg in messages[msg_count_before:]
+        if isinstance(msg, AIMessage)
+        and msg.content
+        and str(msg.content).strip()
+        and not str(msg.content).strip().startswith("Updated todo list")
+    ]
+    if not ai_msgs:
+        return ""
+
+    final_ai_msg = ai_msgs[-1]
+    final_content = str(final_ai_msg.content).strip()
+
+    if len(ai_msgs) == 1:
+        return final_content
+
+    has_tool_calls_in_earlier = any(
+        getattr(m, "tool_calls", None) for m in ai_msgs[:-1]
+    )
+    if has_tool_calls_in_earlier and not getattr(final_ai_msg, "tool_calls", None):
+        return final_content
+
     parts: list[str] = []
-    for msg in messages[msg_count_before:]:
-        if not isinstance(msg, AIMessage):
-            continue
-        content = str(msg.content).strip() if msg.content else ""
-        if not content or content.startswith("Updated todo list"):
-            continue
+    for msg in ai_msgs:
+        content = str(msg.content).strip()
         if parts:
             if _replies_substantially_same(parts[-1], content):
                 if len(content) > len(parts[-1]):

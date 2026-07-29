@@ -18,7 +18,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from apps.group_agent_api.agent_factory.agent import (
     FORCE_SAVE_PROMPT,
@@ -64,6 +64,42 @@ _logger = logging.getLogger("uvicorn.error")
 
 _MAX_IDEMPOTENCY_CACHE = 5_000
 _DETERMINISTIC_SAVE_TOOL_CALL_ID = "harness_deterministic_save"
+
+
+def _known_profile_system_message(
+    *,
+    base_dir: Any,
+    user_id: str,
+    group_id: str,
+) -> SystemMessage | None:
+    """Remind the dialogue model of the persisted user×group profile each turn.
+
+    Greeting UI may show Micro profile while LangGraph memory is empty (new
+    episode). Without this, the model falsely answers「不知道」.
+    """
+    profile = load_profile(base_dir, user_id, group_id)
+    if profile is None:
+        return None
+
+    def _v(name: str) -> str:
+        field = getattr(profile, name, None)
+        return str(getattr(field, "value", "") or "").strip()
+
+    doing, need, offer = _v("doing"), _v("need"), _v("offer")
+    if not (doing or need or offer):
+        return None
+    return SystemMessage(
+        content=(
+            "【系统已掌握的本用户×本群画像——来自已落库 profile，可能需用户更正】\n"
+            f"- doing: {doing or '（空）'}\n"
+            f"- need: {need or '（空）'}\n"
+            f"- offer: {offer or '（空）'}\n"
+            "规则：\n"
+            "1. 用户问「你知道我在做什么吗」等，必须基于上述 doing 回答，禁止说不知道。\n"
+            "2. 用户更正方向/产品时，立刻 save_group_profile 覆盖 doing（及必要的 need/offer）。\n"
+            "3. 不要假装没有画像；缺的维度再追问。"
+        )
+    )
 
 
 @dataclass
@@ -613,8 +649,17 @@ async def _execute_core_agent(
                 run_id=req.run_id,
                 conversation_id=req.conversation_id,
             )
+            turn_messages: list[Any] = []
+            known = _known_profile_system_message(
+                base_dir=state.base_dir,
+                user_id=user_id,
+                group_id=group_id,
+            )
+            if known is not None:
+                turn_messages.append(known)
+            turn_messages.append(HumanMessage(content=req.message))
             result = await agent.ainvoke(
-                {"messages": [HumanMessage(content=req.message)]},
+                {"messages": turn_messages},
                 config,
             )
             messages = result.get("messages", [])

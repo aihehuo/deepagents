@@ -336,18 +336,28 @@ async def chat(
                     membership=tier.value,
                     metadata=req.metadata or {},
                 )
+                from apps.group_agent_api.app.async_manager import (
+                    _attempt_deterministic_profile_save,
+                    _known_profile_system_message,
+                    _profile_was_superseded,
+                    determine_persistence_failure_reason,
+                )
+
+                turn_messages: list[Any] = []
+                known = _known_profile_system_message(
+                    base_dir=state.base_dir,
+                    user_id=user_id,
+                    group_id=group_id,
+                )
+                if known is not None:
+                    turn_messages.append(known)
+                turn_messages.append(HumanMessage(content=req.message))
                 result = await agent.ainvoke(
-                    {"messages": [HumanMessage(content=req.message)]},
+                    {"messages": turn_messages},
                     config,
                 )
                 messages = result.get("messages", [])
                 reply = _extract_reply(messages, msg_count_before)
-
-                from apps.group_agent_api.app.async_manager import (
-                    _attempt_deterministic_profile_save,
-                    _profile_was_superseded,
-                    determine_persistence_failure_reason,
-                )
 
                 assertion = assert_profile_persisted(
                     state.base_dir, user_id, group_id

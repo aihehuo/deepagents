@@ -242,6 +242,10 @@ def finalize_user_visible_reply(
     if has_substantive_custom_reply:
         if confirmation in original:
             body = original
+        elif next_step == original or (next_step and next_step in original):
+            body = f"{original}\n\n{confirmation}" if confirmation else original
+        elif original in next_step:
+            body = f"{confirmation}{next_step}"
         else:
             body = f"{original}\n\n{confirmation}{next_step}"
     else:

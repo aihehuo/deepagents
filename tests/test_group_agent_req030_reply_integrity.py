@@ -60,3 +60,36 @@ def test_finalize_user_visible_reply_uses_template_when_original_reply_is_empty(
 
     assert "我理解并已更新画像" in result
     assert "这次暂未找到足够明确的本群人选" in result
+
+
+def test_finalize_user_visible_reply_deduplicates_when_next_step_is_original_reply() -> None:
+    profile = profile_from_flat(
+        user_id="1",
+        group_id="763",
+        doing="AI training project",
+        need="ML engineer",
+        offer="compute",
+    )
+    long_english_reply = (
+        "Got it — you're working on an AI training project.\n"
+        "To help match the right people, I need to clarify three things:\n"
+        "1. Doing: What's the specific goal?\n"
+        "2. Need: What's missing?\n"
+        "3. Offer: What can you bring?"
+    )
+
+    result = finalize_user_visible_reply(
+        original_reply=long_english_reply,
+        profile=profile,
+        profile_persisted=True,
+        match_status="skipped",
+        candidate_count=0,
+        delivery_kind=None,
+        invite_ok=None,
+        network_unlocked=True,
+        revisit_hint=None,
+        match_reason="profile_too_thin",
+    )
+
+    # Must contain the reply exactly ONCE, not duplicated
+    assert result.count("Got it — you're working on an AI training project.") == 1

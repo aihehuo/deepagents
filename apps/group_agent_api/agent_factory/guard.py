@@ -1,6 +1,9 @@
 """后处理守卫：能力分级断言 + 越权断言 + 披露泄漏断言。
 
-非 in_group → 零候选人 / 零匹配 / 零 @ / 零跨群人脉。
+非 in_group → 零候选人 / 零匹配 / 零 @。
+in_group：允许 new_api 标注的跨群候选人（``is_reachable is False``）
+以及经其它共同群可触达的候选人（``is_reachable is True`` 且 source ≠ 入口群）；
+未标注 reachability 的外群候选人仍拦截。
 违反 → 拦截（清空人脉面）+ 告警，不静默放行。
 """
 
@@ -135,7 +138,10 @@ def enforce_capability_guard(
         seen_ids.add(user_id_value)
         src = str(c.get("source_group_id") or c.get("group_id") or "")
         is_reachable = c.get("is_reachable")
-        if is_reachable is not False and src != caller_group_id:
+        # REQ-031 / REQ-053: foreign source is allowed when new_api marked
+        # reachability explicitly (False = cross-group apply-join; True =
+        # shared another group). Missing flag + foreign source stays blocked.
+        if src and src != caller_group_id and is_reachable not in (True, False):
             violations.append(f"cross_group:{user_id_value}:{src}")
             continue
         leaks = assert_visible_fields_public_only(c)

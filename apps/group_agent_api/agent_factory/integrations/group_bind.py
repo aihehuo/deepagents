@@ -76,7 +76,21 @@ def align_match_to_trusted_group(
     *,
     trusted_group_id: str,
 ) -> MatchResult:
-    """Drop / empty match if new_api group_id disagrees with trusted event_id."""
+    """Align match envelope to the entry-group token; keep reachability metadata.
+
+    REQ-053 / REQ-031: new_api may return candidates whose ``source_group_id``
+    differs from the entry group:
+
+    - ``is_reachable is False`` → cross-group, keep authentic ``source_group_id``
+      / ``group_info`` (do not rewrite to the entry group).
+    - ``is_reachable is True`` and foreign source → reachable via another shared
+      group; keep authentic ids / ``group_info``.
+    - foreign source with no ``is_reachable`` flag → legacy fail-closed drop
+      (prevents accidental cross-group leak from older backends).
+
+    Same-group candidates are still normalized onto ``trusted_group_id``.
+    The response envelope ``result.group_id`` must still match the entry token.
+    """
     reported = (result.group_id or "").strip()
     if reported and reported != trusted_group_id:
         return MatchResult(
@@ -86,7 +100,6 @@ def align_match_to_trusted_group(
             group_id=trusted_group_id,
             reason=f"group_id_mismatch:match={reported}:trusted={trusted_group_id}",
         )
-    # Filter candidates whose source/group disagrees
     safe = []
     rejected_for_missing_basis = False
     rejected_for_missing_id = False
@@ -102,13 +115,27 @@ def align_match_to_trusted_group(
         if user_id in seen_ids:
             identity_violations.append(f"duplicate_candidate_id:{user_id}")
         seen_ids.add(user_id)
-        src = str(c.get("source_group_id") or c.get("group_id") or "")
-        if src and src != trusted_group_id:
-            continue
-        # Force source to trusted id for downstream guard
+        src = str(c.get("source_group_id") or c.get("group_id") or "").strip()
+        is_reachable = c.get("is_reachable")
         item = dict(c)
-        item["group_id"] = trusted_group_id
-        item["source_group_id"] = trusted_group_id
+
+        if src and src != trusted_group_id:
+            if is_reachable is False:
+                # Intentional cross-group: preserve authentic source + group_info.
+                item["is_reachable"] = False
+            elif is_reachable is True:
+                # Reachable via another shared group: preserve authentic source.
+                item["is_reachable"] = True
+            else:
+                # Legacy payload without reachability flag → drop foreign source.
+                continue
+        else:
+            # Same entry group (or empty source): normalize onto trusted id.
+            item["group_id"] = trusted_group_id
+            item["source_group_id"] = trusted_group_id
+            if is_reachable is None:
+                item["is_reachable"] = True
+
         if not public_match_basis(item):
             rejected_for_missing_basis = True
             continue

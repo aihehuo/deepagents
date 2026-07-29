@@ -89,9 +89,12 @@ docker build -t group-agent-api:3adaae88 -f apps/group_agent_api/Dockerfile .
 
 本体系为 `group_agent_api` 提供独立、分层、完全可重复运行的模块验收能力。
 
-### 明确声明：多群测试不等于跨群匹配
-- 测试中的多群设计仅用于验证数据隔离与多群并发负载。
-- **跨群匹配绝对禁用**：`candidate.group_id` 必须严格等于 `trusted_session.group_id`（`match_scope = current_group_only`）。外群候选即使语义匹配度再高也必须在进入模型或输出前被过滤，跨群泄漏数必须严格为 0。
+### 明确声明：全群匹配 + 触达分级（REQ-053 / REQ-031）
+- 匹配不再限定单群池；new_api 返回全站候选并标注 `is_reachable`。
+- **同群 / 经其它共同群可触达**（`is_reachable: true`）：可进入定向邀请并 `@`。
+- **跨群不可直接触达**（`is_reachable: false`）：保留候选人与 `group_info`，回复引导申请加群，**禁止**对该人生成 `@`。
+- 未标注 `is_reachable` 且 `source_group_id ≠` 入口群的外群候选仍 fail-closed 拦截（防旧后端误泄漏）。
+- L1/L2 fixture 多群设计仍用于隔离与并发；跨群「泄漏」仅指未标注 reachability 的外群身份。
 
 ### 三级 Mock 规模与模式
 

@@ -209,10 +209,18 @@ def derive_common_topic(
         topic = f"想请教「{hook}」相关经验"
         return TopicResult(topic=topic, degraded=True)
 
-    seed = compact_doing_for_invite(
-        user_need or user_doing or "当前卡点", max_chars=MAX_HOOK_CHARS
-    ) or "当前卡点"
-    return TopicResult(topic=f"想请教「{seed}」相关的落地思路", degraded=True)
+    # Empty match / undirected: prefer doing (product) over need (often「缺…」).
+    if user_doing:
+        topic = f"想请教「{user_doing}」怎么做得更稳"
+        if len(topic) > MAX_TOPIC_CHARS:
+            topic = f"想请教「{user_doing[:16].rstrip('…')}」落地思路"
+        return TopicResult(topic=topic, degraded=True)
+    if user_need:
+        topic = f"想请教「{user_need}」怎么落地"
+        if len(topic) > MAX_TOPIC_CHARS:
+            topic = f"想请教「{user_need[:16].rstrip('…')}」相关经验"
+        return TopicResult(topic=topic, degraded=True)
+    return TopicResult(topic="想请教当前卡点的落地思路", degraded=True)
 
 
 def _display_name(c: dict[str, Any]) -> str:

@@ -51,7 +51,9 @@ from apps.group_agent_api.app.endpoints.chat import (
     MAX_PERSIST_ATTEMPTS,
     _extract_reply,
     _invoke_config,
+    _merge_force_save_reply,
     _profile_usable_this_turn,
+    _should_force_profile_save,
 )
 from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse, CallbackEnvelope
 from apps.group_agent_api.app.session import TrustedSession
@@ -114,6 +116,21 @@ def _profile_save_succeeded_this_turn(messages: list[Any], start: int) -> bool:
             continue
         if content.startswith("ok:"):
             return True
+    return False
+
+
+def _profile_save_attempted_this_turn(messages: list[Any], start: int) -> bool:
+    """True when the model emitted a save_group_profile tool call this turn."""
+    for message in messages[start:]:
+        tool_calls = getattr(message, "tool_calls", None)
+        if not tool_calls and hasattr(message, "additional_kwargs"):
+            tool_calls = (message.additional_kwargs or {}).get("tool_calls")
+        if not tool_calls:
+            continue
+        for tc in tool_calls:
+            name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+            if name == "save_group_profile":
+                return True
     return False
 
 
@@ -620,7 +637,20 @@ async def _execute_core_agent(
                     profile_status = "persisted"
                 else:
                     profile_ok = False
-            if not profile_ok and profile_status != "superseded":
+                    if assertion.ok:
+                        # Prior episode profile exists but is not bound to this episode.
+                        pass
+            if _should_force_profile_save(
+                profile_ok=profile_ok,
+                profile_status=profile_status,
+                persist_alert=(
+                    "profile_stale_for_episode"
+                    if (not profile_ok and assertion.ok and profile_status != "superseded")
+                    else None
+                ),
+                messages=messages,
+                msg_count_before=msg_count_before,
+            ):
                 for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
                     if _profile_was_superseded(messages, msg_count_before):
                         profile_status = "superseded"
@@ -652,7 +682,7 @@ async def _execute_core_agent(
                     start_idx = before_retry if before_retry < len(messages) else 0
                     retry_reply = _extract_reply(messages, start_idx)
                     if retry_reply:
-                        reply = f"{reply}\n\n{retry_reply}".strip()
+                        reply = _merge_force_save_reply(reply, retry_reply)
 
                 if not profile_ok and profile_status != "superseded":
                     profile_status = "failed"
@@ -695,6 +725,9 @@ async def _execute_core_agent(
                         f"group_id={group_id} run_id={req.run_id} "
                         f"reason={persistence_failure_reason}"
                     )
+            elif not profile_ok and profile_status != "superseded":
+                # Clarifying turn on a new episode: keep the first reply, skip match.
+                profile_status = "stale_episode"
 
         finally:
             checkpointer = get_agent_checkpointer(agent)

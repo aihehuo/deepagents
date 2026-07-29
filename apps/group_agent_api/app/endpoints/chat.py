@@ -117,8 +117,66 @@ def _extract_reply(messages: list, msg_count_before: int) -> str:
         content = str(msg.content).strip() if msg.content else ""
         if not content or content.startswith("Updated todo list"):
             continue
+        if parts and _replies_substantially_same(parts[-1], content):
+            if len(content) > len(parts[-1]):
+                parts[-1] = content
+            continue
         parts.append(content)
     return "\n\n".join(parts)
+
+
+def _normalize_reply_for_dedupe(text: str) -> str:
+    return "".join((text or "").split())
+
+
+def _replies_substantially_same(a: str, b: str) -> bool:
+    """True when force-save retry would look like a duplicated bubble to the user."""
+    na = _normalize_reply_for_dedupe(a)
+    nb = _normalize_reply_for_dedupe(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    if na in nb or nb in na:
+        return True
+    prefix_len = min(48, len(na), len(nb))
+    return prefix_len >= 24 and na[:prefix_len] == nb[:prefix_len]
+
+
+def _merge_force_save_reply(reply: str, retry_reply: str) -> str:
+    """Merge FORCE_SAVE user text without stacking near-duplicate confirmations."""
+    a = (reply or "").strip()
+    b = (retry_reply or "").strip()
+    if not b:
+        return a
+    if not a:
+        return b
+    if _replies_substantially_same(a, b):
+        return a if len(a) >= len(b) else b
+    return f"{a}\n\n{b}"
+
+
+def _should_force_profile_save(
+    *,
+    profile_ok: bool,
+    profile_status: str,
+    persist_alert: str | None,
+    messages: list[Any],
+    msg_count_before: int,
+) -> bool:
+    """Skip FORCE_SAVE when a prior-episode profile is merely stale and the agent
+    intentionally did not overwrite yet (e.g. clarifying need/offer).
+    """
+    if profile_ok or profile_status == "superseded":
+        return False
+    if persist_alert == "profile_stale_for_episode":
+        from apps.group_agent_api.app.async_manager import (
+            _profile_save_attempted_this_turn,
+        )
+
+        if not _profile_save_attempted_this_turn(messages, msg_count_before):
+            return False
+    return True
 
 
 def _invoke_config(
@@ -317,7 +375,13 @@ async def chat(
                         profile_ok = False
                         if assertion.ok:
                             persist_alert = "profile_stale_for_episode"
-                if not profile_ok and profile_status_val != "superseded":
+                if _should_force_profile_save(
+                    profile_ok=profile_ok,
+                    profile_status=profile_status_val,
+                    persist_alert=persist_alert,
+                    messages=messages,
+                    msg_count_before=msg_count_before,
+                ):
                     for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
                         assert_attempts = attempt
                         if _profile_was_superseded(messages, msg_count_before):
@@ -370,7 +434,7 @@ async def chat(
                         start_idx = before_retry if before_retry < len(messages) else 0
                         retry_reply = _extract_reply(messages, start_idx)
                         if retry_reply:
-                            reply = f"{reply}\n\n{retry_reply}".strip()
+                            reply = _merge_force_save_reply(reply, retry_reply)
 
                     if not profile_ok and profile_status_val != "superseded":
                         fallback_attempted = await _attempt_deterministic_profile_save(
@@ -410,6 +474,8 @@ async def chat(
                                 )
                     elif profile_ok:
                         profile_status_val = "persisted"
+                elif not profile_ok and profile_status_val != "superseded":
+                    profile_status_val = "stale_episode"
 
             except Exception as exc:  # noqa: BLE001
                 import traceback

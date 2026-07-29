@@ -40,6 +40,7 @@ from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
 from apps.group_agent_api.agent_factory.match_stub import build_query_from_profile
+from apps.group_agent_api.agent_factory.profile_quality import decide_match_gate
 from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted, load_profile
 from apps.group_agent_api.agent_factory.revisit import (
     excluded_ids_for_match,
@@ -647,22 +648,48 @@ async def _execute_core_agent(
         revisit_hint=revisit_hint,
         message=req.message,
     )
+    quality_gaps: list[str] = []
 
     if effective_run_match and unlocks_network(tier) and profile_ok:
         assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
         if assertion.ok and assertion.profile is not None:
-            query = build_query_from_profile(assertion.profile)
-            def _match_job():
-                return run_match(
+            def _gate_and_match():
+                decision = decide_match_gate(
+                    profile=assertion.profile,
+                    model=state.quality_model or state.polish_model,
+                    base_dir=state.base_dir,
+                    message=req.message,
+                    metadata=req.metadata or {},
+                )
+                if not decision.allow_match:
+                    return (
+                        "skipped",
+                        [],
+                        decision.match_reason or "profile_too_thin",
+                        list(decision.quality.gaps or []),
+                    )
+                query = build_query_from_profile(assertion.profile)
+                match_res = run_match(
                     query=query,
                     group_id=group_id,
                     excluded_ids=excluded_ids_for_match(user_id, req.metadata or {}),
                     group_token=session.group_token,
                     user_bearer=user_token,
                 )
-            match_res = await asyncio.to_thread(_match_job)
-            aligned = align_match_to_trusted_group(match_res, trusted_group_id=group_id)
-            match_status, candidates, match_reason = aligned.status, aligned.candidates, aligned.reason
+                aligned = align_match_to_trusted_group(
+                    match_res, trusted_group_id=group_id
+                )
+                reason = decision.match_reason or aligned.reason
+                return (
+                    aligned.status,
+                    aligned.candidates,
+                    reason,
+                    list(decision.quality.gaps or []),
+                )
+
+            match_status, candidates, match_reason, quality_gaps = await asyncio.to_thread(
+                _gate_and_match
+            )
     elif (
         req.run_match
         and not effective_run_match
@@ -692,7 +719,15 @@ async def _execute_core_agent(
     mentioned_user_ids: list[str] = []
     invite_ok = None
 
-    if req.run_invite and profile_ok and unlocks_network(tier) and effective_run_match:
+    if (
+        req.run_invite
+        and profile_ok
+        and unlocks_network(tier)
+        and effective_run_match
+        and match_status != "skipped"
+        and match_reason
+        not in {"profile_too_thin", "profile_quality_unavailable"}
+    ):
         profile = load_profile(state.base_dir, user_id, group_id)
         if profile is not None:
             invite_status = match_status
@@ -731,6 +766,8 @@ async def _execute_core_agent(
         delivery_kind=delivery_kind,
         invite_ok=invite_ok,
         revisit_hint=revisit_hint,
+        match_reason=match_reason,
+        quality_gaps=quality_gaps,
     )
     combined_guard_violations = list(
         dict.fromkeys([*guarded.violations, *final_guarded.violations])

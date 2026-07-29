@@ -22,6 +22,7 @@ from apps.group_agent_api.agent_factory.invite_llm import generate_invite_with_o
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
+from apps.group_agent_api.agent_factory.profile_quality import decide_match_gate
 from apps.group_agent_api.agent_factory.match_stub import build_query_from_profile
 from apps.group_agent_api.agent_factory.profile_store import (
     alert_persist_failure,
@@ -117,18 +118,30 @@ def _run_match_pipeline(
     group_token: str | None,
     user_token: str | None,
     metadata: dict[str, Any] | None = None,
-) -> tuple[str, list[dict[str, Any]], str | None]:
-    """Returns (match_status, candidates, match_reason). caller_group_id = trusted group_id."""
+    message: str | None = None,
+) -> tuple[str, list[dict[str, Any]], str | None, list[str]]:
+    """Returns (match_status, candidates, match_reason, quality_gaps)."""
     if not run_match_flag:
-        return "skipped", [], "run_match_disabled"
+        return "skipped", [], "run_match_disabled", []
     if not unlocks_network(tier):
-        return "skipped", [], f"capability_{tier.value}_no_network"
+        return "skipped", [], f"capability_{tier.value}_no_network", []
     if not profile_ok:
-        return "skipped", [], "profile_not_ready"
+        return "skipped", [], "profile_not_ready", []
 
     assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
     if not assertion.ok or assertion.profile is None:
-        return "skipped", [], "profile_not_ready"
+        return "skipped", [], "profile_not_ready", []
+
+    decision = decide_match_gate(
+        profile=assertion.profile,
+        model=state.quality_model or state.polish_model,
+        base_dir=state.base_dir,
+        message=message,
+        metadata=metadata,
+    )
+    gaps = list(decision.quality.gaps or [])
+    if not decision.allow_match:
+        return "skipped", [], decision.match_reason or "profile_too_thin", gaps
 
     query = build_query_from_profile(assertion.profile)
     result = run_match(
@@ -139,7 +152,8 @@ def _run_match_pipeline(
         user_bearer=user_token,
     )
     aligned = align_match_to_trusted_group(result, trusted_group_id=group_id)
-    return aligned.status, aligned.candidates, aligned.reason
+    reason = decision.match_reason or aligned.reason
+    return aligned.status, aligned.candidates, reason, gaps
 
 
 def _empty_request() -> Request:
@@ -356,7 +370,7 @@ async def chat(
         revisit_hint=revisit_hint,
         message=req.message,
     )
-    match_status, candidates, match_reason = await asyncio.to_thread(
+    match_status, candidates, match_reason, quality_gaps = await asyncio.to_thread(
         _run_match_pipeline,
         state=state,
         user_id=user_id,
@@ -367,6 +381,7 @@ async def chat(
         group_token=session.group_token,
         user_token=user_token,
         metadata=req.metadata or {},
+        message=req.message,
     )
     if (
         req.run_match
@@ -397,7 +412,16 @@ async def chat(
     invite_ok = None
     invite_violations: list[str] = []
 
-    if req.run_invite and profile_ok and unlocks_network(tier) and effective_run_match:
+    # Invite only after a real match attempt (ready or thin-degraded), never on thin skip.
+    if (
+        req.run_invite
+        and profile_ok
+        and unlocks_network(tier)
+        and effective_run_match
+        and match_status != "skipped"
+        and match_reason
+        not in {"profile_too_thin", "profile_quality_unavailable"}
+    ):
         profile = load_profile(state.base_dir, user_id, group_id)
         if profile is not None:
             invite_status = match_status
@@ -446,6 +470,8 @@ async def chat(
         delivery_kind=delivery_kind,
         invite_ok=invite_ok,
         revisit_hint=revisit_hint,
+        match_reason=match_reason,
+        quality_gaps=quality_gaps,
     )
     combined_guard_violations = list(
         dict.fromkeys([*guarded.violations, *final_guarded.violations])

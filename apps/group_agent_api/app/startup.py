@@ -41,6 +41,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
 
     agent, ckpt_path = create_agent(base_dir=runtime)
     polish_model = None
+    quality_model = None
     try:
         from apps.group_agent_api.agent_factory.integrations.config import (
             llm_polish_enabled,
@@ -49,14 +50,17 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
 
         if llm_polish_enabled():
             polish_model = create_model(log_prefix="[GroupAgentPolish]")
+        # Match-ready judge: reuse polish model when present, else dedicated instance.
+        quality_model = polish_model or create_model(log_prefix="[GroupAgentQuality]")
     except Exception as exc:  # noqa: BLE001
-        _logger.warning("polish model unavailable: %s", exc)
+        _logger.warning("polish/quality model unavailable: %s", exc)
 
     state_ref["state"] = AppState(
         agent=agent,
         base_dir=runtime,
         checkpoints_path=str(ckpt_path),
         polish_model=polish_model,
+        quality_model=quality_model,
     )
     _logger.info(
         "%s ready runtime=%s integration=%s",

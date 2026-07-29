@@ -52,9 +52,9 @@ def _profile():
     return profile_from_flat(
         user_id="u105",
         group_id="group_l1_alpha",
-        doing="联网固件创业",
-        need="硬件联调伙伴",
-        offer="嵌入式经验",
+        doing="在做联网宠物喂食器固件创业",
+        need="需要硬件联调与量产供应链伙伴",
+        offer="有嵌入式开发与工厂对接经验",
     )
 
 
@@ -261,10 +261,21 @@ def test_run_match_pipeline_passes_prior_exclusions(
     base_dir = tmp_path / "runtime"
     base_dir.mkdir()
     save_profile(base_dir, _profile())
+    class _ReadyModel:
+        def invoke(self, _msgs):
+            class _M:
+                content = (
+                    '{"ready":true,"score":80,"doing_ok":true,"need_ok":true,'
+                    '"offer_ok":true,"reasons":[],"gaps":[]}'
+                )
+
+            return _M()
+
     state = AppState(
         agent=MagicMock(),
         base_dir=base_dir,
         polish_model=None,
+        quality_model=_ReadyModel(),
     )
     captured: dict[str, Any] = {}
 

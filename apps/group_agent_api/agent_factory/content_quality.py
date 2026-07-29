@@ -86,6 +86,8 @@ def finalize_user_visible_reply(
     invite_ok: bool | None,
     network_unlocked: bool,
     revisit_hint: RevisitHint | None = None,
+    match_reason: str | None = None,
+    quality_gaps: list[str] | None = None,
 ) -> str:
     """Build a reply consistent with the persisted profile and formal result.
 
@@ -97,6 +99,9 @@ def finalize_user_visible_reply(
     REQ-028: when Micro injects ``revisit_hint.has_prior_invite``, the first
     user-visible sentence mentions the prior recommendation and offers
     有回 / 换人换题 / 开新一轮 branches (PRC-01 §9.2).
+
+    REQ-029: thin / unavailable match reasons drive follow-up questions instead
+    of promising candidates.
     """
     opener = build_revisit_opener(revisit_hint) if network_unlocked else None
 
@@ -109,7 +114,47 @@ def finalize_user_visible_reply(
     doing, need, offer = profile_confirmation_parts(profile)
     confirmation = f"我理解并已更新画像：你{doing}；{need}；{offer}。"
 
-    if not network_unlocked:
+    gap = ""
+    for item in quality_gaps or []:
+        text = str(item or "").strip()
+        if text:
+            gap = text
+            break
+
+    if network_unlocked and match_reason == "profile_too_thin":
+        ask = gap or "你在做的具体场景，以及现在最卡的点，再补一句？"
+        next_step = f"我还想再确认一下再帮你找人：{ask}"
+    elif network_unlocked and match_reason == "profile_quality_unavailable":
+        next_step = (
+            "我先把需求再对齐一下："
+            f"{gap or '再具体一点你在做的事和最卡的点？'}"
+        )
+    elif network_unlocked and match_reason == "profile_thin_degraded":
+        thin_note = "你补充的信息还比较粗，结果仅供参考——"
+        if not network_unlocked:
+            next_step = thin_note
+        elif (
+            match_status == "matched"
+            and candidate_count > 0
+            and delivery_kind == "directed"
+            and invite_ok is True
+        ):
+            next_step = (
+                f"{thin_note}我已按现有条件在本群找到 {candidate_count} 位值得进一步聊的人选，"
+                "并生成了定向邀请。是否真正匹配还需要你们聊过后确认。"
+            )
+        elif match_status == "matched" and candidate_count > 0:
+            next_step = (
+                f"{thin_note}本群已有 {candidate_count} 位公开信息与需求有交集的人选；"
+                "是否匹配仍需沟通确认。"
+            )
+        elif match_status in {"empty", "weak"}:
+            next_step = (
+                f"{thin_note}这次暂未找到足够明确的本群人选，可以继续补充后再查找。"
+            )
+        else:
+            next_step = f"{thin_note}可以继续补充后再查找，或再说「先匹配」。"
+    elif not network_unlocked:
         next_step = (
             "下一步：你可以继续补充项目目标、具体约束或希望如何合作，"
             "我会帮你把信息整理得更清楚。"
@@ -193,6 +238,8 @@ def finalize_and_guard_user_visible_reply(
     delivery_kind: str | None,
     invite_ok: bool | None,
     revisit_hint: RevisitHint | None = None,
+    match_reason: str | None = None,
+    quality_gaps: list[str] | None = None,
 ) -> GuardResult:
     """Finalize from authoritative state, then apply the capability guard.
 
@@ -211,6 +258,8 @@ def finalize_and_guard_user_visible_reply(
         invite_ok=invite_ok,
         network_unlocked=unlocks_network(tier),
         revisit_hint=revisit_hint,
+        match_reason=match_reason,
+        quality_gaps=quality_gaps,
     )
     guarded = enforce_capability_guard(
         tier=tier,

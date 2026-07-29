@@ -227,8 +227,27 @@ def finalize_user_visible_reply(
             "可交流的人选，并按你的意愿决定是否点名邀请。"
         )
 
-    body = f"{confirmation}{next_step}"
-    if opener:
+    original = (original_reply or "").strip()
+    is_simple_fallback_stub = any(
+        original.startswith(prefix)
+        for prefix in ("不能推荐", "无法推荐", "没有人选", "不能直接推荐", "我理解并已更新画像")
+    ) or len(original) < 15
+
+    has_substantive_custom_reply = (
+        bool(original)
+        and network_unlocked
+        and not is_simple_fallback_stub
+    )
+
+    if has_substantive_custom_reply:
+        if confirmation in original:
+            body = original
+        else:
+            body = f"{original}\n\n{confirmation}{next_step}"
+    else:
+        body = f"{confirmation}{next_step}"
+
+    if opener and not has_substantive_custom_reply:
         return f"{opener}\n\n{body}"
     return body
 

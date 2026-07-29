@@ -201,3 +201,38 @@ def test_extract_reply_uses_last_ai_without_joining_when_no_tools() -> None:
         "I'm ready — just tell me what you're working on, "
         "what you need, or what you can offer."
     )
+
+
+def test_finalize_skips_template_when_model_already_confirmed_and_has_next_step() -> None:
+    """Autopilot test report: model said '已落库…三维齐备…下一步…匹配' then
+    finalize appended the full template confirmation + next_step again."""
+    profile = profile_from_flat(
+        user_id="1",
+        group_id="763",
+        doing="做面向 K12 学生的 AI 辅导工具",
+        need="缺有线下教培经验的教研合伙人",
+        offer="技术背景，自研 NLP 模型",
+    )
+    model_reply = (
+        "已落库 ✅\n三维齐备：doing（教研闭环）、need（线下教培背景的合伙人）、"
+        "offer（NLP 模型 + 真实学情数据）\n\n接下来，我可以帮你匹配具备"
+        "「线下教培+教研体系搭建+课标落地」三重经验的候选人。\n\n"
+        "你想先匹配，还是再补一个细节？"
+    )
+
+    result = finalize_user_visible_reply(
+        original_reply=model_reply,
+        profile=profile,
+        profile_persisted=True,
+        match_status="matched",
+        candidate_count=3,
+        delivery_kind="directed",
+        invite_ok=True,
+        network_unlocked=True,
+        revisit_hint=None,
+    )
+
+    # Should NOT double-stack: model already said 已落库 + 下一步
+    assert result.count("已落库") == 1
+    assert "我理解并已更新画像" not in result
+    assert result == model_reply

@@ -239,13 +239,40 @@ def finalize_user_visible_reply(
         and not is_simple_fallback_stub
     )
 
+    # Detect if the model already included a profile confirmation or next-step
+    # summary in its reply — avoid double-stacking the template on top.
+    _original_lower = original.lower()
+    _already_has_confirmation = any(
+        marker in _original_lower
+        for marker in (
+            "已落库", "已更新", "已确认", "三维齐备", "画像已更新",
+            "已保存", "profile saved", "updated",
+            "已按这些条件", "已按你的",
+        )
+    )
+    _already_has_next_step = any(
+        marker in _original_lower
+        for marker in (
+            "下一步", "接下来", "启动匹配", "帮你匹配", "找到",
+            "next step", "i can help",
+            "位值得", "位人选", "位候选",
+        )
+    )
+
     if has_substantive_custom_reply:
         if confirmation in original:
+            body = original
+        elif _already_has_confirmation and _already_has_next_step:
+            # Model reply already covers both confirmation and next-step;
+            # don't append the template version (which caused double-stacking).
             body = original
         elif next_step == original or (next_step and next_step in original):
             body = f"{original}\n\n{confirmation}" if confirmation else original
         elif original in next_step:
             body = f"{confirmation}{next_step}"
+        elif _already_has_confirmation:
+            # Model confirmed profile but didn't mention next step — append only next_step.
+            body = f"{original}\n\n{next_step}" if next_step else original
         else:
             body = f"{original}\n\n{confirmation}{next_step}"
     else:

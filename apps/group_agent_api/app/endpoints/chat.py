@@ -109,47 +109,66 @@ _RESERVED_META_KEYS = frozenset(
 )
 
 
+def _ai_text(msg: AIMessage) -> str:
+    content = str(msg.content).strip() if msg.content else ""
+    if not content or content.startswith("Updated todo list"):
+        return ""
+    return content
+
+
+def _peel_stacked_prior_replies(content: str, prior_texts: list[str]) -> str:
+    """Remove earlier user-visible AI bubbles re-stacked at the front of ``content``.
+
+    Observed failure (REQ-030): each turn's reply grew as
+    ``prior_reply + "\\n\\n" + new_reply`` when either (a) ``_extract_reply``
+    joined all AIMessages after a bad ``msg_count_before``, or (b) the model
+    echoed the previous assistant bubble. Always prefer the newest segment.
+    """
+    text = (content or "").strip()
+    if not text or not prior_texts:
+        return text
+
+    priors = sorted(
+        {p.strip() for p in prior_texts if p and str(p).strip()},
+        key=len,
+        reverse=True,
+    )
+    changed = True
+    while changed and text:
+        changed = False
+        for prior in priors:
+            if not prior or prior == text:
+                continue
+            for sep in ("\n\n", "\n"):
+                prefix = f"{prior}{sep}"
+                if text.startswith(prefix):
+                    text = text[len(prefix) :].strip()
+                    changed = True
+                    break
+            if changed:
+                break
+    return text
+
+
 def _extract_reply(messages: list, msg_count_before: int) -> str:
-    ai_msgs = [
-        msg
-        for msg in messages[msg_count_before:]
-        if isinstance(msg, AIMessage)
-        and msg.content
-        and str(msg.content).strip()
-        and not str(msg.content).strip().startswith("Updated todo list")
-    ]
-    if not ai_msgs:
+    """User-visible reply = last AIMessage in this turn, never a join of history.
+
+    Joining AIMessages with ``\\n\\n`` caused cumulative stacking across turns
+    (frontend export: Yes. → Yes.\\n\\nI'm ready → Yes.\\n\\nI'm ready\\n\\nGot it…).
+    Intermediate pre-tool text is discarded; FORCE_SAVE merge is separate.
+    """
+    start = max(0, int(msg_count_before or 0))
+    history = messages[:start]
+    turn = messages[start:]
+
+    turn_ai = [msg for msg in turn if isinstance(msg, AIMessage) and _ai_text(msg)]
+    if not turn_ai:
         return ""
 
-    final_ai_msg = ai_msgs[-1]
-    final_content = str(final_ai_msg.content).strip()
-
-    if len(ai_msgs) == 1:
-        return final_content
-
-    has_tool_calls_in_earlier = any(
-        getattr(m, "tool_calls", None) for m in ai_msgs[:-1]
-    )
-    if has_tool_calls_in_earlier and not getattr(final_ai_msg, "tool_calls", None):
-        return final_content
-
-    parts: list[str] = []
-    for msg in ai_msgs:
-        content = str(msg.content).strip()
-        if parts:
-            if _replies_substantially_same(parts[-1], content):
-                if len(content) > len(parts[-1]):
-                    parts[-1] = content
-                continue
-            na = _normalize_reply_for_dedupe(parts[-1])
-            nc = _normalize_reply_for_dedupe(content)
-            if nc in na:
-                continue
-            if na in nc:
-                parts[-1] = content
-                continue
-        parts.append(content)
-    return "\n\n".join(parts)
+    final_content = _ai_text(turn_ai[-1])
+    prior_texts = [_ai_text(m) for m in history if isinstance(m, AIMessage)]
+    prior_texts.extend(_ai_text(m) for m in turn_ai[:-1])
+    return _peel_stacked_prior_replies(final_content, [p for p in prior_texts if p])
 
 
 def _normalize_reply_for_dedupe(text: str) -> str:

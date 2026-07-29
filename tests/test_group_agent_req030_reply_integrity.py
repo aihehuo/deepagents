@@ -127,3 +127,77 @@ def test_extract_reply_ignores_pre_tool_call_intermediate_message() -> None:
     messages = [msg1, msg2, msg3]
     extracted = _extract_reply(messages, 0)
     assert extracted == "Got it — 'work on an AI project' is a start. To sharpen..."
+
+
+def test_extract_reply_never_joins_history_when_msg_count_before_is_zero() -> None:
+    """Frontend export ga_116f189a…: each bubble was prior bubbles joined with \\n\\n."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from apps.group_agent_api.app.endpoints.chat import _extract_reply
+
+    history_and_turn = [
+        HumanMessage(content="Hi, can you speak English"),
+        AIMessage(content="Yes."),
+        HumanMessage(content="What do you know about"),
+        AIMessage(
+            content=(
+                "Yes.\n\nI'm ready — just tell me what you're working on, "
+                "what you need, or what you can offer. Let's get your profile filled in."
+            )
+        ),
+        HumanMessage(content="I'm working on an AI project."),
+        AIMessage(
+            content=(
+                "Yes.\n\nI'm ready — just tell me what you're working on, "
+                "what you need, or what you can offer. Let's get your profile filled in.\n\n"
+                "Got it — “AI project” is a start. To match you well, I need to dig "
+                "just one level deeper."
+            )
+        ),
+    ]
+
+    # Bad/missing checkpoint count → whole thread passed as the extract window.
+    extracted = _extract_reply(history_and_turn, 0)
+    assert extracted.startswith("Got it —")
+    assert extracted.count("Yes.") == 0
+    assert "I'm ready" not in extracted
+
+
+def test_extract_reply_peels_model_echo_of_prior_bubble() -> None:
+    from langchain_core.messages import AIMessage, HumanMessage
+    from apps.group_agent_api.app.endpoints.chat import _extract_reply
+
+    prior = (
+        "Yes.\n\nI'm ready — just tell me what you're working on, "
+        "what you need, or what you can offer. Let's get your profile filled in."
+    )
+    newest = (
+        "Got it — “AI project” is a start. To match you well, I need to dig "
+        "just one level deeper."
+    )
+    messages = [
+        HumanMessage(content="What do you know about"),
+        AIMessage(content=prior),
+        HumanMessage(content="I'm working on an AI project."),
+        AIMessage(content=f"{prior}\n\n{newest}"),
+    ]
+    extracted = _extract_reply(messages, 2)
+    assert extracted == newest
+
+
+def test_extract_reply_uses_last_ai_without_joining_when_no_tools() -> None:
+    from langchain_core.messages import AIMessage
+    from apps.group_agent_api.app.endpoints.chat import _extract_reply
+
+    messages = [
+        AIMessage(content="Yes."),
+        AIMessage(
+            content=(
+                "I'm ready — just tell me what you're working on, "
+                "what you need, or what you can offer."
+            )
+        ),
+    ]
+    assert _extract_reply(messages, 0) == (
+        "I'm ready — just tell me what you're working on, "
+        "what you need, or what you can offer."
+    )

@@ -69,6 +69,10 @@ async def call_async(
         user_id=session.principal.user_id,
         group_id=session.group_id,
         conversation_id=req.conversation_id,
+        episode_id=(
+            str((req.metadata or {}).get("episode_id") or (req.metadata or {}).get("episodeId") or "").strip()
+            or None
+        ),
     )
 
     # 4. Check global active limit & per-conversation lock

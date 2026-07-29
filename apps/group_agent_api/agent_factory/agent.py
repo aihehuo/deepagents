@@ -60,13 +60,15 @@ SYSTEM_PROMPT = """你是「群内智能体」对话助手（挖需求 + 画像�
 - 开口简洁，一次只聚焦缺的或过薄的维度。
 - 可以尽早调用 `save_group_profile` 落库草稿；三维齐了也仍可继续追问具体场景与卡点。
 - 用户惜字：再追问时要具体、可回答；不要编造空壳三维凑数。
+- **方向切换 / 开新一轮**：若用户明确说换方向、另一条赛道、或「跟之前完全不一样」，必须按**本轮新说法**重写 doing/need/offer 并调用 `save_group_profile` 覆盖旧画像；禁止继续沿用上一轮项目。
+- 同一轮内细化时：未撤回的 doing/offer 可从本轮已确认内容重提；不得把过期项目硬留着。
 - 工具调用成功后，用具体的 doing / need / offer 简洁确认你理解了什么，并给出一个明确下一步；禁止只回复问候、致谢或「随时告诉我」。
 - 你在正式匹配管线之前看不到候选结果，不要声称「不能推荐」「没有人选」或「已经找到人选」；最终匹配状态由系统在你回复后统一收口。
 - 若用户说「先匹配 / 先搜一下」，尊重其意愿，仍按已有信息落库，由系统决定是否降级开搜。
 
 ## 落库（FR-06 · 强制）
 - 三维字段齐备后，**必须调用** `save_group_profile`（不要用 write_file 写自由 Markdown）。
-- 后续消息若只是在重复/细化 need 或表达合作偏好，不得把 doing 改写成「找某类负责人/工程师」，也不得把 offer 改写成只有「合作方式可以谈/希望尽快启动」；应从对话历史重提仍有效的 doing/offer。若用户明确撤回资源，offer 写「暂无可提供资源」，不得沿用旧资源。
+- 后续消息若只是在重复/细化 need 或表达合作偏好，不得把 doing 改写成「找某类负责人/工程师」，也不得把 offer 改写成只有「合作方式可以谈/希望尽快启动」。若用户明确撤回资源，offer 写「暂无可提供资源」，不得沿用旧资源。
 - 未确认的推断：disclosure 用 `inferred_unconfirmed`。
 - 用户明确说可公开的：`confirmed_public`；仅用于匹配：`match_only`。
 
@@ -85,11 +87,11 @@ SYSTEM_PROMPT = """你是「群内智能体」对话助手（挖需求 + 画像�
 """
 
 FORCE_SAVE_PROMPT = (
-    "系统校验：本轮结束后该用户×群的结构化画像尚未落库。"
-    "请立即根据对话内容调用 save_group_profile，补全 doing/need/offer 三维后保存。"
+    "系统校验：本轮结束后该用户×群在本 episode 尚无可用的结构化画像。"
+    "请立即根据**本轮对话**调用 save_group_profile，补全 doing/need/offer 三维后保存。"
+    "若用户已改方向，必须按新方向覆盖旧画像，禁止沿用上一轮项目。"
     "doing 必须是用户在推进的项目而不是正在找的人；offer 必须是实际资源/能力，"
-    "不能只有合作偏好。未发生变化的维度从对话历史重提；"
-    "用户撤回资源时明确写「暂无可提供资源」。"
+    "不能只有合作偏好。用户撤回资源时明确写「暂无可提供资源」。"
     "不要再追问；不要推荐任何人；不要生成邀请词。"
 )
 
@@ -187,10 +189,28 @@ def save_group_profile(
                 f"{PROFILE_SUPERSEDED_RESULT_PREFIX} database kept a newer profile "
                 f"(version={remote_ack['profile_version']}); local cache unchanged"
             )
+        try:
+            from apps.group_agent_api.agent_factory.profile_quality import (
+                bind_profile_to_episode,
+            )
+
+            bind_profile_to_episode(
+                base_dir, user_id, group_id, metadata=metadata
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return (
             "ok: saved profile to database "
             f"(version={remote_ack['profile_version']}) and local cache"
         )
+    try:
+        from apps.group_agent_api.agent_factory.profile_quality import (
+            bind_profile_to_episode,
+        )
+
+        bind_profile_to_episode(base_dir, user_id, group_id, metadata=metadata)
+    except Exception:  # noqa: BLE001
+        pass
     return f"ok: saved profile to /users/{user_id}/groups/{group_id}/profile.json"
 
 

@@ -47,7 +47,12 @@ from apps.group_agent_api.agent_factory.revisit import (
     parse_revisit_from_metadata,
     should_skip_auto_match,
 )
-from apps.group_agent_api.app.endpoints.chat import MAX_PERSIST_ATTEMPTS, _extract_reply, _invoke_config
+from apps.group_agent_api.app.endpoints.chat import (
+    MAX_PERSIST_ATTEMPTS,
+    _extract_reply,
+    _invoke_config,
+    _profile_usable_this_turn,
+)
 from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse, CallbackEnvelope
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
@@ -73,6 +78,43 @@ class IdempotencySlot:
 _idempotency_store: OrderedDict[str, IdempotencySlot] = OrderedDict()
 _run_id_store: dict[str, str] = {}
 _idempotency_lock = asyncio.Lock()
+
+
+def _profile_save_succeeded_this_turn(messages: list[Any], start: int) -> bool:
+    """True when save_group_profile returned a non-error, non-superseded ack this turn."""
+    save_tool_call_ids: set[str] = set()
+    for message in messages[start:]:
+        tool_calls = getattr(message, "tool_calls", None)
+        if not tool_calls and hasattr(message, "additional_kwargs"):
+            tool_calls = (message.additional_kwargs or {}).get("tool_calls")
+        if not tool_calls:
+            continue
+        for tc in tool_calls:
+            name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+            if name != "save_group_profile":
+                continue
+            tool_call_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+            if tool_call_id:
+                save_tool_call_ids.add(str(tool_call_id))
+
+    for message in messages[start:]:
+        if not isinstance(message, ToolMessage):
+            continue
+        tool_name = getattr(message, "name", None)
+        tool_call_id = str(getattr(message, "tool_call_id", "") or "")
+        is_save = tool_name == "save_group_profile" or (
+            bool(tool_call_id) and tool_call_id in save_tool_call_ids
+        )
+        if not is_save:
+            continue
+        content = str(getattr(message, "content", "") or "").strip()
+        if content.startswith("error:"):
+            continue
+        if content.startswith(PROFILE_SUPERSEDED_RESULT_PREFIX):
+            continue
+        if content.startswith("ok:"):
+            return True
+    return False
 
 
 def _profile_was_superseded(messages: list[Any], start: int) -> bool:
@@ -564,18 +606,36 @@ async def _execute_core_agent(
             if _profile_was_superseded(messages, msg_count_before):
                 profile_status = "superseded"
                 profile_ok = False
-            elif assertion.ok:
-                profile_ok = True
-                profile_status = "persisted"
             else:
+                usable, _path = _profile_usable_this_turn(
+                    base_dir=state.base_dir,
+                    user_id=user_id,
+                    group_id=group_id,
+                    messages=messages,
+                    msg_count_before=msg_count_before,
+                    metadata=req.metadata or {},
+                )
+                if usable:
+                    profile_ok = True
+                    profile_status = "persisted"
+                else:
+                    profile_ok = False
+            if not profile_ok and profile_status != "superseded":
                 for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
                     if _profile_was_superseded(messages, msg_count_before):
                         profile_status = "superseded"
                         profile_ok = False
                         break
 
-                    assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
-                    if assertion.ok:
+                    usable, _path = _profile_usable_this_turn(
+                        base_dir=state.base_dir,
+                        user_id=user_id,
+                        group_id=group_id,
+                        messages=messages,
+                        msg_count_before=msg_count_before,
+                        metadata=req.metadata or {},
+                    )
+                    if usable:
                         profile_ok = True
                         profile_status = "persisted"
                         break
@@ -594,7 +654,8 @@ async def _execute_core_agent(
                     if retry_reply:
                         reply = f"{reply}\n\n{retry_reply}".strip()
 
-                if not profile_ok and profile_status == "failed":
+                if not profile_ok and profile_status != "superseded":
+                    profile_status = "failed"
                     fallback_attempted = await _attempt_deterministic_profile_save(
                         message=req.message,
                         config=config,
@@ -605,17 +666,29 @@ async def _execute_core_agent(
                             profile_status = "superseded"
                             profile_ok = False
                         else:
-                            assertion = assert_profile_persisted(
-                                state.base_dir, user_id, group_id
+                            usable, _path = _profile_usable_this_turn(
+                                base_dir=state.base_dir,
+                                user_id=user_id,
+                                group_id=group_id,
+                                messages=messages,
+                                msg_count_before=msg_count_before,
+                                metadata=req.metadata or {},
                             )
-                            if assertion.ok:
+                            if usable:
                                 profile_ok = True
                                 profile_status = "persisted"
 
                 if not profile_ok and profile_status == "failed":
-                    last_reason = assertion.reason if not assertion.ok else None
+                    last_reason = (
+                        assertion.reason
+                        if not assertion.ok
+                        else "profile_stale_for_episode"
+                    )
                     persistence_failure_reason = determine_persistence_failure_reason(
-                        messages, msg_count_before, attempt=attempt, last_assertion_reason=last_reason
+                        messages,
+                        msg_count_before,
+                        attempt=MAX_PERSIST_ATTEMPTS,
+                        last_assertion_reason=last_reason,
                     )
                     UC34Observer.warn(
                         f"action=profile_persistence_failed user_id={user_id} "

@@ -47,6 +47,52 @@ _logger = logging.getLogger("uvicorn.error")
 
 MAX_PERSIST_ATTEMPTS = 2  # initial turn + 1 forced retry
 
+
+def _episode_id_from_metadata(metadata: dict[str, Any] | None) -> str | None:
+    meta = metadata or {}
+    for key in ("episode_id", "episodeId"):
+        val = str(meta.get(key) or "").strip()
+        if val:
+            return val
+    return None
+
+
+def _profile_usable_this_turn(
+    *,
+    base_dir,
+    user_id: str,
+    group_id: str,
+    messages: list[Any],
+    msg_count_before: int,
+    metadata: dict[str, Any] | None,
+) -> tuple[bool, str | None]:
+    """Whether the persisted profile may be used for match/finalize this turn.
+
+    Prior-episode profiles must not be treated as「本轮已更新」after 开新一轮.
+    """
+    from apps.group_agent_api.app.async_manager import _profile_save_succeeded_this_turn
+    from apps.group_agent_api.agent_factory.profile_quality import (
+        bind_profile_to_episode,
+        profile_bound_to_episode,
+    )
+
+    assertion = assert_profile_persisted(base_dir, user_id, group_id)
+    if not assertion.ok:
+        return False, assertion.path if assertion.path else None
+
+    saved = _profile_save_succeeded_this_turn(messages, msg_count_before)
+    if saved:
+        bind_profile_to_episode(
+            base_dir, user_id, group_id, metadata=metadata
+        )
+        return True, assertion.path
+    if profile_bound_to_episode(
+        base_dir, user_id, group_id, metadata=metadata
+    ):
+        return True, assertion.path
+    return False, assertion.path
+
+
 _RESERVED_META_KEYS = frozenset(
     {
         "user_id",
@@ -181,7 +227,10 @@ async def chat(
     user_token = session.principal.user_token
 
     tid = thread_id(
-        user_id=user_id, group_id=group_id, conversation_id=req.conversation_id
+        user_id=user_id,
+        group_id=group_id,
+        conversation_id=req.conversation_id,
+        episode_id=_episode_id_from_metadata(req.metadata),
     )
     UC34Observer.info(
         f"action=chat_start user_id={user_id} group_id={group_id} "
@@ -249,13 +298,26 @@ async def chat(
                 if _profile_was_superseded(messages, msg_count_before):
                     profile_status_val = "superseded"
                     profile_ok = False
-                elif assertion.ok:
-                    profile_ok = True
-                    profile_path = assertion.path
-                    profile_status_val = "persisted"
-                    persist_alert = None
-                    assert_attempts = 1
                 else:
+                    usable, path = _profile_usable_this_turn(
+                        base_dir=state.base_dir,
+                        user_id=user_id,
+                        group_id=group_id,
+                        messages=messages,
+                        msg_count_before=msg_count_before,
+                        metadata=req.metadata or {},
+                    )
+                    if usable:
+                        profile_ok = True
+                        profile_path = path
+                        profile_status_val = "persisted"
+                        persist_alert = None
+                        assert_attempts = 1
+                    else:
+                        profile_ok = False
+                        if assertion.ok:
+                            persist_alert = "profile_stale_for_episode"
+                if not profile_ok and profile_status_val != "superseded":
                     for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
                         assert_attempts = attempt
                         if _profile_was_superseded(messages, msg_count_before):
@@ -263,12 +325,17 @@ async def chat(
                             profile_ok = False
                             break
 
-                        assertion = assert_profile_persisted(
-                            state.base_dir, user_id, group_id
+                        usable, path = _profile_usable_this_turn(
+                            base_dir=state.base_dir,
+                            user_id=user_id,
+                            group_id=group_id,
+                            messages=messages,
+                            msg_count_before=msg_count_before,
+                            metadata=req.metadata or {},
                         )
-                        if assertion.ok:
+                        if usable:
                             profile_ok = True
-                            profile_path = assertion.path
+                            profile_path = path
                             profile_status_val = "persisted"
                             persist_alert = None
                             break
@@ -276,10 +343,10 @@ async def chat(
                         if attempt >= MAX_PERSIST_ATTEMPTS:
                             break
 
-                        reason = (
+                        reason = persist_alert or (
                             assertion.reason
                             if not assertion.ok
-                            else "missing_file"
+                            else "profile_stale_for_episode"
                         )
                         alert_persist_failure(
                             user_id=user_id,
@@ -316,12 +383,17 @@ async def chat(
                                 profile_status_val = "superseded"
                                 profile_ok = False
                             else:
-                                assertion = assert_profile_persisted(
-                                    state.base_dir, user_id, group_id
+                                usable, path = _profile_usable_this_turn(
+                                    base_dir=state.base_dir,
+                                    user_id=user_id,
+                                    group_id=group_id,
+                                    messages=messages,
+                                    msg_count_before=msg_count_before,
+                                    metadata=req.metadata or {},
                                 )
-                                if assertion.ok:
+                                if usable:
                                     profile_ok = True
-                                    profile_path = assertion.path
+                                    profile_path = path
                                     profile_status_val = "persisted"
                                     persist_alert = None
                         if not profile_ok:

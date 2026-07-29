@@ -287,6 +287,37 @@ def episode_key_from_metadata(metadata: dict[str, Any] | None) -> str:
     return "_default"
 
 
+def bind_profile_to_episode(
+    base_dir: Path,
+    user_id: str,
+    group_id: str,
+    *,
+    metadata: dict[str, Any] | None,
+) -> None:
+    """Record which episode last successfully refreshed the profile."""
+    path = disk_match_gate_path(base_dir, user_id, group_id)
+    gate = _load_gate(path)
+    gate["profile_bound_episode"] = episode_key_from_metadata(metadata)
+    _save_gate(path, gate)
+
+
+def profile_bound_to_episode(
+    base_dir: Path,
+    user_id: str,
+    group_id: str,
+    *,
+    metadata: dict[str, Any] | None,
+) -> bool:
+    """True when persisted profile was last saved under this episode."""
+    ep = episode_key_from_metadata(metadata)
+    if ep == "_default":
+        # No episode isolation available — allow reuse of existing profile.
+        return True
+    path = disk_match_gate_path(base_dir, user_id, group_id)
+    gate = _load_gate(path)
+    return str(gate.get("profile_bound_episode") or "") == ep
+
+
 def assess_profile_match_ready(
     *,
     profile: GroupProfile,

@@ -93,3 +93,18 @@ def test_finalize_user_visible_reply_deduplicates_when_next_step_is_original_rep
 
     # Must contain the reply exactly ONCE, not duplicated
     assert result.count("Got it — you're working on an AI training project.") == 1
+
+
+def test_english_short_prefix_deduplication() -> None:
+    from apps.group_agent_api.app.endpoints.chat import (
+        _merge_force_save_reply,
+        _replies_substantially_same,
+    )
+
+    a = "Yes.\n\nI help match people with the right collaborators — based on what they're doing, what they need, and what they can offer."
+    b = "Yes.\n\nI help match people with the right collaborators — based on what they're doing, what they need, and what they can offer.\n\nGot it — 'AI training project' is a start."
+
+    assert _replies_substantially_same(a, b) is True
+    merged = _merge_force_save_reply(a, b)
+    assert merged == b
+    assert merged.count("I help match people") == 1

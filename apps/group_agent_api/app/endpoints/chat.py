@@ -117,20 +117,28 @@ def _extract_reply(messages: list, msg_count_before: int) -> str:
         content = str(msg.content).strip() if msg.content else ""
         if not content or content.startswith("Updated todo list"):
             continue
-        if parts and _replies_substantially_same(parts[-1], content):
-            if len(content) > len(parts[-1]):
+        if parts:
+            if _replies_substantially_same(parts[-1], content):
+                if len(content) > len(parts[-1]):
+                    parts[-1] = content
+                continue
+            na = _normalize_reply_for_dedupe(parts[-1])
+            nc = _normalize_reply_for_dedupe(content)
+            if nc in na:
+                continue
+            if na in nc:
                 parts[-1] = content
-            continue
+                continue
         parts.append(content)
     return "\n\n".join(parts)
 
 
 def _normalize_reply_for_dedupe(text: str) -> str:
-    return "".join((text or "").split())
+    return "".join((text or "").lower().split())
 
 
 def _replies_substantially_same(a: str, b: str) -> bool:
-    """True when force-save retry would look like a duplicated bubble to the user."""
+    """True when force-save retry or multi-turn AIMessage would look like a duplicated bubble to the user."""
     na = _normalize_reply_for_dedupe(a)
     nb = _normalize_reply_for_dedupe(b)
     if not na or not nb:
@@ -139,8 +147,8 @@ def _replies_substantially_same(a: str, b: str) -> bool:
         return True
     if na in nb or nb in na:
         return True
-    prefix_len = min(48, len(na), len(nb))
-    return prefix_len >= 24 and na[:prefix_len] == nb[:prefix_len]
+    prefix_len = min(15, len(na), len(nb))
+    return prefix_len >= 5 and na[:prefix_len] == nb[:prefix_len]
 
 
 def _merge_force_save_reply(reply: str, retry_reply: str) -> str:
@@ -153,6 +161,12 @@ def _merge_force_save_reply(reply: str, retry_reply: str) -> str:
         return b
     if _replies_substantially_same(a, b):
         return a if len(a) >= len(b) else b
+    na = _normalize_reply_for_dedupe(a)
+    nb = _normalize_reply_for_dedupe(b)
+    if na in nb:
+        return b
+    if nb in na:
+        return a
     return f"{a}\n\n{b}"
 
 

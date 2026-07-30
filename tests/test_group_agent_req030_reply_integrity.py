@@ -68,6 +68,38 @@ def test_finalize_empty_match_without_invite_keeps_clarifying_reply() -> None:
     assert "我理解并已更新画像" not in result
 
 
+def test_finalize_replaces_pending_wait_when_match_already_finished() -> None:
+    """Model「请稍候」must not survive after in-request match completed empty."""
+    profile = profile_from_flat(
+        user_id="1",
+        group_id="763",
+        doing="做面向K12全学科的AI辅导工具",
+        need="缺有教研经验的合伙人",
+        offer="提供种子用户与错题规则库",
+    )
+    pending = (
+        "已按当前画像触发匹配：系统正在基于能力分级与管线候选池做精准筛选。"
+        "稍后将返回匹配结果。请稍候。"
+    )
+
+    result = finalize_user_visible_reply(
+        original_reply=pending,
+        profile=profile,
+        profile_persisted=True,
+        match_status="empty",
+        candidate_count=0,
+        delivery_kind=None,
+        invite_ok=None,
+        network_unlocked=True,
+        revisit_hint=None,
+    )
+
+    assert "请稍候" not in result
+    assert "稍后将返回" not in result
+    assert "暂未找到足够明确的本群人选" in result
+    assert "我理解并已更新画像" in result
+
+
 def test_finalize_user_visible_reply_uses_template_when_original_reply_is_empty() -> None:
     profile = profile_from_flat(
         user_id="1",

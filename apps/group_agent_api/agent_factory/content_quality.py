@@ -26,6 +26,12 @@ _OFFER_PREFERENCE_CLAUSE = re.compile(
     r"|(?:薪资|待遇)\s*(?:可以谈|可谈|面议)?"
     r"|(?:希望|期望)?(?:能|可以)?(?:快速|尽快)启动"
 )
+# Model invents async wait because it cannot see in-request match results.
+_PENDING_MATCH_WAIT = re.compile(
+    r"请稍候|稍后(?:将)?返回|正在(?:基于|做)?(?:精准)?筛选|"
+    r"匹配结果将|匹配流程已启动|尚未返回|后台生成后|"
+    r"系统正在.*(?:匹配|筛选)|匹配结果尚未"
+)
 
 
 def is_need_shaped_doing(value: str) -> bool:
@@ -127,7 +133,12 @@ def finalize_user_visible_reply(
         original = (original_reply or "").strip()
         # Prefer the dialogue model's follow-up when it already asked something
         # concrete — don't drown user answers under a repeated template gap.
-        if original and not original.startswith("我理解并已更新画像"):
+        # But never keep hallucinated「请稍候」as the next step.
+        if (
+            original
+            and not original.startswith("我理解并已更新画像")
+            and not _PENDING_MATCH_WAIT.search(original)
+        ):
             next_step = original
             if ask and ask not in original:
                 next_step = f"{original}\n\n（若还没说到：{ask}）"
@@ -264,7 +275,7 @@ def finalize_user_visible_reply(
     is_simple_fallback_stub = any(
         original.startswith(prefix)
         for prefix in ("不能推荐", "无法推荐", "没有人选", "不能直接推荐", "我理解并已更新画像")
-    ) or len(original) < 15
+    ) or len(original) < 15 or bool(_PENDING_MATCH_WAIT.search(original))
 
     has_substantive_custom_reply = (
         bool(original)

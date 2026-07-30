@@ -28,7 +28,10 @@ from apps.group_agent_api.agent_factory.profile_quality import (
     looks_like_clarifying_reply,
     wants_force_match,
 )
-from apps.group_agent_api.agent_factory.match_stub import build_query_from_profile
+from apps.group_agent_api.agent_factory.match_stub import (
+    build_broad_query_from_profile,
+    build_rank_query_from_profile,
+)
 from apps.group_agent_api.agent_factory.profile_store import (
     alert_persist_failure,
     assert_profile_persisted,
@@ -304,13 +307,15 @@ def _run_match_pipeline(
     if not decision.allow_match:
         return "skipped", [], decision.match_reason or "profile_too_thin", gaps
 
-    query = build_query_from_profile(assertion.profile)
+    query = build_broad_query_from_profile(assertion.profile)
+    rank_query = build_rank_query_from_profile(assertion.profile)
     result = run_match(
         query=query,
         group_id=group_id,
         excluded_ids=excluded_ids_for_match(user_id, metadata),
         group_token=group_token,
         user_bearer=user_token,
+        rank_query=rank_query,
     )
     aligned = align_match_to_trusted_group(result, trusted_group_id=group_id)
     reason = decision.match_reason or aligned.reason

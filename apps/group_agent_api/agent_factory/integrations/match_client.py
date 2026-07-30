@@ -72,10 +72,12 @@ def fetch_group_agent_match(
     bearer: str | None = None,
     base_url: str | None = None,
     timeout_s: float | None = None,
+    rank_query: str | None = None,
 ) -> MatchResult:
     """POST /users/group_agent_match — requires User JWT + GroupAgent token `g`.
 
     Does NOT send plaintext group_id / member_ids (REQ-050-A).
+    ``query`` should be broad (recall); optional ``rank_query`` carries fine need.
     """
     token = (group_token or "").strip()
     if not token:
@@ -93,6 +95,9 @@ def fetch_group_agent_match(
     }
     if excluded_ids:
         payload["excluded_ids"] = list(excluded_ids)
+    rq = (rank_query or "").strip()
+    if rq:
+        payload["rank_query"] = rq[:500]
 
     resp = requests.post(
         url,

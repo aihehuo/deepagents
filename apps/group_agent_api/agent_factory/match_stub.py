@@ -270,18 +270,113 @@ class MatchStub:
 
 
 def build_query_from_profile(profile: GroupProfile) -> str:
-    """Natural-language query for stub / future new_api."""
-    return " ".join(
-        [
-            profile.doing.value,
-            profile.need.value,
-            profile.offer.value,
-        ]
-    )
+    """Broad retrieval query (backward-compatible entrypoint).
+
+    Fine-grained need details belong in ``build_rank_query_from_profile`` so
+    hybrid_search stays recall-friendly while ranking stays precise.
+    """
+    return build_broad_query_from_profile(profile)
+
+
+_NEED_HEAD_SPLIT = re.compile(r"[；;。．\n]|当前卡点|尤其是?|比如|例如|以及")
+
+
+def _compact(text: str, max_chars: int) -> str:
+    cleaned = re.sub(r"\s+", "", (text or "").strip())
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[:max_chars]
+
+
+def build_broad_query_from_profile(profile: GroupProfile) -> str:
+    """Short domain-level query for vector/keyword recall."""
+    doing = _compact(str(getattr(profile.doing, "value", "") or ""), 48)
+    need_raw = str(getattr(profile.need, "value", "") or "").strip()
+    need_head = _NEED_HEAD_SPLIT.split(need_raw, maxsplit=1)[0].strip() if need_raw else ""
+    need = _compact(need_head or need_raw, 36)
+    offer = _compact(str(getattr(profile.offer, "value", "") or ""), 28)
+    parts = [p for p in (doing, need, offer) if p]
+    return " ".join(parts) if parts else _compact(need_raw or doing, 60)
+
+
+def build_rank_query_from_profile(profile: GroupProfile) -> str:
+    """Detailed need(+doing) text used only for post-retrieval ranking."""
+    need = str(getattr(profile.need, "value", "") or "").strip()
+    doing = str(getattr(profile.doing, "value", "") or "").strip()
+    joined = " ".join(p for p in (need, doing) if p)
+    return joined[:500]
+
+
+def _char_bigrams(text: str) -> set[str]:
+    compact = re.sub(r"\s+", "", (text or "").lower())
+    if len(compact) < 2:
+        return {compact} if compact else set()
+    return {compact[i : i + 2] for i in range(len(compact) - 1)}
+
+
+def detail_overlap_score(rank_query: str, candidate_text: str) -> float:
+    """Fraction of fine-need bigrams covered by candidate text (asymmetric).
+
+    Coverage works better than Jaccard when ``rank_query`` is long and the
+    candidate bio is short: we care how much of the user's need is reflected,
+    not how much unrelated bio text dilutes the union.
+    """
+    left = _char_bigrams(rank_query)
+    right = _char_bigrams(candidate_text)
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left)
+
+
+def rerank_candidates_by_detail(
+    candidates: list[dict[str, Any]],
+    *,
+    rank_query: str,
+    hybrid_weight: float = 0.4,
+) -> list[dict[str, Any]]:
+    """Blend hybrid match_score with fine-need coverage; stable on ties.
+
+    Default hybrid_weight=0.4 so a clearly-on-need candidate can outrank a
+    higher hybrid score that only matched the broad domain.
+    """
+    rq = (rank_query or "").strip()
+    if not rq or not candidates:
+        return list(candidates)
+
+    detail_w = max(0.0, min(1.0, 1.0 - hybrid_weight))
+    scored: list[tuple[float, int, dict[str, Any]]] = []
+    for idx, cand in enumerate(candidates):
+        doing = cand.get("doing")
+        if isinstance(doing, dict):
+            body = str(doing.get("value") or "")
+        else:
+            body = str(doing or "")
+        body = " ".join(
+            [
+                body,
+                str(cand.get("display_name") or ""),
+                str(cand.get("reason_summary") or ""),
+            ]
+        )
+        try:
+            hybrid = float(cand.get("match_score") or 0.0)
+        except (TypeError, ValueError):
+            hybrid = 0.0
+        detail = detail_overlap_score(rq, body)
+        blended = hybrid_weight * hybrid + detail_w * detail
+        enriched = dict(cand)
+        enriched["hybrid_score"] = round(hybrid, 3)
+        enriched["match_score"] = round(blended, 3)
+        enriched["rank_detail_score"] = round(detail, 3)
+        scored.append((blended, idx, enriched))
+
+    scored.sort(key=lambda row: (-row[0], row[1]))
+    return [row[2] for row in scored]
 
 
 # Process-wide default stub (tests may replace)
 _DEFAULT_STUB = MatchStub()
+
 
 
 def get_match_stub() -> MatchStub:

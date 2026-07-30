@@ -12,7 +12,10 @@ from apps.group_agent_api.agent_factory.integrations.group_bind import (
     align_match_to_trusted_group,
 )
 from apps.group_agent_api.agent_factory.integrations.match_backend import run_match
-from apps.group_agent_api.agent_factory.match_stub import build_query_from_profile
+from apps.group_agent_api.agent_factory.match_stub import (
+    build_broad_query_from_profile,
+    build_rank_query_from_profile,
+)
 from apps.group_agent_api.agent_factory.profile_store import load_profile
 from apps.group_agent_api.app.models import MatchRequest, MatchResponse
 from apps.group_agent_api.app.session import resolve_trusted_session
@@ -64,13 +67,16 @@ async def match(
 
     profile = await asyncio.to_thread(load_profile, state.base_dir, user_id, group_id)
     query = (req.query or "").strip()
-    if not query:
-        if profile is None:
-            raise HTTPException(
-                status_code=404,
-                detail="profile_missing: save profile first or pass query",
-            )
-        query = build_query_from_profile(profile)
+    rank_query = ""
+    if profile is not None:
+        rank_query = build_rank_query_from_profile(profile)
+        if not query:
+            query = build_broad_query_from_profile(profile)
+    elif not query:
+        raise HTTPException(
+            status_code=404,
+            detail="profile_missing: save profile first or pass query",
+        )
 
     excluded = list(req.excluded_ids or [])
     if user_id not in excluded:
@@ -83,6 +89,7 @@ async def match(
         excluded_ids=excluded,
         group_token=session.group_token,
         user_bearer=session.principal.user_token,
+        rank_query=rank_query or None,
     )
     aligned = align_match_to_trusted_group(result, trusted_group_id=group_id)
     guarded = enforce_capability_guard(

@@ -40,7 +40,10 @@ from apps.group_agent_api.agent_factory.invite_copy import should_emit_invite_ar
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
-from apps.group_agent_api.agent_factory.match_stub import build_query_from_profile
+from apps.group_agent_api.agent_factory.match_stub import (
+    build_broad_query_from_profile,
+    build_rank_query_from_profile,
+)
 from apps.group_agent_api.agent_factory.profile_quality import decide_match_gate, wants_force_match, looks_like_clarifying_reply
 from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted, load_profile
 from apps.group_agent_api.agent_factory.revisit import (
@@ -857,13 +860,15 @@ async def _execute_core_agent(
                         decision.match_reason or "profile_too_thin",
                         list(decision.quality.gaps or []),
                     )
-                query = build_query_from_profile(assertion.profile)
+                query = build_broad_query_from_profile(assertion.profile)
+                rank_query = build_rank_query_from_profile(assertion.profile)
                 match_res = run_match(
                     query=query,
                     group_id=group_id,
                     excluded_ids=excluded_ids_for_match(user_id, req.metadata or {}),
                     group_token=session.group_token,
                     user_bearer=user_token,
+                    rank_query=rank_query,
                 )
                 aligned = align_match_to_trusted_group(
                     match_res, trusted_group_id=group_id

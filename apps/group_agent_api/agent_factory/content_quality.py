@@ -32,6 +32,21 @@ _PENDING_MATCH_WAIT = re.compile(
     r"匹配结果将|匹配流程已启动|尚未返回|后台生成后|"
     r"系统正在.*(?:匹配|筛选)|匹配结果尚未"
 )
+# Model invents a concrete person / resume before (or instead of) formal match.
+_INVENTED_CANDIDATE_CLAIM = re.compile(
+    r"匹配到(?:了一?)?(?:一位|一名|一个)?候选人|"
+    r"找到(?:了一?)?(?:一位|一名|一个)(?:合适的)?(?:候选人|人选)|"
+    r"(?:候选人|人选)(?:的)?背景如下|"
+    r"系统已基于你当前画像.*完成匹配|"
+    r"(?:教研|教培|线下)经验[：:]\s*\d+\s*年|"
+    r"曾主导某.+教培|"
+    r"带过\s*\d+\+?\s*教师|"
+    r"是否现在为你生成定向对接话术|"
+    r"先看另一位备选|"
+    r"向该候选人发送定向邀请|"
+    r"他\*\*没有独立主导过|"
+    r"为两个AI教育项目提供"
+)
 
 
 def is_need_shaped_doing(value: str) -> bool:
@@ -54,6 +69,37 @@ def is_preference_shaped_offer(value: str) -> bool:
     remainder = _OFFER_PREFERENCE_CLAUSE.sub("", text)
     remainder = re.sub(r"[\s，,、；;。.!！/]+", "", remainder)
     return not remainder
+
+
+def looks_like_invented_candidate_narrative(text: str | None) -> bool:
+    """True when the dialogue model narrates a concrete matchee it cannot know."""
+    return bool(_INVENTED_CANDIDATE_CLAIM.search(text or ""))
+
+
+def scrub_invented_candidate_narrative(text: str | None) -> str:
+    """Drop model-invented candidate bios; keep clarifying Q&A when separable.
+
+    Splits on blank lines; any paragraph matching invented-candidate markers is
+    removed. If nothing safe remains, returns empty so finalize uses the
+    authoritative template next-step instead.
+    """
+    original = (text or "").strip()
+    if not original or not looks_like_invented_candidate_narrative(original):
+        return original
+
+    kept: list[str] = []
+    for block in re.split(r"\n\s*\n", original):
+        chunk = block.strip()
+        if not chunk:
+            continue
+        if looks_like_invented_candidate_narrative(chunk):
+            continue
+        # Bullet resumes glued under a claim header in the same block.
+        if re.search(r"(?:教研|教培|线下)经验[：:]|当前状态[：:]", chunk):
+            continue
+        kept.append(chunk)
+
+    return "\n\n".join(kept).strip()
 
 
 def _value(profile: GroupProfile, field_name: str) -> str:
@@ -113,7 +159,11 @@ def finalize_user_visible_reply(
     opener = build_revisit_opener(revisit_hint) if network_unlocked else None
 
     if not profile_persisted or profile is None:
-        original = (original_reply or "").strip()
+        original = scrub_invented_candidate_narrative(original_reply)
+        if looks_like_invented_candidate_narrative(original) or (
+            (original_reply or "").strip() and not original
+        ):
+            original = ""
         if opener and original:
             return f"{opener}\n\n{original}"
         return opener or original
@@ -130,14 +180,15 @@ def finalize_user_visible_reply(
 
     if network_unlocked and match_reason == "profile_too_thin":
         ask = gap or "你在做的具体场景，以及现在最卡的点，再补一句？"
-        original = (original_reply or "").strip()
+        original = scrub_invented_candidate_narrative(original_reply)
         # Prefer the dialogue model's follow-up when it already asked something
         # concrete — don't drown user answers under a repeated template gap.
-        # But never keep hallucinated「请稍候」as the next step.
+        # But never keep hallucinated「请稍候」/ invented candidates as next step.
         if (
             original
             and not original.startswith("我理解并已更新画像")
             and not _PENDING_MATCH_WAIT.search(original)
+            and not looks_like_invented_candidate_narrative(original)
         ):
             next_step = original
             if ask and ask not in original:
@@ -271,11 +322,24 @@ def finalize_user_visible_reply(
         if unreachable_text not in next_step:
             next_step = f"{next_step}\n\n{unreachable_text}" if next_step else unreachable_text
 
-    original = (original_reply or "").strip()
-    is_simple_fallback_stub = any(
-        original.startswith(prefix)
-        for prefix in ("不能推荐", "无法推荐", "没有人选", "不能直接推荐", "我理解并已更新画像")
-    ) or len(original) < 15 or bool(_PENDING_MATCH_WAIT.search(original))
+    original = scrub_invented_candidate_narrative(original_reply)
+    invented_scrubbed_away = bool((original_reply or "").strip()) and not original
+    is_simple_fallback_stub = (
+        any(
+            original.startswith(prefix)
+            for prefix in (
+                "不能推荐",
+                "无法推荐",
+                "没有人选",
+                "不能直接推荐",
+                "我理解并已更新画像",
+            )
+        )
+        or len(original) < 15
+        or bool(_PENDING_MATCH_WAIT.search(original))
+        or looks_like_invented_candidate_narrative(original)
+        or invented_scrubbed_away
+    )
 
     has_substantive_custom_reply = (
         bool(original)

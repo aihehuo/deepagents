@@ -50,3 +50,20 @@ def test_looks_like_clarifying_reply_defers_match() -> None:
     assert looks_like_clarifying_reply(clarifying) is True
     assert looks_like_clarifying_reply("本群已有 3 位公开信息与需求有交集的人选。") is False
     assert looks_like_clarifying_reply("是否现在启动匹配？") is True
+
+
+def test_looks_like_clarifying_reply_defers_priority_ab_fork() -> None:
+    """Real prod miss: one ？ + 「优先看 A 还是 B」while saying 可直接匹配."""
+    reply = (
+        "已落库：\n"
+        "✅ doing：小红书职场成长内容博主（10万粉丝）\n"
+        "✅ need：缺知识付费产品设计能力\n"
+        "✅ offer：10万精准职场类粉丝\n\n"
+        "接下来，我们可直接匹配——你希望优先看「有成熟知识付费产品从0到1经验」的人，"
+        "还是更倾向「擅长社群冷启动+复购运营」的搭档？\n"
+        "（这会影响匹配权重，我帮你对齐最相关管线）"
+    )
+    assert looks_like_clarifying_reply(reply) is True
+    assert looks_like_clarifying_reply(
+        "下一步：我已按这些条件在本群找到 3 位值得进一步聊的人选，并生成了定向邀请。"
+    ) is False

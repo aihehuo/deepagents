@@ -36,8 +36,18 @@ _FORCE_MATCH_INTENT = re.compile(
 _CLARIFYING_REPLY = re.compile(
     r"(能说说|再确认|帮你挖|更具体一点|先聚焦|补一个|哪一类|"
     r"具体希望|请挑一个|先从第|我们先|对吗[？?]|"
-    r"是学科老师|做过哪类|是否参与过|三个关键点|关键细节)"
+    r"是学科老师|做过哪类|是否参与过|三个关键点|关键细节|"
+    r"你希望优先看|优先看「|还是更倾向|更倾向「|"
+    r"会影响匹配权重|对齐最相关|选一个你当前|"
+    r"选一个方向|挑一个你当前)"
 )
+
+# A/B priority fork even when the model says「可直接匹配」in the same breath.
+_PRIORITY_FORK = re.compile(
+    r"(?:优先看|更倾向|更侧重).{0,40}还是|"
+    r"还是.{0,40}(?:更倾向|更侧重|搭档|的人)"
+)
+
 
 _QUALITY_SYSTEM_PROMPT = """你是群内匹配前的画像质量裁判。根据用户已落库的三维字段，判断是否达到「可匹配的最低充分」——不是完美商业计划。
 
@@ -98,6 +108,9 @@ def looks_like_clarifying_reply(reply: str | None) -> bool:
         return False
     # Explicit handoff to match — leave gate alone (user may still need to confirm).
     if re.search(r"(是否(?:现在)?启动匹配|是否现在输出匹配|帮你匹配|启动匹配[？?])", text):
+        return True
+    # A/B weight fork (「优先看 A 还是 B」) — defer even with a single 「？」.
+    if _PRIORITY_FORK.search(text):
         return True
     qmarks = text.count("？") + text.count("?")
     if qmarks >= 2:

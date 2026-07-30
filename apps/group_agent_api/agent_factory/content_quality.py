@@ -293,7 +293,11 @@ def finalize_user_visible_reply(
     )
 
     if has_substantive_custom_reply:
-        if confirmation in original:
+        # Empty match with no invite card: keep the model's clarifying reply.
+        # Appending「暂未找到人选」onto an ongoing Q&A contradicts the dialogue.
+        if match_status == "empty" and delivery_kind is None:
+            body = original
+        elif confirmation in original:
             body = original
         elif _already_has_confirmation and _already_has_next_step:
             # Model reply already covers both confirmation and next-step;

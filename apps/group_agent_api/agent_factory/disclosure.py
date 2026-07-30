@@ -10,6 +10,11 @@ import re
 from typing import Any
 
 from apps.group_agent_api.agent_factory.profile_schema import DisclosureLevel
+from apps.group_agent_api.agent_factory.contact_scrub import (
+    scrub_candidate_contacts,
+    scrub_contact_text,
+    scrub_display_name,
+)
 
 
 PUBLIC = DisclosureLevel.confirmed_public
@@ -58,7 +63,10 @@ def filter_member_for_visibility(raw: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {
         "user_id": raw.get("user_id"),
         "group_id": raw.get("group_id"),
-        "display_name": raw.get("display_name") or raw.get("name") or "",
+        "display_name": scrub_display_name(
+            str(raw.get("display_name") or raw.get("name") or ""),
+            fallback_user_id=str(raw.get("user_id") or ""),
+        ),
         "profile_url": raw.get("profile_url") or "",
         "bound": bool(raw.get("bound", True)),
     }
@@ -69,12 +77,14 @@ def filter_member_for_visibility(raw: dict[str, Any]) -> dict[str, Any]:
     for dim in ("doing", "need", "offer"):
         pub = _field_public(raw.get(dim) if isinstance(raw.get(dim), dict) else None)
         if pub is not None:
-            out[dim] = pub
+            scrubbed_val = scrub_contact_text(str(pub.get("value") or ""))
+            if scrubbed_val:
+                out[dim] = {**pub, "value": scrubbed_val}
     # Drop any leaked sensitive keys
     for k in list(out.keys()):
         if k.lower() in banned_keys:
             out.pop(k, None)
-    return out
+    return scrub_candidate_contacts(out)
 
 
 def public_match_basis(candidate: dict[str, Any]) -> dict[str, str]:

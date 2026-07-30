@@ -32,6 +32,13 @@ _FORCE_MATCH_INTENT = re.compile(
     r"(先匹配|先搜一下|先搜索|先推荐|直接匹配|直接搜|不用再问|先找人)"
 )
 
+# Model still digging — do not attach match cards on the same turn.
+_CLARIFYING_REPLY = re.compile(
+    r"(能说说|再确认|帮你挖|更具体一点|先聚焦|补一个|哪一类|"
+    r"具体希望|请挑一个|先从第|我们先|对吗[？?]|"
+    r"是学科老师|做过哪类|是否参与过|三个关键点|关键细节)"
+)
+
 _QUALITY_SYSTEM_PROMPT = """你是群内匹配前的画像质量裁判。根据用户已落库的三维字段，判断是否达到「可匹配的最低充分」——不是完美商业计划。
 
 评判维度：
@@ -79,6 +86,25 @@ def wants_force_match(message: str | None) -> bool:
     if not text:
         return False
     return bool(_FORCE_MATCH_INTENT.search(text))
+
+
+def looks_like_clarifying_reply(reply: str | None) -> bool:
+    """True when the model is still asking need-shaping questions.
+
+    Used to defer match/invite so clarifying turns do not suddenly dump cards.
+    """
+    text = (reply or "").strip()
+    if not text:
+        return False
+    # Explicit handoff to match — leave gate alone (user may still need to confirm).
+    if re.search(r"(是否(?:现在)?启动匹配|是否现在输出匹配|帮你匹配|启动匹配[？?])", text):
+        return True
+    qmarks = text.count("？") + text.count("?")
+    if qmarks >= 2:
+        return True
+    if qmarks >= 1 and _CLARIFYING_REPLY.search(text):
+        return True
+    return False
 
 
 def _field_value(profile: GroupProfile, name: str) -> str:

@@ -23,7 +23,11 @@ from apps.group_agent_api.agent_factory.invite_copy import should_emit_invite_ar
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
-from apps.group_agent_api.agent_factory.profile_quality import decide_match_gate
+from apps.group_agent_api.agent_factory.profile_quality import (
+    decide_match_gate,
+    looks_like_clarifying_reply,
+    wants_force_match,
+)
 from apps.group_agent_api.agent_factory.match_stub import build_query_from_profile
 from apps.group_agent_api.agent_factory.profile_store import (
     alert_persist_failure,
@@ -571,6 +575,15 @@ async def chat(
         revisit_hint=revisit_hint,
         message=req.message,
     )
+    if (
+        effective_run_match
+        and looks_like_clarifying_reply(reply)
+        and not wants_force_match(req.message)
+    ):
+        effective_run_match = False
+        match_reason_override = "clarifying_in_progress"
+    else:
+        match_reason_override = None
     match_status, candidates, match_reason, quality_gaps = await asyncio.to_thread(
         _run_match_pipeline,
         state=state,
@@ -584,6 +597,8 @@ async def chat(
         metadata=req.metadata or {},
         message=req.message,
     )
+    if match_reason_override and match_status == "skipped":
+        match_reason = match_reason_override
     if (
         req.run_match
         and not effective_run_match

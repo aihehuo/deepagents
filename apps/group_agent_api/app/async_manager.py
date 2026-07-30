@@ -41,7 +41,7 @@ from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
 from apps.group_agent_api.agent_factory.match_stub import build_query_from_profile
-from apps.group_agent_api.agent_factory.profile_quality import decide_match_gate
+from apps.group_agent_api.agent_factory.profile_quality import decide_match_gate, wants_force_match, looks_like_clarifying_reply
 from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted, load_profile
 from apps.group_agent_api.agent_factory.revisit import (
     excluded_ids_for_match,
@@ -825,6 +825,18 @@ async def _execute_core_agent(
         revisit_hint=revisit_hint,
         message=req.message,
     )
+    # Same-turn clarifying Q&A must not dump candidate cards (unless user forced match).
+    if (
+        effective_run_match
+        and looks_like_clarifying_reply(reply)
+        and not wants_force_match(req.message)
+    ):
+        effective_run_match = False
+        match_reason = "clarifying_in_progress"
+        _logger.info(
+            "Match deferred run_id=%s reason=clarifying_in_progress",
+            req.run_id,
+        )
     quality_gaps: list[str] = []
 
     if effective_run_match and unlocks_network(tier) and profile_ok:

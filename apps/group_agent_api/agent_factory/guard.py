@@ -23,6 +23,7 @@ from apps.group_agent_api.agent_factory.disclosure import (
     public_match_basis,
     stable_candidate_user_id,
 )
+from apps.group_agent_api.agent_factory.contact_scrub import scrub_candidate_contacts
 from apps.group_agent_api.agent_factory.match_stub import MAX_CANDIDATES
 
 _logger = logging.getLogger("uvicorn.error")
@@ -156,7 +157,7 @@ def enforce_capability_guard(
         if user_id_value in accepted_ids:
             continue
         accepted_ids.add(user_id_value)
-        filtered.append(c)
+        filtered.append(scrub_candidate_contacts(c))
     filtered = filtered[:MAX_CANDIDATES]
 
     if violations:

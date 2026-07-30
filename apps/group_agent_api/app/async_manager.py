@@ -659,9 +659,32 @@ async def _execute_core_agent(
             if known is not None:
                 turn_messages.append(known)
             turn_messages.append(HumanMessage(content=req.message))
-            result = await agent.ainvoke(
-                {"messages": turn_messages},
-                config,
+            _logger.info(
+                "Core agent ainvoke start run_id=%s thread_id=%s msg_len=%d",
+                req.run_id,
+                tid,
+                len(req.message or ""),
+            )
+            _ainvoke_t0 = time.monotonic()
+            try:
+                result = await agent.ainvoke(
+                    {"messages": turn_messages},
+                    config,
+                )
+            except Exception:
+                _logger.exception(
+                    "Core agent ainvoke failed run_id=%s thread_id=%s elapsed_s=%.2f",
+                    req.run_id,
+                    tid,
+                    time.monotonic() - _ainvoke_t0,
+                )
+                raise
+            _logger.info(
+                "Core agent ainvoke done run_id=%s thread_id=%s elapsed_s=%.2f n_msgs=%d",
+                req.run_id,
+                tid,
+                time.monotonic() - _ainvoke_t0,
+                len(result.get("messages", []) or []),
             )
             messages = result.get("messages", [])
             reply = _extract_reply(messages, msg_count_before)

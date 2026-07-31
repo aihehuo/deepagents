@@ -66,7 +66,7 @@ def _normalize_candidate(raw: dict[str, Any], *, fallback_group: str) -> dict[st
 def fetch_group_agent_match(
     *,
     query: str,
-    group_token: str,
+    group_token: str | None = None,
     excluded_ids: list[str] | None = None,
     limit: int = MAX_CANDIDATES,
     bearer: str | None = None,
@@ -74,14 +74,16 @@ def fetch_group_agent_match(
     timeout_s: float | None = None,
     rank_query: str | None = None,
 ) -> MatchResult:
-    """POST /users/group_agent_match — requires User JWT + GroupAgent token `g`.
+    """POST /users/group_agent_match — requires User JWT; GroupAgent ``g`` optional.
+
+    Micro REQ-028 / full-network agent: omit ``g`` and new_api matches globally
+    using the login bearer only. Optional ``g`` still preferred for entry-group
+    preference when a leftover group_token is available.
 
     Does NOT send plaintext group_id / member_ids (REQ-050-A).
     ``query`` should be broad (recall); optional ``rank_query`` carries fine need.
     """
     token = (group_token or "").strip()
-    if not token:
-        raise MatchHttpError("missing_group_token", status_code=400)
     auth = (bearer if bearer is not None else new_api_bearer()).strip()
     if not auth:
         raise MatchHttpError("missing_user_bearer", status_code=401)
@@ -89,10 +91,11 @@ def fetch_group_agent_match(
     url = f"{(base_url or new_api_base()).rstrip('/')}/users/group_agent_match"
     payload: dict[str, Any] = {
         "query": query,
-        "g": token,
         "limit": max(1, min(int(limit or MAX_CANDIDATES), MAX_CANDIDATES)),
         "vector_search": True,
     }
+    if token:
+        payload["g"] = token
     if excluded_ids:
         payload["excluded_ids"] = list(excluded_ids)
     rq = (rank_query or "").strip()

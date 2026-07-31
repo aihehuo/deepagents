@@ -174,6 +174,41 @@ def test_fetch_match_doing_only_and_payload(monkeypatch: pytest.MonkeyPatch) -> 
     assert c["doing"]["value"] == "智能小家电量产固件"
 
 
+def test_fetch_group_agent_match_omits_g_when_token_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _Resp:
+        status_code = 200
+        content = b"{}"
+        text = "{}"
+
+        def json(self):
+            return {
+                "status": "empty",
+                "candidates": [],
+                "query": "q",
+                "group_id": "global",
+                "reason": "sc05_no_suitable_match",
+            }
+
+    def _post(url, json=None, headers=None, timeout=None):
+        captured["json"] = json
+        return _Resp()
+
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.integrations.match_client.requests.post",
+        _post,
+    )
+    monkeypatch.setenv("AIHEHUO_API_KEY", "bearer-test")
+    result = fetch_group_agent_match(query="q", group_token=None)
+    assert "g" not in captured["json"]
+    assert "group_id" not in captured["json"]
+    assert result.group_id == "global"
+    assert result.status == "empty"
+
+
 def test_run_match_http_empty_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
 

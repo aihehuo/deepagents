@@ -32,8 +32,8 @@ def run_match(
 ) -> MatchResult:
     """Run FR-03 match via stub or HTTP.
 
-    HTTP mode requires group_token (GroupAgent JWT). Plaintext group_id is
-    only used by the stub; HTTP derives group from token (REQ-050-A).
+    HTTP mode uses the service User JWT; GroupAgent group_token is optional
+    (Micro REQ-028 full-network). Plaintext group_id is only used by the stub.
 
     ``query`` = broad recall text; ``rank_query`` = fine need for re-ranking.
     """

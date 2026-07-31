@@ -1,4 +1,4 @@
-"""Async endpoint POST /call_async (REQ-009 / RESP-009-FIX5)."""
+"""Async endpoint POST /call_async (REQ-009 / RESP-009-FIX5 / REQ-032)."""
 
 from __future__ import annotations
 
@@ -18,6 +18,9 @@ from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse
 from apps.group_agent_api.app.session import resolve_trusted_session
 from apps.group_agent_api.app.state import AppState
 from apps.group_agent_api.app.utils import thread_id
+from apps.group_agent_api.execution.admission import admit_durable_async_call
+from apps.group_agent_api.execution.broker import enqueue_delivery
+from apps.group_agent_api.execution.config import durable_queue_enabled
 
 
 async def call_async(
@@ -25,7 +28,7 @@ async def call_async(
     state: AppState,
     request: Request,
 ) -> AsyncCallResponse:
-    """Async endpoint: validates principal & SSRF, reserves idempotency slot, checks active locks, returns 202 ACK on successful commit."""
+    """Async endpoint: validates principal & SSRF, then durable or legacy admission."""
     # 1. Validate and normalize callback_url against SSRF allowlist
     canonical_url = validate_and_normalize_callback_url(req.callback_url)
     req.callback_url = canonical_url
@@ -41,7 +44,43 @@ async def call_async(
         body_user_token=req.user_token,
     )
 
-    # 3. Reserve idempotency slot atomically with TrustedSession fingerprint binding
+    tid = thread_id(
+        user_id=session.principal.user_id,
+        group_id=session.group_id,
+        conversation_id=req.conversation_id,
+        episode_id=(
+            str((req.metadata or {}).get("episode_id") or (req.metadata or {}).get("episodeId") or "").strip()
+            or None
+        ),
+    )
+
+    # REQ-032 durable path: no process-local idempotency / create_task.
+    if durable_queue_enabled():
+        if state.durable_store is None or state.durable_config is None or state.backpressure is None:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "queue_unavailable",
+                    "message": "durable queue not initialized",
+                },
+                headers={"Retry-After": "5"},
+            )
+
+        def _enqueue(delivery):  # type: ignore[no-untyped-def]
+            enqueue_delivery(state.durable_config, delivery)
+
+        result = admit_durable_async_call(
+            req=req,
+            session=session,
+            thread_id=tid,
+            store=state.durable_store,
+            config=state.durable_config,
+            backpressure=state.backpressure,
+            enqueue=_enqueue,
+        )
+        return result.response
+
+    # --- Legacy process-local path (GROUP_AGENT_DURABLE_QUEUE_ENABLED=0) ---
     status, cached, slot = await reserve_idempotency_slot(req, session)
 
     if status == "HIT" and cached is not None:
@@ -64,16 +103,6 @@ async def call_async(
         )
 
     assert slot is not None
-
-    tid = thread_id(
-        user_id=session.principal.user_id,
-        group_id=session.group_id,
-        conversation_id=req.conversation_id,
-        episode_id=(
-            str((req.metadata or {}).get("episode_id") or (req.metadata or {}).get("episodeId") or "").strip()
-            or None
-        ),
-    )
 
     # 4. Check global active limit & per-conversation lock
     if not state.try_start_agent_run(tid, "call_async"):

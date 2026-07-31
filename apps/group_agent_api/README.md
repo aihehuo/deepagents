@@ -69,15 +69,16 @@ docker build -t group-agent-api:3adaae88 -f apps/group_agent_api/Dockerfile .
 ### 4. 异步接口与 Callback 机制 (REQ-009 `GA-ASYNC-V1` / `GA-CALLBACK-V1`)
 - **前端物理隔离**：前端只连 micro 服务的 WebSocket/ActionCable，禁止直连 `group_agent_api`；浏览器永远不持有 `X-GA-*` 头部、HMAC 密钥或内网 Callback 地址。
 - **异步入口 (`POST /call_async`)**：Micro 发起内网签名调用后，API 校验 `GA-PRINCIPAL-V1` 头部与 Body 身份一致性，成功后返回 `202 Accepted` ACK，后台异步执行任务。
+- **REQ-032 Durable Queue（可选，默认关）**：`GROUP_AGENT_DURABLE_QUEUE_ENABLED=1` 时，API 只做 durable admission（Redis execution ledger + Celery enqueue），**禁止**用 `asyncio.create_task` 承载权威 Run；执行由独立 `group_agent_worker` 持有 lease 完成。详见 [`docs/runbooks/group-agent-durable-queue.md`](../../docs/runbooks/group-agent-durable-queue.md)。默认 `=0` 保持进程内 legacy 路径以兼容现有测试。
 - **Callback 安全 (`GA-CALLBACK-V1`)**：
   - **SSRF 允许列表**：`callback_url` 必须精确匹配 `GROUP_AGENT_CALLBACK_ALLOWED_BASE_URLS`，禁止公网/错 Host/userinfo/重定向逃逸。
   - **方向性 HMAC 签名**：头部携带 `X-GA-Callback-Signature`（采用 `GROUP_AGENT_CALLBACK_HMAC_SECRET` 计算）。
   - **单调 Seq 与终态**：单次运行 `seq` 递增；且只产生一个终态（`final` 或 `error`）；错误只回传安全错误码，严禁泄漏堆栈/密钥。
 
 ### 健康检查 (Healthcheck)
-- 接口：`GET /health`（端口 8001），返回 HTTP 200。
+- 接口：`GET /health`（端口 8001），返回 HTTP 200（liveness，不依赖 Redis）。
+- Durable 模式另提供 `GET /ready`：校验 execution store + broker（不回传 URL/密钥）。
 - Compose 配置内置 HTTP 健康检查。
-
 ### 回滚与生产放行 (HOLD-DEPLOY)
 - 当前处于 **HOLD-DEPLOY** 状态，禁止推远端镜像与生产上架。
 - 生产联调前尚需完成：micro 服务 WebSocket 异步接入、三库非造样端到端、ES 阈值校准与环境指纹核验。

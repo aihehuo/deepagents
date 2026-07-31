@@ -1,0 +1,5 @@
+# Group Agent Worker dependencies (REQ-032)
+# Upper bounds required for Python 3.11 compatibility discipline.
+celery>=5.3.0,<6.0.0
+redis>=5.0.0,<8.0.0
+cryptography>=42.0.0,<49.0.0

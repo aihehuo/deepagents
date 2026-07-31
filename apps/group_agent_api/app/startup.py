@@ -55,16 +55,44 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
     except Exception as exc:  # noqa: BLE001
         _logger.warning("polish/quality model unavailable: %s", exc)
 
+    durable_config = None
+    durable_store = None
+    backpressure = None
+    from apps.group_agent_api.execution.config import (
+        durable_queue_enabled,
+        load_durable_queue_config,
+    )
+
+    if durable_queue_enabled():
+        durable_config = load_durable_queue_config(require_enabled=True)
+        assert durable_config is not None
+        from apps.group_agent_api.execution.backpressure import BackpressureController
+        from apps.group_agent_api.execution.redis_store import ExecutionStore
+
+        durable_store = ExecutionStore.from_config(durable_config)
+        if not durable_store.ping():
+            raise RuntimeError("durable Redis ping failed at startup")
+        backpressure = BackpressureController(durable_store._r, durable_config)  # noqa: SLF001
+        _logger.info(
+            "durable_queue enabled prefix=%s queue=%s",
+            durable_config.redis_prefix,
+            durable_config.celery_queue,
+        )
+
     state_ref["state"] = AppState(
         agent=agent,
         base_dir=runtime,
         checkpoints_path=str(ckpt_path),
         polish_model=polish_model,
         quality_model=quality_model,
+        durable_config=durable_config,
+        durable_store=durable_store,
+        backpressure=backpressure,
     )
     _logger.info(
-        "%s ready runtime=%s integration=%s",
+        "%s ready runtime=%s integration=%s durable=%s",
         APP_NAME,
         runtime,
         integration_mode(),
+        "1" if durable_queue_enabled() else "0",
     )

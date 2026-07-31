@@ -25,6 +25,10 @@ class AppState:
     active_agent_runs: dict[str, str] = field(default_factory=dict)
     active_tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
     active_agent_runs_lock: threading.Lock = field(default_factory=threading.Lock)
+    # REQ-032 durable queue (None when GROUP_AGENT_DURABLE_QUEUE_ENABLED=0)
+    durable_config: Any | None = None
+    durable_store: Any | None = None
+    backpressure: Any | None = None
 
     def try_start_agent_run(self, thread_id: str, owner: str) -> bool:
         """Atomically enforce global max active limit AND per-conversation lock."""

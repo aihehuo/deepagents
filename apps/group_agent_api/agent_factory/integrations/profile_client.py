@@ -71,6 +71,8 @@ def persist_group_profile(
     *,
     profile: GroupProfile,
     run_id: str,
+    attempt_id: str | None = None,
+    fencing_token: int | None = None,
     base_url: str | None = None,
     secret: str | None = None,
     timeout_s: float | None = None,
@@ -80,6 +82,8 @@ def persist_group_profile(
     Args:
         profile: Validated group-scoped profile.
         run_id: Micro-owned run that produced this profile.
+        attempt_id: Durable attempt id (FIX3 fencing).
+        fencing_token: Monotonic lease epoch (FIX3 fencing).
         base_url: Optional Micro origin override for tests.
         secret: Optional directional HMAC secret override for tests.
         timeout_s: Optional request timeout override.
@@ -109,6 +113,10 @@ def persist_group_profile(
             "schema_version": profile.schema_version,
         },
     }
+    if attempt_id:
+        payload["attempt_id"] = str(attempt_id)
+    if fencing_token is not None and int(fencing_token) > 0:
+        payload["fencing_token"] = int(fencing_token)
     body = json.dumps(
         payload,
         ensure_ascii=False,
@@ -153,7 +161,7 @@ def persist_group_profile(
     if str(data.get("group_id") or "") != profile.group_id:
         raise ProfileHttpError("group_id_mismatch")
     status = str(data.get("status") or "")
-    if status not in {"created", "updated", "idempotent", "stale_ignored"}:
+    if status not in {"created", "updated", "idempotent", "stale_ignored", "fence_rejected"}:
         raise ProfileHttpError("invalid_status")
     version = data.get("profile_version")
     if (
@@ -180,7 +188,7 @@ def persist_group_profile(
     digest = data.get("profile_digest")
     if not isinstance(digest, str) or not _PROFILE_DIGEST_RE.fullmatch(digest):
         raise ProfileHttpError("invalid_profile_digest")
-    if status != "stale_ignored" and digest != canonical_profile_digest(profile):
+    if status not in {"stale_ignored", "fence_rejected"} and digest != canonical_profile_digest(profile):
         raise ProfileHttpError("profile_digest_mismatch")
 
     return data

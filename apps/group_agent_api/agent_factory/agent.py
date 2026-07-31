@@ -153,6 +153,35 @@ def save_group_profile(
                 f"group_id={group_id} reason={reason} status=resubmit_required"
             )
             return f"error: semantic_projection:{reason}; resubmit_required"
+        # REQ-032-FIX3: atomic fencing commit at write boundary (not check-then-write).
+        from apps.group_agent_api.execution.active_fence import (
+            FenceRejectedError,
+            assert_write_allowed,
+            commit_profile_write_allowed,
+            get_active_fence,
+        )
+
+        try:
+            assert_write_allowed("save_group_profile")
+            commit_profile_write_allowed(user_id=user_id, group_id=group_id)
+        except FenceRejectedError as exc:
+            UC34Observer.warn(
+                f"action=save_group_profile_fence_rejected user_id={user_id} "
+                f"group_id={group_id} reason={exc.code}"
+            )
+            return f"error: fence_rejected:{exc.code}"
+        fence = get_active_fence()
+        attempt_id = ""
+        fencing_token = 0
+        if fence is not None:
+            attempt_id = fence.claim.attempt_id
+            fencing_token = int(fence.claim.fencing_token)
+        else:
+            meta_attempt = str(metadata.get("attempt_id") or "").strip()
+            meta_fencing = str(metadata.get("fencing_token") or "").strip()
+            if meta_attempt and meta_fencing.isdigit():
+                attempt_id = meta_attempt
+                fencing_token = int(meta_fencing)
         profile = profile_from_flat(
             user_id=user_id,
             group_id=group_id,
@@ -165,8 +194,17 @@ def save_group_profile(
         )
         remote_ack: dict[str, Any] | None = None
         if integration_mode() == "http":
-            remote_ack = persist_group_profile(profile=profile, run_id=run_id)
-        if remote_ack is None or remote_ack["status"] != "stale_ignored":
+            remote_ack = persist_group_profile(
+                profile=profile,
+                run_id=run_id,
+                attempt_id=attempt_id or None,
+                fencing_token=fencing_token or None,
+            )
+        if remote_ack is None or remote_ack["status"] not in {"stale_ignored", "fence_rejected"}:
+            try:
+                commit_profile_write_allowed(user_id=user_id, group_id=group_id)
+            except FenceRejectedError as exc:
+                return f"error: fence_rejected:{exc.code}"
             path = save_profile(base_dir, profile)
         else:
             path = None

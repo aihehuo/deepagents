@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -275,11 +276,36 @@ class AsyncCallRequest(BaseModel):
     run_match: bool = Field(True)
     willing_to_at: bool = Field(True)
     run_invite: bool = Field(True)
+    # REQ-032 durable admission (required when GROUP_AGENT_DURABLE_QUEUE_ENABLED=1)
+    request_schema_version: int | None = Field(
+        None,
+        description="Micro fingerprint schema version; durable mode requires 1",
+    )
+    request_fingerprint: str | None = Field(
+        None,
+        min_length=64,
+        max_length=64,
+        description="Micro-authoritative SHA-256 hex fingerprint",
+    )
+    queue_schema_version: int | None = Field(
+        None,
+        description="Queue payload schema version; durable mode requires 1",
+    )
 
     @field_validator("metadata")
     @classmethod
     def validate_metadata(cls, v: dict[str, Any]) -> dict[str, Any]:
         return validate_group_agent_metadata(v)
+
+    @field_validator("request_fingerprint")
+    @classmethod
+    def validate_fingerprint_exact(cls, v: str | None) -> str | None:
+        """Reject non-exact fingerprints — no strip/lowercase repair (REQ-032-FIX1)."""
+        if v is None:
+            return None
+        if not re.fullmatch(r"[0-9a-f]{64}", v):
+            raise ValueError("request_fingerprint must be exact 64-char lowercase sha256 hex")
+        return v
 
 
 class AsyncCallResponse(BaseModel):
@@ -288,6 +314,10 @@ class AsyncCallResponse(BaseModel):
     session_id: str
     accepted: bool = True
     message: str = "accepted"
+    # REQ-032 additive ACK fields (backward compatible)
+    idempotency_key: str | None = None
+    execution_status: str | None = None
+    queue_schema_version: int | None = None
 
 
 CallbackEventType = Literal["progress", "chunk", "final", "error", "heartbeat"]

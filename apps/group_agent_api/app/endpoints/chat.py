@@ -254,6 +254,15 @@ def _invoke_config(
     safe_meta = {
         k: v for k, v in (metadata or {}).items() if k not in _RESERVED_META_KEYS
     }
+    fence_meta: dict[str, str] = {}
+    try:
+        from apps.group_agent_api.execution.active_fence import get_active_fence
+
+        fence = get_active_fence()
+        if fence is not None:
+            fence_meta = fence.metadata_fields()
+    except Exception:  # noqa: BLE001
+        fence_meta = {}
     return {
         "configurable": {
             "thread_id": tid,
@@ -267,6 +276,7 @@ def _invoke_config(
             "membership": membership,
             **({"run_id": run_id} if run_id else {}),
             **({"conversation_id": conversation_id} if conversation_id else {}),
+            **fence_meta,
         },
     }
 

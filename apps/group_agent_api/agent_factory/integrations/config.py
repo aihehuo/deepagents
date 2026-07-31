@@ -139,6 +139,19 @@ def assert_startup_security() -> None:
     except ValueError as exc:
         raise RuntimeError(f"Invalid async/callback numeric configuration: {exc}") from exc
 
+    # REQ-032: durable mode fail-closed at startup (no silent create_task fallback).
+    from apps.group_agent_api.execution.config import (
+        durable_queue_enabled,
+        load_durable_queue_config,
+    )
+
+    if durable_queue_enabled():
+        load_durable_queue_config(require_enabled=True)
+    elif locked:
+        # Production ultimately requires durable=1; keep local default off.
+        # Explicit production lock without durable is allowed only when not yet cut over.
+        pass
+
 
 def new_api_base() -> str:
     """New API origin.

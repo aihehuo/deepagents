@@ -475,7 +475,7 @@ async def execute_async_run(
     tid: str,
     slot: IdempotencySlot | None = None,
 ) -> None:
-    """Background task: waits for decision_event gate, runs core agent execution if completed, and delivers callbacks."""
+    """Legacy API adapter: decision gate + timeout + shared core + process-local cleanup."""
     user_id = session.principal.user_id
     group_id = session.group_id
 
@@ -541,7 +541,7 @@ async def execute_async_run(
         # Step 2: Perform execution with run timeout
         timeout = async_run_timeout_s()
         await asyncio.wait_for(
-            _execute_core_agent(
+            execute_async_run_core(
                 req=req,
                 session=session,
                 state=state,
@@ -594,6 +594,34 @@ async def execute_async_run(
         state.finish_agent_run(tid, "call_async")
 
 
+async def execute_async_run_core(
+    *,
+    req: AsyncCallRequest,
+    session: TrustedSession,
+    state: AppState,
+    tid: str,
+    emit_callback: Any,
+    side_effect_gate: Any | None = None,
+) -> None:
+    """Shared execution core used by legacy API adapter and Celery worker (REQ-032).
+
+    Independent of FastAPI request lifecycle, process-local idempotency store,
+    and ``AppState.active_tasks``.
+
+    Args:
+        side_effect_gate: Optional callable ``(action: str) -> None`` that raises
+            when the attempt lost lease ownership (worker fence).
+    """
+    await _execute_core_agent(
+        req=req,
+        session=session,
+        state=state,
+        tid=tid,
+        emit_callback=emit_callback,
+        side_effect_gate=side_effect_gate,
+    )
+
+
 async def _execute_core_agent(
     *,
     req: AsyncCallRequest,
@@ -601,7 +629,11 @@ async def _execute_core_agent(
     state: AppState,
     tid: str,
     emit_callback: Any,
+    side_effect_gate: Any | None = None,
 ) -> None:
+    def _gate(action: str) -> None:
+        if side_effect_gate is not None:
+            side_effect_gate(action)
     user_id = session.principal.user_id
     group_id = session.group_id
     tier = session.membership.tier
@@ -730,7 +762,9 @@ async def _execute_core_agent(
                 messages=messages,
                 msg_count_before=msg_count_before,
             ):
+                _gate("profile_force_save")
                 for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
+                    _gate("profile_force_save_iter")
                     if _profile_was_superseded(messages, msg_count_before):
                         profile_status = "superseded"
                         profile_ok = False
@@ -765,6 +799,7 @@ async def _execute_core_agent(
 
                 if not profile_ok and profile_status != "superseded":
                     profile_status = "failed"
+                    _gate("profile_deterministic_save")
                     fallback_attempted = await _attempt_deterministic_profile_save(
                         message=req.message,
                         config=config,
@@ -814,6 +849,7 @@ async def _execute_core_agent(
                 checkpointer.flush()
 
     # Step: Match pipeline
+    _gate("match")
     match_status = "skipped"
     candidates: list[dict[str, Any]] = []
     match_reason: str | None = (
@@ -929,6 +965,10 @@ async def _execute_core_agent(
             candidate_count=len(guarded.candidates),
         )
     ):
+        _gate("invite")
+        from apps.group_agent_api.execution.active_fence import assert_write_allowed
+
+        assert_write_allowed("invite")
         profile = load_profile(state.base_dir, user_id, group_id)
         if profile is not None:
             invite_status = match_status
@@ -1037,4 +1077,7 @@ async def _execute_core_agent(
     if trace_path:
         final_payload["debug_trace_path"] = trace_path
 
-    await emit_callback("final", final_payload)
+    _gate("final_callback")
+    final_ok = await emit_callback("final", final_payload)
+    if final_ok is False:
+        raise RuntimeError("final_callback_failed")

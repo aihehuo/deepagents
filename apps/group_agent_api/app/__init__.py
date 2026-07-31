@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 
 from apps.group_agent_api.app.endpoints import call_async, chat, health, invite, match, profile, reset
 from apps.group_agent_api.app.models import (
@@ -54,6 +54,11 @@ def create_app() -> FastAPI:
     async def health_endpoint() -> dict[str, str]:
         assert _state is not None
         return await health.health(_state)
+
+    @app_inst.get("/ready")
+    async def ready_endpoint(response: Response) -> dict[str, object]:
+        assert _state is not None
+        return await health.readiness(_state, response)
 
     @app_inst.post("/call_async", response_model=AsyncCallResponse, status_code=202)
     async def call_async_endpoint(req: AsyncCallRequest, request: Request) -> AsyncCallResponse:

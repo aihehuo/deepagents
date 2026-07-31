@@ -960,6 +960,7 @@ async def _execute_core_agent(
         )
 
     final_profile = load_profile(state.base_dir, user_id, group_id) if profile_ok else None
+    saved_this_turn = _profile_save_succeeded_this_turn(messages, msg_count_before)
     final_guarded = finalize_and_guard_user_visible_reply(
         tier=tier,
         caller_group_id=group_id,
@@ -974,6 +975,7 @@ async def _execute_core_agent(
         revisit_hint=revisit_hint,
         match_reason=match_reason,
         quality_gaps=quality_gaps,
+        profile_saved_this_turn=saved_this_turn,
     )
     combined_guard_violations = list(
         dict.fromkeys([*guarded.violations, *final_guarded.violations])

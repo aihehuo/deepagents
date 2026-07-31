@@ -299,3 +299,36 @@ def test_finalize_skips_template_when_model_already_confirmed_and_has_next_step(
     assert result.count("已落库") == 1
     assert "我理解并已更新画像" not in result
     assert result == model_reply
+
+
+def test_finalize_keeps_model_reply_when_profile_not_saved_this_turn() -> None:
+    """Regression: after Micro dropped group_token, tier=unknown + profile_ok
+    caused every turn to emit the same「我理解并已更新画像」template."""
+    profile = profile_from_flat(
+        user_id="448838",
+        group_id="global",
+        doing="Building an AI application to help startup founders connect",
+        need="UX-focused AI builders",
+        offer="Working frontend + backend backbone",
+    )
+    model_reply = (
+        "Yes — I saved your doing / need / offer just now. "
+        "Want me to start matching?"
+    )
+
+    result = finalize_user_visible_reply(
+        original_reply=model_reply,
+        profile=profile,
+        profile_persisted=True,
+        match_status="skipped",
+        candidate_count=0,
+        delivery_kind=None,
+        invite_ok=None,
+        network_unlocked=False,
+        revisit_hint=None,
+        profile_saved_this_turn=False,
+    )
+
+    assert result == model_reply
+    assert "我理解并已更新画像" not in result
+    assert "继续补充项目目标" not in result

@@ -141,13 +141,17 @@ def finalize_user_visible_reply(
     match_reason: str | None = None,
     quality_gaps: list[str] | None = None,
     candidates: list[dict[str, Any]] | None = None,
+    profile_saved_this_turn: bool = True,
 ) -> str:
     """Build a reply consistent with the persisted profile and formal result.
 
     When persistence failed we retain the agent reply because there is no
     trusted structured profile to confirm.  Once persistence succeeded, the
-    deterministic result becomes authoritative and replaces any pre-match
-    statement from the dialogue model.
+    deterministic match/invite result can append next-step copy.
+
+    ``profile_saved_this_turn`` gates the「我理解并已更新画像」confirmation so
+    later turns (e.g. 「did you save?」/「hi」) keep the model reply instead of
+    looping the same Chinese template.
 
     REQ-028: when Micro injects ``revisit_hint.has_prior_invite``, the first
     user-visible sentence mentions the prior recommendation and offers
@@ -341,11 +345,9 @@ def finalize_user_visible_reply(
         or invented_scrubbed_away
     )
 
-    has_substantive_custom_reply = (
-        bool(original)
-        and network_unlocked
-        and not is_simple_fallback_stub
-    )
+    # Keep model wording even when network is locked (meta Q&A / language
+    # preference). Network unlock only gates match/invite next-step promises.
+    has_substantive_custom_reply = bool(original) and not is_simple_fallback_stub
 
     # Detect if the model already included a profile confirmation or next-step
     # summary in its reply — avoid double-stacking the template on top.
@@ -371,6 +373,10 @@ def finalize_user_visible_reply(
         # Empty match with no invite card: keep the model's clarifying reply.
         # Appending「暂未找到人选」onto an ongoing Q&A contradicts the dialogue.
         if match_status == "empty" and delivery_kind is None:
+            body = original
+        elif match_status == "skipped" and not profile_saved_this_turn:
+            # Profile already on disk, but this turn did not save — keep the
+            # model's answer (「did you save?」/「hi」/「why repeating」).
             body = original
         elif confirmation in original:
             body = original
@@ -410,6 +416,7 @@ def finalize_and_guard_user_visible_reply(
     revisit_hint: RevisitHint | None = None,
     match_reason: str | None = None,
     quality_gaps: list[str] | None = None,
+    profile_saved_this_turn: bool = True,
 ) -> GuardResult:
     """Finalize from authoritative state, then apply the capability guard.
 
@@ -431,6 +438,7 @@ def finalize_and_guard_user_visible_reply(
         match_reason=match_reason,
         quality_gaps=quality_gaps,
         candidates=candidates,
+        profile_saved_this_turn=profile_saved_this_turn,
     )
     guarded = enforce_capability_guard(
         tier=tier,

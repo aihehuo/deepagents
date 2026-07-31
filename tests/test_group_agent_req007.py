@@ -446,6 +446,21 @@ def test_group_bind_accepts_global_session_despite_membership_event() -> None:
     assert trusted == "global"
 
 
+def test_global_session_unlocks_network_without_group_token() -> None:
+    """Authenticated global bucket must not fall to tier=unknown (reply-loop)."""
+    res = resolve_session_capability(
+        membership_override="in_group",  # ignored in http
+        unionid="wx_union_1",
+        group_token=None,
+        force_mode="http",
+        group_id="global",
+        user_id="448838",
+    )
+    assert res.tier == CapabilityTier.in_group
+    assert res.reason == "global_session_authenticated"
+    assert res.source == "http_global"
+
+
 def test_align_match_keeps_pool_for_global_bucket() -> None:
     from apps.group_agent_api.agent_factory.integrations.group_bind import (
         align_match_to_trusted_group,

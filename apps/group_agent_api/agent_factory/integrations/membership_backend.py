@@ -26,11 +26,25 @@ def resolve_session_capability(
     """唯一入口：http 模式用 OAuth unionid + 群 JWT；stub 模式接入 Fixture 权威关系。
 
     http 模式**忽略**客户端 membership 覆盖（防注入提权）。
+
+    REQ-032 / Micro REQ-028: full-network agent uses session bucket ``global`` and
+    no longer forwards ``group_token``. Authenticated callers (unionid present)
+    must still unlock matching — otherwise every turn collapses to tier=unknown
+    and the profile-confirmation template overwrites the model reply.
     """
     mode = (force_mode or integration_mode()).strip().lower()
     if mode == "http":
+        plain_gid = (group_id or "").strip()
+        uid = (unionid or "").strip()
+        if plain_gid == "global" and uid:
+            return MembershipResult(
+                tier=CapabilityTier.in_group,
+                event_id=None,
+                reason="global_session_authenticated",
+                source="http_global",
+            )
         return fetch_membership(
-            unionid=unionid or "",
+            unionid=uid,
             group_token=group_token or "",
         )
 

@@ -29,33 +29,45 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP_DIR="${SCRIPT_DIR}/${APP_NAME}"
 
-if [ "$APP_NAME" = "group_agent_api" ]; then
-  if [ $# -lt 2 ] || [ -z "$2" ] || [ "$2" = "latest" ]; then
-    echo "Error: group_agent_api requires an explicit full 40-character commit SHA tag. 'latest' or empty tag is rejected."
+# group_agent_api / group_agent_worker: SHA-only tags, clean tree, no :latest push
+_require_group_agent_sha_tag() {
+  local app="$1"
+  if [ $# -lt 2 ] || [ -z "${2:-}" ] || [ "${2:-}" = "latest" ]; then
+    echo "Error: $app requires an explicit full 40-character commit SHA tag. 'latest' or empty tag is rejected."
     exit 1
   fi
-
   if [[ ! "$TAG" =~ ^[0-9a-fA-F]{40}$ ]]; then
-    echo "Error: group_agent_api tag must be a full 40-character commit SHA, got: $TAG"
+    echo "Error: $app tag must be a full 40-character commit SHA, got: $TAG"
     exit 1
   fi
-
   CURRENT_HEAD="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
   if [ "$TAG" != "$CURRENT_HEAD" ]; then
     echo "Error: Provided tag ($TAG) does not match current git HEAD ($CURRENT_HEAD)"
     exit 1
   fi
-
   TRACKED_CHANGES="$(git -C "$REPO_ROOT" status --porcelain -uno 2>/dev/null || true)"
   if [ -n "$TRACKED_CHANGES" ]; then
-    echo "Error: Working tree has tracked modifications. Commit all changes before building/deploying group_agent_api:"
+    echo "Error: Working tree has tracked modifications. Commit all changes before building/deploying $app:"
     echo "$TRACKED_CHANGES"
     exit 1
   fi
+}
 
+if [ "$APP_NAME" = "group_agent_api" ]; then
+  _require_group_agent_sha_tag "$APP_NAME" "${2:-}"
   COPY_UNTRACKED="$(git -C "$REPO_ROOT" status --porcelain libs/deepagents apps/group_agent_api 2>/dev/null | grep '^\?\?' || true)"
   if [ -n "$COPY_UNTRACKED" ]; then
     echo "Error: Docker COPY source paths (libs/deepagents, apps/group_agent_api) contain untracked files:"
+    echo "$COPY_UNTRACKED"
+    exit 1
+  fi
+fi
+
+if [ "$APP_NAME" = "group_agent_worker" ]; then
+  _require_group_agent_sha_tag "$APP_NAME" "${2:-}"
+  COPY_UNTRACKED="$(git -C "$REPO_ROOT" status --porcelain libs/deepagents apps/group_agent_api apps/group_agent_worker 2>/dev/null | grep '^\?\?' || true)"
+  if [ -n "$COPY_UNTRACKED" ]; then
+    echo "Error: Docker COPY source paths (libs/deepagents, apps/group_agent_api, apps/group_agent_worker) contain untracked files:"
     echo "$COPY_UNTRACKED"
     exit 1
   fi
@@ -112,7 +124,7 @@ FULL_IMAGE="$REGISTRY/$IMAGE_NAME:$TAG"
 docker tag "$IMAGE_NAME:$TAG" "$FULL_IMAGE"
 docker push "$FULL_IMAGE"
 
-if [ "$APP_NAME" != "group_agent_api" ]; then
+if [ "$APP_NAME" != "group_agent_api" ] && [ "$APP_NAME" != "group_agent_worker" ]; then
   docker build -t "$IMAGE_NAME:latest" -f "${APP_DIR}/Dockerfile" "$REPO_ROOT"
   FULL_IMAGE_LATEST="$REGISTRY/$IMAGE_NAME:latest"
   docker tag "$IMAGE_NAME:latest" "$FULL_IMAGE_LATEST"
@@ -122,7 +134,7 @@ fi
 echo ""
 echo "Pushed:"
 echo " - $FULL_IMAGE"
-if [ "$APP_NAME" != "group_agent_api" ]; then
+if [ "$APP_NAME" != "group_agent_api" ] && [ "$APP_NAME" != "group_agent_worker" ]; then
   echo " - $FULL_IMAGE_LATEST"
 fi
 

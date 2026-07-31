@@ -11,6 +11,7 @@
 #   BUSINESS_COFOUNDER_API_IMAGE=registry.example.invalid/deepagents/business-cofounder-api:<tag>
 #   WU_TANCHANG_API_IMAGE=registry.example.invalid/deepagents/wu-tanchang-api:<tag>
 #   GROUP_AGENT_API_IMAGE=registry.example.invalid/deepagents/group-agent-api:<40-char-sha>
+#   GROUP_AGENT_WORKER_IMAGE=registry.example.invalid/deepagents/group-agent-worker:<40-char-sha>
 #
 # Ports bind to loopback (127.0.0.1) only. Do NOT expose the service on all
 # interfaces in production; put a reverse proxy in front if you need external
@@ -89,6 +90,48 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  group-agent-worker:
+    image: ${GROUP_AGENT_WORKER_IMAGE:?GROUP_AGENT_WORKER_IMAGE is required}
+    container_name: group-agent-worker
+    user: "1000:1000"
+    env_file:
+      - ./group-agent-worker.docker.env
+    environment:
+      HOME: /home/celery
+      GROUP_AGENT_WORKER_BEAT: "0"
+      GROUP_AGENT_WORKER_INSTANCE_ID: ga-worker-1
+    volumes:
+      - ./data/group-agent-worker:/home/celery/.deepagents/group_agent_api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - aihehuo-net
+    restart: unless-stopped
+
+  group-agent-beat:
+    image: ${GROUP_AGENT_WORKER_IMAGE:?GROUP_AGENT_WORKER_IMAGE is required}
+    container_name: group-agent-beat
+    user: "1000:1000"
+    env_file:
+      - ./group-agent-worker.docker.env
+    environment:
+      HOME: /home/celery
+      GROUP_AGENT_WORKER_BEAT: "1"
+      GROUP_AGENT_WORKER_INSTANCE_ID: ga-beat-1
+    command:
+      - celery
+      - -A
+      - apps.group_agent_worker.celery_app
+      - beat
+      - --loglevel=info
+    volumes:
+      - ./data/group-agent-worker:/home/celery/.deepagents/group_agent_api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - aihehuo-net
+    restart: unless-stopped
 
 networks:
   aihehuo-net:

@@ -426,6 +426,54 @@ def test_group_bind_rejects_plaintext_mismatch() -> None:
     assert ei.value.detail["error"] == "group_id_mismatch"
 
 
+def test_group_bind_accepts_global_session_despite_membership_event() -> None:
+    """REQ-032: plaintext global must not collide with leftover group_token event_id."""
+    from apps.group_agent_api.agent_factory.integrations.group_bind import (
+        resolve_trusted_group_id,
+    )
+    from apps.group_agent_api.agent_factory.integrations.membership_client import (
+        MembershipResult,
+    )
+
+    membership = MembershipResult(
+        tier=CapabilityTier.in_group, event_id="763", source="http"
+    )
+    trusted = resolve_trusted_group_id(
+        plaintext_group_id="global",
+        membership=membership,
+        force_mode="http",
+    )
+    assert trusted == "global"
+
+
+def test_align_match_keeps_pool_for_global_bucket() -> None:
+    from apps.group_agent_api.agent_factory.integrations.group_bind import (
+        align_match_to_trusted_group,
+    )
+
+    raw = MatchResult(
+        status="matched",
+        group_id="763",
+        query="q",
+        reason="x",
+        candidates=[
+            {
+                "user_id": "1",
+                "group_id": "999",
+                "source_group_id": "999",
+                "display_name": "X",
+                "is_reachable": True,
+                "doing": {"value": "固件", "disclosure": "confirmed_public"},
+            }
+        ],
+    )
+    aligned = align_match_to_trusted_group(raw, trusted_group_id="global")
+    assert aligned.status == "matched"
+    assert aligned.group_id == "global"
+    assert len(aligned.candidates) == 1
+    assert aligned.candidates[0]["source_group_id"] == "999"
+
+
 def test_align_match_drops_foreign_group() -> None:
     from apps.group_agent_api.agent_factory.integrations.group_bind import (
         align_match_to_trusted_group,

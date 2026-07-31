@@ -1,4 +1,9 @@
-"""Bind plaintext group_id to membership.event_id (REQ-007 FIX)."""
+"""Bind plaintext group_id to membership.event_id (REQ-007 FIX).
+
+REQ-032 / Micro REQ-028: full-network agent uses session bucket ``global``.
+That plaintext must not be compared to membership.event_id from a leftover
+group_token (e.g. 763), or /call_async fails with group_id_mismatch.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +24,9 @@ from apps.group_agent_api.agent_factory.match_stub import MatchResult
 
 _logger = logging.getLogger("uvicorn.error")
 
+# Must match Micro GroupAgent::ConversationId::GLOBAL_BUCKET
+GLOBAL_SESSION_BUCKET = "global"
+
 
 def resolve_trusted_group_id(
     *,
@@ -29,6 +37,7 @@ def resolve_trusted_group_id(
     """HTTP: membership.event_id is the sole trusted group id.
 
     Plaintext group_id must match event_id when both present; mismatch → 400.
+    Exception: plaintext ``global`` (full-network session) always wins.
     Stub: plaintext group_id wins.
     """
     mode = (force_mode or integration_mode()).strip().lower()
@@ -40,6 +49,10 @@ def resolve_trusted_group_id(
                 detail={"error": "missing_group_id"},
             )
         return plain
+
+    # Full-network agent (Micro REQ-028): session bucket is not a WeChat event id.
+    if plain == GLOBAL_SESSION_BUCKET:
+        return GLOBAL_SESSION_BUCKET
 
     event_id = (membership.event_id or "").strip() or None
     if event_id:
@@ -89,10 +102,12 @@ def align_match_to_trusted_group(
       (prevents accidental cross-group leak from older backends).
 
     Same-group candidates are still normalized onto ``trusted_group_id``.
-    The response envelope ``result.group_id`` must still match the entry token.
+    The response envelope ``result.group_id`` must still match the entry token
+    unless the entry is the global session bucket (cross-group pool).
     """
     reported = (result.group_id or "").strip()
-    if reported and reported != trusted_group_id:
+    is_global = trusted_group_id == GLOBAL_SESSION_BUCKET
+    if reported and reported != trusted_group_id and not is_global:
         return MatchResult(
             status="empty",
             candidates=[],
@@ -119,7 +134,11 @@ def align_match_to_trusted_group(
         is_reachable = c.get("is_reachable")
         item = dict(c)
 
-        if src and src != trusted_group_id:
+        if is_global:
+            # Cross-group pool: never rewrite authentic source onto "global".
+            if is_reachable is None:
+                item["is_reachable"] = True
+        elif src and src != trusted_group_id:
             if is_reachable is False:
                 # Intentional cross-group: preserve authentic source + group_info.
                 item["is_reachable"] = False

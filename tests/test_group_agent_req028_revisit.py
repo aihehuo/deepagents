@@ -146,11 +146,33 @@ def test_should_skip_auto_match_until_explicit_rematch() -> None:
     hint = RevisitHint(has_prior_invite=True, candidate_names=("周然",))
     assert should_skip_auto_match(revisit_hint=hint, message="我回来了") is True
     assert should_skip_auto_match(revisit_hint=hint, message="帮我换人再找几个") is False
+    assert should_skip_auto_match(revisit_hint=hint, message="go") is False
     assert should_skip_auto_match(
         revisit_hint=RevisitHint(has_prior_invite=False),
         message="我回来了",
     ) is False
     assert wants_rematch("换题试试") is True
+    assert wants_rematch("go") is True
+    assert wants_rematch("match again") is True
+
+
+def test_known_match_system_content_lists_candidates() -> None:
+    from apps.group_agent_api.agent_factory.revisit import known_match_system_content
+
+    assert known_match_system_content(None) is None
+    assert known_match_system_content(RevisitHint(has_prior_invite=False)) is None
+    text = known_match_system_content(
+        RevisitHint(
+            has_prior_invite=True,
+            candidate_names=("王梦波", "慢跑者", "王先生"),
+            topic_summary="Marketing lead",
+        )
+    )
+    assert text is not None
+    assert "王梦波" in text and "慢跑者" in text and "王先生" in text
+    assert "Marketing lead" in text
+    assert "禁止说" in text or "no recommendations" in text
+    assert "定向邀请词" in text
 
 
 def test_finalize_with_revisit_hint_prefixes_opener() -> None:

@@ -48,6 +48,7 @@ from apps.group_agent_api.agent_factory.profile_quality import decide_match_gate
 from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted, load_profile
 from apps.group_agent_api.agent_factory.revisit import (
     excluded_ids_for_match,
+    known_match_system_content,
     parse_revisit_from_metadata,
     should_skip_auto_match,
 )
@@ -661,6 +662,10 @@ async def _execute_core_agent(
             )
             if known is not None:
                 turn_messages.append(known)
+            _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
+            match_reminder = known_match_system_content(revisit_for_prompt)
+            if match_reminder:
+                turn_messages.append(SystemMessage(content=match_reminder))
             turn_messages.append(HumanMessage(content=req.message))
             _logger.info(
                 "Core agent ainvoke start run_id=%s thread_id=%s msg_len=%d",

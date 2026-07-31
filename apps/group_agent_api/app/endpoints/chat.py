@@ -9,7 +9,7 @@ import uuid
 from typing import Any
 
 from fastapi import HTTPException, Request
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from apps.group_agent_api.agent_factory.agent import FORCE_SAVE_PROMPT, UC34Observer
 from apps.group_agent_api.agent_factory.capability import unlocks_network
@@ -405,6 +405,11 @@ async def chat(
                     determine_persistence_failure_reason,
                 )
 
+                from apps.group_agent_api.agent_factory.revisit import (
+                    known_match_system_content,
+                    parse_revisit_from_metadata,
+                )
+
                 turn_messages: list[Any] = []
                 known = _known_profile_system_message(
                     base_dir=state.base_dir,
@@ -413,6 +418,10 @@ async def chat(
                 )
                 if known is not None:
                     turn_messages.append(known)
+                _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
+                match_reminder = known_match_system_content(revisit_for_prompt)
+                if match_reminder:
+                    turn_messages.append(SystemMessage(content=match_reminder))
                 turn_messages.append(HumanMessage(content=req.message))
                 result = await agent.ainvoke(
                     {"messages": turn_messages},

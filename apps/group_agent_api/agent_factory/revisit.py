@@ -118,7 +118,10 @@ def build_revisit_opener(hint: RevisitHint | None) -> str | None:
 
 
 _REMATCH_INTENT = re.compile(
-    r"(换人|换一批|换题|再找|重新推荐|重新匹配|再匹配|另找|开新一轮.*找)"
+    r"(换人|换一批|换题|再找|重新推荐|重新匹配|再匹配|另找|开新一轮.*找|"
+    r"开始搜|开始匹配|先匹配|继续匹配|"
+    r"\bgo\b|\brematch\b|\bmatch\s*(?:again|now)?\b)",
+    re.IGNORECASE,
 )
 
 
@@ -128,6 +131,39 @@ def wants_rematch(message: str | None) -> bool:
     if not text:
         return False
     return bool(_REMATCH_INTENT.search(text))
+
+
+def known_match_system_content(hint: RevisitHint | None) -> str | None:
+    """Dialogue reminder: candidates/invite already shown in the client UI.
+
+    Match cards are produced after the LLM turn and pushed as separate WS
+    kinds — they never enter LangGraph history. Without this injection the
+    model falsely denies that recommendations were delivered.
+    """
+    if hint is None or not hint.has_prior_invite:
+        return None
+    if hint.candidate_names:
+        who = "、".join(hint.candidate_names)
+        people = f"已向用户展示候选人：{who}。"
+    else:
+        people = "已向用户展示过一轮推荐（候选人卡片 + 邀请词）。"
+    lines = [
+        "【系统已向用户界面交付的匹配结果——来自 Micro 权威 revisit_hint，不是模型猜测】",
+        f"- {people}",
+    ]
+    if hint.topic_summary:
+        lines.append(f"- 话题/邀请主题：「{hint.topic_summary}」。")
+    lines.extend(
+        [
+            "规则：",
+            "1. 用户问「怎么联系 / how to connect / 推荐了谁」时：必须承认已推荐，"
+            "引导用户使用界面里的定向邀请词（复制到群里 @ 候选人），"
+            "或按触达提示申请加入候选人所在群；禁止说「还没有推荐 / no recommendations」。",
+            "2. 用户说 go / 再匹配 / 换人 时：同意重新匹配，不要假装上一轮没出结果。",
+            "3. 不要编造新的候选人姓名或联系方式；以界面已展示的卡片为准。",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def should_skip_auto_match(

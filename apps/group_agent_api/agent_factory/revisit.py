@@ -119,8 +119,9 @@ def build_revisit_opener(hint: RevisitHint | None) -> str | None:
 
 _REMATCH_INTENT = re.compile(
     r"(换人|换一批|换题|再找|重新推荐|重新匹配|再匹配|另找|开新一轮.*找|"
-    r"开始搜|开始匹配|先匹配|继续匹配|"
-    r"\bgo\b|\brematch\b|\bmatch\s*(?:again|now)?\b)",
+    r"开始搜|开始匹配|开始找人|先匹配|继续匹配|帮我匹配|帮我找人|"
+    r"\bgo\b|\brematch\b|\bmatch\s*(?:again|now)?\b)"
+    r"|^(?:开始|开始吧)$",
     re.IGNORECASE,
 )
 

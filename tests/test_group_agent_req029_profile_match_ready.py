@@ -87,7 +87,12 @@ def test_length_gate_accepts_compact_chinese_doing() -> None:
 def test_wants_force_match() -> None:
     assert wants_force_match("先匹配一下吧")
     assert wants_force_match("不用再问了，先搜一下")
+    assert wants_force_match("开始")
+    assert wants_force_match("开始吧")
+    assert wants_force_match("帮我匹配")
+    assert wants_force_match("开始匹配")
     assert not wants_force_match("我想再补充一下需求")
+    assert not wants_force_match("继续上次的方向")
 
 
 def test_decide_ready_allows_match(tmp_path: Path) -> None:

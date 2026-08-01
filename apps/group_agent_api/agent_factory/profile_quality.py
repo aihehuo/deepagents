@@ -28,8 +28,12 @@ MIN_NEED_CHARS = 6
 MIN_OFFER_CHARS = 4
 MAX_THIN_SKIPS_BEFORE_DEGRADED = 3
 
+# Explicit start/match — overrides thin-gate + clarifying deferral.
+# Bare「开始」must be whole-message (avoid「继续上次的方向」false positive).
 _FORCE_MATCH_INTENT = re.compile(
-    r"(先匹配|先搜一下|先搜索|先推荐|直接匹配|直接搜|不用再问|先找人)"
+    r"(?:先匹配|先搜一下|先搜索|先推荐|直接匹配|直接搜|不用再问|先找人|"
+    r"开始匹配|开始找人|开始搜|帮我匹配|帮我找人|立刻匹配|马上匹配|启动匹配)"
+    r"|^(?:开始|开始吧)$"
 )
 
 # Model still digging — do not attach match cards on the same turn.

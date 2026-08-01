@@ -147,6 +147,7 @@ def test_should_skip_auto_match_until_explicit_rematch() -> None:
     assert should_skip_auto_match(revisit_hint=hint, message="我回来了") is True
     assert should_skip_auto_match(revisit_hint=hint, message="帮我换人再找几个") is False
     assert should_skip_auto_match(revisit_hint=hint, message="go") is False
+    assert should_skip_auto_match(revisit_hint=hint, message="开始") is False
     assert should_skip_auto_match(
         revisit_hint=RevisitHint(has_prior_invite=False),
         message="我回来了",
@@ -154,6 +155,9 @@ def test_should_skip_auto_match_until_explicit_rematch() -> None:
     assert wants_rematch("换题试试") is True
     assert wants_rematch("go") is True
     assert wants_rematch("match again") is True
+    assert wants_rematch("开始") is True
+    assert wants_rematch("帮我匹配") is True
+    assert wants_rematch("继续上次的方向") is False
 
 
 def test_known_match_system_content_lists_candidates() -> None:

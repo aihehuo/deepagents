@@ -55,8 +55,8 @@ def validate_group_agent_metadata(v: dict[str, Any]) -> dict[str, Any]:
 def _validate_prior_candidate_ids(val: Any) -> None:
     if not isinstance(val, list):
         raise ValueError("metadata prior_candidate_ids must be a list")
-    if len(val) > 100:
-        raise ValueError("metadata prior_candidate_ids exceeds max length 100")
+    if len(val) > 500:
+        raise ValueError("metadata prior_candidate_ids exceeds max length 500")
     for item in val:
         if isinstance(item, bool) or not isinstance(item, (str, int)):
             raise ValueError(

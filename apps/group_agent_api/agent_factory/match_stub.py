@@ -250,7 +250,7 @@ class MatchStub:
             visible.setdefault("wechat_reachable", True)
             visible.setdefault("app_registered", True)
             visible.setdefault("has_talked_with_agent", False)
-            visible.setdefault("is_masked", not same_group)
+            visible.setdefault("is_masked", False)
             candidates.append(visible)
 
         if not candidates:

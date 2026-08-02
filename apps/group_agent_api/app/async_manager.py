@@ -761,6 +761,8 @@ async def _execute_core_agent(
                 ),
                 messages=messages,
                 msg_count_before=msg_count_before,
+                user_message=req.message,
+                reply=reply,
             ):
                 _gate("profile_force_save")
                 for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):

@@ -225,9 +225,15 @@ def _should_force_profile_save(
     persist_alert: str | None,
     messages: list[Any],
     msg_count_before: int,
+    user_message: str | None = None,
+    reply: str | None = None,
 ) -> bool:
     """Skip FORCE_SAVE when a prior-episode profile is merely stale and the agent
     intentionally did not overwrite yet (e.g. clarifying need/offer).
+
+    HOWEVER, if the user explicitly requests matching or the assistant reply claims
+    it saved/updated the profile ('已落库' / '已更新' / '帮我匹配'), we MUST force
+    a save if the model forgot to call save_group_profile!
     """
     if profile_ok or profile_status == "superseded":
         return False
@@ -235,8 +241,15 @@ def _should_force_profile_save(
         from apps.group_agent_api.app.async_manager import (
             _profile_save_attempted_this_turn,
         )
+        from apps.group_agent_api.agent_factory.profile_quality import wants_force_match
 
         if not _profile_save_attempted_this_turn(messages, msg_count_before):
+            text_user = (user_message or "").strip()
+            text_reply = (reply or "").strip()
+            wants_match = wants_force_match(text_user) or "匹配" in text_user
+            claims_saved = "已落库" in text_reply or "落库" in text_reply or "已更新" in text_reply
+            if wants_match or claims_saved:
+                return True
             return False
     return True
 
@@ -488,6 +501,8 @@ async def chat(
                     persist_alert=persist_alert,
                     messages=messages,
                     msg_count_before=msg_count_before,
+                    user_message=req.message,
+                    reply=reply,
                 ):
                     for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
                         assert_attempts = attempt

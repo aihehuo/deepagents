@@ -130,6 +130,7 @@ class InviteResult:
     ok: bool = True
     violations: list[str] = field(default_factory=list)
     assert_attempts: int = 0
+    candidates: list[dict[str, Any]] = field(default_factory=list)
 
 
 def decide_delivery(
@@ -590,6 +591,7 @@ def generate_invite_copy(
                 ok=True,
                 violations=[],
                 assert_attempts=attempt,
+                candidates=safe_candidates,
             )
 
         alert_invite_failure(
@@ -613,4 +615,5 @@ def generate_invite_copy(
         ok=False,
         violations=violations,
         assert_attempts=MAX_INVITE_ATTEMPTS,
+        candidates=[],
     )

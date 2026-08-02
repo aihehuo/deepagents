@@ -1027,6 +1027,11 @@ async def _execute_core_agent(
     )
     combined_guard_blocked = guarded.blocked or final_guarded.blocked
 
+    out_candidates = invite_res.candidates if (req.run_invite and 'invite_res' in locals() and invite_res.candidates) else final_guarded.candidates
+    if final_profile is not None and out_candidates:
+        from apps.group_agent_api.agent_factory.per_candidate_copy import enrich_candidates_with_single_copy
+        out_candidates = enrich_candidates_with_single_copy(out_candidates, final_profile)
+
     final_payload = {
         "reply": final_guarded.reply,
         "profile_persisted": profile_ok,
@@ -1034,8 +1039,8 @@ async def _execute_core_agent(
         "persistence_failure_reason": persistence_failure_reason,
         "capability": tier.value,
         "capability_source": session.membership.source,
-        "match_status": match_status if final_guarded.candidates or match_status in {"empty", "skipped", "weak"} else "empty",
-        "candidates": final_guarded.candidates,
+        "match_status": match_status if out_candidates or match_status in {"empty", "skipped", "weak"} else "empty",
+        "candidates": out_candidates,
         "match_reason": match_reason,
         "guard_blocked": combined_guard_blocked,
         "guard_violations": combined_guard_violations,

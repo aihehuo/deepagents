@@ -111,6 +111,11 @@ async def invite(
         use_llm=req.use_llm_polish,
     )
 
+    out_candidates = invite_res.candidates or candidates
+    if profile is not None and out_candidates:
+        from apps.group_agent_api.agent_factory.per_candidate_copy import enrich_candidates_with_single_copy
+        out_candidates = enrich_candidates_with_single_copy(out_candidates, profile)
+
     return InviteResponse(
         user_id=user_id,
         group_id=group_id,
@@ -118,7 +123,7 @@ async def invite(
         capability_source=session.membership.source,
         match_status=match_status,  # type: ignore[arg-type]
         match_reason=match_reason,
-        candidates=candidates,
+        candidates=out_candidates,
         delivery_kind=invite_res.kind,
         invite_text=invite_res.text,
         topic=invite_res.topic,

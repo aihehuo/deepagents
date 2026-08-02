@@ -136,7 +136,7 @@ def test_single_candidate_copy_generator(sample_profile):
     assert len(highlights) == 3
     assert "对方" in highlights[0]
     assert "需求" in highlights[1]
-    assert "契合点" in highlights[2] or "优势" in highlights[2]
+    assert "契合" in highlights[2]
 
     # 3. forward_copy以第三人称格式撰写
     fwd = copy["forward_copy"]
@@ -212,3 +212,204 @@ def test_generate_invite_copy_integration(sample_profile):
     assert res.ok is True
     assert res.kind == "directed"
     assert "u101" in res.mentioned_user_ids
+    assert len(res.candidates) == 1
+    c = res.candidates[0]
+    assert "invite_text" in c and c["invite_text"]
+    assert "match_highlights" in c and len(c["match_highlights"]) == 3
+    assert "forward_copy" in c and c["forward_copy"]
+    assert "quick_connect_copy" in c and c["quick_connect_copy"]
+
+
+@pytest.mark.asyncio
+async def test_chat_endpoint_returns_enriched_candidates_in_payload(tmp_path, monkeypatch):
+    """Integration test: /chat endpoint response candidates 100% contain single-candidate copy fields."""
+    monkeypatch.setenv("GROUP_AGENT_MODEL_MODE", "stub")
+    monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "stub")
+    from apps.group_agent_api.agent_factory.profile_quality import ProfileQuality
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.profile_quality.assess_profile_match_ready",
+        lambda **_kwargs: ProfileQuality(ready=True, score=90, gaps=[], reasons=[], source="stub"),
+    )
+    from pathlib import Path
+    from apps.group_agent_api.agent_factory.profile_store import save_profile
+    from apps.group_agent_api.app.endpoints import chat as chat_ep
+    from apps.group_agent_api.app.models import ChatRequest
+    from apps.group_agent_api.app.state import AppState
+
+    profile = profile_from_flat(
+        user_id="mock_u1",
+        group_id="mock_g1",
+        doing="做 智能小家电与宠物喂食器",
+        need="寻找 固件与联网技术专家",
+        offer="具备 供应链与工厂资源",
+        doing_disclosure="confirmed_public",
+        need_disclosure="confirmed_public",
+        offer_disclosure="confirmed_public",
+    )
+    save_profile(tmp_path, profile)
+
+    class _FakeAgent:
+        def __init__(self, base_dir: Path):
+            self.base_dir = base_dir
+
+        async def ainvoke(self, input_dict: dict[str, Any], config: Any) -> dict[str, Any]:
+            return {"messages": list(input_dict.get("messages", []))}
+
+    state = AppState(agent=_FakeAgent(tmp_path), base_dir=tmp_path)
+    resp = await chat_ep.chat(
+        ChatRequest(
+            user_id="mock_u1",
+            group_id="mock_g1",
+            message="在做 智能喂食器，需要 固件与联网选型，有工厂",
+            membership="in_group",
+            run_match=True,
+            run_invite=True,
+            willing_to_at=True,
+        ),
+        state,
+    )
+
+    assert resp.capability == "in_group"
+    assert resp.candidates, "Expected candidate list in ChatResponse payload"
+
+    for c in resp.candidates:
+        assert "invite_text" in c and c["invite_text"]
+        assert "match_highlights" in c and isinstance(c["match_highlights"], list) and len(c["match_highlights"]) == 3
+        assert "forward_copy" in c and c["forward_copy"]
+        assert "quick_connect_copy" in c and c["quick_connect_copy"]
+
+        # Quality check: No "做做" duplication
+        for text_field in (c["invite_text"], c["forward_copy"], c["quick_connect_copy"]):
+            assert "做做" not in text_field, f"Duplicate '做做' found in copy: {text_field}"
+
+        # Quality check: No generic "强协同优势" boilerplate (AI-201)
+        for highlight in c["match_highlights"]:
+            assert "强协同优势" not in highlight, f"Generic boilerplate '强协同优势' found: {highlight}"
+
+
+@pytest.mark.asyncio
+async def test_invite_endpoint_returns_enriched_candidates_in_payload(tmp_path):
+    """Integration test: /invite endpoint response candidates 100% contain single-candidate copy fields."""
+    from pathlib import Path
+    from apps.group_agent_api.agent_factory.profile_store import save_profile
+    from apps.group_agent_api.app.endpoints import invite as invite_ep
+    from apps.group_agent_api.app.models import InviteRequest
+    from apps.group_agent_api.app.state import AppState
+
+    profile = profile_from_flat(
+        user_id="mock_u1",
+        group_id="mock_g1",
+        doing="做 宠物智能喂食器开发",
+        need="寻找 固件与物联网硬件架构师",
+        offer="具备极强工厂资源",
+        doing_disclosure="confirmed_public",
+        need_disclosure="confirmed_public",
+        offer_disclosure="confirmed_public",
+    )
+    save_profile(tmp_path, profile)
+
+    state = AppState(agent=None, base_dir=tmp_path)
+    resp = await invite_ep.invite(
+        InviteRequest(
+            user_id="mock_u1",
+            group_id="mock_g1",
+            membership="in_group",
+            willing_to_at=True,
+        ),
+        state,
+    )
+
+    assert resp.candidates, "Expected candidates in InviteResponse payload"
+    for c in resp.candidates:
+        assert "invite_text" in c and c["invite_text"]
+        assert "match_highlights" in c and len(c["match_highlights"]) == 3
+        assert "forward_copy" in c and c["forward_copy"]
+        assert "quick_connect_copy" in c and c["quick_connect_copy"]
+        assert "做做" not in c["forward_copy"]
+        assert "做做" not in c["quick_connect_copy"]
+
+
+@pytest.mark.asyncio
+async def test_async_manager_returns_enriched_candidates_in_final_payload(tmp_path, monkeypatch):
+    """Integration test: async callback final payload candidates 100% contain single-candidate copy fields."""
+    monkeypatch.setenv("GROUP_AGENT_MODEL_MODE", "stub")
+    monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "stub")
+    from apps.group_agent_api.agent_factory.profile_quality import ProfileQuality
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.profile_quality.assess_profile_match_ready",
+        lambda **_kwargs: ProfileQuality(ready=True, score=90, gaps=[], reasons=[], source="stub"),
+    )
+    from pathlib import Path
+    from apps.group_agent_api.agent_factory.capability import CapabilityTier
+    from apps.group_agent_api.agent_factory.profile_store import save_profile
+    from apps.group_agent_api.app.async_manager import _execute_core_agent
+    from apps.group_agent_api.app.models import AsyncCallRequest
+    from apps.group_agent_api.app.session import SessionPrincipal, TrustedSession, MembershipResult
+    from apps.group_agent_api.app.state import AppState
+
+    profile = profile_from_flat(
+        user_id="mock_u1",
+        group_id="mock_g1",
+        doing="做 智能硬件与喂食器",
+        need="寻找 嵌入式固件与联网选型专家",
+        offer="具备 供应链资源",
+        doing_disclosure="confirmed_public",
+        need_disclosure="confirmed_public",
+        offer_disclosure="confirmed_public",
+    )
+    save_profile(tmp_path, profile)
+
+    class _FakeAgent:
+        def __init__(self, base_dir: Path):
+            self.base_dir = base_dir
+
+        async def ainvoke(self, input_dict: dict[str, Any], config: Any) -> dict[str, Any]:
+            return {"messages": list(input_dict.get("messages", []))}
+
+    state = AppState(agent=_FakeAgent(tmp_path), base_dir=tmp_path)
+    session = TrustedSession(
+        principal=SessionPrincipal(user_id="mock_u1", unionid="union_mock_u1", user_token=None, source="stub"),
+        group_id="mock_g1",
+        group_token=None,
+        membership=MembershipResult(tier=CapabilityTier.in_group, source="stub"),
+    )
+    request = AsyncCallRequest(
+        run_id="req040_async_run",
+        idempotency_key="req040_async_idem",
+        user_id="mock_u1",
+        unionid="union_mock_u1",
+        group_id="mock_g1",
+        conversation_id="req040_async",
+        message="在做 智能硬件，需要 嵌入式固件与联网选型，有供应链",
+        callback_url="http://localhost:3009/group_agent_callbacks",
+        run_match=True,
+        run_invite=True,
+        willing_to_at=True,
+    )
+
+    final_payload: dict[str, Any] = {}
+
+    async def emit_callback(event_type: str, payload: dict[str, Any]) -> bool:
+        if event_type == "final":
+            final_payload.update(payload)
+        return True
+
+    await _execute_core_agent(
+        req=request,
+        session=session,
+        state=state,
+        tid="ga::mock_u1::mock_g1::req040_async",
+        emit_callback=emit_callback,
+    )
+
+    assert final_payload.get("candidates"), "Expected candidates in final async payload"
+    for c in final_payload["candidates"]:
+        assert "invite_text" in c and c["invite_text"]
+        assert "match_highlights" in c and len(c["match_highlights"]) == 3
+        assert "forward_copy" in c and c["forward_copy"]
+        assert "quick_connect_copy" in c and c["quick_connect_copy"]
+        assert "做做" not in c["forward_copy"]
+        assert "做做" not in c["quick_connect_copy"]
+        for hl in c["match_highlights"]:
+            assert "强协同优势" not in hl
+

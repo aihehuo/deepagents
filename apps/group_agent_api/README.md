@@ -90,8 +90,8 @@ docker build -t group-agent-api:3adaae88 -f apps/group_agent_api/Dockerfile .
 
 本体系为 `group_agent_api` 提供独立、分层、完全可重复运行的模块验收能力。
 
-### 明确声明：全群匹配 + 触达分级（REQ-053 / REQ-031）
-- 匹配不再限定单群池；new_api 返回全站候选并标注 `is_reachable`。
+### 明确声明：微信可触达池匹配 + 群关系分级（REQ-053 / REQ-031）
+- 匹配可跨群，但候选池仅包含爱合伙可通过微信/企微触达的人；new_api 负责搜索过滤，DeepAgents 对 `bound: false` / `wechat_reachable: false` 再做防御性丢弃。
 - **同群 / 经其它共同群可触达**（`is_reachable: true`）：可进入定向邀请并 `@`。
 - **跨群不可直接触达**（`is_reachable: false`）：保留候选人与 `group_info`，回复引导申请加群，**禁止**对该人生成 `@`。
 - 未标注 `is_reachable` 且 `source_group_id ≠` 入口群的外群候选仍 fail-closed 拦截（防旧后端误泄漏）。

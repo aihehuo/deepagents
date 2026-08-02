@@ -27,6 +27,15 @@ class MatchHttpError(Exception):
         self.status_code = status_code
 
 
+def _is_wechat_reachable_candidate(raw: dict[str, Any]) -> bool:
+    """Require positive WeChat reachability evidence from the match service."""
+    bound = raw.get("bound")
+    reachable = raw.get("wechat_reachable")
+    if bound is False or reachable is False:
+        return False
+    return bound is True or reachable is True
+
+
 def _normalize_candidate(raw: dict[str, Any], *, fallback_group: str) -> dict[str, Any]:
     """Normalize doing-only payload; strip need/offer if somehow present."""
     doing = raw.get("doing")
@@ -152,14 +161,23 @@ def fetch_group_agent_match(
     if isinstance(raw_cands, list):
         for item in raw_cands[:MAX_CANDIDATES]:
             if isinstance(item, dict):
-                candidates.append(
-                    _normalize_candidate(item, fallback_group=group_id)
-                )
+                # Product boundary: the group agent may only recommend people
+                # whom Aihehuo can reach on WeChat. Keep this fail-closed check
+                # even though new_api applies the same filter at search time.
+                if not _is_wechat_reachable_candidate(item):
+                    continue
+                candidate = _normalize_candidate(item, fallback_group=group_id)
+                candidates.append(candidate)
+
+    reason = str(data.get("reason") or "")
+    if status in {"matched", "weak"} and not candidates:
+        status = "empty"
+        reason = "no_wechat_reachable_candidates"
 
     return MatchResult(
         status=status,  # type: ignore[arg-type]
         candidates=candidates,
         query=str(data.get("query") or query),
         group_id=group_id,
-        reason=str(data.get("reason") or ""),
+        reason=reason,
     )

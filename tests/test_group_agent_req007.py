@@ -142,6 +142,8 @@ def test_fetch_match_doing_only_and_payload(monkeypatch: pytest.MonkeyPatch) -> 
                         },
                         "match_score": 0.8,
                         "match_confidence": "high",
+                        "bound": True,
+                        "wechat_reachable": True,
                     }
                 ],
             }
@@ -207,6 +209,44 @@ def test_fetch_group_agent_match_omits_g_when_token_absent(
     assert "group_id" not in captured["json"]
     assert result.group_id == "global"
     assert result.status == "empty"
+
+
+def test_fetch_group_agent_match_drops_candidates_not_reachable_on_wechat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Resp:
+        status_code = 200
+        content = b"{}"
+        text = "{}"
+
+        def json(self):
+            return {
+                "status": "matched",
+                "candidates": [
+                    {
+                        "user_id": "101",
+                        "display_name": "不可触达用户",
+                        "doing": {"value": "芯片设计", "disclosure": "confirmed_public"},
+                        "bound": False,
+                        "wechat_reachable": False,
+                    }
+                ],
+                "query": "芯片设计",
+                "group_id": "global",
+                "reason": "matched_1",
+            }
+
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.integrations.match_client.requests.post",
+        lambda *args, **kwargs: _Resp(),
+    )
+    monkeypatch.setenv("AIHEHUO_API_KEY", "bearer-test")
+
+    result = fetch_group_agent_match(query="芯片设计")
+
+    assert result.status == "empty"
+    assert result.candidates == []
+    assert result.reason == "no_wechat_reachable_candidates"
 
 
 def test_run_match_http_empty_on_error(monkeypatch: pytest.MonkeyPatch) -> None:

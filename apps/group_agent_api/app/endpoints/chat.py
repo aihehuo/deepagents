@@ -42,7 +42,9 @@ from apps.group_agent_api.agent_factory.revisit import (
     parse_revisit_from_metadata,
     should_skip_auto_match,
 )
-from apps.group_agent_api.app.models import ChatRequest, ChatResponse
+import datetime
+
+from apps.group_agent_api.app.models import ChatRequest, ChatResponse, SearchLogEntry
 from apps.group_agent_api.app.session import resolve_trusted_session
 from apps.group_agent_api.app.state import AppState
 from apps.group_agent_api.app.utils import (
@@ -293,18 +295,18 @@ def _run_match_pipeline(
     user_token: str | None,
     metadata: dict[str, Any] | None = None,
     message: str | None = None,
-) -> tuple[str, list[dict[str, Any]], str | None, list[str]]:
-    """Returns (match_status, candidates, match_reason, quality_gaps)."""
+) -> tuple[str, list[dict[str, Any]], str | None, list[str], SearchLogEntry | None]:
+    """Returns (match_status, candidates, match_reason, quality_gaps, search_log)."""
     if not run_match_flag:
-        return "skipped", [], "run_match_disabled", []
+        return "skipped", [], "run_match_disabled", [], None
     if not unlocks_network(tier):
-        return "skipped", [], f"capability_{tier.value}_no_network", []
+        return "skipped", [], f"capability_{tier.value}_no_network", [], None
     if not profile_ok:
-        return "skipped", [], "profile_not_ready", []
+        return "skipped", [], "profile_not_ready", [], None
 
     assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
     if not assertion.ok or assertion.profile is None:
-        return "skipped", [], "profile_not_ready", []
+        return "skipped", [], "profile_not_ready", [], None
 
     decision = decide_match_gate(
         profile=assertion.profile,
@@ -315,7 +317,7 @@ def _run_match_pipeline(
     )
     gaps = list(decision.quality.gaps or [])
     if not decision.allow_match:
-        return "skipped", [], decision.match_reason or "profile_too_thin", gaps
+        return "skipped", [], decision.match_reason or "profile_too_thin", gaps, None
 
     query = build_broad_query_from_profile(assertion.profile)
     rank_query = build_rank_query_from_profile(assertion.profile)
@@ -329,7 +331,21 @@ def _run_match_pipeline(
     )
     aligned = align_match_to_trusted_group(result, trusted_group_id=group_id)
     reason = decision.match_reason or aligned.reason
-    return aligned.status, aligned.candidates, reason, gaps
+    search_log = SearchLogEntry(
+        search_id=f"search_{int(time.time() * 1000)}",
+        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        query=query,
+        rank_query=rank_query,
+        match_status=aligned.status,
+        match_reason=reason,
+        candidate_count=len(aligned.candidates),
+        candidate_names=[
+            str(c.get("name") or c.get("display_name") or "")
+            for c in aligned.candidates
+            if c.get("name") or c.get("display_name")
+        ],
+    )
+    return aligned.status, aligned.candidates, reason, gaps, search_log
 
 
 def _empty_request() -> Request:
@@ -608,7 +624,7 @@ async def chat(
         match_reason_override = "clarifying_in_progress"
     else:
         match_reason_override = None
-    match_status, candidates, match_reason, quality_gaps = await asyncio.to_thread(
+    match_status, candidates, match_reason, quality_gaps, search_log = await asyncio.to_thread(
         _run_match_pipeline,
         state=state,
         user_id=user_id,
@@ -747,6 +763,7 @@ async def chat(
         match_status=match_status if out_candidates or match_status in {"empty", "skipped", "weak"} else "empty",  # noqa: E501
         candidates=out_candidates,
         match_reason=match_reason,
+        search_log=search_log,
         guard_blocked=combined_guard_blocked,
         guard_violations=combined_guard_violations,
         delivery_kind=delivery_kind,

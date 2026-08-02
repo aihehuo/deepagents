@@ -60,7 +60,7 @@ from apps.group_agent_api.app.endpoints.chat import (
     _profile_usable_this_turn,
     _should_force_profile_save,
 )
-from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse, CallbackEnvelope
+from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse, CallbackEnvelope, SearchLogEntry
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
 from apps.group_agent_api.app.utils import aget_agent_state, get_agent_checkpointer
@@ -882,6 +882,7 @@ async def _execute_core_agent(
             req.run_id,
         )
     quality_gaps: list[str] = []
+    search_log: SearchLogEntry | None = None
 
     if effective_run_match and unlocks_network(tier) and profile_ok:
         assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
@@ -900,6 +901,7 @@ async def _execute_core_agent(
                         [],
                         decision.match_reason or "profile_too_thin",
                         list(decision.quality.gaps or []),
+                        None,
                     )
                 query = build_broad_query_from_profile(assertion.profile)
                 rank_query = build_rank_query_from_profile(assertion.profile)
@@ -915,14 +917,29 @@ async def _execute_core_agent(
                     match_res, trusted_group_id=group_id
                 )
                 reason = decision.match_reason or aligned.reason
+                search_log = SearchLogEntry(
+                    search_id=f"search_{int(time.time() * 1000)}",
+                    timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    query=query,
+                    rank_query=rank_query,
+                    match_status=aligned.status,
+                    match_reason=reason,
+                    candidate_count=len(aligned.candidates),
+                    candidate_names=[
+                        str(c.get("name") or c.get("display_name") or "")
+                        for c in aligned.candidates
+                        if c.get("name") or c.get("display_name")
+                    ],
+                )
                 return (
                     aligned.status,
                     aligned.candidates,
                     reason,
                     list(decision.quality.gaps or []),
+                    search_log,
                 )
 
-            match_status, candidates, match_reason, quality_gaps = await asyncio.to_thread(
+            match_status, candidates, match_reason, quality_gaps, search_log = await asyncio.to_thread(
                 _gate_and_match
             )
     elif (
@@ -1042,6 +1059,7 @@ async def _execute_core_agent(
         "match_status": match_status if out_candidates or match_status in {"empty", "skipped", "weak"} else "empty",
         "candidates": out_candidates,
         "match_reason": match_reason,
+        "search_log": search_log.model_dump() if search_log else None,
         "guard_blocked": combined_guard_blocked,
         "guard_violations": combined_guard_violations,
         "delivery_kind": delivery_kind,

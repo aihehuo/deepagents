@@ -144,6 +144,17 @@ class ChatRequest(BaseModel):
         return validate_group_agent_metadata(v)
 
 
+class SearchLogEntry(BaseModel):
+    search_id: str
+    timestamp: str
+    query: str = ""
+    rank_query: str | None = None
+    match_status: str = "skipped"
+    match_reason: str | None = None
+    candidate_count: int = 0
+    candidate_names: list[str] = Field(default_factory=list)
+
+
 class ChatResponse(BaseModel):
     user_id: str
     group_id: str
@@ -161,6 +172,7 @@ class ChatResponse(BaseModel):
     match_status: MatchStatus = "skipped"
     candidates: list[dict[str, Any]] = Field(default_factory=list)
     match_reason: str | None = None
+    search_log: SearchLogEntry | None = None
     guard_blocked: bool = False
     guard_violations: list[str] = Field(default_factory=list)
     delivery_kind: DeliveryKind | None = None
@@ -192,6 +204,8 @@ class MatchResponse(BaseModel):
     candidates: list[dict[str, Any]] = Field(default_factory=list)
     match_reason: str | None = None
     query: str = ""
+    rank_query: str | None = None
+    search_log: SearchLogEntry | None = None
     guard_blocked: bool = False
     guard_violations: list[str] = Field(default_factory=list)
 

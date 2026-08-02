@@ -285,6 +285,9 @@ def build_query_from_profile(profile: GroupProfile) -> str:
 
 
 _NEED_HEAD_SPLIT = re.compile(r"[；;。．\n]|当前卡点|尤其是?|比如|例如|以及")
+_QUERY_STOPWORDS = re.compile(
+    r"(?:做面向|聚焦|建设|已有|试运行|需求|卡点|需要|想找|寻找|希望|最好|或有|的合伙人|的搭子|在拓展规划中|做过|团队|项目|工具|合伙人|帮我)"
+)
 
 
 def _compact(text: str, max_chars: int) -> str:
@@ -294,15 +297,36 @@ def _compact(text: str, max_chars: int) -> str:
     return cleaned[:max_chars]
 
 
+def _clean_query_keywords(text: str) -> str:
+    cleaned = _QUERY_STOPWORDS.sub(" ", text or "")
+    cleaned = re.sub(r"[^\w\u4e00-\u9fa5]+", " ", cleaned)
+    tokens = [t.strip() for t in cleaned.split() if len(t.strip()) >= 2]
+    return " ".join(tokens)
+
+
 def build_broad_query_from_profile(profile: GroupProfile) -> str:
     """Short domain-level query for vector/keyword recall."""
-    doing = _compact(str(getattr(profile.doing, "value", "") or ""), 48)
     need_raw = str(getattr(profile.need, "value", "") or "").strip()
+    doing_raw = str(getattr(profile.doing, "value", "") or "").strip()
+    offer_raw = str(getattr(profile.offer, "value", "") or "").strip()
+
     need_head = _NEED_HEAD_SPLIT.split(need_raw, maxsplit=1)[0].strip() if need_raw else ""
+    need_clean = _clean_query_keywords(need_head or need_raw)
+    doing_clean = _clean_query_keywords(doing_raw)
+    offer_clean = _clean_query_keywords(offer_raw)
+
+    # Prioritize need keywords first for inverse matchmaking recall
+    parts = [p for p in (need_clean, doing_clean, offer_clean) if p]
+    if parts:
+        res = " ".join(parts)
+        if len(res) <= 60:
+            return res
+        return res[:60].strip()
+
     need = _compact(need_head or need_raw, 36)
-    offer = _compact(str(getattr(profile.offer, "value", "") or ""), 28)
-    parts = [p for p in (doing, need, offer) if p]
-    return " ".join(parts) if parts else _compact(need_raw or doing, 60)
+    doing = _compact(doing_raw, 36)
+    parts = [p for p in (need, doing) if p]
+    return " ".join(parts) if parts else _compact(need_raw or doing_raw, 60)
 
 
 def build_rank_query_from_profile(profile: GroupProfile) -> str:

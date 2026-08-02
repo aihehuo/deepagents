@@ -44,6 +44,8 @@ def _default_group_agent_base(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
             "GROUP_AGENT_NEW_API_BASE", "http://new-api.example.invalid:3000"
         )
+    if not os.environ.get("GROUP_AGENT_MODEL_MODE"):
+        monkeypatch.setenv("GROUP_AGENT_MODEL_MODE", "stub")
 
 
 @pytest.fixture

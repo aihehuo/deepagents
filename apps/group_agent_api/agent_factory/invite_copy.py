@@ -23,6 +23,9 @@ from apps.group_agent_api.agent_factory.content_quality import (
 )
 from apps.group_agent_api.agent_factory.guard import _AT_PATTERN
 from apps.group_agent_api.agent_factory.match_stub import MAX_CANDIDATES
+from apps.group_agent_api.agent_factory.per_candidate_copy import (
+    enrich_candidate_with_single_copy,
+)
 from apps.group_agent_api.agent_factory.profile_schema import (
     DisclosureLevel,
     GroupProfile,
@@ -514,6 +517,7 @@ def generate_invite_copy(
                 "confidence_note": candidate.get("confidence_note"),
             }
         )
+        visible = enrich_candidate_with_single_copy(visible, profile)
         accepted_ids.add(user_id_value)
         safe_candidates.append(visible)
     effective_match_status = (

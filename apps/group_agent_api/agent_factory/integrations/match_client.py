@@ -52,12 +52,29 @@ def _normalize_candidate(raw: dict[str, Any], *, fallback_group: str) -> dict[st
         "confidence_note": raw.get("confidence_note"),
         "is_reachable": raw.get("is_reachable") if raw.get("is_reachable") is not None else True,
         "group_info": raw.get("group_info"),
+        "same_group": bool(raw["same_group"]) if "same_group" in raw and raw["same_group"] is not None else None,
+        "wechat_reachable": bool(raw["wechat_reachable"]) if "wechat_reachable" in raw and raw["wechat_reachable"] is not None else None,
+        "app_registered": bool(raw["app_registered"]) if "app_registered" in raw and raw["app_registered"] is not None else None,
+        "has_talked_with_agent": bool(raw["has_talked_with_agent"]) if "has_talked_with_agent" in raw and raw["has_talked_with_agent"] is not None else None,
+        "is_masked": bool(raw["is_masked"]) if "is_masked" in raw and raw["is_masked"] is not None else None,
     }
     if doing:
         normalized["doing"] = doing
     # Explicitly drop need/offer (doing-only contract)
     visible = filter_member_for_visibility(normalized)
-    for k in ("match_score", "match_confidence", "confidence_note", "source_group_id", "is_reachable", "group_info"):
+    for k in (
+        "match_score",
+        "match_confidence",
+        "confidence_note",
+        "source_group_id",
+        "is_reachable",
+        "group_info",
+        "same_group",
+        "wechat_reachable",
+        "app_registered",
+        "has_talked_with_agent",
+        "is_masked",
+    ):
         if normalized.get(k) is not None:
             visible[k] = normalized[k]
     return visible

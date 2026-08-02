@@ -74,6 +74,15 @@ def filter_member_for_visibility(raw: dict[str, Any]) -> dict[str, Any]:
         out["is_reachable"] = bool(raw["is_reachable"])
     if "group_info" in raw and raw["group_info"] is not None:
         out["group_info"] = raw["group_info"]
+    for state_key in (
+        "same_group",
+        "wechat_reachable",
+        "app_registered",
+        "has_talked_with_agent",
+        "is_masked",
+    ):
+        if state_key in raw and raw[state_key] is not None:
+            out[state_key] = bool(raw[state_key])
     for dim in ("doing", "need", "offer"):
         pub = _field_public(raw.get(dim) if isinstance(raw.get(dim), dict) else None)
         if pub is not None:

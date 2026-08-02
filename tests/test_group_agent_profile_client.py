@@ -432,7 +432,7 @@ def test_http_tool_writes_cache_only_after_remote_ack(
 ) -> None:
     calls: list[tuple[str, str, str]] = []
 
-    def fake_persist(*, profile: Any, run_id: str) -> dict[str, Any]:
+    def fake_persist(*, profile: Any, run_id: str, **kwargs: Any) -> dict[str, Any]:
         assert load_profile(tmp_path, "u1", "g1") is None
         calls.append((profile.user_id, profile.group_id, run_id))
         return _ack()

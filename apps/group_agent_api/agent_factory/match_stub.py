@@ -245,6 +245,12 @@ class MatchStub:
                 visible["is_reachable"] = member.is_reachable
             if member.group_info is not None and "group_info" not in visible:
                 visible["group_info"] = member.group_info
+            same_group = member.group_id == gid
+            visible.setdefault("same_group", same_group)
+            visible.setdefault("wechat_reachable", True)
+            visible.setdefault("app_registered", True)
+            visible.setdefault("has_talked_with_agent", False)
+            visible.setdefault("is_masked", not same_group)
             candidates.append(visible)
 
         if not candidates:

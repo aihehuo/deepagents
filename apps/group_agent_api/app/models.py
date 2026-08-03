@@ -12,7 +12,9 @@ MatchStatus = Literal["matched", "weak", "empty", "skipped"]
 DeliveryKind = Literal["directed", "undirected"]
 
 
-def validate_group_agent_metadata(v: dict[str, Any]) -> dict[str, Any]:
+def validate_group_agent_metadata(
+    v: dict[str, Any], *, allow_referral_context: bool = False
+) -> dict[str, Any]:
     """Shared metadata gate for ChatRequest + AsyncCallRequest (REQ-028)."""
     if not isinstance(v, dict):
         raise ValueError("metadata must be a dictionary")
@@ -41,6 +43,11 @@ def validate_group_agent_metadata(v: dict[str, Any]) -> dict[str, Any]:
         if key == "revisit_hint":
             _validate_revisit_hint(val)
             continue
+        if key == "referral_context":
+            if not allow_referral_context:
+                raise ValueError("metadata referral_context is reserved for trusted async calls")
+            _validate_referral_context(val)
+            continue
         if isinstance(val, str) and len(val) > 1024:
             raise ValueError(
                 f"metadata value for key '{key}' exceeds max length 1024"
@@ -50,6 +57,56 @@ def validate_group_agent_metadata(v: dict[str, Any]) -> dict[str, Any]:
                 f"metadata value for key '{key}' must be a primitive scalar type"
             )
     return v
+
+
+def _validate_referral_context(val: Any) -> None:
+    if not isinstance(val, dict):
+        raise ValueError("metadata referral_context must be an object")
+    allowed = {
+        "referral_id",
+        "applicant_id",
+        "applicant_name",
+        "applicant_doing",
+        "applicant_need",
+        "applicant_offer",
+        "match_highlights",
+        "status",
+        "created_at",
+        "intro_once",
+    }
+    unknown = set(val) - allowed
+    if unknown:
+        raise ValueError(
+            f"metadata referral_context has unknown keys: {sorted(unknown)}"
+        )
+    for key in ("referral_id", "applicant_id"):
+        item = val.get(key)
+        if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
+            raise ValueError(f"metadata referral_context.{key} must be a positive int")
+    limits = {
+        "applicant_name": 64,
+        "applicant_doing": 600,
+        "applicant_need": 600,
+        "applicant_offer": 600,
+        "created_at": 64,
+    }
+    for key, limit in limits.items():
+        item = val.get(key)
+        if item is not None and (not isinstance(item, str) or len(item) > limit):
+            raise ValueError(
+                f"metadata referral_context.{key} must be a string ≤{limit} chars"
+            )
+    highlights = val.get("match_highlights", [])
+    if not isinstance(highlights, list) or len(highlights) > 5:
+        raise ValueError("metadata referral_context.match_highlights must be a list ≤5")
+    if any(not isinstance(item, str) or len(item) > 160 for item in highlights):
+        raise ValueError(
+            "metadata referral_context.match_highlights items must be strings ≤160 chars"
+        )
+    if val.get("status") not in {"pending", "dispatched", "accepted"}:
+        raise ValueError("metadata referral_context.status is invalid")
+    if val.get("intro_once") is not True:
+        raise ValueError("metadata referral_context.intro_once must be true")
 
 
 def _validate_prior_candidate_ids(val: Any) -> None:
@@ -309,7 +366,7 @@ class AsyncCallRequest(BaseModel):
     @field_validator("metadata")
     @classmethod
     def validate_metadata(cls, v: dict[str, Any]) -> dict[str, Any]:
-        return validate_group_agent_metadata(v)
+        return validate_group_agent_metadata(v, allow_referral_context=True)
 
     @field_validator("request_fingerprint")
     @classmethod

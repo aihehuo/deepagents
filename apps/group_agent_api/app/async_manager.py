@@ -153,6 +153,30 @@ def _referral_context_system_message(metadata: dict[str, Any]) -> SystemMessage 
     return SystemMessage(content=content)
 
 
+def _referral_payload_from_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Extract and build structured referral payload dict for final TaskChannel event (REQ-042)."""
+    if not isinstance(metadata, dict):
+        return None
+    ref_ctx = metadata.get("referral_context")
+    if (
+        not isinstance(ref_ctx, dict)
+        or not ref_ctx.get("referral_id")
+        or not ref_ctx.get("applicant_id")
+    ):
+        return None
+
+    return {
+        "referral_id": ref_ctx["referral_id"],
+        "applicant_id": ref_ctx["applicant_id"],
+        "applicant_name": str(ref_ctx.get("applicant_name") or ""),
+        "applicant_doing": str(ref_ctx.get("applicant_doing") or ""),
+        "applicant_need": str(ref_ctx.get("applicant_need") or ""),
+        "applicant_offer": str(ref_ctx.get("applicant_offer") or ""),
+        "match_highlights": list(ref_ctx.get("match_highlights") or []),
+        "status": str(ref_ctx.get("status") or "pending"),
+    }
+
+
 @dataclass
 class IdempotencySlot:
     idempotency_key: str
@@ -1121,6 +1145,10 @@ async def _execute_core_agent(
         "invite_ok": invite_ok,
         "willing_to_at": req.willing_to_at,
     }
+
+    ref_payload = _referral_payload_from_metadata(req.metadata)
+    if ref_payload is not None:
+        final_payload["referral"] = ref_payload
 
     from apps.group_agent_api.agent_factory.debug_trace import write_turn_trace
     from apps.group_agent_api.agent_factory.profile_quality import episode_key_from_metadata

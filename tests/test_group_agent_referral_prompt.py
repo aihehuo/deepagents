@@ -13,7 +13,10 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from apps.group_agent_api.app.async_manager import _referral_context_system_message
+from apps.group_agent_api.app.async_manager import (
+    _referral_context_system_message,
+    _referral_payload_from_metadata,
+)
 from apps.group_agent_api.app.models import AsyncCallRequest, ChatRequest
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -297,3 +300,58 @@ def test_no_self_test_answer_shortcut_in_group_agent_api_source() -> None:
         "REQ-041 forbids self_test/test_mode/self_test_run_id control in "
         "group_agent_api production code; found:\n" + "\n".join(offenders)
     )
+
+
+# --- REQ-042 · TaskChannel referral 载荷节点下发 ---------------------------------
+
+
+def test_referral_payload_from_metadata_success() -> None:
+    """REQ-042: 直接调用生产 _referral_payload_from_metadata，断言提取结构化 referral 字典。"""
+    ref_ctx = _formal_referral_context(applicant_id=456, name="周然")
+    payload = _referral_payload_from_metadata({"referral_context": ref_ctx})
+
+    assert payload is not None
+    assert payload == {
+        "referral_id": 42,
+        "applicant_id": 456,
+        "applicant_name": "周然",
+        "applicant_doing": "AI 宠物智能喂料器固件研发",
+        "applicant_need": "寻找模具注塑与供应链专家",
+        "applicant_offer": "嵌入式软件与算法优势",
+        "match_highlights": ["硬件结构与固件匹配", "同一地区社交圈"],
+        "status": "dispatched",
+    }
+
+
+def test_referral_payload_from_metadata_empty_or_none() -> None:
+    """REQ-042: 验证空或非法入参时生产 helper 返回 None。"""
+    assert _referral_payload_from_metadata(None) is None
+    assert _referral_payload_from_metadata({}) is None
+    assert _referral_payload_from_metadata({"referral_context": {}}) is None
+    assert _referral_payload_from_metadata({"referral_context": {"referral_id": 42}}) is None  # 缺少 applicant_id
+
+
+def test_referral_payload_attached_in_final_payload_assembly() -> None:
+    """REQ-042: 模拟 final_payload 组装链路，断言生产 helper 返回值挂载到 referral 节点。"""
+    ref_ctx = _formal_referral_context(applicant_id=789, name="李明")
+    req = AsyncCallRequest(
+        run_id="run_referral_req042",
+        idempotency_key="idem-referral-req042",
+        user_id="200",
+        group_id="global",
+        conversation_id="ga_global_200",
+        message="你好",
+        callback_url="https://micro.example/callback",
+        metadata={"referral_context": ref_ctx},
+    )
+
+    final_payload: dict = {"reply": "你好！"}
+    ref_payload = _referral_payload_from_metadata(req.metadata)
+    if ref_payload is not None:
+        final_payload["referral"] = ref_payload
+
+    assert "referral" in final_payload
+    assert final_payload["referral"]["applicant_name"] == "李明"
+    assert final_payload["referral"]["applicant_id"] == 789
+
+

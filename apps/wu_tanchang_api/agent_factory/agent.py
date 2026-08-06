@@ -198,17 +198,21 @@ def save_meeting_prep(
 
     metadata = config.get("metadata") or {}
 
-    # Extract user IDs
+    # Extract user IDs. wu-agent UI often omits calendar_id on self-test;
+    # fall back so user_b == user_a and Micro stores on wu_agent_conversations.
     effective_user_a = user_a_id or metadata.get("user_a_id") or metadata.get("user_id")
     effective_user_b = (
-        user_b_id or metadata.get("user_b_id") or metadata.get("calendar_id")
+        user_b_id
+        or metadata.get("user_b_id")
+        or metadata.get("calendar_id")
+        or effective_user_a
     )
 
-    if not effective_user_a or not effective_user_b:
+    if not effective_user_a:
         _logger.warning(
-            "[AgentTool] save_meeting_prep missing user_a_id or user_b_id in metadata/args"
+            "[AgentTool] save_meeting_prep missing user_a_id/user_id in metadata/args"
         )
-        return "保存失败：未在上下文或参数中找到 user_a_id 或 user_b_id"
+        return "保存失败：未在上下文或参数中找到 user_a_id / user_id"
 
     # Enforce body size limit (S4)
     if len(body) > 50000:

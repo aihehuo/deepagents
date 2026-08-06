@@ -74,7 +74,11 @@ async def resolve_dynamic_agent(
             )
 
     # 2. Determine owner mode
-    is_owner = (effective_calendar is not None) and (
+    # wu-agent UI is always the front-desk consult agent — never owner, even when
+    # self-testing with calendar_id == user_id (needed for meeting_prep a==b).
+    source = str(metadata.get("source") or "").strip()
+    force_frontend = source in {"wu_agent_ui", "wu_agent"}
+    is_owner = (not force_frontend) and (effective_calendar is not None) and (
         str(effective_user) == str(effective_calendar)
     )
 

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from fastapi.responses import StreamingResponse
 
-from apps.wu_tanchang_api.app.endpoints import async_chat, chat, health, reset
+from apps.wu_tanchang_api.app.endpoints import async_chat, chat, extract_intake, health, reset
 from apps.wu_tanchang_api.app.models import (
     CallWuTanchangAsyncRequest,
     CallWuTanchangAsyncResponse,
     ChatRequest,
     ChatResponse,
+    ExtractIntakeRequest,
+    ExtractIntakeResponse,
     ResetRequest,
     ResetResponse,
 )
@@ -57,6 +59,13 @@ def create_app() -> FastAPI:
     async def reset_endpoint(req: ResetRequest) -> ResetResponse:
         assert _state is not None
         return await reset.reset(req, _state)
+
+    @app.post("/extract_intake", response_model=ExtractIntakeResponse)
+    async def extract_intake_endpoint(
+        req: ExtractIntakeRequest,
+        x_agent_key: str | None = Header(default=None, alias="X-Agent-Key"),
+    ) -> ExtractIntakeResponse:
+        return await extract_intake.extract_intake(req, x_agent_key=x_agent_key)
 
     return app
 

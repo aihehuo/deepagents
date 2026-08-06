@@ -60,3 +60,37 @@ class ResetResponse(BaseModel):
     conversation_id: str
     thread_id: str
     ok: bool
+
+
+class IntakeMessage(BaseModel):
+    role: str = Field("user", description="user|assistant; only user is used")
+    text: str = Field("", description="Message text")
+
+
+class ExtractIntakeRequest(BaseModel):
+    """Semantic extraction of wu-agent intake dimensions from user utterances."""
+
+    user_texts: list[str] = Field(
+        default_factory=list,
+        description="User-only utterances (preferred)",
+    )
+    messages: list[IntakeMessage] = Field(
+        default_factory=list,
+        description="Optional message list; non-user roles ignored",
+    )
+
+
+class IntakeDimension(BaseModel):
+    key: str
+    label: str
+    covered: bool = False
+    summary: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+
+
+class ExtractIntakeResponse(BaseModel):
+    dimensions: list[IntakeDimension]
+    covered_count: int = 0
+    total: int = 5
+    ready_for_prediagnosis: bool = False
+    source: str = "llm"

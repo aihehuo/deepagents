@@ -273,6 +273,63 @@ def semantic_search(
     return hits
 
 
+def _emit_kb_search_log(
+    *,
+    query: str,
+    hits: list[NoteHit],
+    config: RunnableConfig | None,
+    series: str | None = None,
+) -> None:
+    """Push KB recall hits to Micro/UI debug panel as search_log (wu-agent)."""
+    if not config:
+        return
+    metadata = config.get("metadata") or {}
+    callback_url = metadata.get("callback_url")
+    if not callback_url:
+        return
+
+    configurable = config.get("configurable") or {}
+    thread = configurable.get("thread_id") or metadata.get("session_id")
+    if not thread:
+        return
+
+    names: list[str] = []
+    for hit in hits:
+        label = (hit.brand or hit.title or hit.note_id or "").strip()
+        if label and label not in names:
+            names.append(label)
+
+    from datetime import datetime
+    import uuid
+
+    from apps.wu_tanchang_api.app.callbacks import invoke_callback
+
+    ts = datetime.utcnow().isoformat() + "Z"
+    search_log = {
+        "search_id": f"kb_{uuid.uuid4().hex[:12]}",
+        "timestamp": ts,
+        "query": query,
+        "rank_query": series or None,
+        "match_status": "matched" if hits else "empty",
+        "match_reason": "kb_semantic_search",
+        "candidate_count": len(hits),
+        "candidate_names": names[:10],
+    }
+    payload = {
+        "session_id": thread,
+        "user_id": metadata.get("user_id"),
+        "conversation_id": metadata.get("conversation_id"),
+        "agent_name": metadata.get("agent_name") or "default",
+        "timestamp": ts,
+        "type": "search_log",
+        "search_log": search_log,
+    }
+    try:
+        invoke_callback(str(callback_url), payload)
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("[kb_semantic_search] emit search_log failed: %s", exc)
+
+
 @tool
 def kb_semantic_search(
     query: str,
@@ -290,6 +347,7 @@ def kb_semantic_search(
         hits = semantic_search(
             query, k=k, series=series_list, vec_type="note", config=config
         )
+        _emit_kb_search_log(query=query, hits=hits, config=config, series=series)
         if not hits:
             return "未找到相关笔记。"
 
@@ -306,8 +364,10 @@ def kb_semantic_search(
             lines.append("")
         return "\n".join(lines)
     except FileNotFoundError as e:
+        _emit_kb_search_log(query=query, hits=[], config=config, series=series)
         return f"错误: 知识库向量索引未构建, 请先运行 kb_build_vectors.py。({e})"
     except Exception as e:  # noqa: BLE001
+        _emit_kb_search_log(query=query, hits=[], config=config, series=series)
         return f"错误: 语义检索失败 ({e})"
 
 

@@ -279,6 +279,7 @@ def run_async_stream_with_callback(
                 },
                 "metadata": {
                     "user_id": user_id,
+                    "conversation_id": conversation_id,
                     "agent_name": agent_name,
                     "callback_url": callback_url,
                     **metadata,

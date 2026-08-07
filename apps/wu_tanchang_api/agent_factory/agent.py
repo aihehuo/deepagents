@@ -140,6 +140,7 @@ FRONTEND_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
 - 你的工作流程：收集信息 → 调用 kb_analyst（一次）→ 产出材料 → 引导预约
 - **不要做分析、不要给建议、不要做预算拆解**
 - **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**
+- `save_meeting_prep` 的 body 必须含完整四节（一交谈要点 / 二初步建议 / 三讨论话题 / 四参考案例），禁止截断；若工具返回保存失败，补全后重试，禁止未保存成功就 `mark_material_delivered`。
 - 材料交付后，只引导预约，不再深入探讨
 """
 
@@ -213,6 +214,27 @@ def save_meeting_prep(
             "[AgentTool] save_meeting_prep missing user_a_id/user_id in metadata/args"
         )
         return "保存失败：未在上下文或参数中找到 user_a_id / user_id"
+
+    body = (body or "").strip()
+    if not body:
+        return "保存失败：body 为空"
+
+    # Reject truncated / incomplete prep — UI brief needs all four sections.
+    missing = [m for m in ("一、", "二、", "三、", "四、") if m not in body]
+    if "【会议准备" not in body or missing:
+        _logger.warning(
+            "[AgentTool] save_meeting_prep incomplete body missing=%s len=%s",
+            missing,
+            len(body),
+        )
+        return (
+            "保存失败：会议准备材料不完整。"
+            "body 必须含【会议准备】标题，以及完整的「一、二、三、四、」四节"
+            f"（缺少：{', '.join(missing) if missing else '标题'}）。"
+            "请把完整 Markdown 写入 body 后重试，不要截断。"
+        )
+    if len(body) < 350:
+        return "保存失败：材料过短，请写全四节后再保存"
 
     # Enforce body size limit (S4)
     if len(body) > 50000:
@@ -650,6 +672,7 @@ def create_agent(
             )
         frontend_rules.extend([
             "- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**",
+            "- `save_meeting_prep` 的 body 必须含完整四节（一/二/三/四），禁止截断；若保存失败须补全后重试，禁止未保存成功就 mark_material_delivered。",
         ])
         
         rules_text = "\n".join(frontend_rules)

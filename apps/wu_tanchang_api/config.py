@@ -284,7 +284,7 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
         provider = _get_str(merged, "provider") or default_provider or "qwen"
         fallback = _provider_default_model(provider)
         model = _get_str(merged, "model") or _get_str(defaults, "model") or fallback
-        max_tokens = _get_int(merged, "max_tokens", 800)
+        max_tokens = _get_int(merged, "max_tokens", 4000)
         workspace = _get_str(merged, "workspace", "") or ""
 
         agent_config = WuAgentConfig(
@@ -306,7 +306,7 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
         name="__defaults__",
         provider=default_provider,
         model=_get_str(defaults, "model") or _provider_default_model(default_provider),
-        max_tokens=_get_int(defaults, "max_tokens", 800),
+        max_tokens=_get_int(defaults, "max_tokens", 4000),
         workspace=_get_str(defaults, "workspace", "") or "",
     )
     return WuAgentRegistry(

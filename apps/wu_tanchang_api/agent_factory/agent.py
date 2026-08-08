@@ -156,7 +156,7 @@ FRONTEND_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
 - **禁止**用户仅聊 1–2 轮、七维仍停留在标签层时就调用 kb_analyst 或写会议材料
 - **不要做分析、不要给建议、不要做预算拆解**
 - **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**
-- `save_meeting_prep` 的 body 必须含完整四节（一交谈要点 / 二初步建议 / 三讨论话题 / 四参考案例），禁止截断；若工具返回保存失败，补全后重试，禁止未保存成功就 `mark_material_delivered`。
+- `save_meeting_prep` 的 body 必须含完整四节（一交谈要点 / 二初步建议 / 三讨论话题 / 四参考案例），禁止截断；聊天里呈现的材料同样必须四节写完再调工具；若工具返回保存失败，补全后重试，禁止未保存成功就 `mark_material_delivered`。
 - 材料交付后：先问是否约吴探长本人；同意后说明吴探长会联系用户——**禁止**引导用户自找约谈日程/预约入口；暂不约则礼貌收尾，不再深入探讨
 """
 
@@ -510,7 +510,8 @@ def create_agent(
         Tuple of (agent graph, checkpoints path).
     """
     effective_provider = agent_config.provider if agent_config else provider
-    effective_max_tokens = agent_config.max_tokens if agent_config else 800
+    # Meeting prep (四节全文 + save_meeting_prep tool args) needs >800 tokens.
+    effective_max_tokens = agent_config.max_tokens if agent_config else 4000
 
     model = create_model(
         provider=effective_provider,
@@ -690,7 +691,7 @@ def create_agent(
             )
         frontend_rules.extend([
             "- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**",
-            "- `save_meeting_prep` 的 body 必须含完整四节（一/二/三/四），禁止截断；若保存失败须补全后重试，禁止未保存成功就 mark_material_delivered。",
+            "- `save_meeting_prep` 的 body 必须含完整四节（一/二/三/四），禁止截断；聊天呈现同样须四节写完；若保存失败须补全后重试，禁止未保存成功就 mark_material_delivered。",
         ])
         
         rules_text = "\n".join(frontend_rules)

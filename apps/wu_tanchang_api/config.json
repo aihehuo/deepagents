@@ -5,7 +5,7 @@
     "defaults": {
       "provider": "env:WU_API_MODEL_PROVIDER",
       "model": "deepseek-v4-flash",
-      "max_tokens": 800,
+      "max_tokens": 4000,
       "workspace": "workspace"
     },
     "list": [
@@ -13,6 +13,7 @@
         "name": "default",
         "default": true,
         "model": "deepseek-v4-flash",
+        "max_tokens": 4000,
         "workspace": "workspace"
       },
       {

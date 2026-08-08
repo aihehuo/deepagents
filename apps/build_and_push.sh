@@ -145,7 +145,7 @@ LOCAL_IMAGE_IDS="$(docker images "$LOCAL_REPO_TO_PRUNE" --format '{{.CreatedAt}}
 LOCAL_TOTAL_COUNT="$(echo "$LOCAL_IMAGE_IDS" | grep -v '^$' | wc -l | tr -d ' ')"
 if [ "$LOCAL_TOTAL_COUNT" -gt 3 ]; then
   LOCAL_OLD_IMAGE_IDS="$(echo "$LOCAL_IMAGE_IDS" | tail -n +4)"
-  LOCAL_USED_IMAGE_IDS="$(docker ps -a --format '{{.Image}} {{.ImageID}}' | tr ' ' '\n' | sort -u)"
+  LOCAL_USED_IMAGE_IDS="$(docker ps -a --format '{{.Image}}' | tr ' ' '\n' | sort -u)"
   for img_id in $LOCAL_OLD_IMAGE_IDS; do
     if [ -n "$img_id" ]; then
       if echo "$LOCAL_USED_IMAGE_IDS" | grep -q "$img_id"; then

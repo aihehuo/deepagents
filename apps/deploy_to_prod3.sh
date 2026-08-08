@@ -181,7 +181,7 @@ IMAGE_IDS="\$(docker images "\$REPO_TO_PRUNE" --format '{{.CreatedAt}}	{{.ID}}' 
 TOTAL_COUNT="\$(echo "\$IMAGE_IDS" | grep -v '^$' | wc -l | tr -d ' ')"
 if [ "\$TOTAL_COUNT" -gt 3 ]; then
   OLD_IMAGE_IDS="\$(echo "\$IMAGE_IDS" | tail -n +4)"
-  USED_IMAGE_IDS="\$(docker ps -a --format '{{.Image}} {{.ImageID}}' | tr ' ' '\n' | sort -u)"
+  USED_IMAGE_IDS="\$(docker ps -a --format '{{.Image}}' | tr ' ' '\n' | sort -u)"
   for img_id in \$OLD_IMAGE_IDS; do
     if [ -n "\$img_id" ]; then
       if echo "\$USED_IMAGE_IDS" | grep -q "\$img_id"; then

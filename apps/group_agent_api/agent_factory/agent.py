@@ -76,6 +76,7 @@ SYSTEM_PROMPT = """你是「群内智能体」对话助手（挖需求 + 画像�
 
 ## 落库（FR-06 · 强制）
 - 三维字段齐备后，**必须调用** `save_group_profile`（不要用 write_file 写自由 Markdown）。
+- **用户要求「匹配 / 帮我匹配 / 先匹配 / 选1 / 选2」时**：必须立即在 Tool Call 中调用 `save_group_profile` 工具落库，**绝对禁止只在回复文本中口头说「已存入画像/正在匹配」而不触发 `save_group_profile` 工具调用**！
 - 后续消息若只是在重复/细化 need 或表达合作偏好，不得把 doing 改写成「找某类负责人/工程师」，也不得把 offer 改写成只有「合作方式可以谈/希望尽快启动」。若用户明确撤回资源，offer 写「暂无可提供资源」，不得沿用旧资源。
 - 未确认的推断：disclosure 用 `inferred_unconfirmed`。
 - 用户明确说可公开的：`confirmed_public`；仅用于匹配：`match_only`。

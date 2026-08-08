@@ -331,27 +331,49 @@ _EXPLICIT_PATTERNS = [
         r"(?:offer|提供|资源)[：:]\s*(?P<offer>[^\n,；;.!！]+).*",
         re.DOTALL | re.IGNORECASE,
     ),
+    re.compile(
+        r".*?doing[：:]\s*(?P<doing>[^\n]+).*?"
+        r"need[：:]\s*(?P<need>[^\n]+).*?"
+        r"offer[：:]\s*(?P<offer>[^\n]+).*",
+        re.DOTALL | re.IGNORECASE,
+    ),
 ]
 
 
-def extract_explicit_profile_dimensions(message: str) -> dict[str, str] | None:
-    """Extract a complete profile only from an explicit, unambiguous user statement.
+def extract_explicit_profile_dimensions(
+    message: str,
+    messages: list[Any] | None = None,
+) -> dict[str, str] | None:
+    """Extract a complete profile from explicit user statement or recent conversation history.
 
-    This is deliberately narrower than model-based extraction. It provides a
-    deterministic last-resort path for explicit statement shapes
-    without guessing missing fields or weakening fail-closed behavior.
+    This provides a deterministic last-resort fallback path if LLM omitted save_group_profile
+    tool call even when doing/need/offer were explicitly stated or listed in conversation.
     """
-    if not message or len(message) > 2_000:
-        return None
-    for pattern in _EXPLICIT_PATTERNS:
-        matched = pattern.fullmatch(message) or pattern.match(message)
-        if matched is not None:
-            dimensions = {
-                field_name: matched.group(field_name).strip()
-                for field_name in ("doing", "need", "offer")
-            }
-            if all(bool(value) for value in dimensions.values()):
-                return dimensions
+    if message and len(message) <= 2_000:
+        for pattern in _EXPLICIT_PATTERNS:
+            matched = pattern.fullmatch(message) or pattern.search(message)
+            if matched is not None:
+                dimensions = {
+                    field_name: matched.group(field_name).strip()
+                    for field_name in ("doing", "need", "offer")
+                }
+                if all(bool(value) for value in dimensions.values()):
+                    return dimensions
+
+    if messages:
+        for msg in reversed(messages):
+            text = str(getattr(msg, "content", "") or "").strip()
+            if not text or len(text) > 3_000:
+                continue
+            for pattern in _EXPLICIT_PATTERNS:
+                matched = pattern.search(text)
+                if matched is not None:
+                    dimensions = {
+                        field_name: matched.group(field_name).strip()
+                        for field_name in ("doing", "need", "offer")
+                    }
+                    if all(bool(value) for value in dimensions.values()):
+                        return dimensions
     return None
 
 
@@ -361,8 +383,8 @@ async def _attempt_deterministic_profile_save(
     config: dict[str, Any],
     messages: list[Any],
 ) -> bool:
-    """Invoke the real profile tool once for an explicitly complete statement."""
-    dimensions = extract_explicit_profile_dimensions(message)
+    """Invoke the real profile tool once for an explicitly complete statement or historical profile."""
+    dimensions = extract_explicit_profile_dimensions(message, messages)
     if dimensions is None:
         return False
 

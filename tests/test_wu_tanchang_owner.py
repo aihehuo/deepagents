@@ -209,7 +209,7 @@ async def test_get_consultation_stats() -> None:
     }
 
     stats_report = await get_consultation_stats.ainvoke(
-        {"days": 7},
+        {"days": 300},
         config=config,
     )
 
@@ -237,7 +237,7 @@ async def test_list_recent_clients() -> None:
     }
 
     clients_list = await list_recent_clients.ainvoke(
-        {"days": 7, "status": "all"},
+        {"days": 300, "status": "all"},
         config=config,
     )
 
@@ -529,7 +529,7 @@ def test_save_meeting_prep_tool_validation() -> None:
     from apps.wu_tanchang_api.agent_factory.agent import save_meeting_prep
 
     # 1. Test size limit (S4)
-    huge_body = "x" * 50001
+    huge_body = "【会议准备】\n一、要点\n二、建议\n三、话题\n四、案例\n" + ("x" * 50001)
     config: RunnableConfig = {
         "configurable": {"thread_id": "wt::default::u1::c1"},
         "metadata": {
@@ -542,6 +542,7 @@ def test_save_meeting_prep_tool_validation() -> None:
     assert "超长" in res
 
     # 2. Test unauthorized callback URL (S4)
+    valid_body = "【会议准备】\n一、要点\n二、建议\n三、话题\n四、案例\n" + ("x" * 400)
     config_unauthorized: RunnableConfig = {
         "configurable": {"thread_id": "wt::default::u1::c1"},
         "metadata": {
@@ -550,7 +551,7 @@ def test_save_meeting_prep_tool_validation() -> None:
             "callback_url": "http://malicious-attacker.com/wu_tanchang_callbacks/",
         },
     }
-    res = save_meeting_prep.invoke({"body": "valid body"}, config=config_unauthorized)
+    res = save_meeting_prep.invoke({"body": valid_body}, config=config_unauthorized)
     assert "未被授权" in res
 
 

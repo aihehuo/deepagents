@@ -1124,3 +1124,40 @@ def test_run_aihehuo_skill_script_execution(tmp_path) -> None:
         assert "错误：脚本执行失败" in res
         assert "Exit code 1" in res
 
+
+def test_extract_intake_7_dimensions_normalization() -> None:
+    """Test _normalize in extract_intake endpoint returns 7 dimensions and total=7."""
+    from apps.wu_tanchang_api.app.endpoints.extract_intake import (
+        DIMENSION_SPECS,
+        _normalize,
+        _ExtractOut,
+        _DimOut,
+    )
+
+    # Verify specs list has 7 dimensions
+    keys = [spec[0] for spec in DIMENSION_SPECS]
+    assert keys == ["city", "background", "track", "stage", "problem", "goal", "plan"]
+    assert len(DIMENSION_SPECS) == 7
+
+    # Mock all 7 covered
+    raw_data = _ExtractOut(
+        dimensions=[_DimOut(key=k, covered=True, summary=f"{k}_summary") for k in keys],
+        ready_for_prediagnosis=True,
+    )
+    res = _normalize(raw_data)
+    assert res.total == 7
+    assert res.covered_count == 7
+    assert res.ready_for_prediagnosis is True
+    assert len(res.dimensions) == 7
+
+    # Mock empty / partial covered
+    raw_partial = _ExtractOut(
+        dimensions=[_DimOut(key="city", covered=True, summary="上海")],
+        ready_for_prediagnosis=True,
+    )
+    res_partial = _normalize(raw_partial)
+    assert res_partial.total == 7
+    assert res_partial.covered_count == 1
+    assert res_partial.ready_for_prediagnosis is False
+
+

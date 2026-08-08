@@ -22,31 +22,35 @@ from apps.wu_tanchang_api.app.models import (
 _logger = logging.getLogger("uvicorn.error")
 
 DIMENSION_SPECS = [
-    ("stage", "当前阶段", "想法期 / 筹备中 / 已开店 等阶段标签"),
-    ("category", "意向品类", "餐饮品类或业态，如火锅、烘焙、茶饮"),
-    ("city", "城市区位", "计划开店的城市或区域"),
-    ("budget", "预算区间", "投入/预算金额或区间"),
-    ("challenge", "核心困惑", "用户最卡的点、担心或待解问题"),
+    ("city", "所在城市", "计划开店或经营的城市/区域"),
+    ("background", "创业背景", "个人或团队创业经验、过往行业背景"),
+    ("track", "选择赛道", "意向/已选的实体店赛道、品类或业态"),
+    ("stage", "当前阶段", "想法期 / 筹备中 / 已开店 / 瓶颈转型期 等阶段"),
+    ("problem", "定义问题", "核心困惑、痛点、卡住的具体决策或难题"),
+    ("goal", "聚焦目标", "阶段性经营目标、期待达到的突破或结果"),
+    ("plan", "实施计划", "拟定的落地动作、推进步骤或行动计划"),
 ]
 
-SYSTEM_PROMPT = """你是餐饮创业面谈的信息抽取器。只根据用户说过的话做语义理解，不要编造。
+SYSTEM_PROMPT = """你是实体店商业面谈的信息抽取器。只根据用户说过的话做语义理解，不要编造。
 
-任务：判断五维信息是否已被用户提及，并给出每维的短摘要（关键词级，尽量短）。
+任务：判断七维信息是否已被用户提及，并给出每维的短摘要（关键词级，尽量短）。
 
-五维定义：
-1. stage（当前阶段）：想法期 / 筹备中 / 已开店（或等价表述）
-2. category（意向品类）：想做的餐饮品类/业态
-3. city（城市区位）：城市或商圈
-4. budget（预算区间）：资金/预算
-5. challenge（核心困惑）：最卡的点、困惑、待决策问题
+七维定义：
+1. city（所在城市）：计划开店或经营的城市/商圈/区域
+2. background（创业背景）：过往创业经历、行业背景或团队情况
+3. track（选择赛道）：意向/已选的具体赛道、品类或业态
+4. stage（当前阶段）：想法期 / 筹备中 / 已开店 / 拓展转型 等
+5. problem（定义问题）：核心痛点、具体卡点或待决策难题
+6. goal（聚焦目标）：想要达到的目标、业绩期望或核心诉求
+7. plan（实施计划）：目前规划的推进动作、步骤或执行计划表
 
 规则：
 - covered=true 仅当用户话里确实表达了该维信息（可同义改写）
 - summary 只写提炼后的关键词/短语，不要整句复述；未覆盖则为 null
 - keywords 为该维相关词 0-4 个
 - ready_for_prediagnosis=true 要求更严，须同时满足：
-  1) 五维均 covered
-  2) challenge 不是空泛口号（如仅「想听听建议」「不知道怎么办」→ 仍应 false）
+  1) 七维均 covered
+  2) problem 不是空泛口号（如仅「想听听建议」「不知道怎么办」→ 仍应 false）
   3) 用户有效表述累计不少于约 4 段/轮（过短寒暄不算）
   4) 至少有一维带「原因/卡点/已尝试」类细节，足以写讨论提纲
 - 不要根据助手的话推断；输入里若混入助手内容也请忽略，只信用户表述
@@ -127,11 +131,11 @@ def _normalize(raw: _ExtractOut | dict[str, Any]) -> ExtractIntakeResponse:
             )
         )
     covered_count = sum(1 for d in dims if d.covered)
-    ready = bool(data.get("ready_for_prediagnosis")) and covered_count >= 5
+    ready = bool(data.get("ready_for_prediagnosis")) and covered_count >= 7
     return ExtractIntakeResponse(
         dimensions=dims,
         covered_count=covered_count,
-        total=5,
+        total=7,
         ready_for_prediagnosis=ready,
         source="llm",
     )
@@ -166,7 +170,7 @@ async def extract_intake(
         return ExtractIntakeResponse(
             dimensions=empty,
             covered_count=0,
-            total=5,
+            total=7,
             ready_for_prediagnosis=False,
             source="llm",
         )
@@ -180,7 +184,7 @@ async def extract_intake(
     )
 
     user_prompt = (
-        "请抽取下列用户表述中的五维信息，输出结构化结果。\n\n"
+        "请抽取下列用户表述中的七维信息，输出结构化结果。\n\n"
         f"用户表述：\n{blob[:6000]}\n"
     )
 

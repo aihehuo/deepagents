@@ -91,6 +91,6 @@ class IntakeDimension(BaseModel):
 class ExtractIntakeResponse(BaseModel):
     dimensions: list[IntakeDimension]
     covered_count: int = 0
-    total: int = 5
+    total: int = 7
     ready_for_prediagnosis: bool = False
     source: str = "llm"

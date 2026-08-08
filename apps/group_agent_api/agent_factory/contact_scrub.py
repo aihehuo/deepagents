@@ -9,19 +9,22 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# Labeled handles + mainland mobile numbers + QQ.
+# Labeled handles + mainland mobile numbers + QQ + WeChat aliases (+v, +vx, vxid, wxid, gh).
 _CONTACT_PATTERN = re.compile(
-    r"(?:微信|微信号|薇信|v信|V信|vx|VX|wx|WeChat|weixin)[:：\s]*[A-Za-z0-9_-]{4,}"
+    r"(?:\+?[vV]|\+?[vV][xX]|\+?[wW][xX]|\+?微信|\+?微信号|\+?薇信|v信|V信|WeChat|weixin|加[vV]|加[vV][xX]|加微信|加微)[:：\s]*[A-Za-z0-9_-]{3,}"
+    r"|(?:[vV]|[vV][xX]|[wW][xX]|微信|微信号|薇信)[:：\s]+[A-Za-z0-9_-]{3,}"
+    r"|(?:wxid|vxid|wx|vx|gh)[_-]?[A-Za-z0-9_-]{4,}"
     r"|(?:电话|手机号?|联系方式?|联系电话)[:：\s]*\+?\d[\d\s\-()]{6,}"
     r"|(?:\+?86[-\s]?)?1[3-9]\d[\d\s-]{8,12}"
     r"|(?:QQ|qq)[:：\s]*\d{5,12}"
-    r"|(?:加我微信|私聊详谈|详谈请加)",
+    r"|(?:加我微信|私聊详谈|详谈请加|微信同号|手机微信同号|同微信|微信同|同号|微同|v同号|vx同号|电话同号|私信加v|私信加微信)",
     re.IGNORECASE,
 )
 
-# Entire display name that is clearly a WeChat-style handle, not a person name.
+# Entire display name that is clearly a WeChat-style handle or phone number, not a person name.
 _HANDLE_ONLY_NAME = re.compile(
-    r"^(?:wx|weixin|wechat)[_-]?[A-Za-z0-9_-]{3,}$",
+    r"^(?:\+?[vV]|vx|VX|wx|WX|weixin|wechat|wxid|vxid|gh)[_-]?[A-Za-z0-9_-]{3,}$"
+    r"|^\+?\d[\d\s\-()]{6,15}$",
     re.IGNORECASE,
 )
 
@@ -69,11 +72,23 @@ def scrub_candidate_contacts(candidate: dict[str, Any]) -> dict[str, Any]:
                 out[dim] = scrubbed
             else:
                 out.pop(dim, None)
-    for key in ("reason_summary", "worth_meeting", "worthMeeting", "description", "bio"):
+    for key in (
+        "reason_summary",
+        "worth_meeting",
+        "worthMeeting",
+        "description",
+        "bio",
+        "headline",
+        "title",
+        "invite_text",
+        "forward_copy",
+        "quick_connect_copy",
+    ):
         if key in out and out[key]:
-            scrubbed = scrub_contact_text(str(out[key]))
-            if scrubbed:
-                out[key] = scrubbed
-            else:
-                out.pop(key, None)
+            if isinstance(out[key], str):
+                scrubbed = scrub_contact_text(str(out[key]))
+                if scrubbed:
+                    out[key] = scrubbed
+                else:
+                    out.pop(key, None)
     return out

@@ -56,9 +56,13 @@ def filter_member_for_visibility(raw: dict[str, Any]) -> dict[str, Any]:
         "wechat",
         "weixin",
         "wx",
+        "wx_id",
+        "wxid",
+        "vxid",
         "email",
         "tel",
         "contact",
+        "qq",
     }
     out: dict[str, Any] = {
         "user_id": raw.get("user_id"),

@@ -1046,9 +1046,16 @@ async def test_core_agent_logs_no_candidate_or_invite_cleartext(monkeypatch, tmp
     from apps.group_agent_api.agent_factory.capability import CapabilityTier
     from apps.group_agent_api.agent_factory.model_builder import create_model
 
+    class _ReadyQualityModel:
+        def invoke(self, _msgs):
+            class _M:
+                content = '{"ready":true,"score":85,"doing_ok":true,"need_ok":true,"offer_ok":true,"reasons":[],"gaps":[]}'
+            return _M()
+
     # Real stub model that emits a save_group_profile tool call (fixture-accurate for u105).
-    agent, _ = create_agent(base_dir=tmp_path, model=create_model())
-    state = AppState(agent=agent, base_dir=tmp_path)
+    stub_model = create_model()
+    agent, _ = create_agent(base_dir=tmp_path, model=stub_model)
+    state = AppState(agent=agent, base_dir=tmp_path, quality_model=_ReadyQualityModel(), polish_model=stub_model)
 
     # u105 is an in_group owner in group_l1_alpha; querying for Python/LLM dev matches u101.
     session = TrustedSession(

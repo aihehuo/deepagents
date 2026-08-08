@@ -58,6 +58,11 @@ from deepagents.middleware.callback import CallbackMiddleware
 from deepagents.middleware.datetime import DateTimeMiddleware
 from deepagents.middleware.filesystem import FilesystemMiddleware, FilesystemPermission
 from deepagents.middleware.language import LanguageDetectionMiddleware
+from deepagents.middleware.llm_call_latency import (
+    LlmCallLatencyMiddleware,
+    allm_call_span,
+    llm_call_span,
+)
 from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.routing import (
     SubagentRoutingMiddleware,
@@ -111,6 +116,7 @@ __all__ = [
     "GraderResponse",
     "GraderVerdict",
     "LanguageDetectionMiddleware",
+    "LlmCallLatencyMiddleware",
     "MemoryMiddleware",
     "RubricEvaluation",
     "RubricMiddleware",
@@ -122,7 +128,9 @@ __all__ = [
     "SummarizationMiddleware",
     "SummarizationToolMiddleware",
     "SubagentRoutingMiddleware",
+    "allm_call_span",
     "build_default_aihehuo_routing_middleware",
     "build_default_coder_routing_middleware",
     "create_summarization_tool_middleware",
+    "llm_call_span",
 ]

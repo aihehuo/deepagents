@@ -18,8 +18,16 @@ from apps.wu_tanchang_api.app.models import (
     ExtractIntakeResponse,
     IntakeDimension,
 )
+from deepagents.middleware.llm_call_latency import allm_call_span, model_label
+from deepagents.observability import UCObserver
 
 _logger = logging.getLogger("uvicorn.error")
+
+
+class UC18Observer(UCObserver):
+    """Observer for UC-18 (吴探长前置咨询)."""
+
+    uc_name = "18_wu_tanchang_consult"
 
 DIMENSION_SPECS = [
     ("city", "所在城市", "计划开店或经营的城市/区域"),
@@ -190,28 +198,46 @@ async def extract_intake(
 
     try:
         structured = model.with_structured_output(_ExtractOut)
-        res = await structured.ainvoke(
-            [
-                SystemMessage(content=SYSTEM_PROMPT),
-                HumanMessage(content=user_prompt),
-            ]
-        )
+        async with allm_call_span(
+            emit=UC18Observer.info,
+            agent_label="extract_intake",
+            thread_id="intake",
+            model=model_label(model),
+            message_count=2,
+            call_seq=1,
+        ) as span:
+            res = await structured.ainvoke(
+                [
+                    SystemMessage(content=SYSTEM_PROMPT),
+                    HumanMessage(content=user_prompt),
+                ]
+            )
+            span.end()
         return _normalize(res)
     except Exception as e:
         _logger.warning("[IntakeExtract] structured_output failed: %s", e)
 
     # Fallback: plain JSON instruction
     try:
-        raw = await model.ainvoke(
-            [
-                SystemMessage(content=SYSTEM_PROMPT),
-                HumanMessage(
-                    content=user_prompt
-                    + "\n只输出 JSON，字段 dimensions[{key,covered,summary,keywords}], "
-                    "ready_for_prediagnosis。"
-                ),
-            ]
-        )
+        async with allm_call_span(
+            emit=UC18Observer.info,
+            agent_label="extract_intake_fallback",
+            thread_id="intake",
+            model=model_label(model),
+            message_count=2,
+            call_seq=2,
+        ) as span:
+            raw = await model.ainvoke(
+                [
+                    SystemMessage(content=SYSTEM_PROMPT),
+                    HumanMessage(
+                        content=user_prompt
+                        + "\n只输出 JSON，字段 dimensions[{key,covered,summary,keywords}], "
+                        "ready_for_prediagnosis。"
+                    ),
+                ]
+            )
+            span.end()
         content = raw.content if hasattr(raw, "content") else str(raw)
         if isinstance(content, list):
             content = "".join(

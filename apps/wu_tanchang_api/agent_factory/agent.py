@@ -24,6 +24,12 @@ from typing import Any
 from deepagents.observability import UCObserver
 
 
+class UC18Observer(UCObserver):
+    """Observer for UC-18 (吴探长前置咨询) — LLM call latency + consult events."""
+
+    uc_name = "18_wu_tanchang_consult"
+
+
 class UC25Observer(UCObserver):
     """Observer for UC-25 (会议准备材料)."""
 
@@ -47,9 +53,18 @@ from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.accountant import AccountantMiddleware
 from deepagents.middleware.language import LanguageDetectionMiddleware
+from deepagents.middleware.llm_call_latency import LlmCallLatencyMiddleware
 from deepagents.middleware.prompt_logging import PromptLoggingMiddleware
 
 _logger = logging.getLogger("uvicorn.error")
+
+
+def _llm_latency_middleware(agent_label: str) -> LlmCallLatencyMiddleware:
+    """Per-LLM-call latency logging into UC18 + uvicorn."""
+    return LlmCallLatencyMiddleware(
+        emit=UC18Observer.info,
+        agent_label=agent_label,
+    )
 
 _ACTIVE_AGENTS_LOCK = threading.Lock()
 _ACTIVE_AGENTS: dict[str, Any] = {}
@@ -629,6 +644,7 @@ def create_agent(
         "permissions": kb_permissions,
         "middleware": [
             AccountantMiddleware(max_tool_calls=6),
+            _llm_latency_middleware("kb_analyst"),
             PromptLoggingMiddleware(),
         ],
     }
@@ -655,6 +671,7 @@ def create_agent(
         middleware = [
             AccountantMiddleware(max_tool_calls=6),
             LanguageDetectionMiddleware(),
+            _llm_latency_middleware("owner"),
             PromptLoggingMiddleware(),
         ]
         subagents = []
@@ -695,6 +712,7 @@ def create_agent(
         middleware = [
             AccountantMiddleware(max_tool_calls=20),
             LanguageDetectionMiddleware(),
+            _llm_latency_middleware("front"),
             PromptLoggingMiddleware(),
         ]
         
@@ -714,6 +732,7 @@ def create_agent(
                 "permissions": kb_permissions,
                 "middleware": [
                     AccountantMiddleware(max_tool_calls=10),
+                    _llm_latency_middleware("aihehuo_cruncher"),
                     PromptLoggingMiddleware(),
                 ],
             }

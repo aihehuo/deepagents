@@ -39,7 +39,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
     runtime.mkdir(parents=True, exist_ok=True)
     UCObserver.set_log_dir(runtime / "logs")
 
-    agent, ckpt_path = create_agent(base_dir=runtime)
+    agent, admin_agent, ckpt_path = create_agent(base_dir=runtime)
     polish_model = None
     quality_model = None
     try:
@@ -81,6 +81,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
 
     state_ref["state"] = AppState(
         agent=agent,
+        admin_agent=admin_agent,
         base_dir=runtime,
         checkpoints_path=str(ckpt_path),
         polish_model=polish_model,

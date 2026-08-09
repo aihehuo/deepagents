@@ -338,7 +338,7 @@ def test_create_agent_wires_save_tool(monkeypatch: pytest.MonkeyPatch, tmp_path:
         lambda: _FakeModel(),
     )
 
-    agent, ckpt = create_agent(base_dir=tmp_path, model=_FakeModel())
+    agent, _admin, ckpt = create_agent(base_dir=tmp_path, model=_FakeModel())
     assert agent is not None
     assert ckpt == tmp_path / "checkpoints.pkl"
     tool_names = [getattr(t, "name", None) for t in captured.get("tools") or []]

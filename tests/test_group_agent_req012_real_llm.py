@@ -183,7 +183,7 @@ def _install_instrumented_model(monkeypatch: pytest.MonkeyPatch, recorder: LLMBu
         base_dir: Path | None = None,
         model: Any | None = None,
         checkpointer: Any | None = None,
-    ) -> tuple[Any, Path]:
+    ) -> tuple[Any, Any, Path]:
         return original_create_agent(
             base_dir=base_dir,
             model=instrumented_model,

@@ -19,6 +19,7 @@ class AppState:
     agent: Any
     base_dir: Path
     checkpoints_path: str = ""
+    admin_agent: Any | None = None  # ops-brain persona (source=group_agent_admin_debug)
     polish_model: Any | None = None  # optional LLM for invite polish
     quality_model: Any | None = None  # optional LLM for profile match-ready (REQ-029)
     thread_locks: dict[str, asyncio.Lock] = field(default_factory=dict)

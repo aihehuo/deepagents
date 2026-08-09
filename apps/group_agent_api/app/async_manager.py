@@ -27,7 +27,6 @@ from apps.group_agent_api.agent_factory.agent import (
     save_group_profile,
 )
 from apps.group_agent_api.agent_factory.admin_ops_tools import (
-    ADMIN_SYSTEM_PROMPT,
     is_admin_debug_source,
 )
 from apps.group_agent_api.agent_factory.capability import unlocks_network
@@ -735,8 +734,11 @@ async def _execute_core_agent(
     tier = session.membership.tier
     user_token = session.principal.user_token
     admin_debug = is_admin_debug_source(req.metadata or {})
-
-    agent = state.agent
+    agent = (
+        state.admin_agent
+        if admin_debug and getattr(state, "admin_agent", None) is not None
+        else state.agent
+    )
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
     reply = ""
     profile_ok = False
@@ -785,7 +787,8 @@ async def _execute_core_agent(
             )
             turn_messages: list[Any] = []
             if admin_debug:
-                turn_messages.append(SystemMessage(content=ADMIN_SYSTEM_PROMPT))
+                # Admin agent already has ops-brain system_prompt; keep turn lean.
+                pass
             else:
                 known = _known_profile_system_message(
                     base_dir=state.base_dir,

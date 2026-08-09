@@ -14,7 +14,10 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from apps.group_agent_api.agent_factory.admin_ops_tools import admin_ops_summary
+from apps.group_agent_api.agent_factory.admin_ops_tools import (
+    ADMIN_SYSTEM_PROMPT,
+    admin_ops_summary,
+)
 from apps.group_agent_api.agent_factory.content_quality import (
     is_need_shaped_doing,
     is_preference_shaped_offer,
@@ -272,8 +275,8 @@ def create_agent(
     base_dir: Path | None = None,
     model: Any | None = None,
     checkpointer: Any | None = None,
-) -> tuple[Any, Path]:
-    """Create the group agent. Returns (agent, checkpoints_path)."""
+) -> tuple[Any, Any, Path]:
+    """Create member + admin agents. Returns (member_agent, admin_agent, checkpoints_path)."""
     runtime = base_dir or default_runtime_dir()
     runtime.mkdir(parents=True, exist_ok=True)
     UCObserver.set_log_dir(runtime / "logs")
@@ -285,11 +288,18 @@ def create_agent(
 
     agent = create_deep_agent(
         model=llm,
-        tools=[save_group_profile, admin_ops_summary],
+        tools=[save_group_profile],
         system_prompt=SYSTEM_PROMPT,
         backend=backend,
         checkpointer=ckpt,
         # Slice 1: no subagents, no skills, no free-form memory middleware
     )
-    _logger.info("group_agent_api ready runtime=%s", runtime)
-    return agent, ckpt_path
+    admin_agent = create_deep_agent(
+        model=llm,
+        tools=[admin_ops_summary],
+        system_prompt=ADMIN_SYSTEM_PROMPT,
+        backend=backend,
+        checkpointer=ckpt,
+    )
+    _logger.info("group_agent_api ready runtime=%s (member+admin agents)", runtime)
+    return agent, admin_agent, ckpt_path

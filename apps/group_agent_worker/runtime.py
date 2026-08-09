@@ -32,7 +32,7 @@ def get_worker_runtime() -> dict[str, Any]:
 
     runtime = Path(os.environ.get("GROUP_AGENT_RUNTIME_DIR", str(default_runtime_dir())))
     runtime.mkdir(parents=True, exist_ok=True)
-    agent, ckpt_path = create_agent(base_dir=runtime)
+    agent, admin_agent, ckpt_path = create_agent(base_dir=runtime)
 
     polish_model = None
     quality_model = None
@@ -48,6 +48,7 @@ def get_worker_runtime() -> dict[str, Any]:
 
     state = AppState(
         agent=agent,
+        admin_agent=admin_agent,
         base_dir=runtime,
         checkpoints_path=str(ckpt_path),
         polish_model=polish_model,

@@ -913,7 +913,7 @@ async def test_profile_evolution_via_deterministic_tool_call(monkeypatch, tmp_pa
         def _llm_type(self): return "deterministic-tool-call-model"
         def bind_tools(self, tools, **kwargs): return self
 
-    agent, _ = create_agent(base_dir=tmp_path, model=DeterministicToolCallModel())
+    agent, _admin, _ = create_agent(base_dir=tmp_path, model=DeterministicToolCallModel())
     state = AppState(agent=agent, base_dir=tmp_path)
 
     # Pre-seed with an initial profile (simulating an earlier session)
@@ -984,7 +984,7 @@ async def test_profile_evolution_no_tool_call_fails_gracefully(monkeypatch, tmp_
         def _llm_type(self): return "no-tool-call-model"
         def bind_tools(self, tools, **kwargs): return self
 
-    agent, _ = create_agent(base_dir=tmp_path, model=NoToolCallModel())
+    agent, _admin, _ = create_agent(base_dir=tmp_path, model=NoToolCallModel())
     state = AppState(agent=agent, base_dir=tmp_path)
 
     # Pre-seed a profile (simulating an existing profile from a previous session)
@@ -1054,7 +1054,7 @@ async def test_core_agent_logs_no_candidate_or_invite_cleartext(monkeypatch, tmp
 
     # Real stub model that emits a save_group_profile tool call (fixture-accurate for u105).
     stub_model = create_model()
-    agent, _ = create_agent(base_dir=tmp_path, model=stub_model)
+    agent, _admin, _ = create_agent(base_dir=tmp_path, model=stub_model)
     state = AppState(agent=agent, base_dir=tmp_path, quality_model=_ReadyQualityModel(), polish_model=stub_model)
 
     # u105 is an in_group owner in group_l1_alpha; querying for Python/LLM dev matches u101.

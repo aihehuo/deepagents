@@ -435,7 +435,8 @@ async def test_resolve_dynamic_agent(
 
     mock_create_agent.reset_mock()
 
-    # 6. Debug admin mode: Micro source wu_agent_owner_admin → owner
+    # 6. Debug admin mode: Micro source wu_agent_owner_admin → shared workspace_owner
+    # (never workspace_{user_id}_owner — that is personal calendar-owner routing)
     name, agent = await resolve_dynamic_agent(
         state,
         user_id="456",
@@ -447,7 +448,7 @@ async def test_resolve_dynamic_agent(
     )
     assert name == "owner"
     called_cfg = mock_create_agent.call_args[1]["agent_config"]
-    assert called_cfg.workspace == "workspace_456_owner"
+    assert called_cfg.workspace == "workspace_owner"
 
 
 def test_mask_pii() -> None:

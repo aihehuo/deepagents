@@ -76,11 +76,11 @@ async def resolve_dynamic_agent(
     # 2. Determine owner mode
     # wu-agent UI is always the front-desk consult agent — never owner, even when
     # self-testing with calendar_id == user_id (needed for meeting_prep a==b).
-    # Exception: Micro-stamped source=wu_agent_owner_admin (debug admin mode).
+    # Exception: Micro-stamped source=wu_agent_owner_admin (debug admin mode)
+    # always uses the shared default owner workspace (薛神 / workspace_owner),
+    # never the logged-in user's personal workspace_{id}_owner.
     source = str(metadata.get("source") or "").strip()
     force_owner = source == "wu_agent_owner_admin"
-    if force_owner and effective_calendar is None:
-        effective_calendar = effective_user
     force_frontend = source in {"wu_agent_ui", "wu_agent"}
     is_owner = force_owner or (
         (not force_frontend)
@@ -93,7 +93,11 @@ async def resolve_dynamic_agent(
 
     # 4. Resolve target and fallback workspaces
     backend_path = Path(state.backend_root)
-    if is_owner:
+    if force_owner:
+        # wu-agent admin mode → shared default owner persona, not per-user calendar owner
+        target_ws = "workspace_owner"
+        fallbacks = ["workspace_owner_default", "workspace_owner"]
+    elif is_owner:
         target_ws = f"workspace_{effective_calendar}_owner"
         fallbacks = ["workspace_owner_default", "workspace_owner"]
     else:

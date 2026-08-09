@@ -26,6 +26,10 @@ from apps.group_agent_api.agent_factory.agent import (
     UC34Observer,
     save_group_profile,
 )
+from apps.group_agent_api.agent_factory.admin_ops_tools import (
+    ADMIN_SYSTEM_PROMPT,
+    is_admin_debug_source,
+)
 from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
 from apps.group_agent_api.agent_factory.integrations.callback_client import (
@@ -730,6 +734,7 @@ async def _execute_core_agent(
     group_id = session.group_id
     tier = session.membership.tier
     user_token = session.principal.user_token
+    admin_debug = is_admin_debug_source(req.metadata or {})
 
     agent = state.agent
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
@@ -779,26 +784,30 @@ async def _execute_core_agent(
                 conversation_id=req.conversation_id,
             )
             turn_messages: list[Any] = []
-            known = _known_profile_system_message(
-                base_dir=state.base_dir,
-                user_id=user_id,
-                group_id=group_id,
-            )
-            if known is not None:
-                turn_messages.append(known)
-            ref_msg = _referral_context_system_message(req.metadata or {})
-            if ref_msg is not None:
-                turn_messages.append(ref_msg)
-            _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
-            match_reminder = known_match_system_content(revisit_for_prompt)
-            if match_reminder:
-                turn_messages.append(SystemMessage(content=match_reminder))
+            if admin_debug:
+                turn_messages.append(SystemMessage(content=ADMIN_SYSTEM_PROMPT))
+            else:
+                known = _known_profile_system_message(
+                    base_dir=state.base_dir,
+                    user_id=user_id,
+                    group_id=group_id,
+                )
+                if known is not None:
+                    turn_messages.append(known)
+                ref_msg = _referral_context_system_message(req.metadata or {})
+                if ref_msg is not None:
+                    turn_messages.append(ref_msg)
+                _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
+                match_reminder = known_match_system_content(revisit_for_prompt)
+                if match_reminder:
+                    turn_messages.append(SystemMessage(content=match_reminder))
             turn_messages.append(HumanMessage(content=req.message))
             _logger.info(
-                "Core agent ainvoke start run_id=%s thread_id=%s msg_len=%d",
+                "Core agent ainvoke start run_id=%s thread_id=%s msg_len=%d admin_debug=%s",
                 req.run_id,
                 tid,
                 len(req.message or ""),
+                admin_debug,
             )
             _ainvoke_t0 = time.monotonic()
             try:
@@ -824,49 +833,16 @@ async def _execute_core_agent(
             messages = result.get("messages", [])
             reply = _extract_reply(messages, msg_count_before)
 
-            assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
-
-            if _profile_was_superseded(messages, msg_count_before):
-                profile_status = "superseded"
+            if admin_debug:
                 profile_ok = False
+                profile_status = "admin_skip"
             else:
-                usable, _path = _profile_usable_this_turn(
-                    base_dir=state.base_dir,
-                    user_id=user_id,
-                    group_id=group_id,
-                    messages=messages,
-                    msg_count_before=msg_count_before,
-                    metadata=req.metadata or {},
-                )
-                if usable:
-                    profile_ok = True
-                    profile_status = "persisted"
-                else:
-                    profile_ok = False
-                    if assertion.ok:
-                        # Prior episode profile exists but is not bound to this episode.
-                        pass
-            if _should_force_profile_save(
-                profile_ok=profile_ok,
-                profile_status=profile_status,
-                persist_alert=(
-                    "profile_stale_for_episode"
-                    if (not profile_ok and assertion.ok and profile_status != "superseded")
-                    else None
-                ),
-                messages=messages,
-                msg_count_before=msg_count_before,
-                user_message=req.message,
-                reply=reply,
-            ):
-                _gate("profile_force_save")
-                for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
-                    _gate("profile_force_save_iter")
-                    if _profile_was_superseded(messages, msg_count_before):
-                        profile_status = "superseded"
-                        profile_ok = False
-                        break
+                assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
 
+                if _profile_was_superseded(messages, msg_count_before):
+                    profile_status = "superseded"
+                    profile_ok = False
+                else:
                     usable, _path = _profile_usable_this_turn(
                         base_dir=state.base_dir,
                         user_id=user_id,
@@ -878,67 +854,104 @@ async def _execute_core_agent(
                     if usable:
                         profile_ok = True
                         profile_status = "persisted"
-                        break
-
-                    if attempt >= MAX_PERSIST_ATTEMPTS:
-                        break
-
-                    before_retry = len(messages)
-                    result = await agent.ainvoke(
-                        {"messages": [HumanMessage(content=FORCE_SAVE_PROMPT)]},
-                        config,
-                    )
-                    messages = result.get("messages", [])
-                    start_idx = before_retry if before_retry < len(messages) else 0
-                    retry_reply = _extract_reply(messages, start_idx)
-                    if retry_reply:
-                        reply = _merge_force_save_reply(reply, retry_reply)
-
-                if not profile_ok and profile_status != "superseded":
-                    profile_status = "failed"
-                    _gate("profile_deterministic_save")
-                    fallback_attempted = await _attempt_deterministic_profile_save(
-                        message=req.message,
-                        config=config,
-                        messages=messages,
-                    )
-                    if fallback_attempted:
+                    else:
+                        profile_ok = False
+                        if assertion.ok:
+                            # Prior episode profile exists but is not bound to this episode.
+                            pass
+                if _should_force_profile_save(
+                    profile_ok=profile_ok,
+                    profile_status=profile_status,
+                    persist_alert=(
+                        "profile_stale_for_episode"
+                        if (not profile_ok and assertion.ok and profile_status != "superseded")
+                        else None
+                    ),
+                    messages=messages,
+                    msg_count_before=msg_count_before,
+                    user_message=req.message,
+                    reply=reply,
+                ):
+                    _gate("profile_force_save")
+                    for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
+                        _gate("profile_force_save_iter")
                         if _profile_was_superseded(messages, msg_count_before):
                             profile_status = "superseded"
                             profile_ok = False
-                        else:
-                            usable, _path = _profile_usable_this_turn(
-                                base_dir=state.base_dir,
-                                user_id=user_id,
-                                group_id=group_id,
-                                messages=messages,
-                                msg_count_before=msg_count_before,
-                                metadata=req.metadata or {},
-                            )
-                            if usable:
-                                profile_ok = True
-                                profile_status = "persisted"
+                            break
 
-                if not profile_ok and profile_status == "failed":
-                    last_reason = (
-                        assertion.reason
-                        if not assertion.ok
-                        else "profile_stale_for_episode"
-                    )
-                    persistence_failure_reason = determine_persistence_failure_reason(
-                        messages,
-                        msg_count_before,
-                        attempt=MAX_PERSIST_ATTEMPTS,
-                        last_assertion_reason=last_reason,
-                    )
-                    UC34Observer.warn(
-                        f"action=profile_persistence_failed user_id={user_id} "
-                        f"group_id={group_id} run_id={req.run_id} "
-                        f"reason={persistence_failure_reason}"
-                    )
-            elif not profile_ok and profile_status != "superseded":
-                # Clarifying turn on a new episode: keep the first reply, skip match.
-                profile_status = "stale_episode"
+                        usable, _path = _profile_usable_this_turn(
+                            base_dir=state.base_dir,
+                            user_id=user_id,
+                            group_id=group_id,
+                            messages=messages,
+                            msg_count_before=msg_count_before,
+                            metadata=req.metadata or {},
+                        )
+                        if usable:
+                            profile_ok = True
+                            profile_status = "persisted"
+                            break
+
+                        if attempt >= MAX_PERSIST_ATTEMPTS:
+                            break
+
+                        before_retry = len(messages)
+                        result = await agent.ainvoke(
+                            {"messages": [HumanMessage(content=FORCE_SAVE_PROMPT)]},
+                            config,
+                        )
+                        messages = result.get("messages", [])
+                        start_idx = before_retry if before_retry < len(messages) else 0
+                        retry_reply = _extract_reply(messages, start_idx)
+                        if retry_reply:
+                            reply = _merge_force_save_reply(reply, retry_reply)
+
+                    if not profile_ok and profile_status != "superseded":
+                        profile_status = "failed"
+                        _gate("profile_deterministic_save")
+                        fallback_attempted = await _attempt_deterministic_profile_save(
+                            message=req.message,
+                            config=config,
+                            messages=messages,
+                        )
+                        if fallback_attempted:
+                            if _profile_was_superseded(messages, msg_count_before):
+                                profile_status = "superseded"
+                                profile_ok = False
+                            else:
+                                usable, _path = _profile_usable_this_turn(
+                                    base_dir=state.base_dir,
+                                    user_id=user_id,
+                                    group_id=group_id,
+                                    messages=messages,
+                                    msg_count_before=msg_count_before,
+                                    metadata=req.metadata or {},
+                                )
+                                if usable:
+                                    profile_ok = True
+                                    profile_status = "persisted"
+
+                    if not profile_ok and profile_status == "failed":
+                        last_reason = (
+                            assertion.reason
+                            if not assertion.ok
+                            else "profile_stale_for_episode"
+                        )
+                        persistence_failure_reason = determine_persistence_failure_reason(
+                            messages,
+                            msg_count_before,
+                            attempt=MAX_PERSIST_ATTEMPTS,
+                            last_assertion_reason=last_reason,
+                        )
+                        UC34Observer.warn(
+                            f"action=profile_persistence_failed user_id={user_id} "
+                            f"group_id={group_id} run_id={req.run_id} "
+                            f"reason={persistence_failure_reason}"
+                        )
+                elif not profile_ok and profile_status != "superseded":
+                    # Clarifying turn on a new episode: keep the first reply, skip match.
+                    profile_status = "stale_episode"
 
         finally:
             checkpointer = get_agent_checkpointer(agent)
@@ -949,11 +962,15 @@ async def _execute_core_agent(
     _gate("match")
     match_status = "skipped"
     candidates: list[dict[str, Any]] = []
-    match_reason: str | None = (
-        "profile_superseded"
-        if profile_status == "superseded"
-        else ("profile_persistence_failed" if not profile_ok else None)
-    )
+    if admin_debug:
+        match_reason = "admin_ops_mode"
+        profile_ok = False
+    else:
+        match_reason = (
+            "profile_superseded"
+            if profile_status == "superseded"
+            else ("profile_persistence_failed" if not profile_ok else None)
+        )
 
     if profile_status == "superseded":
         reply = (

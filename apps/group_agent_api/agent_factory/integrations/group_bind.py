@@ -24,8 +24,9 @@ from apps.group_agent_api.agent_factory.match_stub import MatchResult
 
 _logger = logging.getLogger("uvicorn.error")
 
-# Must match Micro GroupAgent::ConversationId::GLOBAL_BUCKET
+# Must match Micro GroupAgent::ConversationId::GLOBAL_BUCKET / ADMIN_BUCKET
 GLOBAL_SESSION_BUCKET = "global"
+ADMIN_SESSION_BUCKET = "admin"
 
 
 def resolve_trusted_group_id(
@@ -51,8 +52,9 @@ def resolve_trusted_group_id(
         return plain
 
     # Full-network agent (Micro REQ-028): session bucket is not a WeChat event id.
-    if plain == GLOBAL_SESSION_BUCKET:
-        return GLOBAL_SESSION_BUCKET
+    # Admin ops-brain bucket is likewise a synthetic session id.
+    if plain in {GLOBAL_SESSION_BUCKET, ADMIN_SESSION_BUCKET}:
+        return plain
 
     event_id = (membership.event_id or "").strip() or None
     if event_id:

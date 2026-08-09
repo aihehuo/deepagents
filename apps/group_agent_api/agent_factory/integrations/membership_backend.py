@@ -36,12 +36,18 @@ def resolve_session_capability(
     if mode == "http":
         plain_gid = (group_id or "").strip()
         uid = (unionid or "").strip()
-        if plain_gid == "global" and uid:
+        if plain_gid in {"global", "admin"} and uid:
+            reason = (
+                "admin_session_authenticated"
+                if plain_gid == "admin"
+                else "global_session_authenticated"
+            )
+            source = "http_admin" if plain_gid == "admin" else "http_global"
             return MembershipResult(
                 tier=CapabilityTier.in_group,
                 event_id=None,
-                reason="global_session_authenticated",
-                source="http_global",
+                reason=reason,
+                source=source,
             )
         return fetch_membership(
             unionid=uid,

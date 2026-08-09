@@ -14,6 +14,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
+from apps.group_agent_api.agent_factory.admin_ops_tools import admin_ops_summary
 from apps.group_agent_api.agent_factory.content_quality import (
     is_need_shaped_doing,
     is_preference_shaped_offer,
@@ -138,6 +139,9 @@ def save_group_profile(
     base_dir_raw = metadata.get("base_dir") or str(default_runtime_dir())
     base_dir = Path(str(base_dir_raw))
     run_id = str(metadata.get("run_id") or "").strip()
+
+    if str(metadata.get("source") or "").strip() == "group_agent_admin_debug":
+        return "error: admin_mode_read_only; do not save member profiles"
 
     if not user_id or not group_id:
         return "error: missing user_id or group_id in metadata"
@@ -281,7 +285,7 @@ def create_agent(
 
     agent = create_deep_agent(
         model=llm,
-        tools=[save_group_profile],
+        tools=[save_group_profile, admin_ops_summary],
         system_prompt=SYSTEM_PROMPT,
         backend=backend,
         checkpointer=ckpt,

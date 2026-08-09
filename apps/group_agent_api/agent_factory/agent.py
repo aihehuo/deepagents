@@ -15,8 +15,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from apps.group_agent_api.agent_factory.admin_ops_tools import (
+    ADMIN_OPS_TOOLS,
     ADMIN_SYSTEM_PROMPT,
-    admin_ops_summary,
 )
 from apps.group_agent_api.agent_factory.content_quality import (
     is_need_shaped_doing,
@@ -296,7 +296,7 @@ def create_agent(
     )
     admin_agent = create_deep_agent(
         model=llm,
-        tools=[admin_ops_summary],
+        tools=list(ADMIN_OPS_TOOLS),
         system_prompt=ADMIN_SYSTEM_PROMPT,
         backend=backend,
         checkpointer=ckpt,

@@ -1187,6 +1187,20 @@ async def _execute_core_agent(
         "invite_ok": invite_ok,
         "willing_to_at": req.willing_to_at,
     }
+    # Admin ops-brain: never surface member match/search artifacts to the client.
+    if admin_debug:
+        final_payload["match_status"] = None
+        final_payload["match_reason"] = None
+        final_payload["search_log"] = None
+        final_payload["candidates"] = []
+        final_payload["delivery_kind"] = None
+        final_payload["invite_text"] = None
+        final_payload["topic"] = None
+        final_payload["mentioned_user_ids"] = []
+        final_payload["at_users"] = []
+        final_payload["invite_ok"] = None
+        final_payload["admin_ops_mode"] = True
+
 
     ref_payload = _referral_payload_from_metadata(req.metadata)
     if ref_payload is not None:

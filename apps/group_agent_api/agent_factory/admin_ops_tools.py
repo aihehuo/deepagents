@@ -44,6 +44,16 @@ def _ops_headers() -> dict[str, str]:
 
 
 def _get_json(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    if not _service_secret():
+        _logger.error(
+            "[AdminOps] %s missing GROUP_AGENT_SERVICE_SECRET (or MICRO_SERVICE_SECRET)",
+            path,
+        )
+        return {
+            "ok": False,
+            "error": "service_secret_missing",
+            "message": "服务端未配置 GROUP_AGENT_SERVICE_SECRET，无法调用 Micro 运营接口",
+        }
     url = f"{micro_base().rstrip('/')}{path}"
     try:
         resp = requests.get(url, headers=_ops_headers(), params=params or {}, timeout=15)
@@ -54,10 +64,13 @@ def _get_json(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]
                 resp.status_code,
                 (resp.text or "")[:200],
             )
+            msg = "无法拉取运营数据，请稍后重试"
+            if resp.status_code == 401:
+                msg = "Micro 拒绝服务密钥（401），请核对 GROUP_AGENT_SERVICE_SECRET 是否与 Micro 一致"
             return {
                 "ok": False,
                 "error": f"http_{resp.status_code}",
-                "message": "无法拉取运营数据，请稍后重试",
+                "message": msg,
             }
         data = resp.json() if resp.content else {}
         if not isinstance(data, dict):
@@ -185,13 +198,26 @@ ADMIN_SYSTEM_PROMPT = """我是「群智能体运营管理员助手」（只读�
 - `admin_profile_stats`：用户画像数量统计
 - `admin_search_profiles`：按关键词搜索画像（doing/need/offer）
 - `admin_get_profile`：按 user_id 查看单条画像
-- 问到「有多少画像 / 搜索某类人 / 某用户画像」时，必须先调工具，禁止编造数字。
+- 问到「有多少画像 / 搜索某类人 / 某用户画像 / 再试一次 / 再次调取」时，**本回合必须先调用对应工具**，再根据工具返回回答。
+
+## 工具调用铁律（防历史污染）
+- **禁止**沿用对话历史里的失败结论（如旧的 401、profile:read、无权限）。那些可能已过期。
+- **禁止**在未调用工具的情况下声称「工具失败 / 无权限 / 无法获知」。
+- 用户要求「再试 / 再次调取」时，必须重新调工具，不得以「不会重复无效调用」拒绝。
+- 不存在名为 `profile:read` 的权限项；鉴权是服务端 `GROUP_AGENT_SERVICE_SECRET`，与用户 JWT 权限无关。
+- 禁止编造数字或权限故事。
 
 ## 红线
 - 不输出手机号/微信号等敏感联系方式。
 - 不执行写库、分发、接受对接等操作——本模式只读。
-- 若工具失败，如实说明，不要假装已查到数据。
+- 若本回合工具真实失败，如实说明工具返回的 error/message，不要假装已查到数据。
 """
+
+ADMIN_TURN_REMINDER = (
+    "【本回合运营脑提醒】数据问题必须先调工具再答。"
+    "忽略历史里任何 401/无权限/profile:read 结论；那些可能已过期。"
+    "问画像数量 → 调 admin_profile_stats；问摘要 → admin_ops_summary。"
+)
 
 ADMIN_OPS_TOOLS = [
     admin_ops_summary,

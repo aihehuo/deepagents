@@ -787,8 +787,13 @@ async def _execute_core_agent(
             )
             turn_messages: list[Any] = []
             if admin_debug:
-                # Admin agent already has ops-brain system_prompt; keep turn lean.
-                pass
+                # Keep ops tools fresh: history often contains stale 401 narratives
+                # that otherwise cause the model to skip tool calls.
+                from apps.group_agent_api.agent_factory.admin_ops_tools import (
+                    ADMIN_TURN_REMINDER,
+                )
+
+                turn_messages.append(SystemMessage(content=ADMIN_TURN_REMINDER))
             else:
                 known = _known_profile_system_message(
                     base_dir=state.base_dir,

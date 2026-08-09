@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Tuple
 
+import requests
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 
@@ -162,17 +164,177 @@ def _parse_thread_id(thread_id: str) -> Tuple[str, str, str] | None:
     return None
 
 
-async def _get_client_threads(config: RunnableConfig) -> List[Dict[str, Any]]:
+def _is_wu_agent_shared_owner(config: RunnableConfig) -> bool:
+    """True for mode=wu-agent admin mode → shared workspace_owner (薛神)."""
+    metadata = config.get("metadata") or {}
+    source = str(metadata.get("source") or "").strip()
+    if source == "wu_agent_owner_admin":
+        return True
+    return bool(metadata.get("admin_owner_mode"))
+
+
+def _micro_callbacks_base_url(config: RunnableConfig) -> str | None:
+    metadata = config.get("metadata") or {}
+    callback_url = str(metadata.get("callback_url") or "").strip()
+    if callback_url and "/wu_tanchang_callbacks/" in callback_url:
+        return callback_url.split("/wu_tanchang_callbacks/")[0] + "/wu_tanchang_callbacks"
+
+    raw_allowed = os.environ.get("WU_CALLBACK_ALLOWED_BASE_URLS")
+    if raw_allowed:
+        for base in raw_allowed.split(","):
+            base = base.strip().rstrip("/")
+            if base:
+                if base.endswith("/wu_tanchang_callbacks"):
+                    return base
+                return f"{base}/wu_tanchang_callbacks"
+    return "http://aihehuomicro-web:3001/wu_tanchang_callbacks"
+
+
+def _agent_headers() -> Dict[str, str]:
+    token = os.environ.get("WU_TANCHANG_CALLBACK_TOKEN") or os.environ.get(
+        "WU_CALLBACK_AGENT_KEY"
+    )
+    return {"X-Agent-Key": token or "", "Content-Type": "application/json"}
+
+
+def _simple_message(role: str, text: str) -> Any:
+    """Minimal message-like object for name extraction / detail display."""
+
+    class _Msg:
+        def __init__(self, msg_type: str, content: str) -> None:
+            self.type = msg_type
+            self.content = content
+
+    return _Msg("human" if role == "user" else "ai", text or "")
+
+
+async def _get_wu_agent_visitors_from_micro(
+    config: RunnableConfig, *, days: int = 30
+) -> List[Dict[str, Any]]:
+    """Load front-desk visitors from Micro wu_agent_conversations (authoritative)."""
+    base = _micro_callbacks_base_url(config)
+    if not base:
+        _logger.warning("[OwnerTools] No Micro callbacks base URL for wu-agent visitors")
+        return []
+
+    metadata = config.get("metadata") or {}
+    exclude_user_id = metadata.get("user_id") or metadata.get("user_a_id")
+    params: Dict[str, Any] = {"days": max(1, int(days or 30))}
+    if exclude_user_id is not None:
+        params["exclude_user_id"] = exclude_user_id
+
+    url = f"{base.rstrip('/')}/wu_agent_visitors"
+    try:
+        resp = requests.get(url, headers=_agent_headers(), params=params, timeout=15)
+        if resp.status_code != 200:
+            _logger.warning(
+                "[OwnerTools] wu_agent_visitors HTTP %s body=%s",
+                resp.status_code,
+                (resp.text or "")[:200],
+            )
+            return []
+        data = resp.json() if resp.content else {}
+    except Exception as exc:  # noqa: BLE001
+        _logger.error("[OwnerTools] wu_agent_visitors request failed: %s", exc)
+        return []
+
+    visitors = data.get("visitors") if isinstance(data, dict) else None
+    if not isinstance(visitors, list):
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for v in visitors:
+        if not isinstance(v, dict):
+            continue
+        user_id = str(v.get("user_id") or "").strip()
+        if not user_id:
+            continue
+        conv_id = str(v.get("conversation_id") or f"wu_agent_{user_id}")
+        out.append(
+            {
+                "thread_id": f"wt::default::{user_id}::{conv_id}",
+                "user_id": user_id,
+                "conversation_id": conv_id,
+                "started_at": str(v.get("started_at") or ""),
+                "last_active_at": str(v.get("last_active_at") or ""),
+                "status": str(v.get("status") or "chatting"),
+                "prep_body": None,
+                "messages": [],
+                "client_name": str(v.get("client_name") or f"访客{user_id}"),
+                "source": "wu_agent_conversation",
+            }
+        )
+    return out
+
+
+async def _get_wu_agent_visitor_detail_from_micro(
+    config: RunnableConfig, client_user_id: str
+) -> Dict[str, Any] | None:
+    base = _micro_callbacks_base_url(config)
+    if not base:
+        return None
+    url = f"{base.rstrip('/')}/wu_agent_visitors/{client_user_id}"
+    try:
+        resp = requests.get(url, headers=_agent_headers(), timeout=20)
+        if resp.status_code == 404:
+            return None
+        if resp.status_code != 200:
+            _logger.warning(
+                "[OwnerTools] wu_agent_visitor HTTP %s body=%s",
+                resp.status_code,
+                (resp.text or "")[:200],
+            )
+            return None
+        data = resp.json() if resp.content else {}
+    except Exception as exc:  # noqa: BLE001
+        _logger.error("[OwnerTools] wu_agent_visitor request failed: %s", exc)
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    user_id = str(data.get("user_id") or client_user_id)
+    messages_raw = data.get("messages") or []
+    messages = []
+    if isinstance(messages_raw, list):
+        for m in messages_raw:
+            if isinstance(m, dict):
+                messages.append(
+                    _simple_message(str(m.get("role") or "user"), str(m.get("text") or ""))
+                )
+
+    return {
+        "thread_id": f"wt::default::{user_id}::{data.get('conversation_id') or f'wu_agent_{user_id}'}",
+        "user_id": user_id,
+        "conversation_id": str(data.get("conversation_id") or f"wu_agent_{user_id}"),
+        "started_at": str(data.get("started_at") or ""),
+        "last_active_at": str(data.get("last_active_at") or ""),
+        "status": str(data.get("status") or "chatting"),
+        "prep_body": data.get("prep_body"),
+        "messages": messages,
+        "client_name": str(data.get("client_name") or f"访客{user_id}"),
+        "source": "wu_agent_conversation",
+    }
+
+
+async def _get_client_threads(
+    config: RunnableConfig, *, days: int = 30
+) -> List[Dict[str, Any]]:
     """Scan checkpointer to extract metadata and status of all client threads.
 
     Filters client threads by the current owner's calendar_id (Scope control).
+    For wu-agent admin / shared workspace_owner, load visitors from Micro instead.
 
     Args:
         config: The current RunnableConfig object.
+        days: Lookback window (used by Micro visitor directory).
 
     Returns:
         List of client thread info dicts.
     """
+    if _is_wu_agent_shared_owner(config):
+        return await _get_wu_agent_visitors_from_micro(config, days=days)
+
     tid = config.get("configurable", {}).get("thread_id")
     agent = None
     if tid:
@@ -348,7 +510,7 @@ async def get_consultation_stats(
         days: 统计的历史天数，默认 7 天。
         config: 运行时配置对象，自动注入。
     """
-    threads = await _get_client_threads(config)
+    threads = await _get_client_threads(config, days=days)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     new_clients = 0
@@ -407,7 +569,7 @@ async def list_recent_clients(
         status: 过滤状态。支持 "all", "chatting", "completed"。
         config: 运行时配置对象，自动注入。
     """
-    threads = await _get_client_threads(config)
+    threads = await _get_client_threads(config, days=days)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     filtered = []
@@ -435,8 +597,10 @@ async def list_recent_clients(
     ]
     for t in sorted(filtered, key=lambda x: x["started_at"], reverse=True):
         status_label = "✅ 已交付" if t["status"] == "completed" else "💬 沟通中"
+        started = (t.get("started_at") or "")[:19] or "-"
+        last_active = (t.get("last_active_at") or "")[:19] or "-"
         lines.append(
-            f"| {t['client_name']} | `{t['user_id']}` | {t['started_at'][:19]} | {t['last_active_at'][:19]} | {status_label} |"
+            f"| {t['client_name']} | `{t['user_id']}` | {started} | {last_active} | {status_label} |"
         )
 
     return "\n".join(lines)
@@ -456,16 +620,22 @@ async def get_client_detail(
         expand_prep_details: 是否展开详细的会议材料及历史对话片段。默认为 False 以保护客户隐私。
         config: 运行时配置对象，自动注入。
     """
-    threads = await _get_client_threads(config)
-    target = next((t for t in threads if t["user_id"] == client_user_id), None)
+    if _is_wu_agent_shared_owner(config):
+        target = await _get_wu_agent_visitor_detail_from_micro(config, client_user_id)
+    else:
+        threads = await _get_client_threads(config)
+        target = next((t for t in threads if t["user_id"] == client_user_id), None)
 
     if not target:
         return f"未找到客户 ID 为 `{client_user_id}` 的预聊记录。"
 
+    started = (target.get("started_at") or "")[:19] or "未知"
+    last_active = (target.get("last_active_at") or "")[:19] or "未知"
+
     result = [
         f"# 👤 客户需求详情: {target['client_name']} (ID: {client_user_id})",
-        f"- **开始预聊时间**: {target['started_at'][:19]}",
-        f"- **最后互动时间**: {target['last_active_at'][:19]}",
+        f"- **开始预聊时间**: {started}",
+        f"- **最后互动时间**: {last_active}",
         f"- **当前进度状态**: {'✅ 会议材料已交付' if target['status'] == 'completed' else '💬 仍在补充信息'}",
         "\n---",
     ]

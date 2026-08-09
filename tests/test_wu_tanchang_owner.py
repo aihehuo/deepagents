@@ -423,6 +423,32 @@ async def test_resolve_dynamic_agent(
     assert exc_info.value.status_code == 400
     assert "Invalid calendar_id" in exc_info.value.detail
 
+    mock_create_agent.reset_mock()
+
+    # 5. wu_agent_ui + matching ids stays front-desk (never owner)
+    name, agent = await resolve_dynamic_agent(
+        state,
+        user_id="123",
+        metadata={"calendar_id": "123", "source": "wu_agent_ui"},
+    )
+    assert name == "default"
+
+    mock_create_agent.reset_mock()
+
+    # 6. Debug admin mode: Micro source wu_agent_owner_admin → owner
+    name, agent = await resolve_dynamic_agent(
+        state,
+        user_id="456",
+        metadata={
+            "calendar_id": "456",
+            "source": "wu_agent_owner_admin",
+            "admin_owner_mode": True,
+        },
+    )
+    assert name == "owner"
+    called_cfg = mock_create_agent.call_args[1]["agent_config"]
+    assert called_cfg.workspace == "workspace_456_owner"
+
 
 def test_mask_pii() -> None:
     from apps.wu_tanchang_api.agent_factory.owner_tools import mask_pii

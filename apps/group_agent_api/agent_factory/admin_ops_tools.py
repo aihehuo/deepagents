@@ -101,7 +101,7 @@ def admin_ops_summary(days: int = 7, *, config: RunnableConfig) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-@tool(parse_docstring=True)
+@tool
 def admin_profile_stats(*, config: RunnableConfig) -> str:
     """统计现有用户画像数量（总数、按 group_id、近 7 天更新数）。"""
     denied = _require_admin(config)

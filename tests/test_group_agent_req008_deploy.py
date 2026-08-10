@@ -377,7 +377,16 @@ def test_build_and_push_script_validates_40_char_sha_and_clean_source():
     assert "does not match current git HEAD" in res_fake.stdout or "does not match current git HEAD" in res_fake.stderr
 
     content = script.read_text()
-    assert 'if [ "$APP_NAME" != "group_agent_api" ]; then' in content, "build_and_push.sh must skip latest tag for group_agent_api"
+    assert (
+        'if [ "$APP_NAME" != "group_agent_api" ] && [ "$APP_NAME" != "group_agent_worker" ]; then'
+        in content
+    ), "build_and_push.sh must skip latest tag for group_agent_api and group_agent_worker"
+    assert (
+        '_prune_local_repo_keep_latest "${REGISTRY}/${IMAGE_NAME}" 1' in content
+    ), "build_and_push.sh must keep only the newest local image (not 3)"
+    assert "docker build -t \"$IMAGE_NAME:latest\"" not in content, (
+        "build_and_push.sh must retag :latest instead of a second full build"
+    )
 
 
 def test_build_and_push_contains_no_forbidden_markers():

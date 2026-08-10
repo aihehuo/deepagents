@@ -106,6 +106,32 @@ if [ "$(docker ps -a -q -f name="^/${CONTAINER_NAME}$")" ]; then
   docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || true
 fi
 
+# Local live builds keep only the newest image for this repo (same policy as
+# build_and_push.sh). Stop the old container first so superseded layers can be
+# removed. Frequent group-agent / wu-tanchang rebuilds otherwise fill Docker disk.
+echo ""
+echo "Cleaning up local old images for ${IMAGE_NAME} (retaining latest 1)..."
+LOCAL_IMAGE_IDS="$(docker images "$IMAGE_NAME" --format '{{.CreatedAt}}	{{.ID}}' | sort -r | awk -F'	' '{print $2}' | awk '!seen[$0]++')"
+LOCAL_TOTAL_COUNT="$(echo "$LOCAL_IMAGE_IDS" | grep -v '^$' | wc -l | tr -d ' ')"
+if [ "$LOCAL_TOTAL_COUNT" -gt 1 ]; then
+  LOCAL_OLD_IMAGE_IDS="$(echo "$LOCAL_IMAGE_IDS" | tail -n +2)"
+  LOCAL_USED_IMAGE_IDS="$(docker ps -a --format '{{.Image}}' | tr ' ' '\n' | sort -u)"
+  for img_id in $LOCAL_OLD_IMAGE_IDS; do
+    if [ -n "$img_id" ]; then
+      if echo "$LOCAL_USED_IMAGE_IDS" | grep -q "$img_id"; then
+        echo "  Skipping $img_id: in use by a local container"
+      else
+        echo "  Removing old local image: $img_id"
+        docker rmi "$img_id" 2>/dev/null || true
+      fi
+    fi
+  done
+else
+  echo "  Local image count ($LOCAL_TOTAL_COUNT) <= 1. No old local images pruned."
+fi
+docker image prune -f >/dev/null 2>&1 || true
+echo ""
+
 ENV_ARGS=()
 while IFS='=' read -r key value; do
   [[ -z "$key" || "$key" =~ ^# ]] && continue

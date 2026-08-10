@@ -125,9 +125,11 @@ docker tag "$IMAGE_NAME:$TAG" "$FULL_IMAGE"
 docker push "$FULL_IMAGE"
 
 if [ "$APP_NAME" != "group_agent_api" ] && [ "$APP_NAME" != "group_agent_worker" ]; then
-  docker build -t "$IMAGE_NAME:latest" -f "${APP_DIR}/Dockerfile" "$REPO_ROOT"
+  # Retag the just-built image as :latest (do not rebuild — avoids a second
+  # full image that would fight local keep-1 cleanup).
   FULL_IMAGE_LATEST="$REGISTRY/$IMAGE_NAME:latest"
-  docker tag "$IMAGE_NAME:latest" "$FULL_IMAGE_LATEST"
+  docker tag "$IMAGE_NAME:$TAG" "$IMAGE_NAME:latest"
+  docker tag "$IMAGE_NAME:$TAG" "$FULL_IMAGE_LATEST"
   docker push "$FULL_IMAGE_LATEST"
 fi
 
@@ -138,26 +140,36 @@ if [ "$APP_NAME" != "group_agent_api" ] && [ "$APP_NAME" != "group_agent_worker"
   echo " - $FULL_IMAGE_LATEST"
 fi
 
-echo ""
-echo "Cleaning up local old images for ${REGISTRY}/${IMAGE_NAME} (retaining latest 3)..."
-LOCAL_REPO_TO_PRUNE="${REGISTRY}/${IMAGE_NAME}"
-LOCAL_IMAGE_IDS="$(docker images "$LOCAL_REPO_TO_PRUNE" --format '{{.CreatedAt}}	{{.ID}}' | sort -r | awk -F'	' '{print $2}' | awk '!seen[$0]++')"
-LOCAL_TOTAL_COUNT="$(echo "$LOCAL_IMAGE_IDS" | grep -v '^$' | wc -l | tr -d ' ')"
-if [ "$LOCAL_TOTAL_COUNT" -gt 3 ]; then
-  LOCAL_OLD_IMAGE_IDS="$(echo "$LOCAL_IMAGE_IDS" | tail -n +4)"
-  LOCAL_USED_IMAGE_IDS="$(docker ps -a --format '{{.Image}}' | tr ' ' '\n' | sort -u)"
-  for img_id in $LOCAL_OLD_IMAGE_IDS; do
-    if [ -n "$img_id" ]; then
-      if echo "$LOCAL_USED_IMAGE_IDS" | grep -q "$img_id"; then
-        echo "  Skipping $img_id: in use by a local container"
-      else
-        echo "  Removing old local image: $img_id"
-        docker rmi "$img_id" 2>/dev/null || true
+# Local: keep only the newest image ID per repo (prod keeps 3 — see deploy_to_prod3.sh).
+# Frequent local builds of group-agent-api / group-agent-worker / wu-tanchang-api
+# previously retained 3 and filled Docker Desktop disk.
+_prune_local_repo_keep_latest() {
+  local repo_to_prune="$1"
+  local keep_count="${2:-1}"
+  echo "Cleaning up local old images for ${repo_to_prune} (retaining latest ${keep_count})..."
+  local image_ids total_count old_image_ids used_image_ids
+  image_ids="$(docker images "$repo_to_prune" --format '{{.CreatedAt}}	{{.ID}}' | sort -r | awk -F'	' '{print $2}' | awk '!seen[$0]++')"
+  total_count="$(echo "$image_ids" | grep -v '^$' | wc -l | tr -d ' ')"
+  if [ "$total_count" -gt "$keep_count" ]; then
+    old_image_ids="$(echo "$image_ids" | tail -n +"$((keep_count + 1))")"
+    used_image_ids="$(docker ps -a --format '{{.Image}}' | tr ' ' '\n' | sort -u)"
+    for img_id in $old_image_ids; do
+      if [ -n "$img_id" ]; then
+        if echo "$used_image_ids" | grep -q "$img_id"; then
+          echo "  Skipping $img_id: in use by a local container"
+        else
+          echo "  Removing old local image: $img_id"
+          docker rmi "$img_id" 2>/dev/null || true
+        fi
       fi
-    fi
-  done
-else
-  echo "  Local image count ($LOCAL_TOTAL_COUNT) <= 3. No old local images pruned."
-fi
+    done
+  else
+    echo "  Local image count ($total_count) <= ${keep_count}. No old local images pruned."
+  fi
+}
+
+_prune_local_repo_keep_latest "${REGISTRY}/${IMAGE_NAME}" 1
+# Unprefixed tags from `docker build -t $IMAGE_NAME:$TAG` also accumulate locally.
+_prune_local_repo_keep_latest "${IMAGE_NAME}" 1
 docker image prune -f >/dev/null 2>&1 || true
 

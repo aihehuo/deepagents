@@ -175,6 +175,7 @@ for svc in $COMPOSE_SERVICES; do
 done
 
 echo ""
+# Prod retains latest 3 for rollback; local build_and_push.sh keeps only 1.
 echo "Cleaning up old images for ${REGISTRY}/${IMAGE_NAME} on prod3 (retaining latest 3)..."
 REPO_TO_PRUNE="${REGISTRY}/${IMAGE_NAME}"
 IMAGE_IDS="\$(docker images "\$REPO_TO_PRUNE" --format '{{.CreatedAt}}	{{.ID}}' | sort -r | awk -F'	' '{print \$2}' | awk '!seen[\$0]++')"
@@ -197,6 +198,7 @@ else
 fi
 docker image prune -f >/dev/null 2>&1 || true
 REMOTE_SCRIPT_END
+
 
 echo ""
 echo "Deployment to prod3 completed successfully!"

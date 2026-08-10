@@ -97,6 +97,7 @@ PORT=8001
 - **Container name**: `<app-name>-remote` (for local) or `<app-name>` (for production)
 - **Port**: `8001` (can be overridden)
 - **Data directory**: `apps/<app-name>/.tmp_home/.deepagents/<app-name>` (local) or `/mnt/<app-name>/data` (production)
+- **Image retention**: local builds (`build_and_push.sh` / `build_and_run_local.sh`) keep **only the newest** image per repo; prod3 (`deploy_to_prod3.sh`) keeps the **latest 3** for rollback. This matters most for frequent rebuilds of `group_agent_api`, `group_agent_worker`, and `wu_tanchang_api`.
 
 ## App-Specific Scripts
 

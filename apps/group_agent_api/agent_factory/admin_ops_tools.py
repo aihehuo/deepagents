@@ -16,6 +16,9 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from apps.group_agent_api.agent_factory.integrations.config import micro_base
+from apps.group_agent_api.agent_factory.suggested_replies import (
+    SUGGESTED_REPLIES_PROMPT,
+)
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -291,7 +294,7 @@ ADMIN_SYSTEM_PROMPT = """我是「群智能体运营管理员助手」（只读�
 - 不输出手机号/微信号等敏感联系方式。
 - 不执行写库、分发、接受对接等操作——本模式只读。
 - 若本回合工具真实失败，如实说明工具返回的 error/message，不要假装已查到数据。
-"""
+""" + SUGGESTED_REPLIES_PROMPT
 
 ADMIN_TURN_REMINDER = (
     "【本回合运营脑提醒】数据问题必须先调工具再答。"

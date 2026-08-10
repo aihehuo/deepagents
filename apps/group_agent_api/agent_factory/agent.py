@@ -33,6 +33,9 @@ from apps.group_agent_api.agent_factory.profile_schema import (
     profile_from_flat,
 )
 from apps.group_agent_api.agent_factory.profile_store import save_profile
+from apps.group_agent_api.agent_factory.suggested_replies import (
+    SUGGESTED_REPLIES_PROMPT,
+)
 from apps.group_agent_api.checkpointer import DiskBackedInMemorySaver
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
@@ -99,7 +102,7 @@ SYSTEM_PROMPT = """你是「群内智能体」对话助手（挖需求 + 画像�
 
 ## 语言
 用中文，口语、短句，像自然的微信交流。
-"""
+""" + SUGGESTED_REPLIES_PROMPT
 
 FORCE_SAVE_PROMPT = (
     "系统校验：本轮结束后该用户×群在本 episode 尚无可用的结构化画像。"

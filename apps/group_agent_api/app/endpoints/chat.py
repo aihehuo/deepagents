@@ -42,6 +42,9 @@ from apps.group_agent_api.agent_factory.revisit import (
     parse_revisit_from_metadata,
     should_skip_auto_match,
 )
+from apps.group_agent_api.agent_factory.suggested_replies import (
+    extract_suggested_replies,
+)
 import datetime
 
 from apps.group_agent_api.app.models import ChatRequest, ChatResponse, SearchLogEntry
@@ -446,7 +449,6 @@ async def chat(
 
                 from apps.group_agent_api.agent_factory.revisit import (
                     known_match_system_content,
-                    parse_revisit_from_metadata,
                 )
 
                 turn_messages: list[Any] = []
@@ -625,6 +627,8 @@ async def chat(
     finally:
         state.finish_agent_run(tid, "chat")
 
+    reply, suggested_replies = extract_suggested_replies(reply)
+
     _, revisit_hint = parse_revisit_from_metadata(req.metadata or {})
     effective_run_match = req.run_match and not should_skip_auto_match(
         revisit_hint=revisit_hint,
@@ -767,6 +771,7 @@ async def chat(
         conversation_id=req.conversation_id,
         thread_id=tid,
         reply=final_guarded.reply,
+        suggested_replies=[] if combined_guard_blocked else suggested_replies,
         profile_persisted=profile_ok,
         profile_path=profile_path,
         profile_status=profile_status_val,

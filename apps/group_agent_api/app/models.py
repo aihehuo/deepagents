@@ -218,6 +218,7 @@ class ChatResponse(BaseModel):
     conversation_id: str
     thread_id: str
     reply: str
+    suggested_replies: list[dict[str, str]] = Field(default_factory=list)
     profile_persisted: bool = False
     profile_path: str | None = None
     profile_status: str = "failed"

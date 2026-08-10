@@ -55,6 +55,9 @@ from apps.group_agent_api.agent_factory.revisit import (
     parse_revisit_from_metadata,
     should_skip_auto_match,
 )
+from apps.group_agent_api.agent_factory.suggested_replies import (
+    extract_suggested_replies,
+)
 from apps.group_agent_api.app.endpoints.chat import (
     MAX_PERSIST_ATTEMPTS,
     _extract_reply,
@@ -986,6 +989,8 @@ async def _execute_core_agent(
             "我没有覆盖当前权威画像，也没有继续匹配或生成邀请。"
         )
 
+    reply, suggested_replies = extract_suggested_replies(reply)
+
     _, revisit_hint = parse_revisit_from_metadata(req.metadata or {})
     effective_run_match = req.run_match and not should_skip_auto_match(
         revisit_hint=revisit_hint,
@@ -1173,6 +1178,7 @@ async def _execute_core_agent(
 
     final_payload = {
         "reply": final_guarded.reply,
+        "suggested_replies": [] if combined_guard_blocked else suggested_replies,
         "profile_persisted": profile_ok,
         "profile_status": profile_status,
         "persistence_failure_reason": persistence_failure_reason,

@@ -185,6 +185,71 @@ def admin_get_profile(
     return json.dumps(payload, ensure_ascii=False)
 
 
+@tool(parse_docstring=True)
+def admin_funnel_analysis(days: int = 7, *, config: RunnableConfig) -> str:
+    """分析身份就绪、首次开口、第二次回复和画像生成的转化漏斗。
+
+    Args:
+        days: 回溯天数，默认 7，最大 30。
+    """
+    denied = _require_admin(config)
+    if denied:
+        return denied
+    payload = _get_json(
+        "/group_agent/ops_funnel_analysis",
+        {"days": max(1, min(int(days or 7), 30))},
+    )
+    return json.dumps(payload, ensure_ascii=False)
+
+
+@tool(parse_docstring=True)
+def admin_dropoff_samples(
+    days: int = 7,
+    stage: str = "f2_not_f3",
+    limit: int = 10,
+    *,
+    config: RunnableConfig,
+) -> str:
+    """读取脱敏后的短对话或深聊样本，用于判断用户停止回复的原因。
+
+    Args:
+        days: 回溯天数，默认 7，最大 30。
+        stage: f2_not_f3（仅一条用户消息）| f3_shallow（两条）| deep_chat（三条以上）。
+        limit: 样本数，默认 10，最大 20。
+    """
+    denied = _require_admin(config)
+    if denied:
+        return denied
+    allowed = {"f2_not_f3", "f3_shallow", "deep_chat"}
+    selected_stage = stage if stage in allowed else "f2_not_f3"
+    payload = _get_json(
+        "/group_agent/ops_dropoff_samples",
+        {
+            "days": max(1, min(int(days or 7), 30)),
+            "stage": selected_stage,
+            "limit": max(1, min(int(limit or 10), 20)),
+        },
+    )
+    return json.dumps(payload, ensure_ascii=False)
+
+
+@tool(parse_docstring=True)
+def admin_compare_conversations(days: int = 7, *, config: RunnableConfig) -> str:
+    """比较掉队与深聊会话的首答长度、提问数、延迟、画像措辞和 Greeting 版本。
+
+    Args:
+        days: 回溯天数，默认 7，最大 30。
+    """
+    denied = _require_admin(config)
+    if denied:
+        return denied
+    payload = _get_json(
+        "/group_agent/ops_conversation_compare",
+        {"days": max(1, min(int(days or 7), 30))},
+    )
+    return json.dumps(payload, ensure_ascii=False)
+
+
 ADMIN_SYSTEM_PROMPT = """我是「群智能体运营管理员助手」（只读运营脑）。这是我的唯一身份。
 
 ## 身份（最高优先级）
@@ -198,7 +263,15 @@ ADMIN_SYSTEM_PROMPT = """我是「群智能体运营管理员助手」（只读�
 - `admin_profile_stats`：用户画像数量统计
 - `admin_search_profiles`：按关键词搜索画像（doing/need/offer）
 - `admin_get_profile`：按 user_id 查看单条画像
+- `admin_funnel_analysis`：分析 F2 身份就绪 → 首次开口 → F3 第二次回复 → 画像生成
+- `admin_dropoff_samples`：查看已脱敏的一轮掉队、浅聊与深聊样本
+- `admin_compare_conversations`：比较不同会话组的首答特征与 Greeting 转化
 - 问到「有多少画像 / 搜索某类人 / 某用户画像 / 再试一次 / 再次调取」时，**本回合必须先调用对应工具**，再根据工具返回回答。
+- 问到「为什么聊不深 / 为什么只聊一两句 / F2-F3 / 深聊率 / 用户流失」时：
+  1. 必须先调用 `admin_funnel_analysis`；
+  2. 再调用 `admin_dropoff_samples`，至少看 f2_not_f3；需要对照时再看 deep_chat；
+  3. 涉及回复长度、问题数、延迟或开场版本时，调用 `admin_compare_conversations`。
+  回答必须分清「数据事实」「样本推断」「待验证假设」「建议实验」，不得把相关性说成因果。
 
 ## 工具调用铁律（防历史污染）
 - **禁止**沿用对话历史里的失败结论（如旧的 401、profile:read、无权限）。那些可能已过期。
@@ -216,7 +289,8 @@ ADMIN_SYSTEM_PROMPT = """我是「群智能体运营管理员助手」（只读�
 ADMIN_TURN_REMINDER = (
     "【本回合运营脑提醒】数据问题必须先调工具再答。"
     "忽略历史里任何 401/无权限/profile:read 结论；那些可能已过期。"
-    "问画像数量 → 调 admin_profile_stats；问摘要 → admin_ops_summary。"
+    "问画像数量 → 调 admin_profile_stats；问摘要 → admin_ops_summary；"
+    "问只聊一两句或 F2-F3 → 先调漏斗，再取脱敏样本和会话对比。"
 )
 
 ADMIN_OPS_TOOLS = [
@@ -224,4 +298,7 @@ ADMIN_OPS_TOOLS = [
     admin_profile_stats,
     admin_search_profiles,
     admin_get_profile,
+    admin_funnel_analysis,
+    admin_dropoff_samples,
+    admin_compare_conversations,
 ]

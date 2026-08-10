@@ -71,3 +71,8 @@ def test_admin_prompt_requires_evidence_before_diagnosis() -> None:
     assert "数据事实" in prompt
     assert "样本推断" in prompt
     assert "不得把相关性说成因果" in prompt
+    assert "F2 身份就绪 → F2.5 首次开口 → F3" in prompt
+    assert "禁止使用 F1" in prompt
+    assert "禁止写 F2→F1" in prompt
+    assert "F2.5首次开口" in admin_ops_tools.ADMIN_TURN_REMINDER
+    assert "禁止使用F1" in admin_ops_tools.ADMIN_TURN_REMINDER

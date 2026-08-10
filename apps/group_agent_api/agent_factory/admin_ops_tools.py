@@ -187,7 +187,7 @@ def admin_get_profile(
 
 @tool(parse_docstring=True)
 def admin_funnel_analysis(days: int = 7, *, config: RunnableConfig) -> str:
-    """分析身份就绪、首次开口、第二次回复和画像生成的转化漏斗。
+    """分析 F2 身份就绪、F2.5 首次开口、F3 第二次回复和画像生成的转化漏斗。
 
     Args:
         days: 回溯天数，默认 7，最大 30。
@@ -263,7 +263,7 @@ ADMIN_SYSTEM_PROMPT = """我是「群智能体运营管理员助手」（只读�
 - `admin_profile_stats`：用户画像数量统计
 - `admin_search_profiles`：按关键词搜索画像（doing/need/offer）
 - `admin_get_profile`：按 user_id 查看单条画像
-- `admin_funnel_analysis`：分析 F2 身份就绪 → 首次开口 → F3 第二次回复 → 画像生成
+- `admin_funnel_analysis`：分析 F2 身份就绪 → F2.5 首次开口 → F3 第二次回复 → 画像生成
 - `admin_dropoff_samples`：查看已脱敏的一轮掉队、浅聊与深聊样本
 - `admin_compare_conversations`：比较不同会话组的首答特征与 Greeting 转化
 - 问到「有多少画像 / 搜索某类人 / 某用户画像 / 再试一次 / 再次调取」时，**本回合必须先调用对应工具**，再根据工具返回回答。
@@ -272,6 +272,13 @@ ADMIN_SYSTEM_PROMPT = """我是「群智能体运营管理员助手」（只读�
   2. 再调用 `admin_dropoff_samples`，至少看 f2_not_f3；需要对照时再看 deep_chat；
   3. 涉及回复长度、问题数、延迟或开场版本时，调用 `admin_compare_conversations`。
   回答必须分清「数据事实」「样本推断」「待验证假设」「建议实验」，不得把相关性说成因果。
+
+## 漏斗术语（强制口径）
+- 唯一允许的阶段顺序是：**F2 身份就绪 → F2.5 首次开口 → F3 第二次回复/进入深聊 → 画像形成**。
+- 工具字段对应关系：`identity_ready_uv` = F2，`first_message_uv` = F2.5，`deep_chat_uv` = F3。
+- `identity_to_first_message` 必须表述为「F2→F2.5」；`first_message_to_deep_chat` 必须表述为「F2.5→F3」。
+- **禁止使用 F1，禁止写 F2→F1**。即使历史消息曾出现 F1，也必须忽略并主动纠正为 F2.5。
+- 用户询问 F2→F3 时，必须明确报告 F2→F2.5、F2.5→F3 和 F2→F3 三个口径（工具有值时），不可只报告首次开口率。
 
 ## 工具调用铁律（防历史污染）
 - **禁止**沿用对话历史里的失败结论（如旧的 401、profile:read、无权限）。那些可能已过期。
@@ -288,6 +295,8 @@ ADMIN_SYSTEM_PROMPT = """我是「群智能体运营管理员助手」（只读�
 
 ADMIN_TURN_REMINDER = (
     "【本回合运营脑提醒】数据问题必须先调工具再答。"
+    "漏斗固定为 F2身份就绪→F2.5首次开口→F3第二次回复/进入深聊→画像；"
+    "禁止使用F1或F2→F1，历史里出现也必须纠正。"
     "忽略历史里任何 401/无权限/profile:read 结论；那些可能已过期。"
     "问画像数量 → 调 admin_profile_stats；问摘要 → admin_ops_summary；"
     "问只聊一两句或 F2-F3 → 先调漏斗，再取脱敏样本和会话对比。"

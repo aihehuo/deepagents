@@ -587,3 +587,77 @@ def test_07_negative_eval_ci() -> None:
     )
     assert "100% pass" in result.stdout, f"runner output missing '100% pass':\n{result.stdout[-1000:]}"
     assert "0 violations" in result.stdout or "Passed:" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# D-1 灰度切档 (跨仓 P0, 老板 2026-08-11 拍板)
+# ---------------------------------------------------------------------------
+
+def test_d1_dry_run_skips_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-1 dry-run 模式: 走完流程但不真打 callback, 避免污染生产.
+
+    实证 3 件事:
+      1. /healthz 报 status=dry_run + dry_run=true
+      2. process_greeting 走完 → 返回 status=dry_run + callback_skipped=True
+      3. httpx.post 一次都没调 (避免污染生产 callback)
+    """
+    _set_minimal_env(monkeypatch)
+    monkeypatch.setenv("WECHAT_GREETER_DRY_RUN", "true")
+
+    # 1. /healthz 实证
+    from fastapi.testclient import TestClient
+    from apps.wechat_greeter_api.main import app
+    client = TestClient(app)
+    h = client.get("/healthz")
+    assert h.status_code == 200
+    health = h.json()
+    assert health["status"] == "dry_run", f"expected status=dry_run, got {health}"
+    assert health["dry_run"] is True
+    assert "model_mode" in health
+    assert "faq_count" in health and health["faq_count"] >= 30  # C 阶段 seed 30 条
+
+    # 2 + 3. process_greeting dry-run 实证
+    with patch("wechat_greeter.callback.httpx.post") as mock_post:
+        envelope = {
+            "msg_id": "msg_dry_001",
+            "openid": "test_openid_dry",
+            "content": "你好, 测一下 dry-run",
+            "send_time": int(time.time()),
+            "received_at": int(time.time()),
+        }
+        from apps.wechat_greeter_worker.tasks import process_greeting
+        result = process_greeting(envelope)
+
+        # 期望 status=dry_run
+        assert result["status"] == "dry_run", f"expected dry_run, got {result}"
+        assert result["callback_skipped"] is True
+        assert "reply_len" in result
+
+        # 期望 httpx.post 一次都没调
+        assert not mock_post.called, "dry_run must NOT invoke httpx.post (avoid polluting prod callback)"
+
+
+def test_d1_dry_run_off_actually_calls_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-1 对照: dry_run=false → 走真 callback (回归保险)."""
+    _set_minimal_env(monkeypatch)
+    # dry_run 显式不设 (默认 false)
+    monkeypatch.delenv("WECHAT_GREETER_DRY_RUN", raising=False)
+
+    with patch("wechat_greeter.callback.httpx.post") as mock_post:
+        mock_resp = MagicMock(status_code=200, json=lambda: {"status": "ok"})
+        mock_resp.raise_for_status = MagicMock()
+        mock_post.return_value = mock_resp
+
+        envelope = {
+            "msg_id": "msg_real_001",
+            "openid": "test_openid_real",
+            "content": "real 流量",
+            "send_time": int(time.time()),
+            "received_at": int(time.time()),
+        }
+        from apps.wechat_greeter_worker.tasks import process_greeting
+        result = process_greeting(envelope)
+
+        # 期望 status=ok (真 callback 路径)
+        assert result["status"] == "ok", f"expected ok, got {result}"
+        assert mock_post.called, "dry_run=false must invoke httpx.post"

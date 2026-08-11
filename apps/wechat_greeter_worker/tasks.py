@@ -20,6 +20,7 @@ C/D 阶段留：
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -33,6 +34,7 @@ from apps.wechat_greeter_api.agent_factory import make_tools
 from wechat_greeter.callback import post_callback
 from wechat_greeter.config import (
     dead_letter_after_s,
+    dry_run,
     hard_truncate_limit,
     hard_truncate_tail,
 )
@@ -89,7 +91,7 @@ def process_greeting(self, envelope: dict[str, Any]) -> dict[str, Any]:
     # 6. mark_reply_sent (stub)
     tools[3](msg_id)
 
-    # 7. Callback to new_api
+    # 7. Callback to new_api (D-1: dry_run 模式仅 log 不真打)
     callback_envelope = {
         "msg_id": msg_id,
         "openid": openid,
@@ -98,6 +100,18 @@ def process_greeting(self, envelope: dict[str, Any]) -> dict[str, Any]:
         "reply_len": len(truncated),
         "delivered_at": int(time.time()),
     }
+    if dry_run():
+        # D-1: dry-run 模式, 仅 log, 不真打 new_api (避免污染生产 callback)
+        WechatGreeterObserver.info(
+            f"DRY_RUN callback_skipped msg_id={msg_id} reply_len={len(truncated)} "
+            f"would_post_to={os.environ.get('DEEPAGENTS_WECHAT_GREETER_CALLBACK_URL', 'unset')}"
+        )
+        return {
+            "msg_id": msg_id,
+            "status": "dry_run",
+            "reply_len": len(truncated),
+            "callback_skipped": True,
+        }
     try:
         resp = post_callback(callback_envelope)
         WechatGreeterObserver.info(

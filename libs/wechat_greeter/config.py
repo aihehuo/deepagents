@@ -87,3 +87,21 @@ def hard_truncate_tail() -> str:
 def dead_letter_after_s() -> int:
     """24h 死信阈值（REQ-050 验收 5 / EX-06：send_time < 24h.ago → 死信 + 不调 callback）。"""
     return int(os.environ.get("WECHAT_GREETER_DEAD_LETTER_AFTER_S", str(24 * 3600)))
+
+
+# ---------------------------------------------------------------------------
+# D-1 灰度切档 (跨仓 P0)
+# ---------------------------------------------------------------------------
+
+def dry_run() -> bool:
+    """D-1 dry-run 模式 (灰度切档前最后一遍 smoke).
+
+    True 时:
+      - worker 不真打 callback (post_callback 替换为 log only)
+      - /healthz 报 dry_run=true
+      - 用于切档前在生产流量 0.01% 上跑一遍验证链路 (不污染生产 callback)
+    默认: False (生产路径)
+
+    回滚: 设回 false 即可, 无副作用.
+    """
+    return os.environ.get("WECHAT_GREETER_DRY_RUN", "").strip().lower() in ("1", "true", "yes", "on")

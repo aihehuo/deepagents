@@ -24,9 +24,12 @@ from fastapi.responses import JSONResponse
 
 from wechat_greeter.config import (
     api_port,
+    dry_run,
+    model_mode,
     new_api_hmac_secret,
     timestamp_skew_s,
 )
+from wechat_greeter.faq_store import get_faq_count
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -127,13 +130,24 @@ def _verify_wechat_greeter_hmac(
 # ---------------------------------------------------------------------------
 
 @app.get("/healthz")
-async def healthz() -> dict[str, str]:
-    """Liveness: 进程在；不需要 HMAC。"""
+async def healthz() -> dict:
+    """Liveness + D-1 readiness: 灰度切档决策面板.
+
+    老板 2026-08-11 拍板 D-1:
+      - status: ok | dry_run (灰度切档前用)
+      - model_mode: stub | deepseek (切档前确认)
+      - dry_run: bool (切档前 True, 切档后 False)
+      - faq_count: int (FAQ 索引条数, 0 需警惕)
+    """
+    is_dry = dry_run()
     return {
-        "status": "ok",
+        "status": "dry_run" if is_dry else "ok",
         "service": "wechat_greeter_api",
         "build_version": BUILD_VERSION,
         "port": str(api_port()),
+        "model_mode": model_mode(),
+        "dry_run": is_dry,
+        "faq_count": get_faq_count(),
     }
 
 

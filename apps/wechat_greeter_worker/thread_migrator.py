@@ -9,16 +9,25 @@ Flow:
   3. 写入新 checkpoint（含 migrated_from + summary + 旧消息列表）
   4. 显式 store.delete(old_key) (REQ-050 验收 4 硬要求)
   5. 上报 wechat_msg_thread_migrated 监控事件
+
+并发安全 (NIT-M1 修订): read→put→del 非原子, 多 worker 并发可能覆盖新 key.
+  - 模块级 threading.Lock 保护 migrate_thread 入口, 同一 (old_key, new_key) 对串行化.
+  - 真分布式 (多进程) 需 Redis SETNX, 留 P2.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Protocol
 
 from wechat_greeter.observer import WechatGreeterObserver
 
 _logger = logging.getLogger(__name__)
+
+# NIT-M1: 模块级 lock 保护 (old_key, new_key) 对的 read→put→del 原子性.
+# 注: 这是进程内 lock. 真分布式并发 (多 celery worker 进程) 留 P2 Redis SETNX.
+_migration_lock = threading.Lock()
 
 
 class CheckpointStore(Protocol):
@@ -46,7 +55,7 @@ def migrate_thread(
     old_key: str,
     new_key: str,
 ) -> dict[str, Any]:
-    """迁移 checkpoint. 显式 del 旧 key (防膨胀).
+    """迁移 checkpoint. 显式 del 旧 key (防膨胀). 进程内 lock 保护.
 
     Returns:
         {
@@ -63,6 +72,17 @@ def migrate_thread(
         )
         return {"status": "no_migration_needed", "old_key": old_key, "new_key": new_key}
 
+    # NIT-M1: 进程内 lock 串行化同一 (old_key, new_key) 对
+    with _migration_lock:
+        return _migrate_thread_impl(store=store, old_key=old_key, new_key=new_key)
+
+
+def _migrate_thread_impl(
+    *,
+    store: CheckpointStore,
+    old_key: str,
+    new_key: str,
+) -> dict[str, Any]:
     # 1. 读旧
     old = store.get(old_key)
 

@@ -1,8 +1,11 @@
 """FAQ 知识库 (REQ-051).
 
-C 阶段: 纯 Python fallback (in-memory keyword match + jaccard 相似度).
-  原因: 容器内 langchain_community / faiss-cpu 体积大, dev 环境未装.
-  fail-fast 策略: faiss 不可用时降级到 keyword match, 老板切档 FAISS 时再上.
+C 阶段 (NIT-M5 修订): 纯 Python fallback (in-memory keyword match + jaccard 相似度).
+  - 原因 1: 容器内 langchain_community / faiss-cpu 体积大, dev 环境未装.
+  - 原因 2: PRD 写"知识源 = docs/knowledge/wechat_faq.md", 但 docs 仓该路径尚未初始化.
+  - 当前方案 (in-code _FAQ_SEED 30 条硬编码): REQ-051 v1.1 修订说明起步降级路径.
+  - fail-fast 策略: faiss 不可用时降级到 keyword match, 老板切档 FAISS 时再上.
+  - 真 FAISS 接入计划: docs 仓建 docs/knowledge/wechat_faq.md → 构建脚本产 data/wechat_faq/faqs.json → faiss_store.load("data/wechat_faq/index.faiss").
 B 阶段预留: faiss_index_path 字段已就位, 真 FAISS 接入时改 _load_faiss_index() 即可.
 """
 

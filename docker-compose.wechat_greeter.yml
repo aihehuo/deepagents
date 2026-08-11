@@ -1,0 +1,70 @@
+version: "3.8"
+
+# wechat_greeter local dev compose (REQ-050)
+# 2 容器: wechat-greeter-api (port 8005) + wechat-greeter-worker (Celery worker)
+# 共享 1 个 image (Dockerfile.wechat_greeter), worker 容器通过 command 覆盖 CMD 启 celery
+#
+# 联调方: new_api (REQ-061, 已合主干) + aihehuomicro (HMAC 3 端点待实施) 通过 DEEPAGENTS_WECHAT_GREETER_CALLBACK_URL 接入
+# 灰度开关: WECHAT_GREETER_ENABLED (new_api 端), 默认 false → 老板切档
+
+services:
+  wechat-greeter-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.wechat_greeter
+    container_name: wechat-greeter-api
+    image: wechat-greeter:dev
+    ports:
+      - "8005:8005"
+    environment:
+      # HMAC 跨仓共享密钥
+      - HMAC_SECRET_NEW_API=${HMAC_SECRET_NEW_API:?set HMAC_SECRET_NEW_API}
+      - HMAC_SECRET_AIHEHUOMICRO=${HMAC_SECRET_AIHEHUOMICRO:?set HMAC_SECRET_AIHEHUOMICRO}
+      # Callback URL (新 api REQ-061 已就绪)
+      - DEEPAGENTS_WECHAT_GREETER_CALLBACK_URL=http://new-api:3000/wechat_greeter_callbacks
+      # Redis broker
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      # 行为参数
+      - WECHAT_GREETER_MODEL_MODE=stub
+      - WECHAT_GREETER_HMAC_TIMESTAMP_SKEW_S=300
+      - WECHAT_GREETER_DEAD_LETTER_AFTER_S=86400
+      - WECHAT_GREETER_TRUNCATE_LIMIT=200
+      # Python path
+      - PYTHONPATH=/app/libs/deepagents:/app/libs/wechat_greeter
+    user: "1000:1000"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import http.client; conn = http.client.HTTPConnection('localhost', 8005); conn.request('GET', '/healthz'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  wechat-greeter-worker:
+    image: wechat-greeter:dev
+    container_name: wechat-greeter-worker
+    # 覆盖默认 CMD, 启 Celery worker
+    command: ["celery", "-A", "apps.wechat_greeter_worker.celery_app", "worker", "--loglevel=INFO", "--concurrency=2", "-Q", "wechat_greeter"]
+    environment:
+      - HMAC_SECRET_NEW_API=${HMAC_SECRET_NEW_API:?set HMAC_SECRET_NEW_API}
+      - HMAC_SECRET_AIHEHUOMICRO=${HMAC_SECRET_AIHEHUOMICRO:-test-micro-secret}
+      - DEEPAGENTS_WECHAT_GREETER_CALLBACK_URL=http://new-api:3000/wechat_greeter_callbacks
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WECHAT_GREETER_MODEL_MODE=stub
+      - WECHAT_GREETER_DEAD_LETTER_AFTER_S=86400
+      - WECHAT_GREETER_TRUNCATE_LIMIT=200
+      - PYTHONPATH=/app/libs/deepagents:/app/libs/wechat_greeter
+    user: "1000:1000"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/redis:7-alpine
+    container_name: wechat-greeter-redis
+    user: "1000:1000"
+    restart: unless-stopped

@@ -1,0 +1,54 @@
+name: wechat_greeter_negative_eval
+
+# REQ-050 / REQ-051 验收 7: CI 跑 50 条负向评测 ≤ 2 分钟, 100% 通过, 否则 merge block
+# 触发: PR 改 libs/wechat_greeter/** 或 apps/wechat_greeter_*/** 时
+
+on:
+  pull_request:
+    paths:
+      - "libs/wechat_greeter/**"
+      - "apps/wechat_greeter_api/**"
+      - "apps/wechat_greeter_worker/**"
+      - "tests/wechat_greeter/eval/**"
+  push:
+    branches: [main, develop]
+    paths:
+      - "libs/wechat_greeter/**"
+      - "apps/wechat_greeter_api/**"
+      - "apps/wechat_greeter_worker/**"
+
+jobs:
+  negative_eval:
+    name: Run 50 negative cases (≤ 2min, 100% pass)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -i https://pypi.tuna.tsinghua.edu.cn/simple \
+            fastapi uvicorn celery redis httpx jinja2 pydantic pyyaml langchain langchain-core langchain-deepseek
+
+      - name: Run negative eval
+        env:
+          WECHAT_GREETER_MODEL_MODE: stub
+          WECHAT_GREETER_HMAC_TIMESTAMP_SKEW_S: "300"
+          WECHAT_GREETER_DEAD_LETTER_AFTER_S: "86400"
+          WECHAT_GREETER_TRUNCATE_LIMIT: "200"
+        run: |
+          python tests/wechat_greeter/eval/run_negative_eval.py --mode stub
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: negative_eval_report
+          path: negative_eval_report.json
+          retention-days: 7

@@ -17,7 +17,7 @@ services:
     ports:
       - "8005:8005"
     environment:
-      # HMAC 跨仓共享密钥
+      # HMAC 跨仓共享密钥 (REQ-065 P1-1: readiness 检查项, 必须注入)
       - HMAC_SECRET_NEW_API=${HMAC_SECRET_NEW_API:?set HMAC_SECRET_NEW_API}
       - HMAC_SECRET_AIHEHUOMICRO=${HMAC_SECRET_AIHEHUOMICRO:?set HMAC_SECRET_AIHEHUOMICRO}
       # Callback URL (新 api REQ-061 已就绪)
@@ -25,11 +25,17 @@ services:
       # Redis broker
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      # 模型 (REQ-065 P0-1/P0-3: 生产/灰度必须注入 deepseek + key)
+      - WECHAT_GREETER_MODEL_MODE=${WECHAT_GREETER_MODEL_MODE:-stub}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # 灰度 (REQ-065 P0-3: dry_run=true 允许冒烟不阻塞 readiness)
+      - WECHAT_GREETER_DRY_RUN=${WECHAT_GREETER_DRY_RUN:-false}
       # 行为参数
-      - WECHAT_GREETER_MODEL_MODE=stub
       - WECHAT_GREETER_HMAC_TIMESTAMP_SKEW_S=300
       - WECHAT_GREETER_DEAD_LETTER_AFTER_S=86400
       - WECHAT_GREETER_TRUNCATE_LIMIT=200
+      - HOST_AIHEHUOMICRO=${HOST_AIHEHUOMICRO:-http://aihehuomicro:3000}
       # Python path
       - PYTHONPATH=/app/libs/deepagents:/app/libs/wechat_greeter
     user: "1000:1000"
@@ -56,9 +62,17 @@ services:
       - DEEPAGENTS_WECHAT_GREETER_CALLBACK_URL=http://new-api:3000/wechat_greeter_callbacks
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - WECHAT_GREETER_MODEL_MODE=stub
+      # 模型 (REQ-065 P0-1: 灰度/生产必须注入 deepseek + key, 与 API 同步)
+      - WECHAT_GREETER_MODEL_MODE=${WECHAT_GREETER_MODEL_MODE:-stub}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # 灰度 (REQ-065 P0-2: worker 必须读 dry_run, 否则默认 false → 可能误发 callback)
+      - WECHAT_GREETER_DRY_RUN=${WECHAT_GREETER_DRY_RUN:-false}
+      # 行为参数
+      - WECHAT_GREETER_HMAC_TIMESTAMP_SKEW_S=300
       - WECHAT_GREETER_DEAD_LETTER_AFTER_S=86400
       - WECHAT_GREETER_TRUNCATE_LIMIT=200
+      - HOST_AIHEHUOMICRO=${HOST_AIHEHUOMICRO:-http://aihehuomicro:3000}
       - PYTHONPATH=/app/libs/deepagents:/app/libs/wechat_greeter
     user: "1000:1000"
     depends_on:

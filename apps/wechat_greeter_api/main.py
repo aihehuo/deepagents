@@ -144,16 +144,15 @@ async def healthz() -> dict:
 async def ready() -> JSONResponse:
     """Readiness: 验证所有关键依赖就绪 (REQ-065 P1-1).
 
-    检查项:
-      1. model_mode 已配置 + 值为 deepseek
-      2. dry_run 已关闭
-      3. DEEPSEEK_API_KEY 已配置
-      4. HMAC_SECRET_NEW_API 已配置
-      5. HMAC_SECRET_AIHEHUOMICRO 已配置
-      6. aihehuomicro 可达 (HTTP healthz)
+    检查项 (仅静态配置, 不做跨服务实时探测):
+      1. model_mode 已显式配置 + 值为 deepseek
+      2. DEEPSEEK_API_KEY (或 OPENAI_API_KEY fallback) 已配置
+      3. HMAC_SECRET_NEW_API 已配置
+      4. HMAC_SECRET_AIHEHUOMICRO 已配置
 
+    dry_run=true 不阻塞 readiness (灰度前有效冒烟模式, P0-3).
     全部通过 → 200; 任一失败 → 503 + 失败详情。
-    部署健康检查应使用此端点 (非 /healthz)。
+    部署 healthcheck 应使用此端点 (非 /healthz).
     """
     details = readiness_details()
     overall = details.pop("overall")

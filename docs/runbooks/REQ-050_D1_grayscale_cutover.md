@@ -36,9 +36,13 @@ export WECHAT_GREETER_LLM_MODEL="deepseek-v4-flash"  # 锁死, 别动
 export WECHAT_GREETER_DRY_RUN="true"  # 关键: dry-run 模式
 docker compose -f docker-compose.wechat_greeter.yml up -d
 
-# 验证 healthz 报 dry_run=true + model_mode=deepseek
+# 验证 healthz 存活 + /ready 就绪 (REQ-065 P1-1: liveness/readiness 拆分)
 curl http://api:8005/healthz
-# 期望: {"status": "dry_run", "model_mode": "deepseek", "dry_run": true, "faq_count": 30, ...}
+# 期望: {"status": "ok", "service": "wechat_greeter_api", ...}
+
+curl http://api:8005/ready
+# 期望: {"status": "ready", "checks": {"model_mode_is_deepseek": {"ok": true}, "deepseek_api_key": {"ok": true}, ...}}
+# 注: dry_run=true 不阻塞 /ready (P0-3)
 ```
 
 **回滚**: `docker compose down` + `unset WECHAT_GREETER_DRY_RUN`
@@ -125,7 +129,7 @@ export WECHAT_GREETER_MODEL_MODE="stub"  # 关 deepseek, 走 stub
 unset DEEPSEEK_API_KEY  # 切断真实 API 访问
 docker compose -f docker-compose.wechat_greeter.yml restart wechat-greeter-worker
 
-# 验证: curl /healthz → model_mode=stub + status=ok
+# 验证: curl /healthz → status=ok; curl /ready → model_mode=stub (not_ready)
 ```
 
 **回滚决策树**:

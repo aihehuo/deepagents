@@ -93,7 +93,7 @@ def model_mode() -> str:
     """LLM 模式：stub | deepseek。
 
     REQ-065 P0-C7: stub 不再是生产默认。不配置 → RuntimeError (fail-closed)。
-    灰度/生产部署 readiness: model_mode=deepseek + dry_run=false。
+    REQ-065 P1-1/P0-3: readiness 要求 model_mode=deepseek (dry_run 不影响 readiness)。
     stub 仅在显式设置 WECHAT_GREETER_MODEL_MODE=stub 时可用 (测试/CI)。
     """
     raw = (os.environ.get("WECHAT_GREETER_MODEL_MODE") or "").strip().lower()
@@ -204,9 +204,12 @@ def dry_run() -> bool:
 
     True 时:
       - worker 不真打 callback (post_callback 替换为 log only)
-      - /healthz 报 dry_run=true
-      - 用于切档前在生产流量 0.01% 上跑一遍验证链路 (不污染生产 callback)
+      - 用于切档前在生产流量上跑一遍验证链路 (不污染生产 callback)
     默认: False (生产路径)
+
+    REQ-065 P0-3: dry_run 不阻塞 /ready 和 /call_async readiness gate.
+    dry_run 状态不通过 /healthz 暴露 (P1-1 liveness 简化).
+    部署方通过独立配置检查确认 dry_run 状态, 或 GET /ready 检查 model_mode + key.
 
     回滚: 设回 false 即可, 无副作用.
     """

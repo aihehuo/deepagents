@@ -467,6 +467,7 @@ def test_06_hard_truncate_200_chars(monkeypatch: pytest.MonkeyPatch) -> None:
     """REQ-062 验收 6: Prompt 字数简短约束 + 单一尾巴保证."""
     _set_minimal_env(monkeypatch)
     TAIL = "〔详情见 App，扫码看完整建议〕"
+    monkeypatch.setenv("WECHAT_GREETER_TRUNCATE_TAIL", TAIL)
 
     # 分支 1: raw 不带 tail → 自动追加单尾巴 (完整保留原文)
     long_raw = "这是一段比较长但语句完整的文字。" * 10
@@ -519,7 +520,7 @@ def test_06_hard_truncate_200_chars(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_apply_tail_and_truncate_deduplication() -> None:
-    """Test apply_tail_and_truncate deduplicates existing tail phrases."""
+    """Test apply_tail_and_truncate deduplicates existing tail phrases and handles empty tail."""
     from wechat_greeter.config import apply_tail_and_truncate
 
     tail = "〔详情见 App，扫码看完整建议〕"
@@ -536,17 +537,11 @@ def test_apply_tail_and_truncate_deduplication() -> None:
     assert res2 == "找项目前往App。〔详情见 App，扫码看完整建议〕"
     assert res2.count(tail) == 1
 
-    # Scenario 3: LLM output tail followed by whitespace/newlines
+    # Scenario 3: Empty tail (default) strips old residual tails and appends nothing
     raw3 = "找项目前往App。〔详情见 App，扫码看完整建议〕\n\n"
-    res3 = apply_tail_and_truncate(raw3, tail=tail, limit=200)
-    assert res3 == "找项目前往App。〔详情见 App，扫码看完整建议〕"
-    assert res3.count(tail) == 1
-
-    # Scenario 4: LLM did not output tail
-    raw4 = "找项目前往App。"
-    res4 = apply_tail_and_truncate(raw4, tail=tail, limit=200)
-    assert res4 == "找项目前往App。〔详情见 App，扫码看完整建议〕"
-    assert res4.count(tail) == 1
+    res3 = apply_tail_and_truncate(raw3, tail="", limit=None)
+    assert res3 == "找项目前往App。"
+    assert "扫码看完整建议" not in res3
 
 
 

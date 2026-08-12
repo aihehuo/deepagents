@@ -1,6 +1,6 @@
 # REQ-050 / REQ-051 · D-1 灰度切档操作手册 (跨仓 P0)
 
-**适用范围**: 微信公众号客服智能体 (UC-35) 从 stub 模式切到 deepseek 模式 + 灰度放量
+**适用范围**: 微信公众号客服智能体 (UC-35) 从 stub 模式切到 DashScope 模式 + 灰度放量
 **拍板人**: 老板 2026-08-11
 **前置 commit**: `673ef761` (A+B+C) + `e06cc179` (档 A 4 NIT) + D-1 commit
 **回滚 SLA**: ≤ 5 分钟 (本仓 + 跨仓开关 + worker 重启)
@@ -11,23 +11,24 @@
 
 | 阶段 | model_mode | WECHAT_GREETER_ENABLED (new_api 端) | dry_run (本仓) | 流量 |
 |---|---|---|---|---|
-| **T-1 准备** | stub → deepseek | false (new_api 不发请求) | true | 0% (切档前 dry-run 验证链路) |
-| **T0 切档** | deepseek | true (new_api 开始发请求) | false | 1% → 10% → 50% → 100% |
+| **T-1 准备** | stub → dashscope | false (new_api 不发请求) | true | 0% (切档前 dry-run 验证链路) |
+| **T0 切档** | dashscope | true (new_api 开始发请求) | false | 1% → 10% → 50% → 100% |
 
 ---
 
 ## 🚀 切档前 5 步 (T-1 准备, 必须按顺序)
 
-### Step 1: 配 DEEPSEEK_API_KEY (生产密钥, 不入仓)
+### Step 1: 配 DASHSCOPE_API_KEY (生产密钥, 不入仓)
 
 ```bash
 # 仅在 deep agents 部署环境配, 不入仓不入 .env 真实值
-export DEEPSEEK_API_KEY="sk-real-..."  # 老板您来贴, 绝不提交
-export WECHAT_GREETER_MODEL_MODE="deepseek"
-export WECHAT_GREETER_LLM_MODEL="deepseek-v4-flash"  # 锁死, 别动
+export DASHSCOPE_API_KEY="sk-real-..."  # 从现有 DashScope App 的生产密钥安全注入，绝不提交
+export WECHAT_GREETER_MODEL_MODE="dashscope"
+export WECHAT_GREETER_LLM_MODEL="qwen-plus"
+export WECHAT_GREETER_LLM_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
 ```
 
-**回滚**: `unset DEEPSEEK_API_KEY` + `export WECHAT_GREETER_MODEL_MODE="stub"`
+**回滚**: new_API 设置 `WECHAT_GREETER_FORCE_OFF=true`；模型配置保持 DashScope，不让 stub 接生产流量。
 
 ### Step 2: 启 API + worker (dry-run 模式)
 
@@ -43,19 +44,19 @@ curl http://localhost:8005/healthz
 # 期望: {"status": "ok", "service": "wechat_greeter_api", ...}
 
 curl http://localhost:8005/ready
-# 期望: {"status": "ready", "checks": {"model_mode_is_deepseek": {"ok": true}, "deepseek_api_key": {"ok": true}, ...}}
+# 期望: {"status": "ready", "checks": {"model_mode_is_dashscope": {"ok": true}, "dashscope_api_key": {"ok": true}, ...}}
 # 注: dry_run=true 不阻塞 /ready (P0-3)
 ```
 
 **回滚**: new_API 保持 `WECHAT_GREETER_FORCE_OFF=true`，必要时停止这两个新容器。
 
-### Step 3: 跑 50 条负向评测 (真实 deepseek, dry-run 模式)
+### Step 3: 跑 50 条负向评测 (真实 DashScope, dry-run 模式)
 
 ```bash
-# 部署环境跑 (需 DEEPSEEK_API_KEY 已配)
+# 部署环境跑 (需 DASHSCOPE_API_KEY 已配)
 .venv/bin/python tests/wechat_greeter/eval/run_negative_eval.py --mode real
 # 期望: 100% pass + ≤ 120s + 0 越界
-# 注: --mode real 走真 deepseek, 区别于 --mode stub (CI smoke 用)
+# 注: --mode real 走真 DashScope, 区别于 --mode stub (CI smoke 用)
 ```
 
 **回滚**: 无副作用 (评测只读, 不改生产数据)
@@ -132,34 +133,32 @@ WECHAT_GREETER_WORKER_IMAGE="$WORKER_IMAGE" docker compose \
 # 期望效果: new_api 停止发请求到 wechat_greeter, 本仓 worker 立即 idle
 ```
 
-### 回滚 3: 切回 stub 模式 (本仓, 3 分钟)
+### 回滚 3: 保持停流并清空模型密钥 (本仓, 3 分钟)
 
 ```bash
-sed -i 's/^WECHAT_GREETER_MODEL_MODE=.*/WECHAT_GREETER_MODEL_MODE=stub/' /mnt/wechat-greeter-api/.docker.env
-sed -i 's/^WECHAT_GREETER_MODEL_MODE=.*/WECHAT_GREETER_MODEL_MODE=stub/' /mnt/wechat-greeter-worker/.docker.env
-sed -i 's/^DEEPSEEK_API_KEY=.*/DEEPSEEK_API_KEY=/' /mnt/wechat-greeter-api/.docker.env
-sed -i 's/^DEEPSEEK_API_KEY=.*/DEEPSEEK_API_KEY=/' /mnt/wechat-greeter-worker/.docker.env
+sed -i 's/^DASHSCOPE_API_KEY=.*/DASHSCOPE_API_KEY=/' /mnt/wechat-greeter-api/.docker.env
+sed -i 's/^DASHSCOPE_API_KEY=.*/DASHSCOPE_API_KEY=/' /mnt/wechat-greeter-worker/.docker.env
 # model/key 变更影响 API + worker, 两个都必须 force-recreate
 API_IMAGE="$(docker inspect wechat-greeter-api --format '{{.Config.Image}}')"
 WORKER_IMAGE="$(docker inspect wechat-greeter-worker --format '{{.Config.Image}}')"
 WECHAT_GREETER_API_IMAGE="$API_IMAGE" WECHAT_GREETER_WORKER_IMAGE="$WORKER_IMAGE" docker compose \
   -f /mnt/deepagents/docker-compose.prod3.yml up -d --force-recreate wechat-greeter-api wechat-greeter-worker
 
-# 验证: curl /healthz → status=ok; curl /ready → model_mode=stub (not_ready)
+# 验证: curl /healthz → status=ok; curl /ready → dashscope_api_key (not_ready)
 curl http://localhost:8005/healthz
 curl http://localhost:8005/ready
 ```
 
 **回滚决策树**:
-- 失败率 < 1% → 保留 deepseek 模式, 仅关灰度 (回滚 2)
-- 失败率 1-5% → 关灰度 + 切 stub (回滚 2+3)
-- 失败率 > 5% 或 callback 持续失败 → 全切 stub + 查日志定位 (回滚 1+2+3)
+- 失败率 < 1% → 保留 DashScope 配置, 仅关灰度 (回滚 2)
+- 失败率 1-5% → 关灰度 + 清空模型密钥 (回滚 2+3)
+- 失败率 > 5% 或 callback 持续失败 → 开 dry-run + 关灰度 + 清空密钥并查日志 (回滚 1+2+3)
 
 ---
 
 ## 🚨 红线 (任何阶段都不能违反)
 
-1. **DEEPSEEK_API_KEY 绝不入仓**, 统一 `os.environ` 占位 (CLAUDE.md 铁律)
+1. **DASHSCOPE_API_KEY 绝不入仓**, 统一 `os.environ` 占位 (CLAUDE.md 铁律)
 2. **dry_run 切真流量前必开**, 避免污染生产 callback
 3. **失败率 > 1% 立即回滚**, 不观望
 4. **跨仓协调留痕**: 切档/回滚前必在 new_api 群同步, 不单边操作
@@ -183,7 +182,7 @@ curl http://localhost:8005/ready
 
 - [ ] **aihehuomicro 2 端点就绪** (跨仓: user_by_openid / user_full_profile, HMAC from=wechat_greeter 锁死) — D-2 范围, 切档前必完
 - [ ] **new_api REQ-061 灰度开关 WECHAT_GREETER_ENABLED 实施** (跨仓: 默认 false, 切档时设 true) — D-1 必查
-- [ ] **DEEPSEEK_API_KEY 配齐** (本仓 + 生产环境) — D-1 Step 1
+- [ ] **DASHSCOPE_API_KEY 配齐** (本仓 + 生产环境) — D-1 Step 1
 - [ ] **TSD-09 v0.1 DRAFT → v1.0 签发** (docs 仓) — NIT-S1 修订, D-1 切真流量前必签
 - [ ] **3 工具 E2E 真实 HMAC** (本仓: 2× micro HMAC + 1× 本地 FAQ) — D-2 范围, D-1 dry-run 阶段 stub 即可
 - [ ] **回滚 3 步骤过一遍演练** (本仓 + 跨仓) — D-1 切档前必演

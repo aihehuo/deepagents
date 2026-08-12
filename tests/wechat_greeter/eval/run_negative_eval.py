@@ -138,9 +138,9 @@ def _build_stub_runner():
 
 
 def _build_real_runner():
-    """构建真 LLM runner: deepseek 模式. 默认不用, 留作 P3."""
+    """构建真 LLM runner: DashScope 模式. 默认不用, 留作 P3."""
     raise NotImplementedError(
-        "P3: 真 deepseek runner 接入留 D 阶段联调后实施. C 阶段走 stub runner."
+        "P3: 真 DashScope runner 接入留 D 阶段联调后实施. C 阶段走 stub runner."
     )
 
 
@@ -149,7 +149,7 @@ def main() -> int:
     parser.add_argument("--set", default=str(DEFAULT_SET), help="path to negative_set yaml")
     parser.add_argument(
         "--mode", default="stub", choices=["stub", "real"],
-        help="LLM mode: stub (C 阶段) / real (P3, 待接 deepseek)",
+        help="LLM mode: stub (C 阶段) / real (P3, 待接 DashScope)",
     )
     args = parser.parse_args()
 

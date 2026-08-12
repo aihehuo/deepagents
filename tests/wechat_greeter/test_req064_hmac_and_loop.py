@@ -1,7 +1,7 @@
 """REQ-064: HMAC 签名跨库对齐 + agent loop 运行时测试.
 
 P0: HMAC 签名与 aihehuomicro HmacVerifier 字节级一致
-P1: deepseek 模式 tool-loop 运行时测试 (REQ-063 补做)
+P1: DashScope 模式 tool-loop 运行时测试 (REQ-063 补做)
 
 跨库验签证据:
   参考实现来源: aihehuomicro app/services/wechat_greeter/hmac_verifier.rb
@@ -250,16 +250,43 @@ class TestHmacCrossRepoVerification:
 
 
 # ============================================================================
-# P1-5: deepseek tool-loop 运行时测试
+# P1-5: DashScope tool-loop 运行时测试
 # ============================================================================
 
-class TestDeepseekToolLoop:
-    """P1-5/6: deepseek 模式 bind_tools + agent loop 运行时测试."""
+class TestDashScopeConfiguration:
+    """Production provider must remain pinned to DashScope/Qwen."""
+
+    def test_build_chat_model_uses_dashscope_compatible_api(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-dashscope-key")
+        monkeypatch.delenv("WECHAT_GREETER_LLM_MODEL", raising=False)
+        monkeypatch.delenv("WECHAT_GREETER_LLM_BASE_URL", raising=False)
+
+        with patch("wechat_greeter.llm_client.init_chat_model") as init_model:
+            from wechat_greeter.llm_client import _build_chat_model
+
+            _build_chat_model()
+
+        kwargs = init_model.call_args.kwargs
+        assert kwargs["model"] == "qwen-plus"
+        assert kwargs["model_provider"] == "openai"
+        assert kwargs["api_key"] == "test-dashscope-key"
+        assert kwargs["base_url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+    def test_legacy_deepseek_mode_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "deepseek")
+
+        from wechat_greeter.config import model_mode
+
+        with pytest.raises(RuntimeError, match="dashscope"):
+            model_mode()
+
+class TestDashScopeToolLoop:
+    """P1-5/6: DashScope 模式 bind_tools + agent loop 运行时测试."""
 
     @staticmethod
-    def _set_deepseek_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "deepseek")
-        monkeypatch.setenv("DEEPSEEK_API_KEY", "test-fake-key-for-loop-tests")
+    def _set_dashscope_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "dashscope")
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-fake-key-for-loop-tests")
         monkeypatch.setenv("HMAC_SECRET_AIHEHUOMICRO", "test-secret")
 
     def test_p1_5a_tool_actually_executed_in_loop(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -268,7 +295,7 @@ class TestDeepseekToolLoop:
         REQ-063 test_08 只在 stub 模式测 call_llm, 不进 tool-loop。
         本测试测 llm_client.py:266-291 的真实循环。
         """
-        self._set_deepseek_mode(monkeypatch)
+        self._set_dashscope_mode(monkeypatch)
 
         # Spy tool: 记录是否被调用 + 返回可验证数据
         call_log: list[dict[str, Any]] = []
@@ -332,7 +359,7 @@ class TestDeepseekToolLoop:
 
         验证 llm_client.py:284-286 的 messages.append(resp) + messages.extend(tool_results).
         """
-        self._set_deepseek_mode(monkeypatch)
+        self._set_dashscope_mode(monkeypatch)
 
         def spy_tool(query: str) -> list[dict[str, Any]]:
             return [{"q": query, "a": "答案"}]
@@ -378,12 +405,12 @@ class TestDeepseekToolLoop:
             f"ToolMessage should contain tool result, got: {tool_msg_content[:200]}"
         )
 
-    def test_p1_5c_profile_context_injected_in_deepseek_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """P1-5c: deepseek 模式下 profile_context 被注入 system_prompt.
+    def test_p1_5c_profile_context_injected_in_dashscope_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """P1-5c: DashScope 模式下 profile_context 被注入 system_prompt.
 
-        验证 P0-2 在 deepseek 模式真起效 (不只测 _build_system_prompt 函数).
+        验证 P0-2 在 DashScope 模式真起效 (不只测 _build_system_prompt 函数).
         """
-        self._set_deepseek_mode(monkeypatch)
+        self._set_dashscope_mode(monkeypatch)
 
         system_prompts: list[str] = []
 
@@ -412,11 +439,11 @@ class TestDeepseekToolLoop:
         assert len(system_prompts) == 1, f"should have 1 system prompt, got {len(system_prompts)}"
         prompt = system_prompts[0]
         assert "张三" in prompt, (
-            f"deepseek system_prompt must contain injected profile (张三), "
+            f"dashscope system_prompt must contain injected profile (张三), "
             f"got first 300 chars: {prompt[:300]}"
         )
         assert "CTO" in prompt, (
-            f"deepseek system_prompt must contain injected seeking role (CTO), "
+            f"dashscope system_prompt must contain injected seeking role (CTO), "
             f"got first 300 chars: {prompt[:300]}"
         )
 
@@ -433,8 +460,8 @@ class TestMaxRoundsFallback:
 
         验证 llm_client.py:288-291 的兜底分支: 不会无限循环。
         """
-        monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "deepseek")
-        monkeypatch.setenv("DEEPSEEK_API_KEY", "test-fake-key")
+        monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "dashscope")
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-fake-key")
         monkeypatch.setenv("HMAC_SECRET_AIHEHUOMICRO", "test-secret")
 
         call_counter = [0]
@@ -505,8 +532,8 @@ class TestMaxRoundsFallback:
 
         对照: 确保 tool-loop 只在有 tools 时触发。
         """
-        monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "deepseek")
-        monkeypatch.setenv("DEEPSEEK_API_KEY", "test-fake-key")
+        monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "dashscope")
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-fake-key")
 
         invoke_count = [0]
 

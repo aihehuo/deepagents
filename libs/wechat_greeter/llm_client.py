@@ -2,10 +2,10 @@
 
 3 模式：
   - "stub"       : 返回固定长文本 (用于测硬截断)，忽略 tools/profile_context
-  - "deepseek"   : 走 init_chat_model + bind_tools + agent executor loop
+  - "dashscope"  : 通过 DashScope OpenAI-compatible API 运行 Qwen tool loop
   - "test_mock"  : 单测用, 由 monkeypatch 注入, 返回 WECHAT_GREETER_LLM_RAW env 值
 
-Model 锁死: deepseek-v4-flash (老板 2026-08-11 拍板, 走 api.deepseek.com 兼容 OpenAI 协议)。
+生产模型统一使用阿里云 DashScope，与现有 App 的供应商配置保持一致。
 
 REQ-063 P0-1: call_llm 接 bind_tools/agent executor, tools 真传入 LLM.
 REQ-063 P0-2: registered 分支 4 段 profile 真进 LLM 上下文 (profile_context 参数).
@@ -26,29 +26,25 @@ from wechat_greeter.config import model_mode
 
 _logger = logging.getLogger(__name__)
 
-# 老板 2026-08-11 拍板: deepseek-v4-flash 锁死, 兼容 OpenAI 协议, base_url=api.deepseek.com
-DEFAULT_MODEL_NAME = "deepseek-v4-flash"
-DEFAULT_BASE_URL = "https://api.deepseek.com"
+# DashScope OpenAI-compatible endpoint, aligned with Group Agent.
+DEFAULT_MODEL_NAME = "qwen-plus"
+DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 # REQ-063: 工具调用最大轮次 (防止无限循环)
 MAX_TOOL_ROUNDS = 3
 
 
 def _build_chat_model():
-    """Build a real chat model via langchain init_chat_model. Only called in deepseek mode."""
-    api_key = (
-        os.environ.get("DEEPSEEK_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")  # fallback for compat
-        or ""
-    ).strip()
+    """Build the production Qwen model through DashScope's compatible API."""
+    api_key = (os.environ.get("DASHSCOPE_API_KEY") or "").strip()
     if not api_key:
         raise RuntimeError(
-            "DEEPSEEK_API_KEY not set in env. deepseek mode requires this. "
+            "DASHSCOPE_API_KEY not set in env. dashscope mode requires this. "
             "Set it in deployment env (never commit real value)."
         )
     return init_chat_model(
         model=os.environ.get("WECHAT_GREETER_LLM_MODEL", DEFAULT_MODEL_NAME),
-        model_provider="deepseek",
+        model_provider="openai",
         api_key=api_key,
         base_url=os.environ.get("WECHAT_GREETER_LLM_BASE_URL", DEFAULT_BASE_URL),
         temperature=float(os.environ.get("WECHAT_GREETER_LLM_TEMPERATURE", "0.3")),
@@ -281,7 +277,7 @@ def call_llm(
     3 模式分支:
       - stub:        返回固定长文本 (忽略 tools/profile_context)
       - test_mock:   同 stub, 单测用
-      - deepseek:    bind_tools + agent executor loop + profile_context 注入
+      - dashscope:   bind_tools + agent executor loop + profile_context 注入
     """
     mode = model_mode()
 
@@ -299,7 +295,7 @@ def call_llm(
             "不会向用户输出超长内容。"
         )
 
-    if mode == "deepseek":
+    if mode == "dashscope":
         branch = _determine_identity_branch(user_id=user_id)
         system_prompt = _build_system_prompt(
             identity_branch=branch,

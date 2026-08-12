@@ -92,37 +92,30 @@ def timestamp_skew_s() -> int:
 # ---------------------------------------------------------------------------
 
 def model_mode() -> str:
-    """LLM 模式：stub | deepseek。
+    """LLM 模式：stub | dashscope。
 
     REQ-065 P0-C7: stub 不再是生产默认。不配置 → RuntimeError (fail-closed)。
-    REQ-065 P1-1/P0-3: readiness 要求 model_mode=deepseek (dry_run 不影响 readiness)。
+    生产统一使用阿里云 DashScope；readiness 要求 model_mode=dashscope。
     stub 仅在显式设置 WECHAT_GREETER_MODEL_MODE=stub 时可用 (测试/CI)。
     """
     raw = (os.environ.get("WECHAT_GREETER_MODEL_MODE") or "").strip().lower()
     if not raw:
         raise RuntimeError(
             "WECHAT_GREETER_MODEL_MODE not set. "
-            "Must be explicitly set to 'deepseek' (production/grayscale) or 'stub' (test/CI only). "
+            "Must be explicitly set to 'dashscope' (production/grayscale) or 'stub' (test/CI only). "
             "Ref: REQ-065 P0-C7 — stub is no longer the production default."
         )
-    if raw not in ("stub", "deepseek"):
+    if raw not in ("stub", "dashscope"):
         raise RuntimeError(
             f"WECHAT_GREETER_MODEL_MODE={raw!r} is invalid. "
-            f"Must be 'deepseek' (production/grayscale) or 'stub' (test/CI only)."
+            f"Must be 'dashscope' (production/grayscale) or 'stub' (test/CI only)."
         )
     return raw
 
 
-def deepseek_api_key() -> str:
-    """DeepSeek API key (REQ-065 P1-1: readiness 检查项).
-
-    P2-2: 与 llm_client.py 行为对齐 — 同时接受 DEEPSEEK_API_KEY 和 OPENAI_API_KEY。
-    生产明确只允许 DEEPSEEK_API_KEY 时，通过部署层单独注入；缺 OPENAI_API_KEY 不是故障。
-    """
-    dsk = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
-    if dsk:
-        return dsk
-    return (os.environ.get("OPENAI_API_KEY") or "").strip()
+def dashscope_api_key() -> str:
+    """DashScope API key (生产唯一允许的模型供应商)."""
+    return (os.environ.get("DASHSCOPE_API_KEY") or "").strip()
 
 
 def readiness_details() -> dict:
@@ -145,20 +138,20 @@ def readiness_details() -> dict:
     except RuntimeError as exc:
         checks["model_mode"] = {"ok": False, "reason": str(exc)}
 
-    # 2. model_mode=deepseek (not stub in production)
-    if mode == "deepseek":
-        checks["model_mode_is_deepseek"] = {"ok": True}
+    # 2. model_mode=dashscope (not stub in production)
+    if mode == "dashscope":
+        checks["model_mode_is_dashscope"] = {"ok": True}
     else:
-        checks["model_mode_is_deepseek"] = {
+        checks["model_mode_is_dashscope"] = {
             "ok": False,
-            "reason": f"model_mode={mode!r}, must be 'deepseek' for production",
+            "reason": f"model_mode={mode!r}, must be 'dashscope' for production",
         }
 
-    # 3. DeepSeek API key (or OPENAI_API_KEY fallback, P2-2)
-    dsk = deepseek_api_key()
-    checks["deepseek_api_key"] = {
-        "ok": bool(dsk),
-        "reason": None if dsk else "DEEPSEEK_API_KEY (or OPENAI_API_KEY) is empty or not set",
+    # 3. DashScope API key. Do not fall back to keys for another provider.
+    dashscope_key = dashscope_api_key()
+    checks["dashscope_api_key"] = {
+        "ok": bool(dashscope_key),
+        "reason": None if dashscope_key else "DASHSCOPE_API_KEY is empty or not set",
     }
 
     # 4. HMAC secret (new_api)

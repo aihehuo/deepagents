@@ -740,7 +740,7 @@ def test_08_req063_runtime_tool_execution(monkeypatch: pytest.MonkeyPatch) -> No
     )
     assert isinstance(reply, str), f"P0-1: call_llm should return str, got {type(reply)}"
     assert len(reply) > 0, "P0-1: call_llm should return non-empty reply"
-    # stub 模式返回固定文本，不依赖 profile_context（deepseek 模式才真注入到 LLM 推理）
+    # stub 模式返回固定文本，不依赖 profile_context（DashScope 模式才真注入到 LLM 推理）
 
     # 无 tools 调用也应正常 (guest 路径)
     reply_guest = call_llm(
@@ -1042,16 +1042,16 @@ def test_09e_req065_p0a4_callback_max_retries_re_raises_original(
 # Helper: set env for a "ready" production config
 def _set_ready_env(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_minimal_env(monkeypatch)
-    monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "deepseek")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-key-001")
+    monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "dashscope")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-key-001")
     # REQ-065 P0-3: dry_run 不再影响 readiness — dry_run 是灰度前有效冒烟模式
 
 
 def test_p11_healthz_always_200(monkeypatch: pytest.MonkeyPatch) -> None:
     """P1-1: /healthz 永远返回 200, 即使 readiness 未通过."""
     _set_minimal_env(monkeypatch)
-    # Break readiness: remove DEEPSEEK_API_KEY
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    # Break readiness: remove DASHSCOPE_API_KEY
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     from fastapi.testclient import TestClient
     from apps.wechat_greeter_api.main import app
 
@@ -1076,11 +1076,9 @@ def test_p11_ready_200_when_all_checks_pass(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_p11_ready_503_when_api_key_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """P1-1: /ready 缺 DEEPSEEK_API_KEY → 503 + 具体失败原因."""
+    """P1-1: /ready 缺 DASHSCOPE_API_KEY → 503 + 具体失败原因."""
     _set_ready_env(monkeypatch)
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    # P2-2: deepseek_api_key() falls back to OPENAI_API_KEY; clear both
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
 
     from fastapi.testclient import TestClient
     from apps.wechat_greeter_api.main import app
@@ -1090,7 +1088,7 @@ def test_p11_ready_503_when_api_key_missing(monkeypatch: pytest.MonkeyPatch) -> 
     assert r.status_code == 503
     body = r.json()
     assert body["status"] == "not_ready"
-    assert body["checks"]["deepseek_api_key"]["ok"] is False
+    assert body["checks"]["dashscope_api_key"]["ok"] is False
 
 
 def test_p11_ready_503_when_hmac_secret_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1118,14 +1116,14 @@ def test_p11_ready_503_when_model_mode_is_stub(monkeypatch: pytest.MonkeyPatch) 
     client = TestClient(app)
     r = client.get("/ready")
     assert r.status_code == 503
-    assert r.json()["checks"]["model_mode_is_deepseek"]["ok"] is False
+    assert r.json()["checks"]["model_mode_is_dashscope"]["ok"] is False
 
 
 def test_p11_call_async_refuses_when_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     """P1-1: /call_async 未 ready → 503 (不接单)."""
     _set_minimal_env(monkeypatch)
-    # Remove DEEPSEEK_API_KEY to break readiness (deepseek_api_key check fails)
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    # Remove DASHSCOPE_API_KEY to break readiness (dashscope_api_key check fails)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
 
     from fastapi.testclient import TestClient
     from apps.wechat_greeter_api.main import app

@@ -145,8 +145,8 @@ async def ready() -> JSONResponse:
     """Readiness: 验证所有关键依赖就绪 (REQ-065 P1-1).
 
     检查项 (仅静态配置, 不做跨服务实时探测):
-      1. model_mode 已显式配置 + 值为 deepseek
-      2. DEEPSEEK_API_KEY (或 OPENAI_API_KEY fallback) 已配置
+      1. model_mode 已显式配置 + 值为 dashscope
+      2. DASHSCOPE_API_KEY 已配置
       3. HMAC_SECRET_NEW_API 已配置
       4. HMAC_SECRET_AIHEHUOMICRO 已配置
 

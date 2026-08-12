@@ -5,11 +5,15 @@ REQ-065 P0-A: callback 端到端字段契约对齐
   P0-A2: callback_envelope 字段对齐 new_api WechatGreeterCallbacksController:
          reply→reply_text, msg_id→trace_id, 补 branch 字段
   P0-A3: 截断长度修正: raw_reply[:limit - len(tail)] + tail, 保证 len ≤ 200 且 endswith(tail)
-  P0-A4: callback 失败可重试: 非 2xx raise_for_status; 4xx 不可重试落告警
+  P0-A4: callback 失败可重试: 显式 self.retry() 指数退避; 4xx 不可重试落告警
 
 REQ-063 P0-1: tools 真传入 call_llm (不再死变量).
 REQ-063 P0-2: registered 分支 4 段 profile 真进 LLM 上下文 (pre-fetch → profile_context).
   SC-01: get_user_full_profile RuntimeError → user_id=0 guest 兜底.
+
+REQ-065 P0-A4 v2: Celery 显式重试
+  原实现裸 raise 依赖 task_acks_late 自动重入队, 但 task_acks_on_failure_or_timeout=True
+  导致消息被 ack 后永久丢弃, 不会重试. 修复为显式 self.retry().
 """
 
 from __future__ import annotations
@@ -44,6 +48,37 @@ _logger = logging.getLogger(__name__)
 
 # REQ-065 P0-A4: 4xx HTTP status codes that are irrecoverable (don't retry)
 _IRRECOVERABLE_CALLBACK_STATUSES = frozenset({400, 401, 403, 404, 405, 422})
+
+# REQ-065 P0-A4 v2: Celery 显式 self.retry() 配置
+# 指数退避: 5s → 25s → 125s (最大 3 次, 总等待 ≤ 155s)
+# 24h 死信窗口内足够重试 3 次
+_MAX_CALLBACK_RETRIES = 3
+_CALLBACK_RETRY_BASE_S = 5  # countdown = base * (retry_backoff_factor ** retries)
+
+
+def _retry_callback(self, exc: Exception, trace_id: str, http_status: int) -> None:
+    """REQ-065 P0-A4 v2: 显式 self.retry() — 指数退避重新入队.
+
+    指数退避: 5s → 25s → 125s (base=5s, factor=5).
+    达到 max_retries 后不再重试, 直接 re-raise (最终失败告警).
+    """
+    retries = self.request.retries
+    if retries >= _MAX_CALLBACK_RETRIES:
+        WechatGreeterObserver.warn(
+            f"wechat_msg_callback_max_retries_exceeded trace_id={trace_id} "
+            f"retries={retries} max={_MAX_CALLBACK_RETRIES} "
+            f"http_status={http_status}"
+        )
+        raise exc
+
+    countdown = _CALLBACK_RETRY_BASE_S * (5 ** retries)
+    WechatGreeterObserver.warn(
+        f"wechat_msg_callback_retry trace_id={trace_id} "
+        f"retries={retries}/{_MAX_CALLBACK_RETRIES} "
+        f"countdown={countdown}s http_status={http_status} "
+        f"exc={type(exc).__name__}: {exc}"
+    )
+    raise self.retry(exc=exc, countdown=countdown, max_retries=_MAX_CALLBACK_RETRIES)
 
 
 @shared_task(name="wechat_greeter.process_greeting", bind=True, ignore_result=True)
@@ -156,9 +191,13 @@ def process_greeting(self, envelope: dict[str, Any]) -> dict[str, Any]:
             "callback_skipped": True,
         }
 
-    # REQ-065 P0-A4: callback 失败可重试
-    #  - 5xx / 网络异常 → raise, Celery 重试
+    # REQ-065 P0-A4 v2: callback 失败显式 self.retry() 指数退避
+    #  - 5xx / 网络异常 → self.retry(exc=..., countdown=...) 重新入队
     #  - 4xx → 不可恢复, 落告警, 不重试
+    #  - 达到 max_retries → 最终失败告警
+    #
+    # 原实现: 裸 raise 依赖 Celery task_acks_late 自动重入队,
+    #          但 task_acks_on_failure_or_timeout=True 导致消息被 ack 丢弃.
     try:
         resp = post_callback(callback_envelope)
         WechatGreeterObserver.info(
@@ -186,8 +225,8 @@ def process_greeting(self, envelope: dict[str, Any]) -> dict[str, Any]:
                 "http_status": status_code,
                 "err": str(exc),
             }
-        # 5xx: 重试 — 让异常传播给 Celery
-        raise
-    except (httpx.TimeoutException, httpx.NetworkError):
-        # 网络异常: 重试
-        raise
+        # 5xx: 指数退避重试
+        _retry_callback(self, exc, trace_id, status_code)
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        # 网络异常: 指数退避重试
+        _retry_callback(self, exc, trace_id, 0)

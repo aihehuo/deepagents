@@ -827,3 +827,206 @@ def test_d1_dry_run_off_actually_calls_callback(monkeypatch: pytest.MonkeyPatch)
         # 期望 status=ok (真 callback 路径)
         assert result["status"] == "ok", f"expected ok, got {result}"
         assert mock_post.called, "dry_run=false must invoke httpx.post"
+
+
+# ---------------------------------------------------------------------------
+# REQ-065 P0-A4 v2: Celery 显式 self.retry() 测试
+# ---------------------------------------------------------------------------
+
+
+def _mock_deepagents_import_chain() -> None:
+    """Mock deepagents in sys.modules so the worker module can be imported.
+
+    The installed langchain/langgraph versions are incompatible with deepagents
+    (missing InputAgentState, DeltaChannel, etc.).  Since the wechat_greeter lib
+    only uses UCObserver (observability base class), we mock the entire
+    deepagents namespace so the import doesn't cascade into broken deps.
+    """
+    import sys
+
+    if "deepagents.observability" not in sys.modules:
+        # WechatGreeterObserver inherits from UCObserver — it must be a real class
+        class _FakeUCObserver:
+            @staticmethod
+            def info(msg: str, **kwargs: object) -> None: pass
+            @staticmethod
+            def warn(msg: str, **kwargs: object) -> None: pass
+
+        _obs = MagicMock()
+        _obs.UCObserver = _FakeUCObserver
+        sys.modules["deepagents.observability"] = _obs
+
+    for _key in ("deepagents", "deepagents.graph", "deepagents._version"):
+        if _key not in sys.modules:
+            sys.modules[_key] = MagicMock()
+
+
+def test_09a_req065_p0a4_callback_retry_on_5xx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """REQ-065 P0-A4 v2: callback 5xx → self.retry() 被调用, 消息重新入队.
+
+    原实现: 裸 raise 依赖 task_acks_late, 但 task_acks_on_failure_or_timeout=True
+    导致消息被 ack 后永久丢弃. 修复后显式 self.retry().
+    """
+    _set_minimal_env(monkeypatch)
+    _mock_deepagents_import_chain()
+
+    from celery.exceptions import Retry as CeleryRetry
+    from httpx import HTTPStatusError, Request, Response
+
+    import apps.wechat_greeter_worker.tasks as _task_mod
+
+    fake_req = Request("POST", "http://test/callback")
+    fake_resp = Response(status_code=503, request=fake_req)
+
+    with patch.object(
+        _task_mod, "post_callback",
+        side_effect=HTTPStatusError(
+            "503 Service Unavailable", request=fake_req, response=fake_resp,
+        ),
+    ):
+        envelope = {
+            "trace_id": "msg_retry_5xx_001",
+            "openid": "test_openid_r1",
+            "content": "test 5xx retry",
+            "send_time": int(time.time()),
+            "received_at": int(time.time()),
+        }
+
+        # Celery eager mode: .delay() runs synchronously
+        with pytest.raises(CeleryRetry):
+            _task_mod.process_greeting.delay(envelope)
+
+
+def test_09b_req065_p0a4_callback_retry_on_network_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """REQ-065 P0-A4 v2: callback 网络异常 (TimeoutException/NetworkError) → self.retry()."""
+    _set_minimal_env(monkeypatch)
+    _mock_deepagents_import_chain()
+
+    from celery.exceptions import Retry as CeleryRetry
+    from httpx import TimeoutException
+
+    import apps.wechat_greeter_worker.tasks as _task_mod
+
+    with patch.object(
+        _task_mod, "post_callback",
+        side_effect=TimeoutException("connection timed out"),
+    ):
+        envelope = {
+            "trace_id": "msg_retry_net_001",
+            "openid": "test_openid_net",
+            "content": "test network retry",
+            "send_time": int(time.time()),
+            "received_at": int(time.time()),
+        }
+
+        with pytest.raises(CeleryRetry):
+            _task_mod.process_greeting.delay(envelope)
+
+
+def test_09c_req065_p0a4_callback_no_retry_on_4xx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """REQ-065 P0-A4 v2: callback 4xx → 不重试, 返回 irrecoverable (消息不回队).
+
+    4xx 是 new_api 业务错误 (HMAC/字段/空回复), 重试无意义且浪费 LLM token.
+    """
+    _set_minimal_env(monkeypatch)
+    _mock_deepagents_import_chain()
+
+    from httpx import HTTPStatusError, Request, Response
+
+    import apps.wechat_greeter_worker.tasks as _task_mod
+
+    fake_req = Request("POST", "http://test/callback")
+    fake_resp = Response(status_code=422, request=fake_req)
+
+    with patch.object(
+        _task_mod, "post_callback",
+        side_effect=HTTPStatusError(
+            "422 Unprocessable Entity", request=fake_req, response=fake_resp,
+        ),
+    ):
+        envelope = {
+            "trace_id": "msg_4xx_001",
+            "openid": "test_openid_4xx",
+            "content": "test 4xx no retry",
+            "send_time": int(time.time()),
+            "received_at": int(time.time()),
+        }
+
+        # 不应抛出异常 — 应正常返回 irrecoverable
+        eager = _task_mod.process_greeting.delay(envelope)
+        result = eager.result  # unwrap Celery EagerResult in eager mode
+        assert result["status"] == "callback_irrecoverable", (
+            f"4xx should return irrecoverable, got {result}"
+        )
+        assert result["http_status"] == 422
+
+
+def test_09d_req065_p0a4_callback_retry_countdown_exponential(monkeypatch: pytest.MonkeyPatch) -> None:
+    """REQ-065 P0-A4 v2: 指数退避 countdown = base * (5 ** retries).
+
+    直接测 _retry_callback 函数, 验证 countdown 和 max_retries 参数传递.
+    retries=0 → 5s, retries=1 → 25s, retries=2 → 125s.
+    """
+    _set_minimal_env(monkeypatch)
+    _mock_deepagents_import_chain()
+
+    from celery.app.task import Context
+    from apps.wechat_greeter_worker.tasks import _retry_callback, _MAX_CALLBACK_RETRIES
+
+    expected = {0: 5, 1: 25, 2: 125}
+
+    for retry_n, expected_cd in expected.items():
+        fake_self = MagicMock()
+        fake_self.request = Context()
+        fake_self.request.retries = retry_n
+        fake_self.retry.side_effect = Exception(f"retry_{retry_n}")
+
+        with pytest.raises(Exception, match=f"retry_{retry_n}"):
+            _retry_callback(fake_self, RuntimeError("test err"), f"trace_{retry_n}", 503)
+
+        fake_self.retry.assert_called_once()
+        call_kwargs = fake_self.retry.call_args[1]
+        assert call_kwargs["countdown"] == expected_cd, (
+            f"retries={retry_n}: expected countdown={expected_cd}s, got {call_kwargs['countdown']}s"
+        )
+        assert call_kwargs["max_retries"] == _MAX_CALLBACK_RETRIES, (
+            f"retries={retry_n}: expected max_retries={_MAX_CALLBACK_RETRIES}"
+        )
+
+
+def test_09e_req065_p0a4_callback_max_retries_re_raises_original(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REQ-065 P0-A4 v2: 达到 max_retries 后, 原始异常被 re-raise (不是 Retry).
+
+    超过 _MAX_CALLBACK_RETRIES 次后不再重试, 让任务最终失败并告警.
+    """
+    _set_minimal_env(monkeypatch)
+    _mock_deepagents_import_chain()
+
+    from celery.app.task import Context
+    from apps.wechat_greeter_worker.tasks import _retry_callback, _MAX_CALLBACK_RETRIES
+
+    # retries=MAX → re-raise original exception, NOT call self.retry()
+    fake_self = MagicMock()
+    fake_self.request = Context()
+    fake_self.request.retries = _MAX_CALLBACK_RETRIES
+    original_exc = RuntimeError("test original failure")
+
+    with pytest.raises(RuntimeError, match="test original failure"):
+        _retry_callback(fake_self, original_exc, "trace_001", 503)
+
+    fake_self.retry.assert_not_called()
+
+    # retries < MAX → should call self.retry()
+    fake_self2 = MagicMock()
+    fake_self2.request = Context()
+    fake_self2.request.retries = 0
+    fake_self2.retry.side_effect = Exception("retry_triggered")
+
+    with pytest.raises(Exception, match="retry_triggered"):
+        _retry_callback(fake_self2, RuntimeError("err"), "trace_002", 503)
+
+    fake_self2.retry.assert_called_once()
+    assert fake_self2.retry.call_args[1]["countdown"] == 5
+    assert fake_self2.retry.call_args[1]["max_retries"] == _MAX_CALLBACK_RETRIES

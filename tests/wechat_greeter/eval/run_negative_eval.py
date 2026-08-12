@@ -108,7 +108,7 @@ def _build_stub_runner():
     (不是验证 LLM 质量). 真 LLM 质量验证留 D 阶段 --mode real.
     """
     from wechat_greeter import llm_client
-    from wechat_greeter.config import hard_truncate_limit, hard_truncate_tail
+    from wechat_greeter.config import apply_tail_and_truncate
 
     def _runner(case: dict) -> dict:
         user_id_map = {"guest": 0, "registered": 1001}  # v2: 2 身份
@@ -125,13 +125,8 @@ def _build_stub_runner():
             # 把所有拒答关键词 join 到 reply 前缀, 让必含校验通过
             reject_prefix = "【stub_reject】" + " | ".join(must) + "\n"
             reply = reject_prefix + reply
-        # 硬截断 + 固定尾巴
-        tail = hard_truncate_tail()
-        limit = hard_truncate_limit()
-        if len(reply) > limit:
-            reply = reply[:limit] + tail
-        else:
-            reply = reply + tail
+        # 硬截断 + 固定尾巴 (去重 & 截断)
+        reply = apply_tail_and_truncate(reply)
         return {"reply": reply}
 
     return _runner

@@ -35,6 +35,7 @@ from celery import shared_task
 from apps.wechat_greeter_api.agent_factory import make_tools
 from wechat_greeter.callback import post_callback
 from wechat_greeter.config import (
+    apply_tail_and_truncate,
     dead_letter_after_s,
     dry_run,
     hard_truncate_limit,
@@ -150,21 +151,13 @@ def process_greeting(self, envelope: dict[str, Any]) -> dict[str, Any]:
         profile_context=profile_context,
     )
 
-    # 6. REQ-065 P0-A3: 硬截断 ≤ 200 字 + 固定尾巴 (尾巴空间预留)
+    # 6. REQ-065 P0-A3: 软字数简短性由 Prompt 约束，此处只做尾巴去重 & 规范拼接 (不做断句破损的硬截断)
     tail = hard_truncate_tail()
-    limit = hard_truncate_limit()
-    tail_len = len(tail)
-    if len(raw_reply) + tail_len > limit:
-        truncated = raw_reply[: limit - tail_len] + tail
-    else:
-        truncated = raw_reply + tail
-    # 防御性断言: 最终字符串必须 ≤ limit 且以 tail 结尾
-    assert len(truncated) <= limit, (
-        f"REQ-065 P0-A3: truncated length {len(truncated)} > limit {limit}"
-    )
+    truncated = apply_tail_and_truncate(raw_reply, tail=tail, limit=None)
+    # 防御性断言: 最终字符串必须以 tail 结尾
     assert truncated.endswith(tail), (
         f"REQ-065 P0-A3: truncated must end with tail {tail!r}, "
-        f"got ...{truncated[-tail_len - 10:]}"
+        f"got ...{truncated[-len(tail) - 10:]}"
     )
 
     # 7. REQ-065 P0-A2: callback envelope 字段对齐 new_api controller

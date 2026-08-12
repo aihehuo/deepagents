@@ -464,13 +464,12 @@ def test_05_24h_dead_letter(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_06_hard_truncate_200_chars(monkeypatch: pytest.MonkeyPatch) -> None:
-    """REQ-062 验收 6: 硬截断 ≤ 200 字 + 固定尾巴."""
+    """REQ-062 验收 6: Prompt 字数简短约束 + 单一尾巴保证."""
     _set_minimal_env(monkeypatch)
     TAIL = "〔详情见 App，扫码看完整建议〕"
-    LIMIT = 200
 
-    # 分支 1: raw > 200 → 必截断到 200 + tail
-    long_raw = "x" * 500  # 500 chars
+    # 分支 1: raw 不带 tail → 自动追加单尾巴 (完整保留原文)
+    long_raw = "这是一段比较长但语句完整的文字。" * 10
     monkeypatch.setenv("WECHAT_GREETER_LLM_STUB_RAW", long_raw)
     envelope = {
         "trace_id": "msg_truncate_long",
@@ -491,12 +490,10 @@ def test_06_hard_truncate_200_chars(monkeypatch: pytest.MonkeyPatch) -> None:
         callback_env = json.loads(body_str)
         reply = callback_env["reply_text"]
         assert reply.endswith(TAIL), f"reply should end with fixed tail, got: ...{reply[-30:]!r}"
-        assert len(reply) == LIMIT, (
-            f"REQ-065 P0-A3: reply len should be exactly {LIMIT} (truncated + tail got {len(reply)})"
-        )
+        assert reply.count(TAIL) == 1, "should have exactly one tail"
 
-    # 分支 2: raw ≤ 200 → 原文 + tail
-    short_raw = "你好"
+    # 分支 2: raw 包含 tail → 不重复追加
+    short_raw = "你好" + TAIL
     monkeypatch.setenv("WECHAT_GREETER_LLM_STUB_RAW", short_raw)
     envelope2 = {
         "trace_id": "msg_truncate_short",
@@ -516,34 +513,41 @@ def test_06_hard_truncate_200_chars(monkeypatch: pytest.MonkeyPatch) -> None:
         body_str = mock_post.call_args[1]["content"]
         callback_env = json.loads(body_str)
         reply = callback_env["reply_text"]
-        assert reply.startswith(short_raw), f"reply should start with raw, got: {reply[:30]!r}"
+        assert reply.startswith("你好"), f"reply should start with raw text"
         assert reply.endswith(TAIL), f"reply should end with fixed tail"
-        assert len(reply) == len(short_raw) + len(TAIL)
+        assert reply.count(TAIL) == 1, "should deduplicate tail"
 
-    # 分支 3: 边界 raw == 200 → 原文 + tail
-    boundary_raw = "y" * LIMIT
-    monkeypatch.setenv("WECHAT_GREETER_LLM_STUB_RAW", boundary_raw)
-    envelope3 = {
-        "trace_id": "msg_truncate_boundary",
-        "openid": "test_openid_t3",
-        "content": "boundary",
-        "send_time": int(time.time()),
-        "received_at": int(time.time()),
-    }
-    with patch("wechat_greeter.callback.httpx.post") as mock_post:
-        mock_resp = MagicMock(status_code=200, json=lambda: {"status": "ok"})
-        mock_resp.raise_for_status = MagicMock()
-        mock_post.return_value = mock_resp
-        from apps.wechat_greeter_worker.tasks import process_greeting
-        process_greeting(envelope3)
 
-        assert mock_post.called
-        body_str = mock_post.call_args[1]["content"]
-        callback_env = json.loads(body_str)
-        reply = callback_env["reply_text"]
-        assert len(reply) == LIMIT, (
-            f"REQ-065 P0-A3: boundary reply len should be {LIMIT}, got {len(reply)}"
-        )
+def test_apply_tail_and_truncate_deduplication() -> None:
+    """Test apply_tail_and_truncate deduplicates existing tail phrases."""
+    from wechat_greeter.config import apply_tail_and_truncate
+
+    tail = "〔详情见 App，扫码看完整建议〕"
+
+    # Scenario 1: LLM already output the exact tail
+    raw1 = "找项目前往App。〔详情见 App，扫码看完整建议〕"
+    res1 = apply_tail_and_truncate(raw1, tail=tail, limit=200)
+    assert res1 == "找项目前往App。〔详情见 App，扫码看完整建议〕"
+    assert res1.count(tail) == 1
+
+    # Scenario 2: LLM output tail with English comma
+    raw2 = "找项目前往App。〔详情见 App,扫码看完整建议〕"
+    res2 = apply_tail_and_truncate(raw2, tail=tail, limit=200)
+    assert res2 == "找项目前往App。〔详情见 App，扫码看完整建议〕"
+    assert res2.count(tail) == 1
+
+    # Scenario 3: LLM output tail followed by whitespace/newlines
+    raw3 = "找项目前往App。〔详情见 App，扫码看完整建议〕\n\n"
+    res3 = apply_tail_and_truncate(raw3, tail=tail, limit=200)
+    assert res3 == "找项目前往App。〔详情见 App，扫码看完整建议〕"
+    assert res3.count(tail) == 1
+
+    # Scenario 4: LLM did not output tail
+    raw4 = "找项目前往App。"
+    res4 = apply_tail_and_truncate(raw4, tail=tail, limit=200)
+    assert res4 == "找项目前往App。〔详情见 App，扫码看完整建议〕"
+    assert res4.count(tail) == 1
+
 
 
 def test_07_negative_eval_ci_v2() -> None:

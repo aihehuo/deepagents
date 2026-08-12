@@ -45,6 +45,17 @@ def new_api_callback_url() -> str:
     ).strip()
 
 
+def aihehuomicro_base_url() -> str:
+    """aihehuomicro 内网地址 (REQ-063 P0-3/4 HMAC 调用).
+
+    默认 http://aihehuomicro:3000，生产由 HOST_AIHEHUOMICRO 环境变量注入。
+    """
+    return (
+        os.environ.get("HOST_AIHEHUOMICRO")
+        or "http://aihehuomicro:3000"
+    ).strip()
+
+
 def api_port() -> int:
     """API 容器端口。"""
     return int(os.environ.get("WECHAT_GREETER_API_PORT", "8005"))

@@ -1,24 +1,30 @@
-"""Celery task: process a single wechat greeting (REQ-050).
+"""Celery task: process a single wechat greeting (REQ-063 P0-1/P0-2 / REQ-062 v2).
 
-A 阶段 + A 阶段正式 + B 阶段 实施：
+v2 实施 (REQ-062):
   1. 24h 死信判定（send_time < 24h.ago → 不调 callback + 埋点 wechat_msg_24h_expired_worker）
-  2. 5 工具全部 stub（A 阶段）/ 真实 aihehuomicro HMAC 调（待 aihehuomicro 3 端点就绪后切换）
+  2. 3 工具（v2 从 5 缩减为 3）：get_user_by_openid / get_user_full_profile / get_user_faq
+     删: get_profile_status / get_project_status / mark_reply_sent (v1)
+     新增: get_user_full_profile (4 段结构化 JSON: profile/seeking/hiring/published_projects)
   3. LLM 统一入口（libs/wechat_greeter/llm_client.py）:
      - stub 模式: 固定长文本 (单测用 WECHAT_GREETER_LLM_STUB_RAW 覆盖)
-     - deepseek 模式: init_chat_model + model_provider=deepseek + model=deepseek-v4-flash
-  4. system_prompt v1 (libs/wechat_greeter/prompts/wechat_greeter_v1.j2): 4 红线 + 工具白名单 + 4 身份分支
+     - deepseek 模式: init_chat_model + bind_tools + agent executor loop
+  4. system_prompt v2 (libs/wechat_greeter/prompts/wechat_greeter_v1.j2): 5 红线 + 2 身份分支 + 3 工具白名单
   5. 硬截断 ≤ 200 字 + 固定尾巴
-  6. mark_reply_sent stub
-  7. callback mock（post_callback 会被 test 替换为 MagicMock）
+  6. callback mock（post_callback 会被 test 替换为 MagicMock）
+
+REQ-063 P0-1: tools 真传入 call_llm (不再死变量).
+REQ-063 P0-2: registered 分支 4 段 profile 真进 LLM 上下文 (pre-fetch → profile_context).
+  SC-01: get_user_full_profile RuntimeError → user_id=0 guest 兜底.
 
 C/D 阶段留：
   - 真实 FAISS 调（libs/wechat_greeter/faq_store.py + get_user_faq tool 注入 FAISS 索引）
-  - 完整 50 条负向评测 + run_negative_eval.py + CI workflow
-  - 灰度切档 + 联调 aihehuomicro 3 端点
+  - 完整 50 条负向评测 v2 + run_negative_eval.py + CI workflow
+  - 灰度切档 + 联调 aihehuomicro 2 端点
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -46,7 +52,7 @@ _logger = logging.getLogger(__name__)
 
 @shared_task(name="wechat_greeter.process_greeting", bind=True, ignore_result=True)
 def process_greeting(self, envelope: dict[str, Any]) -> dict[str, Any]:
-    """Process a single wechat greeting (A 阶段冒烟实现)."""
+    """Process a single wechat greeting (v2 REQ-062)."""
     msg_id = str(envelope.get("msg_id") or "unknown")
     openid = str(envelope.get("openid") or "")
     content = str(envelope.get("content") or "")
@@ -69,27 +75,52 @@ def process_greeting(self, envelope: dict[str, Any]) -> dict[str, Any]:
             "skew_s": now - send_time,
         }
 
-    # 2. get_user_by_openid (stub)
-    tools = make_tools(user_id=0)  # user_id=0 placeholder, 真实值在下面覆写
+    # 2. get_user_by_openid → resolve user_id
+    tools = make_tools(user_id=0)  # user_id=0 placeholder, get_user_by_openid 不依赖 user_id
     user_lookup = tools[0](openid)  # get_user_by_openid
     user_id = int(user_lookup.get("user_id") or 0)
 
-    # 3. 重建 tools with real user_id（profile_status / project_status 注入 user_id）
+    # 3. 重建 tools with real user_id（get_user_full_profile 注入 user_id）
     tools = make_tools(user_id=user_id)
 
-    # 4. LLM (B 阶段: llm_client 统一入口, stub/deepseek 模式分支在内部)
-    raw_reply = call_llm(user_message=content, user_id=user_id)
+    # 4. REQ-063 P0-2: registered 分支预取 4 段 profile → LLM 上下文
+    #     SC-01: get_user_full_profile RuntimeError → user_id=0 guest 兜底 (fail-closed)
+    profile_context: str | None = None
+    if user_id > 0:
+        try:
+            profile_data = tools[1]()  # get_user_full_profile (user_id injected via closure)
+            profile_context = json.dumps(profile_data, ensure_ascii=False, indent=2)
+            WechatGreeterObserver.info(
+                f"profile_fetched msg_id={msg_id} user_id={user_id} "
+                f"seeking={len(profile_data.get('seeking', []))} "
+                f"hiring={len(profile_data.get('hiring', []))} "
+                f"projects={len(profile_data.get('published_projects', []))}"
+            )
+        except RuntimeError as exc:
+            # SC-01: backend not connected → fallback to guest
+            WechatGreeterObserver.warn(
+                f"profile_fetch_failed_fallback_to_guest msg_id={msg_id} "
+                f"user_id={user_id} err={type(exc).__name__}: {exc}"
+            )
+            user_id = 0
+            tools = make_tools(user_id=0)
+            profile_context = None
 
-    # 5. 硬截断 ≤ 200 字 + 固定尾巴
+    # 5. LLM (REQ-063 P0-1: tools 真传入 + P0-2: profile_context 真注入)
+    raw_reply = call_llm(
+        user_message=content,
+        user_id=user_id,
+        tools=tools,
+        profile_context=profile_context,
+    )
+
+    # 6. 硬截断 ≤ 200 字 + 固定尾巴
     tail = hard_truncate_tail()
     limit = hard_truncate_limit()
     if len(raw_reply) > limit:
         truncated = raw_reply[:limit] + tail
     else:
-        truncated = raw_reply + tail  # 永远加尾巴（REQ-050 验收 6 兜底）
-
-    # 6. mark_reply_sent (stub)
-    tools[3](msg_id)
+        truncated = raw_reply + tail  # 永远加尾巴
 
     # 7. Callback to new_api (D-1: dry_run 模式仅 log 不真打)
     callback_envelope = {

@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""REQ-050 / REQ-051 负向评测集 runner (CI merge block).
+"""REQ-062 负向评测集 runner v2 (CI merge block).
 
 用法:
-    .venv/bin/python tests/wechat_greeter/eval/run_negative_eval.py [--set tests/wechat_greeter/eval/negative_set_v1.yaml]
+    .venv/bin/python tests/wechat_greeter/eval/run_negative_eval.py [--set tests/wechat_greeter/eval/negative_set_v2.yaml]
 
 退出码:
     0 - 100% 通过
     1 - 有越界 / 超时 / 失败
 
-C 阶段: 跑 50 条, 期望 ≤ 120s, 0 越界.
+C 阶段: 跑 50+ 条, 期望 ≤ 120s, 0 越界.
 A 阶段: stub 模式 (WECHAT_GREETER_MODEL_MODE=stub) 走固定 LLM 文本.
+
+v2 变化 (REQ-062):
+  - 默认 yaml: negative_set_v2.yaml
+  - 身份: guest / registered (v1 的 4 身份作废)
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]  # tests/wechat_greeter/eval → repo root
-DEFAULT_SET = REPO_ROOT / "tests" / "wechat_greeter" / "eval" / "negative_set_v1.yaml"
+DEFAULT_SET = REPO_ROOT / "tests" / "wechat_greeter" / "eval" / "negative_set_v2.yaml"
 
 
 def _ensure_repo_on_path() -> None:
@@ -107,7 +111,7 @@ def _build_stub_runner():
     from wechat_greeter.config import hard_truncate_limit, hard_truncate_tail
 
     def _runner(case: dict) -> dict:
-        user_id_map = {"guest": 0, "registered_no_invest": 1001, "investor": 2002, "founder": 3003}
+        user_id_map = {"guest": 0, "registered": 1001}  # v2: 2 身份
         user_id = user_id_map.get(case["identity"], 0)
         reply = llm_client.call_llm(
             user_message=case["user_message"],

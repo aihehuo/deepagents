@@ -1,11 +1,13 @@
-"""5 tools for wechat_greeter (REQ-050).
+"""3 tools for wechat_greeter (REQ-062 v2).
 
-A 阶段正式实施：4 工具拆到 libs/wechat_greeter/tools/ 独立文件 (per TSD-09 v0.1 path)。
-1 工具 get_user_faq 留 apps/wechat_greeter_api/tools/get_user_faq.py (C 阶段 FAISS)。
+v2 工具集 (REQ-062): 5 → 3 工具
+  - 保留: get_user_by_openid, get_user_faq
+  - 新增: get_user_full_profile (替代 v1 的 get_profile_status + get_project_status)
+  - 删除: get_profile_status, get_project_status, mark_reply_sent (v1)
 
 IDOR 三层防御（user_id 不暴露 LLM）：
-  1. 工具签名层剔除 user_id（get_profile_status / get_project_status 签名只有 query）
-  2. functools.partial/闭包 注入层（make_get_profile_status(user_id) → bound function with user_id captured）
+  1. 工具签名层剔除 user_id（get_user_full_profile 签名无参数）
+  2. functools.partial/闭包 注入层（make_get_user_full_profile(user_id) → bound function with user_id captured）
   3. aihehuomicro 服务端再校验层（HMAC from 头 + X-GA-From=wechat_greeter + user_id from session）
 """
 
@@ -16,16 +18,14 @@ from typing import Any, Callable
 
 from libs.wechat_greeter.tools import (
     get_user_by_openid,
-    make_get_profile_status,
-    make_get_project_status,
-    mark_reply_sent,
+    make_get_user_full_profile,
 )
 
 _logger = logging.getLogger(__name__)
 
 
 def get_user_faq(query: str) -> list[dict[str, Any]]:
-    """公开工具 5：FAQ 检索 (FAISS, REQ-051).
+    """公开工具 3/3：FAQ 检索 (FAISS, REQ-051).
 
     C 阶段: 走 libs/wechat_greeter/faq_store.py 纯 Python fallback (jaccard keyword match).
     B 阶段预留: 真 FAISS 接入时改 faq_store.search() 内部, 对外签名不变.
@@ -35,19 +35,15 @@ def get_user_faq(query: str) -> list[dict[str, Any]]:
 
 
 def make_tools(*, user_id: int) -> list[Callable[..., Any]]:
-    """Build the 5 tools for the agent. user_id is injected via closure.
+    """Build the 3 tools for the agent. user_id is injected via closure.
 
-    Returns list of 5 callables:
+    Returns list of 3 callables:
       [0] get_user_by_openid           signature: (openid: str) -> dict
-      [1] get_profile_status (bound)   signature: (query: str = "") -> dict   ← user_id injected
-      [2] get_project_status (bound)   signature: (query: str = "") -> dict   ← user_id injected
-      [3] mark_reply_sent              signature: (msg_id: str) -> dict
-      [4] get_user_faq                 signature: (query: str) -> list[dict]
+      [1] get_user_full_profile (bound) signature: () -> dict   ← user_id injected
+      [2] get_user_faq                 signature: (query: str) -> list[dict]
     """
     return [
         get_user_by_openid,
-        make_get_profile_status(user_id),
-        make_get_project_status(user_id),
-        mark_reply_sent,
+        make_get_user_full_profile(user_id),
         get_user_faq,
     ]

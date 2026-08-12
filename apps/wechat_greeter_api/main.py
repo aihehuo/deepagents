@@ -34,7 +34,7 @@ from wechat_greeter.faq_store import get_faq_count
 _logger = logging.getLogger("uvicorn.error")
 
 # Build version (replaced at build time by CI; default is "dev")
-BUILD_VERSION = "dev-wechat-greeter-0.1.0-a-stage-smoke"
+BUILD_VERSION = "dev-wechat-greeter-0.2.0-req063-p0"
 
 app = FastAPI(
     title="wechat_greeter_api",

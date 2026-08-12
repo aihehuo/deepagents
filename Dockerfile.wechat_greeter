@@ -50,7 +50,10 @@ USER 1000:1000
 # Expose API port (worker 容器不暴露, 内部 celery 协议)
 EXPOSE 8005
 
-# Healthcheck (API 容器 only, worker 容器用 celery inspect)
+# Healthcheck: liveness only (REQ-065 P1-1/1-3).
+# /healthz always 200 while the process is alive.
+# Orchestrators with readiness support (K8s) should additionally probe GET /ready
+# to gate traffic; Docker HEALTHCHECK alone cannot do traffic management.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD python -c "import http.client; conn = http.client.HTTPConnection('localhost', 8005); conn.request('GET', '/healthz'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)" || exit 1
 

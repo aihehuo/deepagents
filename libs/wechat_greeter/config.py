@@ -111,17 +111,70 @@ def model_mode() -> str:
     return raw
 
 
-def production_ready() -> bool:
-    """REQ-065 P0-C7: 灰度/生产部署 readiness 校验。
+def deepseek_api_key() -> str:
+    """DeepSeek API key (REQ-065 P1-1: readiness 检查项).
 
-    条件: model_mode=deepseek + dry_run=false。
-    缺一则不放量。healthz 体现 production_ready 状态。
+    P2-2: 与 llm_client.py 行为对齐 — 同时接受 DEEPSEEK_API_KEY 和 OPENAI_API_KEY。
+    生产明确只允许 DEEPSEEK_API_KEY 时，通过部署层单独注入；缺 OPENAI_API_KEY 不是故障。
     """
+    dsk = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+    if dsk:
+        return dsk
+    return (os.environ.get("OPENAI_API_KEY") or "").strip()
+
+
+def readiness_details() -> dict:
+    """REQ-065 P1-1: 细粒度 readiness 检查结果。
+
+    每个检查返回 {ok: bool, reason: str}，同时返回 overall: bool。
+    部署方用 /ready 端点根据 overall 决定是否接流量。
+
+    P0-1: 移除 aihehuomicro 实时 HTTP 探测 — 端点不存在导致必现阻断。
+    P0-3: 移除 dry_run_off — dry_run 是灰度前有效冒烟模式，不应阻止接单。
+    P1-1: readiness 仅检查本地静态配置，不做跨服务实时同步调用。
+    """
+    checks: dict[str, dict] = {}
+
+    # 1. model_mode 已显式配置
+    mode: str | None = None
     try:
         mode = model_mode()
-    except RuntimeError:
-        return False
-    return mode == "deepseek" and not dry_run()
+        checks["model_mode"] = {"ok": True, "value": mode}
+    except RuntimeError as exc:
+        checks["model_mode"] = {"ok": False, "reason": str(exc)}
+
+    # 2. model_mode=deepseek (not stub in production)
+    if mode == "deepseek":
+        checks["model_mode_is_deepseek"] = {"ok": True}
+    else:
+        checks["model_mode_is_deepseek"] = {
+            "ok": False,
+            "reason": f"model_mode={mode!r}, must be 'deepseek' for production",
+        }
+
+    # 3. DeepSeek API key (or OPENAI_API_KEY fallback, P2-2)
+    dsk = deepseek_api_key()
+    checks["deepseek_api_key"] = {
+        "ok": bool(dsk),
+        "reason": None if dsk else "DEEPSEEK_API_KEY (or OPENAI_API_KEY) is empty or not set",
+    }
+
+    # 4. HMAC secret (new_api)
+    napi = new_api_hmac_secret()
+    checks["hmac_secret_new_api"] = {
+        "ok": bool(napi),
+        "reason": None if napi else "HMAC_SECRET_NEW_API is empty or not set",
+    }
+
+    # 5. HMAC secret (aihehuomicro)
+    micro = aihehuomicro_hmac_secret()
+    checks["hmac_secret_aihehuomicro"] = {
+        "ok": bool(micro),
+        "reason": None if micro else "HMAC_SECRET_AIHEHUOMICRO is empty or not set",
+    }
+
+    checks["overall"] = all(c.get("ok", False) for k, c in checks.items() if k != "overall")
+    return checks
 
 
 def hard_truncate_limit() -> int:

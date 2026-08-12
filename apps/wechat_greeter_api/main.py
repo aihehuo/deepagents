@@ -23,14 +23,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from wechat_greeter.config import (
-    api_port,
-    dry_run,
-    model_mode,
     new_api_hmac_secret,
-    production_ready,
+    readiness_details,
     timestamp_skew_s,
 )
-from wechat_greeter.faq_store import get_faq_count
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -132,29 +128,45 @@ def _verify_wechat_greeter_hmac(
 
 @app.get("/healthz")
 async def healthz() -> dict:
-    """Liveness + readiness: 灰度切档决策面板.
+    """Liveness: 仅确认进程存活，永远返回 200。
 
-    REQ-065 P0-C7:
-      - model_mode: stub | deepseek | unconfigured (不配置默认 fail-closed)
-      - production_ready: bool (model_mode=deepseek + dry_run=false)
-      - dry_run: bool (灰度切档前 True, 切档后 False)
-      - faq_count: int (FAQ 索引条数, 0 需警惕)
+    REQ-065 P1-1: liveness 不检查依赖，确保 K8s 不会在瞬态抖动时误杀容器。
+    readiness 检查请用 GET /ready。
     """
-    is_dry = dry_run()
-    try:
-        mode = model_mode()
-    except RuntimeError:
-        mode = "unconfigured"
     return {
-        "status": "dry_run" if is_dry else "ok",
+        "status": "ok",
         "service": "wechat_greeter_api",
         "build_version": BUILD_VERSION,
-        "port": str(api_port()),
-        "model_mode": mode,
-        "production_ready": production_ready(),
-        "dry_run": is_dry,
-        "faq_count": get_faq_count(),
     }
+
+
+@app.get("/ready")
+async def ready() -> JSONResponse:
+    """Readiness: 验证所有关键依赖就绪 (REQ-065 P1-1).
+
+    检查项:
+      1. model_mode 已配置 + 值为 deepseek
+      2. dry_run 已关闭
+      3. DEEPSEEK_API_KEY 已配置
+      4. HMAC_SECRET_NEW_API 已配置
+      5. HMAC_SECRET_AIHEHUOMICRO 已配置
+      6. aihehuomicro 可达 (HTTP healthz)
+
+    全部通过 → 200; 任一失败 → 503 + 失败详情。
+    部署健康检查应使用此端点 (非 /healthz)。
+    """
+    details = readiness_details()
+    overall = details.pop("overall")
+    status_code = 200 if overall else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ready" if overall else "not_ready",
+            "service": "wechat_greeter_api",
+            "build_version": BUILD_VERSION,
+            "checks": details,
+        },
+    )
 
 
 @app.get("/")
@@ -176,17 +188,28 @@ async def call_async(request: Request) -> JSONResponse:
       - send_time: int (unix seconds, 微信发来时间戳)
       - trace_id:  str (REQ-065 P0-A1: new_api DeepAgentClient 发送 trace_id)
     """
+    # 0. Read body (before any gate — HMAC needs it)
     body_bytes = await request.body()
     body_str = body_bytes.decode("utf-8")
 
-    # 1. HMAC 验签（失败 → 401）
+    # 1. HMAC 验签 (P1-2: 先于 readiness gate — 未认证请求不应触发内部检查)
     _verify_wechat_greeter_hmac(
         body=body_bytes,
         headers=dict(request.headers),
         path=request.url.path,
     )
 
-    # 2. Parse body
+    # 2. Readiness gate (REQ-065 P1-1): 未 ready → 503
+    if not readiness_details()["overall"]:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "service_not_ready",
+                "message": "wechat_greeter_api is not ready to accept requests",
+            },
+        )
+
+    # 3. Parse body
     try:
         payload = json.loads(body_str) if body_str else {}
     except json.JSONDecodeError as exc:
@@ -195,7 +218,7 @@ async def call_async(request: Request) -> JSONResponse:
             detail={"error": "invalid_json", "message": str(exc)},
         )
 
-    # 3. Build envelope (REQ-065 P0-A1: trace_id 对齐 new_api dispatch worker)
+    # 4. Build envelope (REQ-065 P0-A1: trace_id 对齐 new_api dispatch worker)
     trace_id = payload.get("trace_id") or payload.get("msg_id") or f"auto_{uuid.uuid4().hex[:12]}"
     send_time = int(payload.get("send_time") or int(time.time()))
     envelope = {
@@ -206,7 +229,7 @@ async def call_async(request: Request) -> JSONResponse:
         "received_at": int(time.time()),
     }
 
-    # 4. Enqueue（Celery eager mode 同步跑；生产用 Redis broker）
+    # 5. Enqueue（Celery eager mode 同步跑；生产用 Redis broker）
     from apps.wechat_greeter_worker.tasks import process_greeting
     process_greeting.delay(envelope)
 

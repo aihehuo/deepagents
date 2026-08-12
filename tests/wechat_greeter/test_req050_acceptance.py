@@ -94,50 +94,54 @@ def test_smoke_happy_path_call_async_to_callback(monkeypatch: pytest.MonkeyPatch
         mock_resp.raise_for_status = MagicMock()
         mock_post.return_value = mock_resp
 
-        # 3. 触发 API（import 在 setenv 之后，确保 config 读到 env）
-        from fastapi.testclient import TestClient
-        from apps.wechat_greeter_api.main import app
+        # 3. Mock readiness gate (smoke test uses model_mode=stub, REQ-065 P0-3/P1-2)
+        import apps.wechat_greeter_api.main as _main_mod
 
-        client = TestClient(app)
-        response = client.post("/call_async", headers=headers, content=body_str)
+        with patch.object(_main_mod, "readiness_details", return_value={"overall": True}):
+            # 4. 触发 API（import 在 setenv 之后，确保 config 读到 env）
+            from fastapi.testclient import TestClient
+            from apps.wechat_greeter_api.main import app
 
-        # 4. 验证 202 + trace_id
-        assert response.status_code == 202, f"expected 202, got {response.status_code}: {response.text}"
-        body_resp = response.json()
-        assert body_resp.get("trace_id") == "msg_smoke_001"
-        assert body_resp.get("status") == "accepted"
+            client = TestClient(app)
+            response = client.post("/call_async", headers=headers, content=body_str)
 
-        # 5. 验证 callback 被调（Celery eager mode 同步执行）
-        assert mock_post.called, "callback should be invoked when CELERY_TASK_ALWAYS_EAGER=1"
-        called_url = mock_post.call_args[0][0]
-        assert "wechat_greeter_callbacks" in called_url, f"unexpected callback url: {called_url}"
+            # 5. 验证 202 + trace_id
+            assert response.status_code == 202, f"expected 202, got {response.status_code}: {response.text}"
+            body_resp = response.json()
+            assert body_resp.get("trace_id") == "msg_smoke_001"
+            assert body_resp.get("status") == "accepted"
 
-        # 6. 验证 callback 头
-        called_kwargs = mock_post.call_args[1]
-        called_headers = called_kwargs.get("headers", {})
-        assert called_headers.get("X-GA-From") == "wechat_greeter", (
-            f"X-GA-From should be wechat_greeter, got {called_headers.get('X-GA-From')}"
-        )
-        assert "X-GA-Ts" in called_headers, "X-GA-Ts missing in callback headers"
-        assert "X-GA-Signature" in called_headers, "X-GA-Signature missing in callback headers"
+            # 6. 验证 callback 被调（Celery eager mode 同步执行）
+            assert mock_post.called, "callback should be invoked when CELERY_TASK_ALWAYS_EAGER=1"
+            called_url = mock_post.call_args[0][0]
+            assert "wechat_greeter_callbacks" in called_url, f"unexpected callback url: {called_url}"
 
-        # 7. 时间戳新鲜
-        cb_ts = int(called_headers["X-GA-Ts"])
-        assert abs(cb_ts - int(time.time())) < 300, f"callback ts too old or future: {cb_ts}"
+            # 7. 验证 callback 头
+            called_kwargs = mock_post.call_args[1]
+            called_headers = called_kwargs.get("headers", {})
+            assert called_headers.get("X-GA-From") == "wechat_greeter", (
+                f"X-GA-From should be wechat_greeter, got {called_headers.get('X-GA-From')}"
+            )
+            assert "X-GA-Ts" in called_headers, "X-GA-Ts missing in callback headers"
+            assert "X-GA-Signature" in called_headers, "X-GA-Signature missing in callback headers"
 
-        # 8. callback body 包含 trace_id + reply_text + user_id + branch
-        called_body_str = called_kwargs.get("content", "")
-        callback_envelope = json.loads(called_body_str)
-        assert callback_envelope.get("trace_id") == "msg_smoke_001"
-        assert "reply_text" in callback_envelope
-        assert "user_id" in callback_envelope
-        assert "branch" in callback_envelope, "REQ-065 P0-A2: callback must include branch field"
+            # 8. 时间戳新鲜
+            cb_ts = int(called_headers["X-GA-Ts"])
+            assert abs(cb_ts - int(time.time())) < 300, f"callback ts too old or future: {cb_ts}"
 
-        # 9. reply_text 包含固定尾巴
-        reply = callback_envelope["reply_text"]
-        assert "〔详情见 App" in reply, (
-            f"reply should contain fixed tail, got: {reply!r}"
-        )
+            # 9. callback body 包含 trace_id + reply_text + user_id + branch
+            called_body_str = called_kwargs.get("content", "")
+            callback_envelope = json.loads(called_body_str)
+            assert callback_envelope.get("trace_id") == "msg_smoke_001"
+            assert "reply_text" in callback_envelope
+            assert "user_id" in callback_envelope
+            assert "branch" in callback_envelope, "REQ-065 P0-A2: callback must include branch field"
+
+            # 10. reply_text 包含固定尾巴
+            reply = callback_envelope["reply_text"]
+            assert "〔详情见 App" in reply, (
+                f"reply should contain fixed tail, got: {reply!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -769,20 +773,23 @@ def test_d1_dry_run_skips_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     """D-1 dry-run 模式: 走完流程但不真打 callback, 避免污染生产."""
     _set_minimal_env(monkeypatch)
     monkeypatch.setenv("WECHAT_GREETER_DRY_RUN", "true")
+    # P0-3: dry_run 不再影响 readiness, 但需要 model_mode=deepseek + API key 通过 /ready
+    monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-key-001")
 
-    # 1. /healthz 实证
+    # 1. /healthz 始终 200 (REQ-065 P1-1: liveness only)
     from fastapi.testclient import TestClient
     from apps.wechat_greeter_api.main import app
     client = TestClient(app)
     h = client.get("/healthz")
     assert h.status_code == 200
-    health = h.json()
-    assert health["status"] == "dry_run", f"expected status=dry_run, got {health}"
-    assert health["dry_run"] is True
-    assert "model_mode" in health
-    assert "faq_count" in health and health["faq_count"] >= 30  # C 阶段 seed 30 条
+    assert h.json()["status"] == "ok"
 
-    # 2 + 3. process_greeting dry-run 实证
+    # 2. /ready 不再因 dry_run=true 拒绝 (REQ-065 P0-3)
+    r = client.get("/ready")
+    assert r.status_code == 200, f"dry_run should not block readiness, got {r.status_code}: {r.json()}"
+
+    # 3 + 4. process_greeting dry-run 实证
     with patch("wechat_greeter.callback.httpx.post") as mock_post:
         envelope = {
             "trace_id": "msg_dry_001",
@@ -1030,3 +1037,138 @@ def test_09e_req065_p0a4_callback_max_retries_re_raises_original(
     fake_self2.retry.assert_called_once()
     assert fake_self2.retry.call_args[1]["countdown"] == 5
     assert fake_self2.retry.call_args[1]["max_retries"] == _MAX_CALLBACK_RETRIES
+
+
+# ---------------------------------------------------------------------------
+# REQ-065 P1-1: liveness/readiness 拆分 + /call_async readiness gate
+# ---------------------------------------------------------------------------
+
+# Helper: set env for a "ready" production config
+def _set_ready_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_minimal_env(monkeypatch)
+    monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-key-001")
+    # REQ-065 P0-3: dry_run 不再影响 readiness — dry_run 是灰度前有效冒烟模式
+
+
+def test_p11_healthz_always_200(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P1-1: /healthz 永远返回 200, 即使 readiness 未通过."""
+    _set_minimal_env(monkeypatch)
+    # Break readiness: remove DEEPSEEK_API_KEY
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    from fastapi.testclient import TestClient
+    from apps.wechat_greeter_api.main import app
+
+    client = TestClient(app)
+    r = client.get("/healthz")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+
+def test_p11_ready_200_when_all_checks_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P1-1: /ready 全部检查通过 → 200."""
+    _set_ready_env(monkeypatch)
+
+    from fastapi.testclient import TestClient
+    from apps.wechat_greeter_api.main import app
+
+    client = TestClient(app)
+    r = client.get("/ready")
+    assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.json()}"
+    body = r.json()
+    assert body["status"] == "ready"
+
+
+def test_p11_ready_503_when_api_key_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P1-1: /ready 缺 DEEPSEEK_API_KEY → 503 + 具体失败原因."""
+    _set_ready_env(monkeypatch)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    # P2-2: deepseek_api_key() falls back to OPENAI_API_KEY; clear both
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    from fastapi.testclient import TestClient
+    from apps.wechat_greeter_api.main import app
+
+    client = TestClient(app)
+    r = client.get("/ready")
+    assert r.status_code == 503
+    body = r.json()
+    assert body["status"] == "not_ready"
+    assert body["checks"]["deepseek_api_key"]["ok"] is False
+
+
+def test_p11_ready_503_when_hmac_secret_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P1-1: /ready 缺 HMAC_SECRET_NEW_API → 503."""
+    _set_ready_env(monkeypatch)
+    monkeypatch.delenv("HMAC_SECRET_NEW_API", raising=False)
+
+    from fastapi.testclient import TestClient
+    from apps.wechat_greeter_api.main import app
+
+    client = TestClient(app)
+    r = client.get("/ready")
+    assert r.status_code == 503
+    assert r.json()["checks"]["hmac_secret_new_api"]["ok"] is False
+
+
+def test_p11_ready_503_when_model_mode_is_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P1-1: /ready model_mode=stub → 503 (not production ready)."""
+    _set_ready_env(monkeypatch)
+    monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "stub")
+
+    from fastapi.testclient import TestClient
+    from apps.wechat_greeter_api.main import app
+
+    client = TestClient(app)
+    r = client.get("/ready")
+    assert r.status_code == 503
+    assert r.json()["checks"]["model_mode_is_deepseek"]["ok"] is False
+
+
+def test_p11_call_async_refuses_when_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P1-1: /call_async 未 ready → 503 (不接单)."""
+    _set_minimal_env(monkeypatch)
+    # Remove DEEPSEEK_API_KEY to break readiness (deepseek_api_key check fails)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    from fastapi.testclient import TestClient
+    from apps.wechat_greeter_api.main import app
+
+    client = TestClient(app)
+    body = json.dumps({
+        "openid": "test_openid",
+        "content": "test",
+        "send_time": int(time.time()),
+    })
+    headers = _sign_request("test-secret-new-api-001", body)
+    # P1-2: HMAC 先于 readiness, 所以需要有效 HMAC 才能触发 readiness gate
+    r = client.post("/call_async", headers=headers, content=body)
+    assert r.status_code == 503, f"expected 503, got {r.status_code}: {r.json()}"
+    assert r.json()["detail"]["error"] == "service_not_ready"
+
+
+def test_p11_call_async_accepts_when_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P1-1: /call_async ready → 202 正常接单 (对比验证).
+
+    Mock process_greeting.delay — 验证点是 readiness gate 通过后入队,
+    不是 worker 内部行为 (worker 行为由 P0-A4 测试覆盖).
+    """
+    _set_ready_env(monkeypatch)
+    _mock_deepagents_import_chain()
+
+    import apps.wechat_greeter_worker.tasks as _task_mod
+
+    with patch.object(_task_mod.process_greeting, "delay"):
+        from fastapi.testclient import TestClient
+        from apps.wechat_greeter_api.main import app
+
+        client = TestClient(app)
+        body = json.dumps({
+            "openid": "test_openid",
+            "content": "test",
+            "send_time": int(time.time()),
+        })
+        headers = _sign_request("test-secret-new-api-001", body)
+        r = client.post("/call_async", headers=headers, content=body)
+        assert r.status_code == 202, f"expected 202, got {r.status_code}: {r.json()}"
+        assert r.json()["status"] == "accepted"

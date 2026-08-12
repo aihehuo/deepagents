@@ -32,9 +32,11 @@ export WECHAT_GREETER_LLM_MODEL="deepseek-v4-flash"  # 锁死, 别动
 ### Step 2: 启 API + worker (dry-run 模式)
 
 ```bash
-# 部署环境启 2 容器 (docker-compose.wechat_greeter.yml)
-export WECHAT_GREETER_DRY_RUN="true"  # 关键: dry-run 模式
-docker compose -f docker-compose.wechat_greeter.yml up -d
+# 两个 App 分别走标准链路: 本地构建 → 阿里云 Registry → prod3 pull/recreate
+# 部署前确认 prod3 两个 .docker.env 均为 WECHAT_GREETER_DRY_RUN=true
+SHA="$(git rev-parse HEAD)"
+./apps/deploy_to_prod3.sh wechat_greeter_api "$SHA"
+./apps/deploy_to_prod3.sh wechat_greeter_worker "$SHA"
 
 # 验证 healthz 存活 + /ready 就绪 (REQ-065 P1-1: liveness/readiness 拆分)
 curl http://localhost:8005/healthz
@@ -45,7 +47,7 @@ curl http://localhost:8005/ready
 # 注: dry_run=true 不阻塞 /ready (P0-3)
 ```
 
-**回滚**: `docker compose down` + `unset WECHAT_GREETER_DRY_RUN`
+**回滚**: new_API 保持 `WECHAT_GREETER_FORCE_OFF=true`，必要时停止这两个新容器。
 
 ### Step 3: 跑 50 条负向评测 (真实 deepseek, dry-run 模式)
 
@@ -92,9 +94,11 @@ curl http://localhost:8005/ready
 ## 🚀 切档 Step 6 (T0 切档, 老板拍板后执行)
 
 ```bash
-# 1. 本仓: 关闭 dry_run (必须 force-recreate: restart 不重新注入 env)
-unset WECHAT_GREETER_DRY_RUN
-docker compose -f docker-compose.wechat_greeter.yml up -d --force-recreate wechat-greeter-worker
+# 1. prod3: 关闭 worker dry_run (必须 force-recreate: restart 不重新注入 env)
+sed -i 's/^WECHAT_GREETER_DRY_RUN=.*/WECHAT_GREETER_DRY_RUN=false/' /mnt/wechat-greeter-worker/.docker.env
+WORKER_IMAGE="$(docker inspect wechat-greeter-worker --format '{{.Config.Image}}')"
+WECHAT_GREETER_WORKER_IMAGE="$WORKER_IMAGE" docker compose \
+  -f /mnt/deepagents/docker-compose.prod3.yml up -d --force-recreate wechat-greeter-worker
 
 # 验证 worker 内 dry_run 已关闭
 docker exec wechat-greeter-worker python -c "import os; print(os.environ.get('WECHAT_GREETER_DRY_RUN',''))"
@@ -112,8 +116,10 @@ docker exec wechat-greeter-worker python -c "import os; print(os.environ.get('WE
 ### 回滚 1: 开 dry_run (本仓, 30 秒)
 
 ```bash
-export WECHAT_GREETER_DRY_RUN="true"
-docker compose -f docker-compose.wechat_greeter.yml up -d --force-recreate wechat-greeter-worker
+sed -i 's/^WECHAT_GREETER_DRY_RUN=.*/WECHAT_GREETER_DRY_RUN=true/' /mnt/wechat-greeter-worker/.docker.env
+WORKER_IMAGE="$(docker inspect wechat-greeter-worker --format '{{.Config.Image}}')"
+WECHAT_GREETER_WORKER_IMAGE="$WORKER_IMAGE" docker compose \
+  -f /mnt/deepagents/docker-compose.prod3.yml up -d --force-recreate wechat-greeter-worker
 # 效果: worker 走完流程但不真打 callback, 立即停止污染生产
 # 验证: docker exec wechat-greeter-worker python -c "import os; print(os.environ.get('WECHAT_GREETER_DRY_RUN',''))"
 ```
@@ -129,10 +135,15 @@ docker compose -f docker-compose.wechat_greeter.yml up -d --force-recreate wecha
 ### 回滚 3: 切回 stub 模式 (本仓, 3 分钟)
 
 ```bash
-export WECHAT_GREETER_MODEL_MODE="stub"  # 关 deepseek, 走 stub
-unset DEEPSEEK_API_KEY  # 切断真实 API 访问
+sed -i 's/^WECHAT_GREETER_MODEL_MODE=.*/WECHAT_GREETER_MODEL_MODE=stub/' /mnt/wechat-greeter-api/.docker.env
+sed -i 's/^WECHAT_GREETER_MODEL_MODE=.*/WECHAT_GREETER_MODEL_MODE=stub/' /mnt/wechat-greeter-worker/.docker.env
+sed -i 's/^DEEPSEEK_API_KEY=.*/DEEPSEEK_API_KEY=/' /mnt/wechat-greeter-api/.docker.env
+sed -i 's/^DEEPSEEK_API_KEY=.*/DEEPSEEK_API_KEY=/' /mnt/wechat-greeter-worker/.docker.env
 # model/key 变更影响 API + worker, 两个都必须 force-recreate
-docker compose -f docker-compose.wechat_greeter.yml up -d --force-recreate wechat-greeter-api wechat-greeter-worker
+API_IMAGE="$(docker inspect wechat-greeter-api --format '{{.Config.Image}}')"
+WORKER_IMAGE="$(docker inspect wechat-greeter-worker --format '{{.Config.Image}}')"
+WECHAT_GREETER_API_IMAGE="$API_IMAGE" WECHAT_GREETER_WORKER_IMAGE="$WORKER_IMAGE" docker compose \
+  -f /mnt/deepagents/docker-compose.prod3.yml up -d --force-recreate wechat-greeter-api wechat-greeter-worker
 
 # 验证: curl /healthz → status=ok; curl /ready → model_mode=stub (not_ready)
 curl http://localhost:8005/healthz

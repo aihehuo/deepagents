@@ -37,7 +37,9 @@ def aihehuomicro_hmac_secret() -> str:
     """HMAC 共享密钥（aihehuomicro 端 ↔ deep agents 端）.
 
     对应 aihehuomicro 端 env 名：MICRO_HMAC_SECRET。
-    用于 deep agents → aihehuomicro /internal/wechat_greeter/{user_by_openid,profile_status,project_status}。
+    用于 deep agents → aihehuomicro — 2 个端点:
+      - /internal/wechat_greeter/user_by_openid
+      - /internal/wechat_greeter/user_full_profile
     """
     return (os.environ.get("HMAC_SECRET_AIHEHUOMICRO") or "").strip()
 

@@ -10,7 +10,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONPATH="/app/libs/deepagents:/app/libs/wechat_greeter"
+    PYTHONPATH="/app/libs/deepagents:/app/libs"
 
 # Create non-root user appuser (UID 1000, GID 1000)
 RUN groupadd -r appuser -g 1000 2>/dev/null || true && \
@@ -20,16 +20,15 @@ RUN mkdir -p /home/appuser && \
     mkdir -p /app/data/wechat_faq && \
     chown -R appuser:appuser /app /home/appuser
 
-# Install requirements
-COPY apps/wechat_greeter_api/requirements.txt /app/apps/wechat_greeter_api/requirements.txt 2>/dev/null || \
-    echo "fastapi>=0.110\nuvicorn>=0.27\ncelery>=5.3.0\nredis>=5.0\nhttpx>=0.27\njinja2>=3.1\npydantic>=2.0" > /app/apps/wechat_greeter_api/requirements.txt
+# Install requirements. The requirements file is committed so image builds are
+# deterministic; Docker COPY does not support shell fallbacks ("|| echo").
+COPY libs/deepagents /app/libs/deepagents
+COPY apps/wechat_greeter_api/requirements.txt /app/apps/wechat_greeter_api/requirements.txt
 
 RUN pip install --no-cache-dir \
     -i https://pypi.tuna.tsinghua.edu.cn/simple \
     -r /app/apps/wechat_greeter_api/requirements.txt
 
-# Copy deepagents library
-COPY libs/deepagents /app/libs/deepagents
 # Copy wechat_greeter shared lib (跨进程复用)
 COPY libs/wechat_greeter /app/libs/wechat_greeter
 
@@ -37,9 +36,8 @@ COPY libs/wechat_greeter /app/libs/wechat_greeter
 COPY apps/wechat_greeter_api /app/apps/wechat_greeter_api
 COPY apps/wechat_greeter_worker /app/apps/wechat_greeter_worker
 
-# REQ-051 B/C 阶段: COPY FAISS 索引 (缺失时 fail-fast 由容器启动脚本校验)
-# 注: A 阶段构建时 data/wechat_faq/ 目录可能尚无 .faiss 文件, 启动时 worker 校验后选择 fail-fast 或 fallback
-COPY data/wechat_faq/ /app/data/wechat_faq/
+# FAQ v2 currently uses the committed in-process seed. A future FAISS rollout
+# must add its artifact explicitly instead of making today's image unbuildable.
 
 # Re-fix ownership after COPY
 RUN chown -R appuser:appuser /app

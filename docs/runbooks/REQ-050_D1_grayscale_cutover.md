@@ -92,9 +92,12 @@ curl http://api:8005/ready
 ## 🚀 切档 Step 6 (T0 切档, 老板拍板后执行)
 
 ```bash
-# 1. 本仓: 关闭 dry_run
+# 1. 本仓: 关闭 dry_run (必须 force-recreate: restart 不重新注入 env)
 unset WECHAT_GREETER_DRY_RUN
-docker compose -f docker-compose.wechat_greeter.yml restart wechat-greeter-worker
+docker compose -f docker-compose.wechat_greeter.yml up -d --force-recreate wechat-greeter-worker
+
+# 验证 worker 内 dry_run 已关闭
+docker exec wechat-greeter-worker python -c "import os; print(os.environ.get('WECHAT_GREETER_DRY_RUN',''))"
 
 # 2. 跨仓: new_api 端 灰度放量 (您手操作)
 #   - WECHAT_GREETER_ENABLED=true (已配)
@@ -110,8 +113,9 @@ docker compose -f docker-compose.wechat_greeter.yml restart wechat-greeter-worke
 
 ```bash
 export WECHAT_GREETER_DRY_RUN="true"
-docker compose -f docker-compose.wechat_greeter.yml restart wechat-greeter-worker
+docker compose -f docker-compose.wechat_greeter.yml up -d --force-recreate wechat-greeter-worker
 # 效果: worker 走完流程但不真打 callback, 立即停止污染生产
+# 验证: docker exec wechat-greeter-worker python -c "import os; print(os.environ.get('WECHAT_GREETER_DRY_RUN',''))"
 ```
 
 ### 回滚 2: 关 new_api 灰度 (跨仓, 1 分钟)
@@ -127,9 +131,12 @@ docker compose -f docker-compose.wechat_greeter.yml restart wechat-greeter-worke
 ```bash
 export WECHAT_GREETER_MODEL_MODE="stub"  # 关 deepseek, 走 stub
 unset DEEPSEEK_API_KEY  # 切断真实 API 访问
-docker compose -f docker-compose.wechat_greeter.yml restart wechat-greeter-worker
+# model/key 变更影响 API + worker, 两个都必须 force-recreate
+docker compose -f docker-compose.wechat_greeter.yml up -d --force-recreate
 
 # 验证: curl /healthz → status=ok; curl /ready → model_mode=stub (not_ready)
+curl http://localhost:8005/healthz
+curl http://localhost:8005/ready
 ```
 
 **回滚决策树**:
@@ -163,11 +170,11 @@ docker compose -f docker-compose.wechat_greeter.yml restart wechat-greeter-worke
 
 ## 📞 跨仓协调 checklist (P0 必填)
 
-- [ ] **aihehuomicro 3 端点就绪** (跨仓: user_by_openid / profile_status / project_status, HMAC from=wechat_greeter 锁死) — D-2 范围, 切档前必完
+- [ ] **aihehuomicro 2 端点就绪** (跨仓: user_by_openid / user_full_profile, HMAC from=wechat_greeter 锁死) — D-2 范围, 切档前必完
 - [ ] **new_api REQ-061 灰度开关 WECHAT_GREETER_ENABLED 实施** (跨仓: 默认 false, 切档时设 true) — D-1 必查
 - [ ] **DEEPSEEK_API_KEY 配齐** (本仓 + 生产环境) — D-1 Step 1
 - [ ] **TSD-09 v0.1 DRAFT → v1.0 签发** (docs 仓) — NIT-S1 修订, D-1 切真流量前必签
-- [ ] **5 工具 E2E 真实 HMAC** (本仓 + aihehuomicro) — D-2 范围, D-1 dry-run 阶段 stub 即可
+- [ ] **3 工具 E2E 真实 HMAC** (本仓: 2× micro HMAC + 1× 本地 FAQ) — D-2 范围, D-1 dry-run 阶段 stub 即可
 - [ ] **回滚 3 步骤过一遍演练** (本仓 + 跨仓) — D-1 切档前必演
 
 ---

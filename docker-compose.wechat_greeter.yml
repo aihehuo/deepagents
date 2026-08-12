@@ -4,7 +4,7 @@ version: "3.8"
 # 2 容器: wechat-greeter-api (port 8005) + wechat-greeter-worker (Celery worker)
 # 共享 1 个 image (Dockerfile.wechat_greeter), worker 容器通过 command 覆盖 CMD 启 celery
 #
-# 联调方: new_api (REQ-061, 已合主干) + aihehuomicro (HMAC 3 端点待实施) 通过 DEEPAGENTS_WECHAT_GREETER_CALLBACK_URL 接入
+# 联调方: new_api (REQ-061, 已合主干) + aihehuomicro (HMAC 2 端点: user_by_openid / user_full_profile)
 # 灰度开关: WECHAT_GREETER_ENABLED (new_api 端), 默认 false → 老板切档
 
 services:
@@ -27,6 +27,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       # 模型 (REQ-065 P0-1/P0-3: 生产/灰度必须注入 deepseek + key)
       - WECHAT_GREETER_MODEL_MODE=${WECHAT_GREETER_MODEL_MODE:-stub}
+      - WECHAT_GREETER_LLM_MODEL=${WECHAT_GREETER_LLM_MODEL:-deepseek-v4-flash}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # 灰度 (REQ-065 P0-3: dry_run=true 允许冒烟不阻塞 readiness)
@@ -64,6 +65,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       # 模型 (REQ-065 P0-1: 灰度/生产必须注入 deepseek + key, 与 API 同步)
       - WECHAT_GREETER_MODEL_MODE=${WECHAT_GREETER_MODEL_MODE:-stub}
+      - WECHAT_GREETER_LLM_MODEL=${WECHAT_GREETER_LLM_MODEL:-deepseek-v4-flash}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # 灰度 (REQ-065 P0-2: worker 必须读 dry_run, 否则默认 false → 可能误发 callback)

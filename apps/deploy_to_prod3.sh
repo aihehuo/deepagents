@@ -75,6 +75,26 @@ if [ "$APP_NAME" = "group_agent_worker" ]; then
   fi
 fi
 
+if [ "$APP_NAME" = "wechat_greeter_api" ]; then
+  _require_group_agent_sha_tag "$APP_NAME" "${2:-}"
+  COPY_UNTRACKED="$(git -C "$REPO_ROOT" status --porcelain libs/deepagents libs/wechat_greeter apps/wechat_greeter_api apps/wechat_greeter_worker 2>/dev/null | grep '^??' || true)"
+  if [ -n "$COPY_UNTRACKED" ]; then
+    echo "Error: Docker COPY source paths contain untracked files:"
+    echo "$COPY_UNTRACKED"
+    exit 1
+  fi
+fi
+
+if [ "$APP_NAME" = "wechat_greeter_worker" ]; then
+  _require_group_agent_sha_tag "$APP_NAME" "${2:-}"
+  COPY_UNTRACKED="$(git -C "$REPO_ROOT" status --porcelain libs/deepagents libs/wechat_greeter apps/wechat_greeter_api apps/wechat_greeter_worker 2>/dev/null | grep '^??' || true)"
+  if [ -n "$COPY_UNTRACKED" ]; then
+    echo "Error: Docker COPY source paths contain untracked files:"
+    echo "$COPY_UNTRACKED"
+    exit 1
+  fi
+fi
+
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.prod3.yml"
 if [ ! -f "$COMPOSE_FILE" ]; then
   echo "Error: Compose file not found: $COMPOSE_FILE"
@@ -115,6 +135,12 @@ elif [ "$APP_NAME" = "wu_tanchang_api" ]; then
   VERIFY_IMAGE_STRICT=1
 elif [ "$APP_NAME" = "business_cofounder_api" ]; then
   REMOTE_EXPORT="export BUSINESS_COFOUNDER_API_IMAGE=\"${FULL_IMAGE}\""
+  VERIFY_IMAGE_STRICT=1
+elif [ "$APP_NAME" = "wechat_greeter_api" ]; then
+  REMOTE_EXPORT="export WECHAT_GREETER_API_IMAGE=\"${FULL_IMAGE}\""
+  VERIFY_IMAGE_STRICT=1
+elif [ "$APP_NAME" = "wechat_greeter_worker" ]; then
+  REMOTE_EXPORT="export WECHAT_GREETER_WORKER_IMAGE=\"${FULL_IMAGE}\""
   VERIFY_IMAGE_STRICT=1
 fi
 

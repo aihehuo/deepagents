@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP_DIR="${SCRIPT_DIR}/${APP_NAME}"
 
-# group_agent_api / group_agent_worker: SHA-only tags, clean tree, no :latest push
+# Stateful/rollout-sensitive apps: SHA-only tags and a clean tracked tree.
 _require_group_agent_sha_tag() {
   local app="$1"
   if [ $# -lt 2 ] || [ -z "${2:-}" ] || [ "${2:-}" = "latest" ]; then
@@ -68,6 +68,26 @@ if [ "$APP_NAME" = "group_agent_worker" ]; then
   COPY_UNTRACKED="$(git -C "$REPO_ROOT" status --porcelain libs/deepagents apps/group_agent_api apps/group_agent_worker 2>/dev/null | grep '^\?\?' || true)"
   if [ -n "$COPY_UNTRACKED" ]; then
     echo "Error: Docker COPY source paths (libs/deepagents, apps/group_agent_api, apps/group_agent_worker) contain untracked files:"
+    echo "$COPY_UNTRACKED"
+    exit 1
+  fi
+fi
+
+if [ "$APP_NAME" = "wechat_greeter_api" ]; then
+  _require_group_agent_sha_tag "$APP_NAME" "${2:-}"
+  COPY_UNTRACKED="$(git -C "$REPO_ROOT" status --porcelain libs/deepagents libs/wechat_greeter apps/wechat_greeter_api apps/wechat_greeter_worker 2>/dev/null | grep '^??' || true)"
+  if [ -n "$COPY_UNTRACKED" ]; then
+    echo "Error: Docker COPY source paths contain untracked files:"
+    echo "$COPY_UNTRACKED"
+    exit 1
+  fi
+fi
+
+if [ "$APP_NAME" = "wechat_greeter_worker" ]; then
+  _require_group_agent_sha_tag "$APP_NAME" "${2:-}"
+  COPY_UNTRACKED="$(git -C "$REPO_ROOT" status --porcelain libs/deepagents libs/wechat_greeter apps/wechat_greeter_api apps/wechat_greeter_worker 2>/dev/null | grep '^??' || true)"
+  if [ -n "$COPY_UNTRACKED" ]; then
+    echo "Error: Docker COPY source paths contain untracked files:"
     echo "$COPY_UNTRACKED"
     exit 1
   fi
@@ -124,7 +144,10 @@ FULL_IMAGE="$REGISTRY/$IMAGE_NAME:$TAG"
 docker tag "$IMAGE_NAME:$TAG" "$FULL_IMAGE"
 docker push "$FULL_IMAGE"
 
-if [ "$APP_NAME" != "group_agent_api" ] && [ "$APP_NAME" != "group_agent_worker" ]; then
+if [ "$APP_NAME" != "group_agent_api" ] && \
+   [ "$APP_NAME" != "group_agent_worker" ] && \
+   [ "$APP_NAME" != "wechat_greeter_api" ] && \
+   [ "$APP_NAME" != "wechat_greeter_worker" ]; then
   # Retag the just-built image as :latest (do not rebuild — avoids a second
   # full image that would fight local keep-1 cleanup).
   FULL_IMAGE_LATEST="$REGISTRY/$IMAGE_NAME:latest"
@@ -136,7 +159,10 @@ fi
 echo ""
 echo "Pushed:"
 echo " - $FULL_IMAGE"
-if [ "$APP_NAME" != "group_agent_api" ] && [ "$APP_NAME" != "group_agent_worker" ]; then
+if [ "$APP_NAME" != "group_agent_api" ] && \
+   [ "$APP_NAME" != "group_agent_worker" ] && \
+   [ "$APP_NAME" != "wechat_greeter_api" ] && \
+   [ "$APP_NAME" != "wechat_greeter_worker" ]; then
   echo " - $FULL_IMAGE_LATEST"
 fi
 
@@ -172,4 +198,3 @@ _prune_local_repo_keep_latest "${REGISTRY}/${IMAGE_NAME}" 1
 # Unprefixed tags from `docker build -t $IMAGE_NAME:$TAG` also accumulate locally.
 _prune_local_repo_keep_latest "${IMAGE_NAME}" 1
 docker image prune -f >/dev/null 2>&1 || true
-

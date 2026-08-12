@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  wechat-greeter-api:
+    build:
+      context: ../..
+      dockerfile: apps/wechat_greeter_api/Dockerfile
+    container_name: wechat-greeter-api
+    ports:
+      - "8005:8005"
+    env_file:
+      - .docker.env
+    environment:
+      HOME: /home/appuser
+    user: "1000:1000"
+    restart: unless-stopped

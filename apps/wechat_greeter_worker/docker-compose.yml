@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  wechat-greeter-worker:
+    build:
+      context: ../..
+      dockerfile: apps/wechat_greeter_worker/Dockerfile
+    container_name: wechat-greeter-worker
+    env_file:
+      - .docker.env
+    environment:
+      HOME: /home/celery
+    user: "1000:1000"
+    restart: unless-stopped

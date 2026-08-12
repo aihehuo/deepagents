@@ -69,6 +69,17 @@ All scripts take the app name as the first parameter:
 ./apps/deploy_to_prod2.sh wu_tanchang_api 8002
 ```
 
+### WeChat Greeter API + Worker (prod3)
+
+Both services use the same immutable full commit SHA, but are built and pushed
+as separate app images through the standard deployment script:
+
+```bash
+SHA="$(git rev-parse HEAD)"
+./apps/deploy_to_prod3.sh wechat_greeter_api "$SHA"
+./apps/deploy_to_prod3.sh wechat_greeter_worker "$SHA"
+```
+
 ## Configuration
 
 Each app should have its own `.deploy.env` file in its directory (e.g., `apps/business_cofounder_api/.deploy.env`):

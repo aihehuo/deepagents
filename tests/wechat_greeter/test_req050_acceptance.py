@@ -83,7 +83,7 @@ def test_smoke_happy_path_call_async_to_callback(monkeypatch: pytest.MonkeyPatch
         "openid": "test_openid_smoke_001",
         "content": "你好,爱合伙是什么?",
         "send_time": int(time.time()),
-        "msg_id": "msg_smoke_001",
+        "trace_id": "msg_smoke_001",
     }
     body_str = json.dumps(body_obj, ensure_ascii=False)
     headers = _sign_request("test-secret-new-api-001", body_str)
@@ -101,10 +101,10 @@ def test_smoke_happy_path_call_async_to_callback(monkeypatch: pytest.MonkeyPatch
         client = TestClient(app)
         response = client.post("/call_async", headers=headers, content=body_str)
 
-        # 4. 验证 202 + msg_id
+        # 4. 验证 202 + trace_id
         assert response.status_code == 202, f"expected 202, got {response.status_code}: {response.text}"
         body_resp = response.json()
-        assert body_resp.get("msg_id") == "msg_smoke_001"
+        assert body_resp.get("trace_id") == "msg_smoke_001"
         assert body_resp.get("status") == "accepted"
 
         # 5. 验证 callback 被调（Celery eager mode 同步执行）
@@ -125,15 +125,16 @@ def test_smoke_happy_path_call_async_to_callback(monkeypatch: pytest.MonkeyPatch
         cb_ts = int(called_headers["X-GA-Ts"])
         assert abs(cb_ts - int(time.time())) < 300, f"callback ts too old or future: {cb_ts}"
 
-        # 8. callback body 包含 msg_id + reply + user_id
+        # 8. callback body 包含 trace_id + reply_text + user_id + branch
         called_body_str = called_kwargs.get("content", "")
         callback_envelope = json.loads(called_body_str)
-        assert callback_envelope.get("msg_id") == "msg_smoke_001"
-        assert "reply" in callback_envelope
+        assert callback_envelope.get("trace_id") == "msg_smoke_001"
+        assert "reply_text" in callback_envelope
         assert "user_id" in callback_envelope
+        assert "branch" in callback_envelope, "REQ-065 P0-A2: callback must include branch field"
 
-        # 9. reply 包含固定尾巴
-        reply = callback_envelope["reply"]
+        # 9. reply_text 包含固定尾巴
+        reply = callback_envelope["reply_text"]
         assert "〔详情见 App" in reply, (
             f"reply should contain fixed tail, got: {reply!r}"
         )
@@ -417,7 +418,7 @@ def test_05_24h_dead_letter(monkeypatch: pytest.MonkeyPatch) -> None:
     # 1. send_time = 25h ago (超 24h 阈值)
     old_send_time = int(time.time()) - 25 * 3600
     envelope = {
-        "msg_id": "msg_dl_001",
+        "trace_id": "msg_dl_001",
         "openid": "test_openid_dl",
         "content": "这消息是 25 小时前发的",
         "send_time": old_send_time,
@@ -440,7 +441,7 @@ def test_05_24h_dead_letter(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WECHAT_GREETER_LLM_STUB_RAW", "你好,爱合伙是一个连接创业者和合伙人的平台。")
     fresh_send_time = int(time.time()) - 23 * 3600
     fresh_envelope = {
-        "msg_id": "msg_fresh_001",
+        "trace_id": "msg_fresh_001",
         "openid": "test_openid_fresh",
         "content": "23 小时前的消息",
         "send_time": fresh_send_time,
@@ -468,7 +469,7 @@ def test_06_hard_truncate_200_chars(monkeypatch: pytest.MonkeyPatch) -> None:
     long_raw = "x" * 500  # 500 chars
     monkeypatch.setenv("WECHAT_GREETER_LLM_STUB_RAW", long_raw)
     envelope = {
-        "msg_id": "msg_truncate_long",
+        "trace_id": "msg_truncate_long",
         "openid": "test_openid_t1",
         "content": "long content",
         "send_time": int(time.time()),
@@ -484,17 +485,17 @@ def test_06_hard_truncate_200_chars(monkeypatch: pytest.MonkeyPatch) -> None:
         assert mock_post.called
         body_str = mock_post.call_args[1]["content"]
         callback_env = json.loads(body_str)
-        reply = callback_env["reply"]
+        reply = callback_env["reply_text"]
         assert reply.endswith(TAIL), f"reply should end with fixed tail, got: ...{reply[-30:]!r}"
-        assert len(reply) == LIMIT + len(TAIL), (
-            f"reply len should be {LIMIT} + {len(TAIL)} = {LIMIT + len(TAIL)}, got {len(reply)}"
+        assert len(reply) == LIMIT, (
+            f"REQ-065 P0-A3: reply len should be exactly {LIMIT} (truncated + tail got {len(reply)})"
         )
 
     # 分支 2: raw ≤ 200 → 原文 + tail
     short_raw = "你好"
     monkeypatch.setenv("WECHAT_GREETER_LLM_STUB_RAW", short_raw)
     envelope2 = {
-        "msg_id": "msg_truncate_short",
+        "trace_id": "msg_truncate_short",
         "openid": "test_openid_t2",
         "content": "short content",
         "send_time": int(time.time()),
@@ -510,7 +511,7 @@ def test_06_hard_truncate_200_chars(monkeypatch: pytest.MonkeyPatch) -> None:
         assert mock_post.called
         body_str = mock_post.call_args[1]["content"]
         callback_env = json.loads(body_str)
-        reply = callback_env["reply"]
+        reply = callback_env["reply_text"]
         assert reply.startswith(short_raw), f"reply should start with raw, got: {reply[:30]!r}"
         assert reply.endswith(TAIL), f"reply should end with fixed tail"
         assert len(reply) == len(short_raw) + len(TAIL)
@@ -519,7 +520,7 @@ def test_06_hard_truncate_200_chars(monkeypatch: pytest.MonkeyPatch) -> None:
     boundary_raw = "y" * LIMIT
     monkeypatch.setenv("WECHAT_GREETER_LLM_STUB_RAW", boundary_raw)
     envelope3 = {
-        "msg_id": "msg_truncate_boundary",
+        "trace_id": "msg_truncate_boundary",
         "openid": "test_openid_t3",
         "content": "boundary",
         "send_time": int(time.time()),
@@ -535,9 +536,9 @@ def test_06_hard_truncate_200_chars(monkeypatch: pytest.MonkeyPatch) -> None:
         assert mock_post.called
         body_str = mock_post.call_args[1]["content"]
         callback_env = json.loads(body_str)
-        reply = callback_env["reply"]
-        assert len(reply) == LIMIT + len(TAIL), (
-            f"boundary reply len should be {LIMIT + len(TAIL)}, got {len(reply)}"
+        reply = callback_env["reply_text"]
+        assert len(reply) == LIMIT, (
+            f"REQ-065 P0-A3: boundary reply len should be {LIMIT}, got {len(reply)}"
         )
 
 
@@ -625,7 +626,7 @@ def test_07_negative_eval_ci_v2() -> None:
 # REQ-063 P1: 运行时真接通验证 (不只数工具个数)
 # ---------------------------------------------------------------------------
 
-def test_08_req063_runtime_tool_execution() -> None:
+def test_08_req063_runtime_tool_execution(monkeypatch: pytest.MonkeyPatch) -> None:
     """REQ-063 P1: 验证工具运行时真接通——不只数工具个数，而是验执行链路.
 
     P0-1 验证: call_llm 收到 tools 参数并传入 bind_tools 流程.
@@ -633,6 +634,10 @@ def test_08_req063_runtime_tool_execution() -> None:
     P0-3 验证: get_user_by_openid → fail-closed (guest) 当 HMAC 未配置.
     P0-4 验证: get_user_full_profile → 真 HMAC 调用 (mock), 返回 4 段数据.
     """
+    # REQ-065 P0-C7: model_mode must be explicitly set
+    monkeypatch.setenv("WECHAT_GREETER_MODEL_MODE", "stub")
+    monkeypatch.setenv("WECHAT_GREETER_TRUNCATE_LIMIT", "200")
+    monkeypatch.setenv("WECHAT_GREETER_TRUNCATE_TAIL", "test_tail")
     from apps.wechat_greeter_api.agent_factory import make_tools
     from wechat_greeter.llm_client import call_llm
 
@@ -699,13 +704,12 @@ def test_08_req063_runtime_tool_execution() -> None:
     from wechat_greeter.llm_client import _build_system_prompt
     prompt_with_profile = _build_system_prompt(
         identity_branch="registered",
-        user_message="你好",
         profile_context=profile_context,
     )
     assert "张三" in prompt_with_profile, (
         "P0-2: system_prompt must contain injected profile data for registered users"
     )
-    assert "=== 当前用户的 4 段背景资料" in prompt_with_profile, (
+    assert "用户可编辑的背景资料" in prompt_with_profile, (
         "P0-2: system_prompt must contain profile injection marker"
     )
     assert "技术合伙人" in prompt_with_profile, (
@@ -715,10 +719,9 @@ def test_08_req063_runtime_tool_execution() -> None:
     # guest 分支不应注入 profile_context
     prompt_guest = _build_system_prompt(
         identity_branch="guest",
-        user_message="你好",
         profile_context=profile_context,  # 即使传入也不注入
     )
-    assert "=== 当前用户的 4 段背景资料" not in prompt_guest, (
+    assert "用户可编辑的背景资料" not in prompt_guest, (
         "P0-2: guest system_prompt must NOT contain profile injection"
     )
 
@@ -782,7 +785,7 @@ def test_d1_dry_run_skips_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     # 2 + 3. process_greeting dry-run 实证
     with patch("wechat_greeter.callback.httpx.post") as mock_post:
         envelope = {
-            "msg_id": "msg_dry_001",
+            "trace_id": "msg_dry_001",
             "openid": "test_openid_dry",
             "content": "你好, 测一下 dry-run",
             "send_time": int(time.time()),
@@ -812,7 +815,7 @@ def test_d1_dry_run_off_actually_calls_callback(monkeypatch: pytest.MonkeyPatch)
         mock_post.return_value = mock_resp
 
         envelope = {
-            "msg_id": "msg_real_001",
+            "trace_id": "msg_real_001",
             "openid": "test_openid_real",
             "content": "real 流量",
             "send_time": int(time.time()),

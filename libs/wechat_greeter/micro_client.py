@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from wechat_greeter.config import aihehuomicro_base_url, aihehuomicro_hmac_secret
+from wechat_greeter.config import aihehuomicro_base_url, aihehuomicro_hmac_secret, openid_hash
 
 _logger = logging.getLogger(__name__)
 
@@ -112,12 +112,12 @@ def get_user_by_openid(openid: str) -> dict[str, Any]:
             }
         # 4xx: user not found or bad request → guest
         _logger.warning(
-            f"get_user_by_openid openid={openid[:12]}... status={resp.status_code} → guest"
+            f"get_user_by_openid openid_hash={openid_hash(openid)}... status={resp.status_code} → guest"
         )
         return {"user_id": 0, "openid": openid, "error": f"http_{resp.status_code}", "source": "fail_closed"}
     except Exception as exc:
         _logger.warning(
-            f"get_user_by_openid openid={openid[:12]}... failed {type(exc).__name__}: {exc} → guest (fail-closed)"
+            f"get_user_by_openid openid_hash={openid_hash(openid)}... failed {type(exc).__name__}: {exc} → guest (fail-closed)"
         )
         return {"user_id": 0, "openid": openid, "error": str(exc), "source": "fail_closed"}
 

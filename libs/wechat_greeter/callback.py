@@ -80,14 +80,16 @@ def post_callback(
     body_str = json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     headers = sign_callback_headers(body=body_str)
     url = new_api_callback_url()
-    msg_id = envelope.get("msg_id")
+    trace_id = envelope.get("trace_id")  # REQ-065 P0-A1: trace_id not msg_id
 
     _logger.info(
-        "post_callback url=%s msg_id=%s reply_len=%s",
-        url, msg_id, len(str(envelope.get("reply", ""))),
+        "post_callback url=%s trace_id=%s reply_len=%s",
+        url, trace_id, len(str(envelope.get("reply_text", ""))),
     )
 
-    # NIT-M2: 指数退避 retry. 仅网络异常 + 5xx 重试, 4xx 立即 raise
+    # REQ-065 P0-A4: 指数退避 retry
+    #  - 网络异常 / 5xx → 重试, 最终 raise 让 Celery 重试
+    #  - 4xx → 立即 raise, 不再重试 (irrecoverable)
     last_exc: Exception | None = None
     for attempt, delay in enumerate((0.0,) + _CALLBACK_RETRY_DELAYS_S, start=1):
         if delay > 0:
@@ -97,20 +99,21 @@ def post_callback(
             if resp.status_code < 400:
                 if attempt > 1:
                     WechatGreeterObserver.info(
-                        f"wechat_msg_callback_retry_count msg_id={msg_id} "
+                        f"wechat_msg_callback_retry_count trace_id={trace_id} "
                         f"attempt={attempt} status={resp.status_code} ok=true"
                     )
                 return resp
+            # Non-2xx → raise (REQ-065 P0-A4: 让 caller 决定重试策略)
             if not _is_retryable_response(resp):
-                # 4xx: 业务错误, 不重试
+                # 4xx: 业务错误, 不重试, 直接 raise
                 WechatGreeterObserver.warn(
-                    f"wechat_msg_callback_failed msg_id={msg_id} "
+                    f"wechat_msg_callback_failed trace_id={trace_id} "
                     f"status={resp.status_code} reason=4xx_no_retry"
                 )
-                return resp
+                resp.raise_for_status()  # raises httpx.HTTPStatusError
             # 5xx: 重试
             WechatGreeterObserver.warn(
-                f"wechat_msg_callback_retry_count msg_id={msg_id} "
+                f"wechat_msg_callback_retry_count trace_id={trace_id} "
                 f"attempt={attempt} status={resp.status_code} retry=true"
             )
             last_exc = httpx.HTTPStatusError(
@@ -118,16 +121,16 @@ def post_callback(
             )
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             WechatGreeterObserver.warn(
-                f"wechat_msg_callback_retry_count msg_id={msg_id} "
+                f"wechat_msg_callback_retry_count trace_id={trace_id} "
                 f"attempt={attempt} exc={type(exc).__name__} retry=true"
             )
             last_exc = exc
 
     # 全部 retry 失败
     WechatGreeterObserver.warn(
-        f"wechat_msg_callback_failed msg_id={msg_id} attempts={len(_CALLBACK_RETRY_DELAYS_S) + 1} reason=all_retries_exhausted"
+        f"wechat_msg_callback_failed trace_id={trace_id} "
+        f"attempts={len(_CALLBACK_RETRY_DELAYS_S) + 1} reason=all_retries_exhausted"
     )
     if last_exc is not None:
         raise last_exc
-    # 理论上不会到这里 (总会有一次 attempt), 兜底
-    raise RuntimeError(f"post_callback failed msg_id={msg_id} no response captured")
+    raise RuntimeError(f"post_callback failed trace_id={trace_id} no response captured")

@@ -27,6 +27,7 @@ from wechat_greeter.config import (
     dry_run,
     model_mode,
     new_api_hmac_secret,
+    production_ready,
     timestamp_skew_s,
 )
 from wechat_greeter.faq_store import get_faq_count
@@ -34,7 +35,7 @@ from wechat_greeter.faq_store import get_faq_count
 _logger = logging.getLogger("uvicorn.error")
 
 # Build version (replaced at build time by CI; default is "dev")
-BUILD_VERSION = "dev-wechat-greeter-0.2.0-req063-p0"
+BUILD_VERSION = "dev-wechat-greeter-0.3.0-req065-p0a"
 
 app = FastAPI(
     title="wechat_greeter_api",
@@ -131,21 +132,26 @@ def _verify_wechat_greeter_hmac(
 
 @app.get("/healthz")
 async def healthz() -> dict:
-    """Liveness + D-1 readiness: 灰度切档决策面板.
+    """Liveness + readiness: 灰度切档决策面板.
 
-    老板 2026-08-11 拍板 D-1:
-      - status: ok | dry_run (灰度切档前用)
-      - model_mode: stub | deepseek (切档前确认)
-      - dry_run: bool (切档前 True, 切档后 False)
+    REQ-065 P0-C7:
+      - model_mode: stub | deepseek | unconfigured (不配置默认 fail-closed)
+      - production_ready: bool (model_mode=deepseek + dry_run=false)
+      - dry_run: bool (灰度切档前 True, 切档后 False)
       - faq_count: int (FAQ 索引条数, 0 需警惕)
     """
     is_dry = dry_run()
+    try:
+        mode = model_mode()
+    except RuntimeError:
+        mode = "unconfigured"
     return {
         "status": "dry_run" if is_dry else "ok",
         "service": "wechat_greeter_api",
         "build_version": BUILD_VERSION,
         "port": str(api_port()),
-        "model_mode": model_mode(),
+        "model_mode": mode,
+        "production_ready": production_ready(),
         "dry_run": is_dry,
         "faq_count": get_faq_count(),
     }
@@ -165,10 +171,10 @@ async def call_async(request: Request) -> JSONResponse:
     """接受 wechat 客服请求 → HMAC 验签 → 持久化入队 → 202 Accepted。
 
     Request body (JSON):
-      - openid:   str (微信 openid)
-      - content:  str (用户消息)
+      - openid:    str (微信 openid)
+      - content:   str (用户消息)
       - send_time: int (unix seconds, 微信发来时间戳)
-      - msg_id:   str (可选, 默认 auto-generated)
+      - trace_id:  str (REQ-065 P0-A1: new_api DeepAgentClient 发送 trace_id)
     """
     body_bytes = await request.body()
     body_str = body_bytes.decode("utf-8")
@@ -189,11 +195,11 @@ async def call_async(request: Request) -> JSONResponse:
             detail={"error": "invalid_json", "message": str(exc)},
         )
 
-    # 3. Build envelope
-    msg_id = payload.get("msg_id") or f"auto_{uuid.uuid4().hex[:12]}"
+    # 3. Build envelope (REQ-065 P0-A1: trace_id 对齐 new_api dispatch worker)
+    trace_id = payload.get("trace_id") or payload.get("msg_id") or f"auto_{uuid.uuid4().hex[:12]}"
     send_time = int(payload.get("send_time") or int(time.time()))
     envelope = {
-        "msg_id": msg_id,
+        "trace_id": trace_id,
         "openid": payload.get("openid") or "",
         "content": payload.get("content") or "",
         "send_time": send_time,
@@ -205,11 +211,11 @@ async def call_async(request: Request) -> JSONResponse:
     process_greeting.delay(envelope)
 
     _logger.info(
-        "call_async accepted msg_id=%s openid=%s send_time=%s received_at=%s",
-        msg_id, envelope["openid"], send_time, envelope["received_at"],
+        "call_async accepted trace_id=%s openid=%s send_time=%s received_at=%s",
+        trace_id, envelope["openid"], send_time, envelope["received_at"],
     )
 
     return JSONResponse(
         status_code=202,
-        content={"msg_id": msg_id, "status": "accepted"},
+        content={"trace_id": trace_id, "status": "accepted"},
     )

@@ -18,7 +18,7 @@ REQ-063: P0-1 bind_tools + P0-2 profile 真注入 + P0-3/4 真 HMAC fail-closed�
 
 from __future__ import annotations
 
-__version__ = "0.2.0-req063-p0"
+__version__ = "0.3.0-req065-p0a"
 __all__ = [
     "config",
     "observer",

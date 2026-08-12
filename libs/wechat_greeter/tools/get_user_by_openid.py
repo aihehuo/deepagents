@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from wechat_greeter.config import openid_hash
 from wechat_greeter.micro_client import get_user_by_openid as _hmac_get_user_by_openid
 
 _logger = logging.getLogger(__name__)
@@ -34,12 +35,12 @@ def get_user_by_openid(openid: str) -> dict[str, Any]:
         result = _hmac_get_user_by_openid(openid)
         user_id = int(result.get("user_id") or 0)
         _logger.info(
-            f"get_user_by_openid openid={openid[:12]}... user_id={user_id} "
+            f"get_user_by_openid openid_hash={openid_hash(openid)}... user_id={user_id} "
             f"source={result.get('source', 'unknown')}"
         )
         return result
     except Exception as exc:  # noqa: BLE001
         _logger.warning(
-            f"get_user_by_openid openid={openid[:12]}... failed {type(exc).__name__}: {exc} → guest (fail-closed)"
+            f"get_user_by_openid openid_hash={openid_hash(openid)}... failed {type(exc).__name__}: {exc} → guest (fail-closed)"
         )
         return {"user_id": 0, "openid": openid, "error": str(exc), "source": "fail_closed"}

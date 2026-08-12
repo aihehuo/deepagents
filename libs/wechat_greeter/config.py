@@ -5,7 +5,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+
+
+def openid_hash(openid: str) -> str:
+    """REQ-065 P1-12: SHA256 truncated hash for openid PII masking.
+
+    Matches new_api openid_hash strategy: hexdigest[:16] for log safety
+    while preserving enough uniqueness to correlate logs across services.
+    """
+    if not openid:
+        return "none"
+    return hashlib.sha256(openid.encode("utf-8")).hexdigest()[:16]
 
 
 # ---------------------------------------------------------------------------
@@ -78,8 +90,38 @@ def timestamp_skew_s() -> int:
 # ---------------------------------------------------------------------------
 
 def model_mode() -> str:
-    """LLM 模式：stub | deepseek。A 阶段冒烟默认 stub，A 阶段正式实施锁 deepseek。"""
-    return (os.environ.get("WECHAT_GREETER_MODEL_MODE") or "stub").strip().lower()
+    """LLM 模式：stub | deepseek。
+
+    REQ-065 P0-C7: stub 不再是生产默认。不配置 → RuntimeError (fail-closed)。
+    灰度/生产部署 readiness: model_mode=deepseek + dry_run=false。
+    stub 仅在显式设置 WECHAT_GREETER_MODEL_MODE=stub 时可用 (测试/CI)。
+    """
+    raw = (os.environ.get("WECHAT_GREETER_MODEL_MODE") or "").strip().lower()
+    if not raw:
+        raise RuntimeError(
+            "WECHAT_GREETER_MODEL_MODE not set. "
+            "Must be explicitly set to 'deepseek' (production/grayscale) or 'stub' (test/CI only). "
+            "Ref: REQ-065 P0-C7 — stub is no longer the production default."
+        )
+    if raw not in ("stub", "deepseek"):
+        raise RuntimeError(
+            f"WECHAT_GREETER_MODEL_MODE={raw!r} is invalid. "
+            f"Must be 'deepseek' (production/grayscale) or 'stub' (test/CI only)."
+        )
+    return raw
+
+
+def production_ready() -> bool:
+    """REQ-065 P0-C7: 灰度/生产部署 readiness 校验。
+
+    条件: model_mode=deepseek + dry_run=false。
+    缺一则不放量。healthz 体现 production_ready 状态。
+    """
+    try:
+        mode = model_mode()
+    except RuntimeError:
+        return False
+    return mode == "deepseek" and not dry_run()
 
 
 def hard_truncate_limit() -> int:

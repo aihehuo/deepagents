@@ -30,6 +30,8 @@ from apps.group_agent_api.agent_factory.integrations.profile_client import (
 from apps.group_agent_api.agent_factory.model_builder import create_model
 from apps.group_agent_api.agent_factory.profile_schema import (
     DisclosureLevel,
+    GroupProfile,
+    ProfileField,
     profile_from_flat,
 )
 from apps.group_agent_api.agent_factory.profile_store import save_profile
@@ -56,7 +58,7 @@ class UC34Observer(UCObserver):
 SYSTEM_PROMPT = """你是「群内智能体」对话助手（挖需求 + 画像落库 + 能力分级下的候选管线）。
 
 ## 目标（FR-02 / REQ-029）
-补全可匹配画像三维，并尽量挖到「可匹配的最低充分」信息（不必完美）：
+补全可匹配画像三维，并尽量挖到具体的 doing / need / offer「可匹配的最低充分」信息（不必完美）：
 1. **doing** — 当前在做什么（创业意图/方向/场景）
 2. **need** — 缺什么（需求 gap / 卡点）
 3. **offer** — 能提供什么（资源/技能）
@@ -120,24 +122,26 @@ def default_runtime_dir() -> Path:
 
 @tool(parse_docstring=True)
 def save_group_profile(
-    doing: str,
-    need: str,
-    offer: str,
+    doing: str | dict[str, Any],
+    need: str | dict[str, Any],
+    offer: str | dict[str, Any],
     doing_disclosure: str = "inferred_unconfirmed",
     need_disclosure: str = "inferred_unconfirmed",
     offer_disclosure: str = "inferred_unconfirmed",
+    match_constraints: list[dict[str, Any]] | None = None,
     *,
     config: RunnableConfig,
 ) -> str:
     """将用户×群的三维画像强制写入结构化 profile.json。三维齐备后必须调用。
 
     Args:
-        doing: 当前在做什么（创业意图/方向）
+        doing: 当前在做什么（创业意图/方向，可为文本或带 value, claim_type, disclosure, evidence_text 的对象）
         need: 缺什么（需求 gap）
         offer: 能提供什么（资源/技能）
         doing_disclosure: confirmed_public | match_only | inferred_unconfirmed
         need_disclosure: confirmed_public | match_only | inferred_unconfirmed
         offer_disclosure: confirmed_public | match_only | inferred_unconfirmed
+        match_constraints: 匹配硬/软约束列表，如 [{"field": "city", "operator": "in", "values": ["上海"], "strength": "hard"}]
     """
     metadata = config.get("metadata") or {}
     user_id = str(metadata.get("user_id") or "").strip()
@@ -145,6 +149,8 @@ def save_group_profile(
     base_dir_raw = metadata.get("base_dir") or str(default_runtime_dir())
     base_dir = Path(str(base_dir_raw))
     run_id = str(metadata.get("run_id") or "").strip()
+    source_message_id_trusted = metadata.get("source_message_id")
+    source_message_text_trusted = metadata.get("source_message_text")
 
     if str(metadata.get("source") or "").strip() == "group_agent_admin_debug":
         return "error: admin_mode_read_only; do not save member profiles"
@@ -153,15 +159,44 @@ def save_group_profile(
         return "error: missing user_id or group_id in metadata"
 
     try:
-        for raw in (doing_disclosure, need_disclosure, offer_disclosure):
-            DisclosureLevel(raw)
-        # REQ-014-FIX: reject semantic projections observably.  Never restore a
-        # historical value here: this tool cannot prove whether the user kept
-        # it or explicitly withdrew it during the current turn.
+        from apps.group_agent_api.agent_factory.grounding_protocol import (
+            ClaimType,
+            ConfidenceLevel,
+            DisclosureLevelV2,
+            GroupProfileV2,
+            MatchConstraintV1,
+            ProfileClaimV2,
+            ProfileEvidenceV2,
+            QualityStatus,
+            canonical_sha256,
+            validate_profile_claim_grounding,
+        )
+
+        def _unpack_dim(
+            raw: str | dict[str, Any],
+            default_disclosure: str,
+        ) -> tuple[str, str, str, str | None]:
+            if isinstance(raw, dict):
+                val = str(raw.get("value") or "").strip()
+                disc = str(raw.get("disclosure") or default_disclosure).strip()
+                ctype = str(raw.get("claim_type") or "fact").strip()
+                ev = raw.get("evidence_text")
+                ev_str = str(ev).strip() if ev is not None else None
+                return val, disc, ctype, ev_str
+            return str(raw or "").strip(), str(default_disclosure).strip(), "fact", None
+
+        doing_val, doing_disc, doing_ctype, doing_ev = _unpack_dim(doing, doing_disclosure)
+        need_val, need_disc, need_ctype, need_ev = _unpack_dim(need, need_disclosure)
+        offer_val, offer_disc, offer_ctype, offer_ev = _unpack_dim(offer, offer_disclosure)
+
+        for raw_disc in (doing_disc, need_disc, offer_disc):
+            DisclosureLevel(raw_disc)
+
+        # REQ-014-FIX: reject semantic projections observably.
         semantic_errors: list[str] = []
-        if is_need_shaped_doing(doing):
+        if is_need_shaped_doing(doing_val):
             semantic_errors.append("doing_describes_need")
-        if is_preference_shaped_offer(offer):
+        if is_preference_shaped_offer(offer_val):
             semantic_errors.append("offer_describes_preference")
         if semantic_errors:
             reason = ",".join(semantic_errors)
@@ -170,7 +205,26 @@ def save_group_profile(
                 f"group_id={group_id} reason={reason} status=resubmit_required"
             )
             return f"error: semantic_projection:{reason}; resubmit_required"
-        # REQ-032-FIX3: atomic fencing commit at write boundary (not check-then-write).
+
+        # TSD-13 / REQ-DA-066: match constraints validation
+        parsed_constraints: list[MatchConstraintV1] = []
+        if match_constraints and isinstance(match_constraints, list):
+            for c_item in match_constraints:
+                if isinstance(c_item, dict):
+                    try:
+                        parsed_c = MatchConstraintV1(
+                            field=c_item.get("field", ""),
+                            operator=c_item.get("operator", ""),
+                            values=c_item.get("values", []),
+                            strength=c_item.get("strength", "hard"),
+                            source_message_id=int(source_message_id_trusted) if source_message_id_trusted else None,
+                            evidence_text=c_item.get("evidence_text"),
+                        )
+                        parsed_constraints.append(parsed_c)
+                    except Exception as c_exc:
+                        return f"error: invalid_match_constraint:{c_exc}"
+
+        # REQ-032-FIX3: atomic fencing commit at write boundary
         from apps.group_agent_api.execution.active_fence import (
             FenceRejectedError,
             assert_write_allowed,
@@ -187,6 +241,7 @@ def save_group_profile(
                 f"group_id={group_id} reason={exc.code}"
             )
             return f"error: fence_rejected:{exc.code}"
+
         fence = get_active_fence()
         attempt_id = ""
         fencing_token = 0
@@ -199,16 +254,66 @@ def save_group_profile(
             if meta_attempt and meta_fencing.isdigit():
                 attempt_id = meta_attempt
                 fencing_token = int(meta_fencing)
-        profile = profile_from_flat(
+
+        # Build v2 claims
+        def _make_v2_claim(
+            val: str,
+            disc: str,
+            ctype_str: str,
+            ev_text: str | None,
+        ) -> ProfileClaimV2:
+            try:
+                c_type = ClaimType(ctype_str)
+            except ValueError:
+                c_type = ClaimType.fact
+            try:
+                d_level = DisclosureLevelV2(disc)
+            except ValueError:
+                d_level = DisclosureLevelV2.inferred_unconfirmed
+
+            evidence_list: list[ProfileEvidenceV2] = []
+            ev_source_text = ev_text or val
+            if ev_source_text:
+                ev_obj = ProfileEvidenceV2(
+                    source_type="conversation_message",
+                    source_message_id=int(source_message_id_trusted) if source_message_id_trusted else None,
+                    evidence_text=ev_source_text,
+                    evidence_digest=canonical_sha256(ev_source_text),
+                )
+                evidence_list.append(ev_obj)
+
+            return ProfileClaimV2(
+                value=val,
+                disclosure=d_level,
+                claim_type=c_type,
+                confidence=ConfidenceLevel.user_stated,
+                quality_status=QualityStatus.active,
+                evidence=evidence_list,
+            )
+
+        doing_claim = _make_v2_claim(doing_val, doing_disc, doing_ctype, doing_ev)
+        need_claim = _make_v2_claim(need_val, need_disc, need_ctype, need_ev)
+        offer_claim = _make_v2_claim(offer_val, offer_disc, offer_ctype, offer_ev)
+
+        # Grounding validation check
+        if source_message_text_trusted:
+            for dim_name, cl in [("doing", doing_claim), ("need", need_claim), ("offer", offer_claim)]:
+                dim_violations = validate_profile_claim_grounding(cl, str(source_message_text_trusted))
+                if dim_violations:
+                    UC34Observer.warn(
+                        f"action=profile_claim_grounding_warning dim={dim_name} violations={dim_violations}"
+                    )
+
+        profile = GroupProfile(
             user_id=user_id,
             group_id=group_id,
-            doing=doing,
-            need=need,
-            offer=offer,
-            doing_disclosure=doing_disclosure,
-            need_disclosure=need_disclosure,
-            offer_disclosure=offer_disclosure,
+            doing=ProfileField(value=doing_val, disclosure=DisclosureLevel(doing_disc)),
+            need=ProfileField(value=need_val, disclosure=DisclosureLevel(need_disc)),
+            offer=ProfileField(value=offer_val, disclosure=DisclosureLevel(offer_disc)),
+            match_constraints=[c.model_dump(mode="json") for c in parsed_constraints],
+            schema_version=1,
         )
+
         remote_ack: dict[str, Any] | None = None
         if integration_mode() == "http":
             remote_ack = persist_group_profile(
@@ -218,6 +323,11 @@ def save_group_profile(
                 fencing_token=fencing_token or None,
             )
         if remote_ack is None or remote_ack["status"] not in {"stale_ignored", "fence_rejected"}:
+            if remote_ack is not None:
+                # The version is allocated by Micro.  Persist it alongside the
+                # local cache so a later typed profile_confirmation can quote
+                # the exact authoritative row version instead of guessing.
+                profile.profile_version = remote_ack["profile_version"]
             try:
                 commit_profile_write_allowed(user_id=user_id, group_id=group_id)
             except FenceRejectedError as exc:

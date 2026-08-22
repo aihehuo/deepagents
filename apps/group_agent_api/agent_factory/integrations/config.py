@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Literal
 
 IntegrationMode = Literal["stub", "http"]
@@ -220,3 +221,65 @@ def llm_polish_enabled() -> bool:
         or os.environ.get("AIHEHUO_API_KEY")
     )
     return bool(key and key.strip() and key.strip() != "EMPTY")
+
+
+def grounded_final_enabled() -> bool:
+    """True when ga-grounding-v1 typed final output is enabled (REQ-DA-066 / TSD-13)."""
+    raw = (os.environ.get("GROUP_AGENT_GROUNDED_FINAL_ENABLED") or "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def match_v2_enabled() -> bool:
+    """True when ga-match-v2 protocol is enabled."""
+    raw = (os.environ.get("GROUP_AGENT_MATCH_V2_ENABLED") or "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def profile_v2_enabled() -> bool:
+    """True when group-profile-v2 schema is enabled."""
+    raw = (os.environ.get("GROUP_AGENT_PROFILE_V2_ENABLED") or "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def v2_canary_enabled() -> bool:
+    """True when v2 canary is enabled (REQ-XCUT-004)."""
+    raw = (os.environ.get("GROUP_AGENT_V2_CANARY_ENABLED") or "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def v2_force_off() -> bool:
+    """True when v2 force off kill-switch is active (REQ-XCUT-004)."""
+    raw = (os.environ.get("GROUP_AGENT_V2_FORCE_OFF") or "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def v2_user_allowlist() -> set[int]:
+    """Parse GROUP_AGENT_V2_USER_ALLOWLIST strictly; any invalid entry fails closed to empty set."""
+    raw = (os.environ.get("GROUP_AGENT_V2_USER_ALLOWLIST") or "").strip()
+    if not raw:
+        return set()
+    parts = raw.split(",")
+    result: set[int] = set()
+    for part in parts:
+        trimmed = part.strip()
+        if not trimmed or not re.fullmatch(r"[1-9]\d*", trimmed):
+            return set()
+        result.add(int(trimmed))
+    return result
+
+
+def v2_enabled_for_user(user_id: int | str) -> bool:
+    """Evaluate whether v2 is enabled for a specific user ID."""
+    if v2_force_off():
+        return False
+    if not (grounded_final_enabled() and match_v2_enabled()):
+        return False
+    if not v2_canary_enabled():
+        return False
+    try:
+        uid = int(str(user_id).strip())
+        if uid <= 0:
+            return False
+    except (ValueError, TypeError):
+        return False
+    return uid in v2_user_allowlist()

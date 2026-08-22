@@ -30,8 +30,6 @@ def _extract_candidate_doing(candidate: dict[str, Any]) -> str:
         val = str(doing or "").strip()
     if not val:
         val = str(candidate.get("headline") or "").strip()
-    if not val:
-        val = str(candidate.get("display_name") or candidate.get("name") or candidate.get("user_id") or "相关")
     return val
 
 
@@ -60,8 +58,8 @@ def generate_single_candidate_copy(
     c_handle = str(c_handle or "合伙人").strip()
 
     c_doing_raw = _extract_candidate_doing(candidate)
-    c_doing_short = compact_doing_for_invite(c_doing_raw, max_chars=24) or "专业方向"
-    c_doing_clean = _clean_action_prefix(c_doing_short)
+    c_doing_short = compact_doing_for_invite(c_doing_raw, max_chars=24) if c_doing_raw else ""
+    c_doing_clean = _clean_action_prefix(c_doing_short) if c_doing_short else ""
 
     init_doing_raw = _extract_profile_field(profile, "doing")
     init_need_raw = _extract_profile_field(profile, "need")
@@ -73,7 +71,7 @@ def generate_single_candidate_copy(
     init_offer_short = compact_doing_for_invite(init_offer_raw, max_chars=36) or "行业积累"
 
     # 1. Topic & Icebreaker hook
-    topic_hook = init_need_short or c_doing_clean
+    topic_hook = init_need_short or (c_doing_clean or "专业经验")
 
     # 2. invite_text: 第一人称同群破冰 @ 词（五要素完备）
     who_line = f"我在做的项目：{init_doing_clean}"
@@ -86,23 +84,46 @@ def generate_single_candidate_copy(
         [who_line, resources_line, topic_line, why_line, low_pressure_line]
     )
 
-    # 3. match_highlights: 双方 3 大匹配亮点数组（基于双方具体 doing/need 契合，无泛化句式）
-    match_highlights = [
-        f"对方能力：擅长或正在推进「{c_doing_clean}」",
-        f"您的需求：当前正寻找「{init_need_short}」",
-        f"双方契合：对方「{c_doing_clean}」背景可为您「{init_need_short}」需求提供落地助力",
-    ]
+    # 3. match_highlights: 严格基于 match_evidence 映射，无证据不造句
+    cand_dir_text = c_doing_clean if c_doing_clean and c_doing_clean != "相关" else "现有资料未说明"
+    init_need_text = init_need_short if init_need_short else "现有资料未说明"
+
+    ev_list = candidate.get("match_evidence") or []
+    if isinstance(ev_list, list) and ev_list:
+        match_highlights = []
+        for ev in ev_list[:3]:
+            if isinstance(ev, dict):
+                summary = str(ev.get("summary") or "").strip()
+                if summary:
+                    match_highlights.append(summary)
+            elif isinstance(ev, str) and ev.strip():
+                match_highlights.append(ev.strip())
+        if not match_highlights:
+            match_highlights = [
+                f"对方方向：{cand_dir_text}",
+                f"您的需求：{init_need_text}",
+                "交流重点：基于双方已有公开方向探讨合作契合点",
+            ]
+    else:
+        match_highlights = [
+            f"对方方向：{cand_dir_text}",
+            f"您的需求：{init_need_text}",
+            "交流重点：基于双方已有公开方向探讨合作契合点",
+        ]
 
     # 4. forward_copy: 第三人称管理员企微预撰写转发词（无“做做”叠字）
+    applicant_doing_text = init_doing_clean if init_doing_clean else "相关项目"
+    forward_topic = topic_hook if topic_hook else "相关方向"
     forward_copy = (
-        f"Hi {raw_c_name}，爱合伙平台上有一位创业者正在做{init_doing_clean}，"
-        f"想请教{topic_hook}相关经验，是否方便为您做微信对接？"
+        f"Hi {raw_c_name}，爱合伙平台上有一位创业者正在做{applicant_doing_text}，"
+        f"想请教{forward_topic}相关经验，是否方便为您做微信对接？"
     )
 
     # 5. quick_connect_copy: 站内极速联系打招呼文案（无“做做”叠字）
+    cand_doing_text = c_doing_clean if c_doing_clean != "相关" else "公开资料"
     quick_connect_copy = (
-        f"你好，在爱合伙看到你的{c_doing_clean}背景，"
-        f"我们正在做{init_doing_clean}，希望能交流合作。"
+        f"你好，在爱合伙看到你的{cand_doing_text}背景，"
+        f"我们正在做{applicant_doing_text}，希望能交流合作。"
     )
 
     return {

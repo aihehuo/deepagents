@@ -1,0 +1,89 @@
+{
+  "protocol_version": "ga-grounding-v1",
+  "run_id": "__RUN_ID__",
+  "reply_mode": "recommendation",
+  "dialogue_kind": null,
+  "dialogue_text": null,
+  "candidate_count": 1,
+  "candidates": [
+    {
+      "user_id": "999901",
+      "source_group_id": "group_123",
+      "display_name": "候选人甲",
+      "same_group": false,
+      "wechat_reachable": true,
+      "facts": [
+        {
+          "field": "doing",
+          "value": "跨境电商物流SaaS",
+          "disclosure": "match_only",
+          "source_type": "group_agent_profile",
+          "source_ref": "profile:999901:1",
+          "source_version": 1,
+          "source_group_id": "group_123"
+        }
+      ],
+      "match_evidence": [
+        {
+          "initiator_field": "need",
+          "candidate_field": "doing",
+          "relation": "need_matches_doing",
+          "summary": "需求与候选人当前方向对应"
+        }
+      ]
+    }
+  ],
+  "profile": {
+    "schema_version": 1,
+    "profile_version": 1,
+    "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "source_group_id": "group_123",
+    "doing": { "value": "外贸平台", "claim_type": "fact" },
+    "need": { "value": "物流合伙人", "claim_type": "goal" },
+    "offer": { "value": "海外资源", "claim_type": "fact" }
+  },
+  "match": {
+    "contract_version": "ga-match-v2",
+    "status": "matched",
+    "reason_code": "matched_1",
+    "candidates": [
+      {
+        "user_id": "999901",
+        "source_group_id": "group_123",
+        "display_name": "候选人甲",
+        "same_group": false,
+        "wechat_reachable": true,
+        "facts": [
+          {
+            "field": "doing",
+            "value": "跨境电商物流SaaS",
+            "disclosure": "match_only",
+            "source_type": "group_agent_profile",
+            "source_ref": "profile:999901:1",
+            "source_version": 1,
+            "source_group_id": "group_123"
+          }
+        ],
+        "match_evidence": [
+          {
+            "initiator_field": "need",
+            "candidate_field": "doing",
+            "relation": "need_matches_doing",
+            "summary": "需求与候选人当前方向对应"
+          }
+        ]
+      }
+    ],
+    "candidate_count": 1
+  },
+  "invite": {
+    "status": "ready",
+    "delivery_kind": "manual_copy",
+    "text": "您好，我们群内有一位匹配的伙伴。"
+  },
+  "grounding": {
+    "candidate_facts_digest": "sha256:c92474d8eba4287f2c86e51b79c95d5900bcdee09958cfeb76994e6d62c3f936",
+    "constraint_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reply": null
+}

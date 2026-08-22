@@ -6,8 +6,10 @@ import logging
 from typing import Any
 
 import requests
+from pydantic import ValidationError
 
 from apps.group_agent_api.agent_factory.disclosure import filter_member_for_visibility
+from apps.group_agent_api.agent_factory.grounding_protocol import CandidateV2
 from apps.group_agent_api.agent_factory.integrations.config import (
     http_timeout_s,
     new_api_base,
@@ -99,6 +101,8 @@ def fetch_group_agent_match(
     base_url: str | None = None,
     timeout_s: float | None = None,
     rank_query: str | None = None,
+    contract_version: str | None = None,
+    constraints: dict[str, Any] | None = None,
 ) -> MatchResult:
     """POST /users/group_agent_match — requires User JWT; GroupAgent ``g`` optional.
 
@@ -106,8 +110,7 @@ def fetch_group_agent_match(
     using the login bearer only. Optional ``g`` still preferred for entry-group
     preference when a leftover group_token is available.
 
-    Does NOT send plaintext group_id / member_ids (REQ-050-A).
-    ``query`` should be broad (recall); optional ``rank_query`` carries fine need.
+    Supports contract_version="ga-match-v2" and constraints.
     """
     token = (group_token or "").strip()
     auth = (bearer if bearer is not None else new_api_bearer()).strip()
@@ -120,6 +123,10 @@ def fetch_group_agent_match(
         "limit": max(1, min(int(limit or MAX_CANDIDATES), MAX_CANDIDATES)),
         "vector_search": True,
     }
+    if contract_version:
+        payload["contract_version"] = contract_version
+    if constraints:
+        payload["constraints"] = constraints
     if token:
         payload["g"] = token
     if excluded_ids:
@@ -152,21 +159,61 @@ def fetch_group_agent_match(
     if not isinstance(data, dict):
         raise MatchHttpError("invalid_json")
 
+    is_v2 = contract_version == "ga-match-v2" or data.get("contract_version") == "ga-match-v2"
     status = str(data.get("status") or "empty")
-    if status not in {"matched", "weak", "empty"}:
-        status = "empty"
+    if is_v2:
+        if status not in {"matched", "empty", "failed"}:
+            status = "empty"
+    else:
+        if status not in {"matched", "weak", "empty"}:
+            status = "empty"
+
     group_id = str(data.get("group_id") or "")
     raw_cands = data.get("candidates") or []
     candidates: list[dict[str, Any]] = []
     if isinstance(raw_cands, list):
         for item in raw_cands[:MAX_CANDIDATES]:
             if isinstance(item, dict):
-                # Product boundary: the group agent may only recommend people
-                # whom Aihehuo can reach on WeChat. Keep this fail-closed check
-                # even though new_api applies the same filter at search time.
-                if not _is_wechat_reachable_candidate(item):
+                # Reject source_group_id == 'global'
+                cand_src_group = str(item.get("source_group_id") or item.get("group_id") or "").strip().lower()
+                if cand_src_group == "global":
                     continue
+                # For v2, check CandidateFact and MatchEvidence
+                if is_v2:
+                    facts = item.get("facts")
+                    evidence = item.get("match_evidence")
+                    if not facts or not evidence:
+                        continue
+
+                # Product boundary: the group agent may only recommend people
+                # whom Aihehuo can reach on WeChat.
+                if is_v2:
+                    if item.get("wechat_reachable") is not True:
+                        continue
+                else:
+                    # In v1, only drop if explicitly False
+                    if item.get("bound") is False or item.get("wechat_reachable") is False:
+                        continue
                 candidate = _normalize_candidate(item, fallback_group=group_id)
+                # Preserve v2 facts/match_evidence/connection
+                if is_v2:
+                    candidate["facts"] = item.get("facts", [])
+                    candidate["match_evidence"] = item.get("match_evidence", [])
+                    candidate["connection"] = item.get("connection", {"type": "admin_referral", "available": True})
+                    candidate["shared_group"] = item.get("shared_group")
+                    try:
+                        # This is the trust boundary for new_api.  Do not pass a
+                        # merely non-empty fact/evidence array downstream: every
+                        # item must satisfy the exact Micro consumer contract.
+                        candidate = CandidateV2.model_validate(candidate).model_dump(
+                            mode="json",
+                            exclude_none=True,
+                        )
+                    except ValidationError:
+                        _logger.warning(
+                            "action=match_v2_candidate_rejected reason=invalid_grounding_contract"
+                        )
+                        continue
                 candidates.append(candidate)
 
     reason = str(data.get("reason") or "")

@@ -44,24 +44,34 @@ def canonical_profile_digest(profile: GroupProfile) -> str:
     Returns:
         Lowercase SHA-256 hex over Micro's fixed-order compact JSON form.
     """
-    canonical = {
-        "schema_version": profile.schema_version,
-        "doing": {
-            "value": profile.doing.value,
-            "disclosure": profile.doing.disclosure.value,
-        },
-        "need": {
-            "value": profile.need.value,
-            "disclosure": profile.need.disclosure.value,
-        },
-        "offer": {
-            "value": profile.offer.value,
-            "disclosure": profile.offer.disclosure.value,
-        },
-    }
+    if getattr(profile, "schema_version", 1) == 2:
+        canonical = {
+            "schema_version": 2,
+            "doing": profile.doing.model_dump(mode="json") if hasattr(profile.doing, "model_dump") else profile.doing,
+            "need": profile.need.model_dump(mode="json") if hasattr(profile.need, "model_dump") else profile.need,
+            "offer": profile.offer.model_dump(mode="json") if hasattr(profile.offer, "model_dump") else profile.offer,
+            "match_constraints": getattr(profile, "match_constraints", []) or [],
+        }
+    else:
+        canonical = {
+            "schema_version": getattr(profile, "schema_version", 1),
+            "doing": {
+                "value": getattr(profile.doing, "value", ""),
+                "disclosure": getattr(getattr(profile.doing, "disclosure", None), "value", str(getattr(profile.doing, "disclosure", ""))),
+            },
+            "need": {
+                "value": getattr(profile.need, "value", ""),
+                "disclosure": getattr(getattr(profile.need, "disclosure", None), "value", str(getattr(profile.need, "disclosure", ""))),
+            },
+            "offer": {
+                "value": getattr(profile.offer, "value", ""),
+                "disclosure": getattr(getattr(profile.offer, "disclosure", None), "value", str(getattr(profile.offer, "disclosure", ""))),
+            },
+        }
     raw = json.dumps(
         canonical,
         ensure_ascii=False,
+        sort_keys=True if getattr(profile, "schema_version", 1) == 2 else False,
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
@@ -102,16 +112,20 @@ def persist_group_profile(
     if not hmac_secret:
         raise ProfileHttpError("missing_profile_hmac_secret")
 
+    profile_dict: dict[str, Any] = {
+        "doing": profile.doing.model_dump(mode="json") if hasattr(profile.doing, "model_dump") else profile.doing,
+        "need": profile.need.model_dump(mode="json") if hasattr(profile.need, "model_dump") else profile.need,
+        "offer": profile.offer.model_dump(mode="json") if hasattr(profile.offer, "model_dump") else profile.offer,
+        "schema_version": getattr(profile, "schema_version", 1),
+    }
+    if getattr(profile, "schema_version", 1) == 2 or getattr(profile, "match_constraints", None):
+        profile_dict["match_constraints"] = getattr(profile, "match_constraints", []) or []
+
     payload: dict[str, Any] = {
         "run_id": rid,
         "user_id": profile.user_id,
         "group_id": profile.group_id,
-        "profile": {
-            "doing": profile.doing.model_dump(mode="json"),
-            "need": profile.need.model_dump(mode="json"),
-            "offer": profile.offer.model_dump(mode="json"),
-            "schema_version": profile.schema_version,
-        },
+        "profile": profile_dict,
     }
     if attempt_id:
         payload["attempt_id"] = str(attempt_id)

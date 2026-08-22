@@ -47,7 +47,12 @@ class GroupProfile(BaseModel):
     updated_at: str = Field(
         default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     )
+    match_constraints: list[Any] = Field(default_factory=list)
     schema_version: int = 1
+    # Set only from Micro's successful persistence acknowledgement.  Keeping
+    # this nullable preserves existing local/stub profiles without inventing an
+    # authoritative version that Micro never issued.
+    profile_version: int | None = Field(default=None, ge=1)
 
     def is_complete(self) -> bool:
         return bool(
@@ -70,6 +75,7 @@ def profile_from_flat(
     doing_disclosure: DisclosureLevel | str = DisclosureLevel.inferred_unconfirmed,
     need_disclosure: DisclosureLevel | str = DisclosureLevel.inferred_unconfirmed,
     offer_disclosure: DisclosureLevel | str = DisclosureLevel.inferred_unconfirmed,
+    match_constraints: list[Any] | None = None,
 ) -> GroupProfile:
     """Build a GroupProfile from flat tool arguments."""
     return GroupProfile(
@@ -78,4 +84,5 @@ def profile_from_flat(
         doing=ProfileField(value=doing, disclosure=DisclosureLevel(doing_disclosure)),
         need=ProfileField(value=need, disclosure=DisclosureLevel(need_disclosure)),
         offer=ProfileField(value=offer, disclosure=DisclosureLevel(offer_disclosure)),
+        match_constraints=list(match_constraints or []),
     )

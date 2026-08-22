@@ -29,6 +29,8 @@ def run_match(
     user_bearer: str | None = None,
     force_mode: str | None = None,
     rank_query: str | None = None,
+    contract_version: str | None = None,
+    constraints: dict[str, Any] | None = None,
 ) -> MatchResult:
     """Run FR-03 match via stub or HTTP.
 
@@ -46,6 +48,8 @@ def run_match(
                 excluded_ids=excluded_ids,
                 bearer=user_bearer,
                 rank_query=rank_query,
+                contract_version=contract_version,
+                constraints=constraints,
             )
         except MatchHttpError as exc:
             _logger.error(

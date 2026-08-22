@@ -70,6 +70,80 @@ def parse_revisit_hint(raw: Any) -> RevisitHint:
     )
 
 
+@dataclass(frozen=True)
+class PriorCandidateFact:
+    field: str
+    value: str
+    disclosure: str = "match_only"
+    source_type: str = "group_agent_profile"
+
+
+@dataclass(frozen=True)
+class PriorCandidate:
+    user_id: str
+    display_name: str
+    same_group: bool = False
+    connection_status: str = "not_requested"
+    facts: tuple[PriorCandidateFact, ...] = ()
+
+
+@dataclass(frozen=True)
+class PriorRecommendation:
+    artifact_run_id: str | None = None
+    artifact_digest: str | None = None
+    candidates: tuple[PriorCandidate, ...] = ()
+
+
+def parse_prior_recommendation(raw: Any) -> PriorRecommendation | None:
+    """Parse trusted prior_recommendation injected by Micro (TSD-13 §5.4)."""
+    if not isinstance(raw, dict):
+        return None
+    run_id = str(raw.get("artifact_run_id") or "").strip() or None
+    digest = str(raw.get("artifact_digest") or "").strip() or None
+    raw_cands = raw.get("candidates") or []
+    cands: list[PriorCandidate] = []
+    if isinstance(raw_cands, list):
+        for c in raw_cands[:5]:
+            if not isinstance(c, dict):
+                continue
+            uid = str(c.get("user_id") or "").strip()
+            if not uid:
+                continue
+            dname = str(c.get("display_name") or "候选人").strip()
+            same_g = bool(c.get("same_group"))
+            conn_status = str(c.get("connection_status") or "not_requested").strip()
+            raw_facts = c.get("facts") or []
+            facts: list[PriorCandidateFact] = []
+            if isinstance(raw_facts, list):
+                for f in raw_facts[:12]:
+                    if isinstance(f, dict):
+                        f_field = str(f.get("field") or "").strip()
+                        f_val = str(f.get("value") or "").strip()
+                        if f_field and f_val:
+                            facts.append(
+                                PriorCandidateFact(
+                                    field=f_field,
+                                    value=f_val,
+                                    disclosure=str(f.get("disclosure") or "match_only"),
+                                    source_type=str(f.get("source_type") or "group_agent_profile"),
+                                )
+                            )
+            cands.append(
+                PriorCandidate(
+                    user_id=uid,
+                    display_name=dname,
+                    same_group=same_g,
+                    connection_status=conn_status,
+                    facts=tuple(facts),
+                )
+            )
+    return PriorRecommendation(
+        artifact_run_id=run_id,
+        artifact_digest=digest,
+        candidates=tuple(cands),
+    )
+
+
 def parse_revisit_from_metadata(metadata: dict[str, Any] | None) -> tuple[list[str], RevisitHint]:
     meta = metadata or {}
     return (
@@ -134,13 +208,33 @@ def wants_rematch(message: str | None) -> bool:
     return bool(_REMATCH_INTENT.search(text))
 
 
-def known_match_system_content(hint: RevisitHint | None) -> str | None:
+def known_match_system_content(
+    hint: RevisitHint | None,
+    prior_rec: PriorRecommendation | None = None,
+) -> str | None:
     """Dialogue reminder: candidates/invite already shown in the client UI.
 
     Match cards are produced after the LLM turn and pushed as separate WS
     kinds — they never enter LangGraph history. Without this injection the
     model falsely denies that recommendations were delivered.
     """
+    if prior_rec and prior_rec.candidates:
+        cand_lines = []
+        for c in prior_rec.candidates:
+            group_tag = "同群" if c.same_group else "异群"
+            facts_desc = "；".join(f"{f.field}: {f.value}" for f in c.facts) if c.facts else "暂未提供其他公开事实"
+            cand_lines.append(f"- 候选人【{c.display_name}】（{group_tag}，对接状态：{c.connection_status}）：{facts_desc}")
+
+        lines = [
+            "【系统已向用户界面交付的历史推荐事实——来自权威数据，严禁编造任何其他履历或数字】",
+            *cand_lines,
+            "规则：",
+            "1. 用户追问候选人背景时：严格仅从上述已知事实回答；未知问题固定回答「现有资料未说明，可申请对接后向本人确认」。",
+            "2. 用户问申请/对接进度时：仅如实说明上述对接状态，禁止声称「已发送/已通知管理员/对方已同意」。",
+            "3. 用户说 go / 再匹配 / 换人 时：同意重新匹配。",
+        ]
+        return "\n".join(lines)
+
     if hint is None or not hint.has_prior_invite:
         return None
     if hint.candidate_names:

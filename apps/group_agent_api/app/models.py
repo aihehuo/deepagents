@@ -26,6 +26,10 @@ def validate_group_agent_metadata(
         "mock_candidates",
         "override_group_id",
         "trusted_group_id",
+        "protocol_mode",
+        "rollout_version",
+        "contract_version",
+        "rollout_context",
     }
     for key, val in v.items():
         if key.lower() in forbidden_keys:
@@ -42,6 +46,16 @@ def validate_group_agent_metadata(
             continue
         if key == "revisit_hint":
             _validate_revisit_hint(val)
+            continue
+        if key == "prior_recommendation":
+            if not allow_referral_context:
+                raise ValueError("metadata prior_recommendation is reserved for trusted async calls")
+            if not isinstance(val, dict):
+                raise ValueError("metadata prior_recommendation must be a dictionary")
+            continue
+        if key in {"source_message_id", "source_message_text"}:
+            if not allow_referral_context:
+                raise ValueError(f"metadata {key} is reserved for trusted async calls")
             continue
         if key == "referral_context":
             if not allow_referral_context:
@@ -161,6 +175,11 @@ def _validate_revisit_hint(val: Any) -> None:
             )
 
 
+class RolloutContext(BaseModel):
+    protocol_mode: Literal["legacy_v1", "grounded_v2"] = "legacy_v1"
+    rollout_version: Literal["ga-v2-canary-v1"] = "ga-v2-canary-v1"
+
+
 class ChatRequest(BaseModel):
     user_id: str = Field(
         ...,
@@ -194,6 +213,10 @@ class ChatRequest(BaseModel):
     willing_to_at: bool = Field(True)
     run_invite: bool = Field(True)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    rollout_context: RolloutContext | None = Field(
+        None,
+        description="Server-originated rollout protocol mode and version (REQ-XCUT-004)",
+    )
 
     @field_validator("metadata")
     @classmethod
@@ -362,6 +385,10 @@ class AsyncCallRequest(BaseModel):
     queue_schema_version: int | None = Field(
         None,
         description="Queue payload schema version; durable mode requires 1",
+    )
+    rollout_context: RolloutContext | None = Field(
+        None,
+        description="Server-originated rollout protocol mode and version (REQ-XCUT-004)",
     )
 
     @field_validator("metadata")

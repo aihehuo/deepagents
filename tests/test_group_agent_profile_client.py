@@ -31,7 +31,7 @@ from apps.group_agent_api.agent_factory.profile_schema import (
 from apps.group_agent_api.agent_factory.profile_store import load_profile, save_profile
 from apps.group_agent_api.app.async_manager import execute_async_run
 from apps.group_agent_api.app.endpoints.chat import _invoke_config
-from apps.group_agent_api.app.models import AsyncCallRequest
+from apps.group_agent_api.app.models import AsyncCallRequest, RolloutContext
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
 
@@ -476,6 +476,27 @@ def test_http_tool_does_not_write_cache_when_remote_fails(
     assert load_profile(tmp_path, "u1", "g1") is None
 
 
+def test_http_tool_persists_authoritative_profile_version(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.agent.integration_mode",
+        lambda: "http",
+    )
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.agent.persist_group_profile",
+        lambda **_kwargs: _ack(status="updated", profile_version=7),
+    )
+
+    result = _invoke_save_tool(tmp_path)
+
+    assert "version=7" in result
+    cached = load_profile(tmp_path, "u1", "g1")
+    assert cached is not None
+    assert cached.profile_version == 7
+
+
 def test_http_tool_keeps_cache_unchanged_for_stale_ack(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -660,7 +681,14 @@ async def test_async_same_run_idempotent_retry_recovers_local_write(
         "apps.group_agent_api.agent_factory.agent.save_profile",
         flaky_local_save,
     )
-    req = _async_request().model_copy(update={"run_match": False, "run_invite": False})
+    monkeypatch.setenv("GROUP_AGENT_GROUNDED_FINAL_ENABLED", "1")
+    req = _async_request().model_copy(
+        update={
+            "run_match": False,
+            "run_invite": False,
+            "rollout_context": RolloutContext(protocol_mode="grounded_v2"),
+        }
+    )
 
     envelopes = await _run_async_profile_flow(
         monkeypatch,
@@ -681,6 +709,8 @@ async def test_async_same_run_idempotent_retry_recovers_local_write(
     final = envelopes[-1]["payload"]
     assert final["profile_persisted"] is True
     assert final["profile_status"] == "persisted"
+    assert final["reply_mode"] == "profile_confirmation"
+    assert final["profile"]["profile_version"] == 1
 
 
 async def test_async_same_run_changed_retry_converges_to_updated_authority(

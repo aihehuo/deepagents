@@ -48,6 +48,34 @@ _INVENTED_CANDIDATE_CLAIM = re.compile(
     r"为两个AI教育项目提供"
 )
 
+# WP7 Action Claim Guard: Model makes false completion statements without tool receipt.
+_ACTION_COMPLETION_CLAIM = re.compile(
+    r"(?:已|已经|替你|帮您|帮我)?(?:发送到群|发到群里|发给群友|发群里|在群里发了|在群里@了|@了对方|@过对方|已@|已经@)"
+    r"|(?:已|已经)?(?:通知管理员|跟管理员说了|告诉管理员了|管理员已收到|管理员知道了|管理员已经知晓)"
+    r"|(?:对方已回复|对方已经回复|对方同意了|对方已接受|已经联系上对方|已有\d+人触达)"
+)
+
+_CAPABILITY_BOUNDARY_REPLY = (
+    "我无法直接向群内发送消息或通知管理员。推荐卡片生成后，"
+    "你可以复制文案手动发到群里并@对方，或点击卡片上的对接按钮申请联系。"
+)
+
+
+def looks_like_unauthorized_action_claim(text: str | None) -> bool:
+    """True when dialogue text claims completed group send, @, or admin notification."""
+    return bool(_ACTION_COMPLETION_CLAIM.search(text or ""))
+
+
+def guard_action_claims(text: str | None) -> tuple[str, bool]:
+    """Check dialogue text for unauthorized action completion claims.
+
+    If hit, blocks entire dialogue text and returns typed capability boundary message.
+    """
+    raw = (text or "").strip()
+    if looks_like_unauthorized_action_claim(raw):
+        return _CAPABILITY_BOUNDARY_REPLY, True
+    return raw, False
+
 
 def is_need_shaped_doing(value: str) -> bool:
     """Return True when a supposed doing field is actually phrased as a need."""

@@ -77,6 +77,26 @@ _MAX_IDEMPOTENCY_CACHE = 5_000
 _DETERMINISTIC_SAVE_TOOL_CALL_ID = "harness_deterministic_save"
 
 
+def _trusted_rollout_context(req: AsyncCallRequest) -> tuple[str, str]:
+    """Read only the typed top-level rollout context issued by Micro."""
+    context = req.rollout_context
+    if context is None:
+        return "legacy_v1", "ga-v2-canary-v1"
+    return context.protocol_mode, context.rollout_version
+
+
+def _match_contract_for_run(protocol_mode: str) -> tuple[str | None, str | None]:
+    """Resolve the match wire contract without downgrading a v2 Run to v1."""
+    if protocol_mode != "grounded_v2":
+        return None, None
+
+    from apps.group_agent_api.agent_factory.integrations.config import match_v2_enabled
+
+    if not match_v2_enabled():
+        return None, "v2_capability_unavailable"
+    return "ga-match-v2", None
+
+
 def _known_profile_system_message(
     *,
     base_dir: Any,
@@ -449,6 +469,11 @@ def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession
         "group_token_sha256": group_token_sha,
         "user_token_sha256": user_token_sha,
         "metadata": req.metadata or {},
+        "rollout_context": (
+            req.rollout_context.model_dump(mode="json")
+            if req.rollout_context is not None
+            else None
+        ),
     }
     raw = json.dumps(canon, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -734,6 +759,7 @@ async def _execute_core_agent(
             side_effect_gate(action)
     user_id = session.principal.user_id
     group_id = session.group_id
+    run_protocol_mode, run_rollout_version = _trusted_rollout_context(req)
     tier = session.membership.tier
     user_token = session.principal.user_token
     admin_debug = is_admin_debug_source(req.metadata or {})
@@ -809,7 +835,9 @@ async def _execute_core_agent(
                 if ref_msg is not None:
                     turn_messages.append(ref_msg)
                 _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
-                match_reminder = known_match_system_content(revisit_for_prompt)
+                from apps.group_agent_api.agent_factory.revisit import parse_prior_recommendation
+                prior_rec = parse_prior_recommendation((req.metadata or {}).get("prior_recommendation"))
+                match_reminder = known_match_system_content(revisit_for_prompt, prior_rec=prior_rec)
                 if match_reminder:
                     turn_messages.append(SystemMessage(content=match_reminder))
             turn_messages.append(HumanMessage(content=req.message))
@@ -843,6 +871,15 @@ async def _execute_core_agent(
             )
             messages = result.get("messages", [])
             reply = _extract_reply(messages, msg_count_before)
+
+            # WP7 Action Claim Guard on dialogue text:
+            from apps.group_agent_api.agent_factory.content_quality import guard_action_claims
+            guarded_dialogue_text, action_claim_blocked = guard_action_claims(reply)
+            if action_claim_blocked:
+                reply = guarded_dialogue_text
+                UC34Observer.warn(
+                    f"action=action_claim_blocked run_id={req.run_id}"
+                )
 
             if admin_debug:
                 profile_ok = False
@@ -1032,6 +1069,17 @@ async def _execute_core_agent(
                     )
                 query = build_broad_query_from_profile(assertion.profile)
                 rank_query = build_rank_query_from_profile(assertion.profile)
+                c_version, capability_error = _match_contract_for_run(run_protocol_mode)
+                if capability_error:
+                    return (
+                        "empty",
+                        [],
+                        capability_error,
+                        ["match_v2_capability_unavailable"],
+                        None,
+                    )
+                use_match_v2 = c_version == "ga-match-v2"
+                c_constraints = {"version": 1, "items": assertion.profile.match_constraints} if (use_match_v2 and assertion.profile.match_constraints) else None
                 match_res = run_match(
                     query=query,
                     group_id=group_id,
@@ -1039,6 +1087,8 @@ async def _execute_core_agent(
                     group_token=session.group_token,
                     user_bearer=user_token,
                     rank_query=rank_query,
+                    contract_version=c_version,
+                    constraints=c_constraints,
                 )
                 aligned = align_match_to_trusted_group(
                     match_res, trusted_group_id=group_id
@@ -1176,8 +1226,55 @@ async def _execute_core_agent(
         from apps.group_agent_api.agent_factory.per_candidate_copy import enrich_candidates_with_single_copy
         out_candidates = enrich_candidates_with_single_copy(out_candidates, final_profile)
 
+    # Determine reply_mode strictly in orchestrator code (TSD-13 §5.1)
+    from apps.group_agent_api.agent_factory.grounding_protocol import (
+        ReplyMode,
+        GroundedFinalV1,
+        ProfileSummaryBlock,
+        MatchSummaryBlock,
+        InviteBlock,
+        GroundingBlock,
+        canonical_sha256,
+        DialogueKind,
+        calculate_candidate_facts_digest,
+    )
+    from apps.group_agent_api.agent_factory.integrations.config import grounded_final_enabled
+    from apps.group_agent_api.agent_factory.integrations.profile_client import canonical_profile_digest
+
+    if admin_debug:
+        determined_reply_mode = ReplyMode.dialogue
+    elif persistence_failure_reason or match_reason == "grounding_validation_failed":
+        determined_reply_mode = ReplyMode.error
+    elif effective_run_match and out_candidates and match_status == "matched":
+        determined_reply_mode = ReplyMode.recommendation
+    elif effective_run_match and match_status in {"empty", "weak"}:
+        determined_reply_mode = ReplyMode.no_match
+    elif saved_this_turn and profile_ok:
+        determined_reply_mode = ReplyMode.profile_confirmation
+    else:
+        determined_reply_mode = ReplyMode.dialogue
+
+    is_v2_run = (run_protocol_mode == "grounded_v2")
+
+    # A profile confirmation is a persisted-state assertion.  In grounded
+    # mode it is only legal when the local cache carries the version returned
+    # by Micro for that exact write.  Stub/legacy caches deliberately have no
+    # version and must not manufacture one.
+    if is_v2_run:
+        if not grounded_final_enabled():
+            determined_reply_mode = ReplyMode.error
+        elif (
+            determined_reply_mode == ReplyMode.profile_confirmation
+            and (
+                final_profile is None
+                or getattr(final_profile, "profile_version", None) is None
+            )
+        ):
+            determined_reply_mode = ReplyMode.error
+
     final_payload = {
         "reply": final_guarded.reply,
+        "reply_mode": determined_reply_mode.value,
         "suggested_replies": [] if combined_guard_blocked else suggested_replies,
         "profile_persisted": profile_ok,
         "profile_status": profile_status,
@@ -1197,7 +1294,104 @@ async def _execute_core_agent(
         "at_users": mentioned_user_ids,
         "invite_ok": invite_ok,
         "willing_to_at": req.willing_to_at,
+        "protocol_mode": run_protocol_mode,
+        "rollout_version": run_rollout_version,
     }
+
+    if is_v2_run:
+        profile_summary = None
+        if final_profile is not None:
+            doing_val = getattr(final_profile, "doing", None)
+            need_val = getattr(final_profile, "need", None)
+            offer_val = getattr(final_profile, "offer", None)
+            p_source_gid = getattr(final_profile, "group_id", None) or group_id or "global"
+
+            def _clean_claim(val: Any) -> dict[str, Any] | None:
+                if val is None:
+                    return None
+                if hasattr(val, "value"):
+                    return {
+                        "value": str(val.value or "").strip(),
+                        "claim_type": getattr(val, "claim_type", "fact") if isinstance(getattr(val, "claim_type", "fact"), str) else getattr(val.claim_type, "value", "fact"),
+                    }
+                if isinstance(val, dict):
+                    return {
+                        "value": str(val.get("value") or "").strip(),
+                        "claim_type": str(val.get("claim_type") or "fact"),
+                    }
+                return {"value": str(val).strip(), "claim_type": "fact"}
+
+            profile_summary = ProfileSummaryBlock(
+                schema_version=getattr(final_profile, "schema_version", 1),
+                profile_version=getattr(final_profile, "profile_version", None),
+                digest=f"sha256:{canonical_profile_digest(final_profile)}",
+                source_group_id=p_source_gid,
+                doing=_clean_claim(doing_val),
+                need=_clean_claim(need_val),
+                offer=_clean_claim(offer_val),
+            )
+
+        match_status_val = "matched" if out_candidates else "empty"
+        match_summary = MatchSummaryBlock(
+            contract_version="ga-match-v2",
+            status=match_status_val,
+            reason_code=match_reason or ("matched_1" if out_candidates else "empty"),
+            candidates=out_candidates or [],
+            candidate_count=len(out_candidates or []),
+        )
+
+        invite_block = None
+        if out_candidates and invite_text:
+            invite_block = InviteBlock(
+                status="ready",
+                delivery_kind="manual_copy",
+                text=invite_text,
+            )
+        else:
+            invite_block = InviteBlock(
+                status="not_available",
+                delivery_kind=None,
+                text=None,
+            )
+
+        cand_facts_digest = calculate_candidate_facts_digest(out_candidates) if out_candidates else ""
+        const_digest = canonical_sha256(final_profile.match_constraints) if final_profile and getattr(final_profile, "match_constraints", None) else "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        grounding_block = GroundingBlock(
+            candidate_facts_digest=cand_facts_digest,
+            constraint_digest=const_digest,
+        )
+
+        d_kind: DialogueKind | None = None
+        if determined_reply_mode == ReplyMode.dialogue:
+            if combined_guard_blocked:
+                d_kind = DialogueKind.capability_boundary
+            elif looks_like_clarifying_reply(guarded.reply):
+                d_kind = DialogueKind.clarification_question
+            else:
+                d_kind = DialogueKind.general_help
+
+        typed_final = GroundedFinalV1(
+            protocol_version="ga-grounding-v1",
+            run_id=req.run_id,
+            reply_mode=determined_reply_mode,
+            dialogue_kind=d_kind,
+            dialogue_text=guarded.reply if determined_reply_mode == ReplyMode.dialogue else None,
+            candidate_count=len(out_candidates or []),
+            candidates=out_candidates or [],
+            profile=profile_summary,
+            match=match_summary,
+            invite=invite_block,
+            grounding=grounding_block,
+            reply=final_guarded.reply,
+        )
+        typed_dict = typed_final.model_dump(mode="json")
+        typed_dict["rollout_version"] = run_rollout_version
+        typed_dict["protocol_mode"] = run_protocol_mode
+        # Ensure all top-level keys required by Micro FinalResultValidator are exposed directly at the top level
+        final_payload.update(typed_dict)
+        final_payload["grounded_final"] = typed_dict
+
+
     # Admin ops-brain: never surface member match/search artifacts to the client.
     if admin_debug:
         final_payload["match_status"] = None

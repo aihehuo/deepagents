@@ -1,0 +1,84 @@
+{
+  "fixture_version": "1.0",
+  "scenario": "non_canary_user_2_v1_baseline",
+  "user": {
+    "id": 2,
+    "unionid": "unionid_non_canary_user_2"
+  },
+  "micro_run_creation": {
+    "run_id": "ga_non_canary_0000000000000000002",
+    "idempotency_key": "idemp_non_canary_user_2_v1_002",
+    "protocol_mode": "legacy_v1",
+    "rollout_version": "ga-v2-canary-v1",
+    "metadata": {
+      "source": "group_agent_ui",
+      "protocol_mode": "legacy_v1",
+      "rollout_version": "ga-v2-canary-v1",
+      "rollout_context": {
+        "protocol_mode": "legacy_v1",
+        "rollout_version": "ga-v2-canary-v1"
+      }
+    }
+  },
+  "deep_async_request": {
+    "run_id": "ga_non_canary_0000000000000000002",
+    "idempotency_key": "idemp_non_canary_user_2_v1_002",
+    "user_id": "2",
+    "unionid": "unionid_non_canary_user_2",
+    "group_id": "123",
+    "conversation_id": "ga_conv_2",
+    "message": "想在群里找一位做跨境电商的合伙人",
+    "callback_url": "http://127.0.0.1:3001/group_agent_callbacks/ga_non_canary_0000000000000000002",
+    "rollout_context": {
+      "protocol_mode": "legacy_v1",
+      "rollout_version": "ga-v2-canary-v1"
+    },
+    "metadata": {
+      "source": "group_agent_ui"
+    }
+  },
+  "new_api_match_request": {
+    "query": "做跨境电商的合伙人",
+    "limit": 3,
+    "vector_search": true
+  },
+  "new_api_match_response": {
+    "status": "matched",
+    "group_id": "123",
+    "reason": "sc01_matched",
+    "candidates": [
+      {
+        "user_id": "303",
+        "display_name": "李明",
+        "bound": true,
+        "wechat_reachable": true,
+        "same_group": true,
+        "doing": {
+          "value": "跨境电商运营与供应链",
+          "disclosure": "confirmed_public"
+        }
+      }
+    ]
+  },
+  "deep_callback_payload": {
+    "reply": "为您找到 1 位可能匹配的群友：李明（跨境电商运营与供应链），您可以查看下方推荐卡片。",
+    "status": "matched",
+    "match_status": "matched",
+    "protocol_mode": "legacy_v1",
+    "rollout_version": "ga-v2-canary-v1",
+    "candidates": [
+      {
+        "user_id": "303",
+        "display_name": "李明",
+        "bound": true,
+        "wechat_reachable": true,
+        "same_group": true,
+        "doing": {
+          "value": "跨境电商运营与供应链",
+          "disclosure": "confirmed_public"
+        }
+      }
+    ]
+  },
+  "micro_expected_reply_text": "为您找到 1 位可能匹配的群友：李明（跨境电商运营与供应链），您可以查看下方推荐卡片。"
+}

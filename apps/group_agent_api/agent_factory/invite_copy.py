@@ -253,9 +253,11 @@ def _display_name(c: dict[str, Any]) -> str:
 
 
 def _at_handle(c: dict[str, Any]) -> str:
-    """Prefer a paste-friendly display name; fall back to user_id when name has spaces."""
+    """Prefer a paste-friendly display name; fall back to user_id when name has spaces or is generic."""
     uid = str(c.get("user_id") or "").strip()
-    dn = _display_name(c)
+    dn = str(c.get("display_name") or c.get("name") or "").strip()
+    if dn and dn == f"用户{uid}":
+        return uid
     if dn and not re.search(r"\s", dn):
         return dn
     return uid or dn.replace(" ", "")
@@ -390,10 +392,10 @@ def assert_directed_invite(
     for c in candidates:
         dn = _display_name(c)
         if dn:
-            # Only the COMPLETE display_name counts as a valid identity credential.
-            # No prefix (split()[0]) / no-space collapse: those allow @L1 to match any
-            # of "L1 User 2" / "L1 User 3", destroying precise @ ⊆ candidates.
             allowed_names.add(dn)
+        uid = str(c.get("user_id") or "").strip()
+        if uid:
+            allowed_names.add(f"用户{uid}")
     allowed_ids = {str(c.get("user_id")) for c in candidates}
     ats = _AT_PATTERN.findall(text or "")
     # pattern captures @Name → strip @
@@ -516,11 +518,18 @@ def generate_invite_copy(
                 "match_confidence": candidate.get("match_confidence"),
                 "match_score": candidate.get("match_score"),
                 "confidence_note": candidate.get("confidence_note"),
+                "facts": candidate.get("facts", []),
+                "match_evidence": candidate.get("match_evidence", []),
+                "connection": candidate.get("connection", {"type": "admin_referral", "available": True}),
+                "shared_group": candidate.get("shared_group"),
+                "same_group": candidate.get("same_group", True),
+                "wechat_reachable": candidate.get("wechat_reachable", True),
             }
         )
         visible = enrich_candidate_with_single_copy(visible, profile)
         accepted_ids.add(user_id_value)
         safe_candidates.append(visible)
+
     effective_match_status = (
         "empty"
         if match_status == "matched" and not safe_candidates

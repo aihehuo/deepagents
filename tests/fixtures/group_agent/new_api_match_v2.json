@@ -1,0 +1,54 @@
+{
+  "contract_version": "ga-match-v2",
+  "status": "matched",
+  "reason": "matched_1",
+  "source_scope": "same_group",
+  "candidates": [
+    {
+      "user_id": "202",
+      "display_name": "周然",
+      "is_masked": false,
+      "same_group": true,
+      "shared_group": {
+        "event_id": 123,
+        "title": "AI硬件交流群"
+      },
+      "wechat_reachable": true,
+      "match_score": 0.75,
+      "facts": [
+        {
+          "field": "doing",
+          "value": "智能硬件量产研发",
+          "disclosure": "match_only",
+          "source_type": "group_agent_profile",
+          "source_group_id": "123",
+          "source_ref": "profile:202:2",
+          "source_version": 2
+        },
+        {
+          "field": "need",
+          "value": "寻找出海渠道",
+          "disclosure": "confirmed_public",
+          "source_type": "group_agent_profile",
+          "source_group_id": "123",
+          "source_ref": "profile:202:2",
+          "source_version": 2
+        }
+      ],
+      "match_evidence": [
+        {
+          "initiator_field": "need",
+          "candidate_field": "doing",
+          "relation": "need_matches_doing",
+          "summary": "候选人的公开方向与您的需求存在交集"
+        }
+      ],
+      "connection": {
+        "type": "admin_referral",
+        "available": true
+      },
+      "source_group_id": "123"
+    }
+  ],
+  "query": "智能小家电固件 找硬件搭档"
+}

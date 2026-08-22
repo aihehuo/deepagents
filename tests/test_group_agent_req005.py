@@ -274,11 +274,19 @@ class _FakeAgent:
         return {"messages": list(self.messages)}
 
 
+class _StubQualityModel:
+    def invoke(self, *args: Any, **kwargs: Any) -> Any:
+        class _Resp:
+            content = '{"ready": true, "score": 85, "gaps": [], "reasons": []}'
+        return _Resp()
+
+
 def _state(agent: Any, tmp_path: Path) -> AppState:
     return AppState(
         agent=agent,
         base_dir=tmp_path,
         checkpoints_path=str(tmp_path / "checkpoints.pkl"),
+        quality_model=_StubQualityModel(),
     )
 
 

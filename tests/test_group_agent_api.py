@@ -320,13 +320,13 @@ async def test_get_profile_queryable(tmp_path: Path) -> None:
 
 
 def test_create_agent_wires_save_tool(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    captured: dict[str, Any] = {}
+    calls: list[dict[str, Any]] = []
 
     class _FakeModel:
         profile: dict = {}
 
     def fake_create_deep_agent(**kwargs: Any) -> object:
-        captured.update(kwargs)
+        calls.append(kwargs)
         return object()
 
     monkeypatch.setattr(
@@ -341,8 +341,9 @@ def test_create_agent_wires_save_tool(monkeypatch: pytest.MonkeyPatch, tmp_path:
     agent, _admin, ckpt = create_agent(base_dir=tmp_path, model=_FakeModel())
     assert agent is not None
     assert ckpt == tmp_path / "checkpoints.pkl"
-    tool_names = [getattr(t, "name", None) for t in captured.get("tools") or []]
-    assert "save_group_profile" in tool_names
+    member_tools = [getattr(t, "name", None) for t in calls[0].get("tools") or []]
+    assert "save_group_profile" in member_tools
+    captured = calls[0]
     prompt = captured.get("system_prompt") or ""
     # Red lines in prompt
     assert "不得推荐" in prompt or "候选人" in prompt

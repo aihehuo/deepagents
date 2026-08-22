@@ -1,0 +1,222 @@
+{
+  "fixture_version": "1.0",
+  "scenario": "canary_user_1_v2_rollout",
+  "user": {
+    "id": 1,
+    "unionid": "unionid_canary_user_1"
+  },
+  "micro_run_creation": {
+    "run_id": "ga_canary_000000000000000000000001",
+    "idempotency_key": "idemp_canary_user_1_v2_001",
+    "protocol_mode": "grounded_v2",
+    "rollout_version": "ga-v2-canary-v1",
+    "metadata": {
+      "source": "group_agent_ui",
+      "protocol_mode": "grounded_v2",
+      "rollout_version": "ga-v2-canary-v1",
+      "rollout_context": {
+        "protocol_mode": "grounded_v2",
+        "rollout_version": "ga-v2-canary-v1"
+      }
+    }
+  },
+  "deep_async_request": {
+    "run_id": "ga_canary_000000000000000000000001",
+    "idempotency_key": "idemp_canary_user_1_v2_001",
+    "user_id": "1",
+    "unionid": "unionid_canary_user_1",
+    "group_id": "123",
+    "conversation_id": "ga_conv_1",
+    "message": "想在群里找一位做AI硬件量产的合伙人",
+    "callback_url": "http://127.0.0.1:3001/group_agent_callbacks/ga_canary_000000000000000000000001",
+    "rollout_context": {
+      "protocol_mode": "grounded_v2",
+      "rollout_version": "ga-v2-canary-v1"
+    },
+    "metadata": {
+      "source": "group_agent_ui"
+    }
+  },
+  "new_api_match_request": {
+    "query": "做AI硬件量产的合伙人",
+    "contract_version": "ga-match-v2",
+    "constraints": {
+      "version": 1,
+      "items": [
+        {
+          "field": "city",
+          "operator": "eq",
+          "values": [
+            "深圳"
+          ],
+          "strength": "hard"
+        }
+      ]
+    }
+  },
+  "new_api_match_response": {
+    "contract_version": "ga-match-v2",
+    "status": "matched",
+    "reason": "matched_1",
+    "source_scope": "same_group",
+    "candidates": [
+      {
+        "user_id": "202",
+        "source_group_id": "123",
+        "display_name": "周然",
+        "is_masked": false,
+        "same_group": true,
+        "shared_group": {
+          "event_id": 123,
+          "title": "AI硬件交流群"
+        },
+        "wechat_reachable": true,
+        "match_score": 0.75,
+        "facts": [
+          {
+            "field": "doing",
+            "value": "智能硬件量产研发",
+            "disclosure": "match_only",
+            "source_type": "group_agent_profile",
+            "source_ref": "profile:202:2",
+            "source_version": 2,
+            "source_group_id": "123"
+          }
+        ],
+        "match_evidence": [
+          {
+            "initiator_field": "need",
+            "candidate_field": "doing",
+            "relation": "need_matches_doing",
+            "summary": "候选人的公开方向与您的需求存在交集"
+          }
+        ],
+        "connection": {
+          "type": "admin_referral",
+          "available": true
+        }
+      }
+    ]
+  },
+  "deep_callback_payload": {
+    "protocol_version": "ga-grounding-v1",
+    "run_id": "ga_canary_000000000000000000000001",
+    "protocol_mode": "grounded_v2",
+    "rollout_version": "ga-v2-canary-v1",
+    "reply_mode": "recommendation",
+    "dialogue_kind": null,
+    "dialogue_text": null,
+    "candidate_count": 1,
+    "candidates": [
+      {
+        "user_id": "202",
+        "source_group_id": "123",
+        "display_name": "周然",
+        "is_masked": false,
+        "same_group": true,
+        "shared_group": {
+          "event_id": 123,
+          "title": "AI硬件交流群"
+        },
+        "wechat_reachable": true,
+        "match_score": 0.75,
+        "facts": [
+          {
+            "field": "doing",
+            "value": "智能硬件量产研发",
+            "disclosure": "match_only",
+            "source_type": "group_agent_profile",
+            "source_ref": "profile:202:2",
+            "source_version": 2,
+            "source_group_id": "123"
+          }
+        ],
+        "match_evidence": [
+          {
+            "initiator_field": "need",
+            "candidate_field": "doing",
+            "relation": "need_matches_doing",
+            "summary": "候选人的公开方向与您的需求存在交集"
+          }
+        ],
+        "connection": {
+          "type": "admin_referral",
+          "available": true
+        }
+      }
+    ],
+    "profile": {
+      "schema_version": 1,
+      "profile_version": 1,
+      "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_group_id": "123",
+      "doing": {
+        "value": "AI硬件产品经理",
+        "claim_type": "fact"
+      },
+      "need": {
+        "value": "硬件量产合伙人",
+        "claim_type": "goal"
+      },
+      "offer": {
+        "value": "产品规划与方案",
+        "claim_type": "fact"
+      }
+    },
+    "match": {
+      "contract_version": "ga-match-v2",
+      "status": "matched",
+      "reason_code": "matched_1",
+      "candidates": [
+        {
+          "user_id": "202",
+          "source_group_id": "123",
+          "display_name": "周然",
+          "is_masked": false,
+          "same_group": true,
+          "shared_group": {
+            "event_id": 123,
+            "title": "AI硬件交流群"
+          },
+          "wechat_reachable": true,
+          "match_score": 0.75,
+          "facts": [
+            {
+              "field": "doing",
+              "value": "智能硬件量产研发",
+              "disclosure": "match_only",
+              "source_type": "group_agent_profile",
+              "source_ref": "profile:202:2",
+              "source_version": 2,
+              "source_group_id": "123"
+            }
+          ],
+          "match_evidence": [
+            {
+              "initiator_field": "need",
+              "candidate_field": "doing",
+              "relation": "need_matches_doing",
+              "summary": "候选人的公开方向与您的需求存在交集"
+            }
+          ],
+          "connection": {
+            "type": "admin_referral",
+            "available": true
+          }
+        }
+      ],
+      "candidate_count": 1
+    },
+    "invite": {
+      "status": "ready",
+      "delivery_kind": "manual_copy",
+      "text": "周然，您好！我们在AI硬件交流群看到您在做智能硬件量产研发，群内有伙伴希望与您对接，特此向您引荐。"
+    },
+    "grounding": {
+      "candidate_facts_digest": "sha256:ae0573ed83cd3d6d0ccd4ec2fba0a172be46cb3cafe730a0c6406e87c8a97979",
+      "constraint_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "reply": null
+  },
+  "micro_expected_rendered_text": "为你找到 1 位匹配伙伴，你可以查看下方名片选择适合的连接方式。"
+}

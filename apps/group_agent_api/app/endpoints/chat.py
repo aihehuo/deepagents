@@ -407,6 +407,17 @@ async def chat(
                 messages = result.get("messages", [])
                 reply = _extract_reply(messages, msg_count_before)
 
+                # chk.action_claim (YAML): parity with async_manager.
+                from apps.group_agent_api.agent_factory.checks.action_claim import (
+                    apply_action_claim_guard,
+                )
+                guarded_dialogue_text, action_claim_blocked = apply_action_claim_guard(
+                    reply
+                )
+                if action_claim_blocked:
+                    reply = guarded_dialogue_text
+                    UC34Observer.warn("action=action_claim_blocked path=chat")
+
                 assertion = assert_profile_persisted(
                     state.base_dir, user_id, group_id
                 )

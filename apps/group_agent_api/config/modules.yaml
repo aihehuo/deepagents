@@ -23,10 +23,19 @@ checks:
 modules:
   # Semantic reply-vs-candidate-facts gate (TSD-14 §4.6). Default on.
   mod.brain.reply_grounding: true
+  # Multi-level search (TSD-14 §8.12). Default off ≡ today's single-shot.
+  # When on, model may re-call search_candidates with relax_level (D-B03: no
+  # orchestrator auto-search). profile_pool is next hook only — not mounted.
+  mod.brain.search_relax: false
+  # mod.brain.profile_pool: false  # next hook; do not enable yet
 
 reply_grounding:
   # Includes the first check (TSD-14 §4.6.4).
   max_attempts: 2
+
+search_relax:
+  # Inclusive levels from 0 when module on (2 → L0 hard + L1 drop soft facets).
+  max_levels: 2
 
 debug:
   module_spans: true

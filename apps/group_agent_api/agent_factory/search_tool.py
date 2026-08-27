@@ -16,6 +16,7 @@ from apps.group_agent_api.agent_factory.integrations.group_bind import (
 )
 from apps.group_agent_api.agent_factory.integrations import match_backend
 from apps.group_agent_api.agent_factory.revisit import excluded_ids_for_match
+from apps.group_agent_api.agent_factory.search_relax import resolve_search_relax
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -41,6 +42,8 @@ class SearchTurnResult:
     reason: str = "model_did_not_search"
     candidates: list[dict[str, Any]] = field(default_factory=list)
     payload: dict[str, Any] = field(default_factory=dict)
+    relax_level: int = 0
+    pool: str = ""
 
 
 def extract_search_this_turn(messages: list[Any], start: int) -> SearchTurnResult:
@@ -110,6 +113,13 @@ def extract_search_this_turn(messages: list[Any], start: int) -> SearchTurnResul
     result.payload = dict(last_payload)
     result.payload["query"] = result.query
     result.payload["rank_query"] = result.rank_query
+    try:
+        result.relax_level = int(
+            last_payload.get("relax_level", last_args.get("relax_level", 0)) or 0
+        )
+    except (TypeError, ValueError):
+        result.relax_level = 0
+    result.pool = str(last_payload.get("pool") or last_args.get("pool") or "")
     return result
 
 
@@ -117,6 +127,8 @@ def extract_search_this_turn(messages: list[Any], start: int) -> SearchTurnResul
 def search_candidates(
     query: str,
     rank_query: str = "",
+    relax_level: int = 0,
+    pool: str = "",
     *,
     config: RunnableConfig,
 ) -> str:
@@ -125,6 +137,9 @@ def search_candidates(
     Args:
         query: 你根据本轮对话和画像组织的检索词（必填）。不要留空。
         rank_query: 可选的细排序文本；默认与 query 相同。
+        relax_level: 放宽级别（0=硬约束）。仅当 mod.brain.search_relax 开启时生效；
+            empty 后可再调本工具并提高级别。编排不会代搜。
+        pool: 候选池（预留）。默认全池；agent_profiles 待 profile_pool Module。
     """
     metadata = config.get("metadata") or {}
     user_id = str(metadata.get("user_id") or "").strip()
@@ -139,6 +154,8 @@ def search_candidates(
                 "reason": "empty_query",
                 "query": "",
                 "rank_query": "",
+                "relax_level": 0,
+                "pool": "",
                 "candidates": [],
             },
             ensure_ascii=False,
@@ -150,6 +167,8 @@ def search_candidates(
                 "reason": "missing_user_or_group",
                 "query": q,
                 "rank_query": rq,
+                "relax_level": 0,
+                "pool": "",
                 "candidates": [],
             },
             ensure_ascii=False,
@@ -161,10 +180,20 @@ def search_candidates(
                 "reason": "run_match_disabled",
                 "query": q,
                 "rank_query": rq,
+                "relax_level": 0,
+                "pool": "",
                 "candidates": [],
             },
             ensure_ascii=False,
         )
+
+    resolved = resolve_search_relax(
+        query=q,
+        rank_query=rq,
+        relax_level=relax_level,
+        pool=pool,
+    )
+    effective = resolved.args
 
     extra_meta = {
         k: v
@@ -172,26 +201,40 @@ def search_candidates(
         if k not in {"user_token", "group_token", "base_dir"}
     }
     result = match_backend.run_match(
-        query=q,
+        query=effective.query,
         group_id=group_id,
         excluded_ids=excluded_ids_for_match(user_id, extra_meta),
         group_token=str(metadata.get("group_token") or "") or None,
         user_bearer=str(metadata.get("user_token") or "") or None,
-        rank_query=rq,
+        rank_query=effective.rank_query,
+        constraints=effective.constraints if isinstance(effective.constraints, dict) else None,
+        relax_level=effective.relax_level,
+        pool=effective.pool,
     )
     aligned = align_match_to_trusted_group(result, trusted_group_id=group_id)
     payload = {
         "status": aligned.status,
         "reason": aligned.reason or "",
-        "query": aligned.query or q,
-        "rank_query": rq,
+        "query": aligned.query or effective.query,
+        "rank_query": effective.rank_query,
+        "relax_level": effective.relax_level,
+        "pool": effective.pool,
+        "strategy": effective.strategy_note,
+        "search_relax_enabled": resolved.enabled,
         "candidates": list(aligned.candidates or []),
     }
+    if resolved.profile_pool_hook:
+        payload["profile_pool_hook"] = "noted_not_mounted"
     _logger.info(
-        "action=search_candidates_tool user_id=%s group_id=%s status=%s query_len=%d",
+        "action=search_candidates_tool user_id=%s group_id=%s status=%s "
+        "query_len=%d relax_level=%s pool=%s search_relax=%s strategy=%s",
         user_id,
         group_id,
         payload["status"],
-        len(q),
+        len(effective.query),
+        effective.relax_level,
+        effective.pool,
+        resolved.enabled,
+        effective.strategy_note,
     )
     return json.dumps(payload, ensure_ascii=False)

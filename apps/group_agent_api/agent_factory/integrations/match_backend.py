@@ -49,6 +49,8 @@ def run_match(
     rank_query: str | None = None,
     contract_version: str | None = None,
     constraints: dict[str, Any] | None = None,
+    relax_level: int | None = None,
+    pool: str | None = None,
 ) -> MatchResult:
     """Run FR-03 match via stub or HTTP.
 
@@ -56,7 +58,16 @@ def run_match(
     (Micro REQ-028 full-network). Plaintext group_id is only used by the stub.
 
     ``query`` = broad recall text; ``rank_query`` = fine need for re-ranking.
+    ``relax_level`` / ``pool`` are audit fields from ``mod.brain.search_relax``
+    (D-B03: caller must already be a model tool invocation).
     """
+    if relax_level is not None or pool:
+        _logger.info(
+            "action=match_backend_relax relax_level=%s pool=%s query_len=%d",
+            relax_level,
+            (pool or ""),
+            len(query or ""),
+        )
     mode = (force_mode or integration_mode()).strip().lower()
     if mode == "http":
         try:

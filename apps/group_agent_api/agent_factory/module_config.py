@@ -33,6 +33,7 @@ class ModulesConfig:
     checks: dict[str, bool] = field(default_factory=dict)
     modules: dict[str, bool] = field(default_factory=dict)
     reply_grounding: dict[str, Any] = field(default_factory=dict)
+    search_relax: dict[str, Any] = field(default_factory=dict)
     debug: dict[str, bool] = field(default_factory=dict)
     ingress: dict[str, Any] = field(default_factory=dict)
     source_path: str = ""
@@ -57,6 +58,18 @@ class ModulesConfig:
 
     def reply_grounding_max_attempts(self) -> int:
         raw = self.reply_grounding.get("max_attempts", 2)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = 2
+        return max(1, min(5, value))
+
+    def search_relax_enabled(self) -> bool:
+        return self.is_module_enabled("mod.brain.search_relax")
+
+    def search_relax_max_levels(self) -> int:
+        """Inclusive level count from 0 (default 2 → L0 + L1). Min 1 = single-shot."""
+        raw = self.search_relax.get("max_levels", 2)
         try:
             value = int(raw)
         except (TypeError, ValueError):
@@ -115,6 +128,14 @@ def reply_grounding_max_attempts() -> int:
     return load_modules_config().reply_grounding_max_attempts()
 
 
+def search_relax_enabled() -> bool:
+    return load_modules_config().search_relax_enabled()
+
+
+def search_relax_max_levels() -> int:
+    return load_modules_config().search_relax_max_levels()
+
+
 def config_fingerprint() -> str:
     return load_modules_config().fingerprint
 
@@ -160,6 +181,7 @@ def _parse_modules_yaml(path: Path) -> ModulesConfig:
         checks=_bool_map(data.get("checks")),
         modules=_bool_map(data.get("modules")),
         reply_grounding=_dict_section(data.get("reply_grounding")),
+        search_relax=_dict_section(data.get("search_relax")),
         debug=_bool_map(data.get("debug")),
         ingress=_dict_section(data.get("ingress")),
         source_path=str(path),

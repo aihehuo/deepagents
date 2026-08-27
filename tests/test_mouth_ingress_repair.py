@@ -1,22 +1,24 @@
-"""BSD-01 P1: mouth ingress reject → brain repair helpers + client parse."""
+"""BSD-01 P1/P2: mouth ingress reject → bb.brain.repair seam + helpers."""
 
 from __future__ import annotations
 
-import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
-from apps.group_agent_api.agent_factory.ingress_repair import (
+from apps.group_agent_api.agent_factory.brain_repair import (
+    MOUTH_INGRESS_MAX_ATTEMPTS,
+    MouthIngressRejected,
     apply_mouth_repair,
+    decide_mouth_repair_action,
+    emit_final_with_mouth_repair,
     format_ingress_deny,
+    parse_mouth_reject_body,
     peel_final_payload,
+    prepare_repaired_final,
 )
 from apps.group_agent_api.agent_factory.integrations.callback_client import (
-    MouthIngressRejected,
-    parse_mouth_reject_body,
     send_callback_event,
 )
 
@@ -92,6 +94,49 @@ def test_parse_mouth_reject_body_nested() -> None:
     assert "mismatch" in exc.message
 
 
+def test_decide_mouth_repair_action_abandon_when_none_or_exhausted() -> None:
+    reject_none = MouthIngressRejected(
+        "protocol_mode_mismatch",
+        repairable_by="none",
+    )
+    assert (
+        decide_mouth_repair_action(reject=reject_none, attempt=1) == "abandon"
+    )
+    reject_ok = MouthIngressRejected(
+        "unverified_fact_source",
+        repairable_by="orchestrator",
+    )
+    assert decide_mouth_repair_action(reject=reject_ok, attempt=1) == "repair"
+    assert (
+        decide_mouth_repair_action(
+            reject=reject_ok,
+            attempt=MOUTH_INGRESS_MAX_ATTEMPTS,
+        )
+        == "abandon"
+    )
+
+
+def test_prepare_repaired_final_abandons_empty_recommendation() -> None:
+    # Peel does not rewrite reply_mode for unknown codes; empty recommendation
+    # must still fall back to abandon dialogue (orchestrator guard).
+    payload = {
+        "reply": "推荐张三",
+        "reply_mode": "recommendation",
+        "candidates": [],
+        "match_status": "matched",
+        "protocol_version": "ga-grounding-v1",
+        "run_id": "r1",
+    }
+    reject = MouthIngressRejected(
+        "some_unknown_mouth_code",
+        repairable_by="orchestrator",
+    )
+    out = prepare_repaired_final(payload, reject=reject, model=None, attempt=2)
+    assert out["reply_mode"] == "dialogue"
+    assert out["candidates"] == []
+    assert "未经确认" in str(out.get("reply") or "")
+
+
 @pytest.mark.asyncio
 async def test_send_callback_event_raises_mouth_reject_without_retry(
     monkeypatch: pytest.MonkeyPatch,
@@ -155,13 +200,8 @@ async def test_send_callback_event_raises_mouth_reject_without_retry(
 
 
 @pytest.mark.asyncio
-async def test_final_emit_repair_loop_same_seq_then_accept() -> None:
-    """Orchestrator-shaped loop: reject once → peel → accept on same logical attempt."""
-    from apps.group_agent_api.agent_factory.ingress_repair import (
-        MOUTH_INGRESS_MAX_ATTEMPTS,
-        apply_mouth_repair,
-    )
-
+async def test_emit_final_with_mouth_repair_same_seq_then_accept() -> None:
+    """Seam loop: reject once → peel → accept on same logical seq."""
     payloads_seen: list[dict[str, Any]] = []
     seq_box = {"seq": 0}
 
@@ -171,7 +211,6 @@ async def test_final_emit_repair_loop_same_seq_then_accept() -> None:
         used_seq = seq_box["seq"]
         payloads_seen.append(dict(payload))
         if len(payloads_seen) == 1:
-            # Simulate mouth reject + rewind
             seq_box["seq"] -= 1
             raise MouthIngressRejected(
                 "dialogue_mode_has_candidates",
@@ -187,16 +226,27 @@ async def test_final_emit_repair_loop_same_seq_then_accept() -> None:
         "candidates": [{"user_id": "1"}],
         "match_status": "matched",
     }
-    mouth_attempt = 1
-    while True:
-        try:
-            ok = await emit("final", current)
-        except MouthIngressRejected as exc:
-            assert mouth_attempt < MOUTH_INGRESS_MAX_ATTEMPTS
-            mouth_attempt += 1
-            current = apply_mouth_repair(current, reject=exc, model=None, attempt=mouth_attempt)
-            continue
-        assert ok is True
-        break
+    ok = await emit_final_with_mouth_repair(
+        emit_callback=emit,
+        final_payload=current,
+        model=None,
+        run_id="r-test",
+    )
+    assert ok is True
     assert len(payloads_seen) == 2
-    assert mouth_attempt == 2
+
+
+@pytest.mark.asyncio
+async def test_emit_final_with_mouth_repair_abandons_repairable_none() -> None:
+    async def emit(event: str, payload: dict[str, Any]) -> bool:
+        raise MouthIngressRejected(
+            "internal_error",
+            repairable_by="none",
+        )
+
+    with pytest.raises(RuntimeError, match="mouth_ingress_rejected:internal_error"):
+        await emit_final_with_mouth_repair(
+            emit_callback=emit,
+            final_payload={"reply": "x", "reply_mode": "dialogue"},
+            model=None,
+        )

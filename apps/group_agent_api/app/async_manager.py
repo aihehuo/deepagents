@@ -923,9 +923,13 @@ async def _execute_core_agent(
             messages = result.get("messages", [])
             reply = _extract_reply(messages, msg_count_before)
 
-            # WP7 Action Claim Guard on dialogue text:
-            from apps.group_agent_api.agent_factory.content_quality import guard_action_claims
-            guarded_dialogue_text, action_claim_blocked = guard_action_claims(reply)
+            # chk.action_claim (YAML): unauthorized group-send / @ / admin claims.
+            from apps.group_agent_api.agent_factory.checks.action_claim import (
+                apply_action_claim_guard,
+            )
+            guarded_dialogue_text, action_claim_blocked = apply_action_claim_guard(
+                reply
+            )
             if action_claim_blocked:
                 reply = guarded_dialogue_text
                 UC34Observer.warn(
@@ -1447,51 +1451,15 @@ async def _execute_core_agent(
         final_payload["debug_trace_path"] = trace_path
 
     _gate("final_callback")
-    from apps.group_agent_api.agent_factory.ingress_repair import (
-        MOUTH_INGRESS_MAX_ATTEMPTS,
-        apply_mouth_repair,
-        build_abandon_final_payload,
+    from apps.group_agent_api.agent_factory.brain_repair import (
+        emit_final_with_mouth_repair,
     )
 
-    # BSD-01 P1: first final + at most one repair re-emit (same seq).
-    mouth_attempt = 1
-    current_final = final_payload
-    while True:
-        try:
-            final_ok = await emit_callback("final", current_final)
-        except MouthIngressRejected as exc:
-            _logger.warning(
-                "Mouth rejected final run_id=%s attempt=%s/%s reason_code=%s "
-                "repairable_by=%s",
-                req.run_id,
-                mouth_attempt,
-                MOUTH_INGRESS_MAX_ATTEMPTS,
-                exc.reason_code,
-                exc.repairable_by,
-            )
-            if (
-                mouth_attempt >= MOUTH_INGRESS_MAX_ATTEMPTS
-                or exc.repairable_by == "none"
-            ):
-                raise RuntimeError(
-                    f"mouth_ingress_rejected:{exc.reason_code}"
-                ) from exc
-            mouth_attempt += 1
-            repair_model = state.quality_model or state.polish_model
-            repaired = apply_mouth_repair(
-                current_final,
-                reject=exc,
-                model=repair_model,
-                attempt=mouth_attempt,
-            )
-            # If peel left a still-risky recommendation shape, fall back to abandon.
-            if (
-                repaired.get("reply_mode") == "recommendation"
-                and not (repaired.get("candidates") or [])
-            ):
-                repaired = build_abandon_final_payload(current_final)
-            current_final = repaired
-            continue
-        if final_ok is False:
-            raise RuntimeError("final_callback_failed")
-        break
+    # BSD-01 P1/P2: bb.brain.repair — first final + at most one same-seq re-emit.
+    await emit_final_with_mouth_repair(
+        emit_callback=emit_callback,
+        final_payload=final_payload,
+        model=state.quality_model or state.polish_model,
+        run_id=req.run_id,
+        logger=_logger,
+    )

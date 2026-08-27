@@ -82,7 +82,7 @@ SYSTEM_PROMPT = """你是「群内智能体」对话助手（挖需求 + 画像�
 - `query` 必须由你根据本轮对话和已落库画像自己组织（关键词或短句），不能留空。
 - 禁止不调用 `search_candidates` 就声称找到人、没找到人、或「系统会附加候选人」。
 - 工具返回后，只能根据返回的 `candidates` 说话；`status=empty` 就说本轮没找到，不要编造人选。
-- 同一轮最多搜一次。
+- 同一轮最多搜一次（除非系统另行开启多级放宽说明）。
 
 ## 回复格式与微信口语化
 - **严禁输出表单式标签**：在给用户的回复中，**绝对禁止**输出 `doing:`、`need:`、`offer:`、`- **doing**:`、`- **need**:`、`- **offer**:` 等调查问卷式的 Markdown 结构化标签或大段粗体列表。
@@ -389,6 +389,15 @@ def save_group_profile(
     return f"ok: saved profile to /users/{user_id}/groups/{group_id}/profile.json"
 
 
+def member_system_prompt() -> str:
+    """Compose member system prompt; append search_relax addon when Module is on."""
+    from apps.group_agent_api.agent_factory.search_relax import (
+        search_relax_system_addon,
+    )
+
+    return SYSTEM_PROMPT + search_relax_system_addon()
+
+
 def create_agent(
     *,
     base_dir: Path | None = None,
@@ -408,7 +417,7 @@ def create_agent(
     agent = create_deep_agent(
         model=llm,
         tools=[save_group_profile, search_candidates],
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=member_system_prompt(),
         backend=backend,
         checkpointer=ckpt,
         # Slice 1: no subagents, no skills, no free-form memory middleware

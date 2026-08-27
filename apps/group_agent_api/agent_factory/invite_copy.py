@@ -3,6 +3,17 @@
 只消费 2a 已双闸过滤的候选（confirmed_public）。
 两类交付物互斥：定向邀请词 vs 不点名话题词。
 五要素 / 零@ 用后处理断言，缺则告警重试，不靠模型自觉。
+
+---
+mod.brain.invite_copy hang points (Brief B1 — document only; YAML not wired):
+
+| check id | hang | gate today |
+|---|---|---|
+| ``chk.invite_scaffold`` | ``generate_invite_copy`` via ``invite_llm.generate_invite_with_optional_llm`` when ``should_emit_invite_artifact`` | match/candidates/`run_invite` (hard when path runs) |
+| ``chk.invite_llm_polish`` | ``invite_llm.generate_invite_with_optional_llm`` | ENV ``GROUP_AGENT_LLM_POLISH`` via ``integrations.config.llm_polish_enabled`` (not YAML) |
+
+Orchestrator callers: ``app/endpoints/chat.py``, ``app/async_manager.py``, ``app/endpoints/invite.py``.
+Do not wrap behind ``is_check_enabled`` here until ENV→YAML migration is deliberate.
 """
 
 from __future__ import annotations

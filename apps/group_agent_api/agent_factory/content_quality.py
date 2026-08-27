@@ -190,8 +190,23 @@ def finalize_user_visible_reply(
     """
     opener = build_revisit_opener(revisit_hint) if network_unlocked else None
 
+    # chk.finalize_templates off → keep-DA-reply / model_voice: scrub only,
+    # no confirmation / next_step template stack (do not reintroduce Renderer).
+    from apps.group_agent_api.agent_factory.checks.finalize_templates import (
+        finalize_templates_enabled,
+    )
+    from apps.group_agent_api.agent_factory.checks.invented_candidate import (
+        scrub_invented_candidate_if_enabled,
+    )
+
+    if not finalize_templates_enabled():
+        original = scrub_invented_candidate_if_enabled(original_reply)
+        if opener and original:
+            return f"{opener}\n\n{original}"
+        return opener or original
+
     if not profile_persisted or profile is None:
-        original = scrub_invented_candidate_narrative(original_reply)
+        original = scrub_invented_candidate_if_enabled(original_reply)
         if looks_like_invented_candidate_narrative(original) or (
             (original_reply or "").strip() and not original
         ):
@@ -212,7 +227,7 @@ def finalize_user_visible_reply(
 
     if network_unlocked and match_reason == "profile_too_thin":
         ask = gap or "你在做的具体场景，以及现在最卡的点，再补一句？"
-        original = scrub_invented_candidate_narrative(original_reply)
+        original = scrub_invented_candidate_if_enabled(original_reply)
         # Prefer the dialogue model's follow-up when it already asked something
         # concrete — don't drown user answers under a repeated template gap.
         # But never keep hallucinated「请稍候」/ invented candidates as next step.
@@ -354,7 +369,7 @@ def finalize_user_visible_reply(
         if unreachable_text not in next_step:
             next_step = f"{next_step}\n\n{unreachable_text}" if next_step else unreachable_text
 
-    original = scrub_invented_candidate_narrative(original_reply)
+    original = scrub_invented_candidate_if_enabled(original_reply)
     invented_scrubbed_away = bool((original_reply or "").strip()) and not original
     is_simple_fallback_stub = (
         any(

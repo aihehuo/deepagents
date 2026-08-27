@@ -229,6 +229,18 @@ def grounded_final_enabled() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def reply_grounding_enabled() -> bool:
+    """True when ``mod.brain.reply_grounding`` is on in ``config/modules.yaml``.
+
+    Switchable Module (BSD-01 D-B02 / TSD-14 §4.6) — not an ENV flag.
+    """
+    from apps.group_agent_api.agent_factory.module_config import (
+        reply_grounding_enabled as _yaml_enabled,
+    )
+
+    return _yaml_enabled()
+
+
 def match_v2_enabled() -> bool:
     """True when ga-match-v2 protocol is enabled."""
     raw = (os.environ.get("GROUP_AGENT_MATCH_V2_ENABLED") or "0").strip().lower()

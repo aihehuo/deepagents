@@ -1,0 +1,36 @@
+# Group Agent module / check switches (TSD-14 §4.4).
+# Secrets, URLs, and queue settings stay in ENV — not here.
+#
+# This is the single place to oversee brain Module / Check toggles.
+# Path override for tests only: GROUP_AGENT_MODULES_CONFIG=/path/to/file.yaml
+
+version: 1
+preset: current
+
+context:
+  ctx.system.role_and_goal: true
+  ctx.system.network_donts: true
+
+checks:
+  chk.action_claim: true
+  chk.invented_candidate: true
+  chk.reply_fact_grounding_llm: true
+  chk.capability_guard: true
+  chk.finalize_templates: true
+  chk.invite_scaffold: true
+  chk.invite_llm_polish: true
+
+modules:
+  # Semantic reply-vs-candidate-facts gate (TSD-14 §4.6). Default on.
+  mod.brain.reply_grounding: true
+
+reply_grounding:
+  # Includes the first check (TSD-14 §4.6.4).
+  max_attempts: 2
+
+debug:
+  module_spans: true
+  reply_diff: false
+
+ingress:
+  max_attempts: 3

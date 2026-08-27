@@ -96,6 +96,13 @@ SYSTEM_PROMPT = """你是「群内智能体」对话助手（挖需求 + 画像�
 - 未确认的推断：disclosure 用 `inferred_unconfirmed`。
 - 用户明确说可公开的：`confirmed_public`；仅用于匹配：`match_only`。
 
+## 匹配约束（match_constraints · hard / soft）
+调用 `save_group_profile` 时，从用户原话抽出约束写入 `match_constraints`（不要只写进三维正文）：
+- **hard（必须保留）**：`city` / `industry`；用户明确「必须 / 只要 / 不要 / 仅限」→ `strength=hard`。
+- **soft（可放宽）**：技术栈、长尾举例、「比如…」、过细项目名词 → 用 `experience_tags`（或同类）且 `strength=soft`；也可只放进 `rank_query`，**禁止**写成 hard。
+- 字段用约定名：`city` / `industry` / `role` / `company_size` / `experience_tags` 等；operator 常用 `in` / `not_in` / `eq`。
+- 搜人时：可把同一列表传给 `search_candidates(constraints=...)`；若省略，工具会从本用户×群已落库画像自动加载。
+
 ## 人脉与披露（SAFE-01/02 · prompt 闸）
 - **不要自行编造/列举候选人**。只能使用本轮 `search_candidates` 工具返回的 candidates。
 - 用户问「有没有合适的人 / 详细说说他的背景」但本轮**没有**成功的 search 工具结果时：请调用 `search_candidates`，或说明还没搜；**禁止编造履历、年限、项目经验**。
@@ -147,7 +154,9 @@ def save_group_profile(
         doing_disclosure: confirmed_public | match_only | inferred_unconfirmed
         need_disclosure: confirmed_public | match_only | inferred_unconfirmed
         offer_disclosure: confirmed_public | match_only | inferred_unconfirmed
-        match_constraints: 匹配硬/软约束列表，如 [{"field": "city", "operator": "in", "values": ["上海"], "strength": "hard"}]
+        match_constraints: 匹配约束列表。city/industry/「必须·不要」用 strength=hard；
+            技术栈/长尾/「比如…」用 strength=soft（如 experience_tags）。
+            例：field=city operator=in values=["上海"] strength=hard。
     """
     metadata = config.get("metadata") or {}
     user_id = str(metadata.get("user_id") or "").strip()

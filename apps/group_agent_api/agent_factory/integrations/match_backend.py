@@ -58,8 +58,12 @@ def run_match(
     (Micro REQ-028 full-network). Plaintext group_id is only used by the stub.
 
     ``query`` = broad recall text; ``rank_query`` = fine need for re-ranking.
-    ``relax_level`` / ``pool`` are audit fields from ``mod.brain.search_relax``
+    ``relax_level`` / ``pool`` come from ``search_relax`` / ``profile_pool``
     (D-B03: caller must already be a model tool invocation).
+
+    HTTP hand stub: Micro ``fetch_group_agent_match`` does not yet accept
+    ``pool``; we log ``match_backend_pool_stub`` and still pass resolution
+    upstream for audit / future wire-up. Stub mode ignores pool for recall.
     """
     if relax_level is not None or pool:
         _logger.info(
@@ -70,6 +74,12 @@ def run_match(
         )
     mode = (force_mode or integration_mode()).strip().lower()
     if mode == "http":
+        if pool:
+            _logger.info(
+                "action=match_backend_pool_stub pool=%s "
+                "note=http_hand_ignores_pool_passed_for_audit_only",
+                pool,
+            )
         try:
             result = fetch_group_agent_match(
                 query=query,

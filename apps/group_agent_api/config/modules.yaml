@@ -25,9 +25,12 @@ modules:
   mod.brain.reply_grounding: true
   # Multi-level search (TSD-14 §8.12). Default off ≡ today's single-shot.
   # When on, model may re-call search_candidates with relax_level (D-B03: no
-  # orchestrator auto-search). profile_pool is next hook only — not mounted.
+  # orchestrator auto-search).
   mod.brain.search_relax: false
-  # mod.brain.profile_pool: false  # next hook; do not enable yet
+  # Prefer pool=agent_profiles when on (TSD-14 §8.13). Default off ≡ all_reachable.
+  # Precedence: model-supplied known pool wins; omitted → Module default;
+  # agent_profiles while off → fall back all_reachable + profile_pool_hook audit.
+  mod.brain.profile_pool: false
 
 reply_grounding:
   # Includes the first check (TSD-14 §4.6.4).

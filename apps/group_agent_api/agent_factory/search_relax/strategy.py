@@ -13,7 +13,8 @@ Documented ladder (default ``max_levels=2`` → L0 + L1)::
                P0 hard (city/industry) must remain if the model still sends them.
     L2+      — reserved; clamped by ``search_relax.max_levels``.
 
-``pool=agent_profiles`` is reserved for ``mod.brain.profile_pool`` (next hook).
+``pool=agent_profiles`` is preferred when ``mod.brain.profile_pool`` is on
+(see ``resolve_pool`` precedence in ``search_relax.module``).
 """
 
 from __future__ import annotations
@@ -105,6 +106,13 @@ def drop_soft_constraints(
             kept.append(item)
         return kept, dropped
     if isinstance(constraints, dict):
+        # Hand envelope: {"version": "ga-constraint-v1", "items": [...]}
+        items = constraints.get("items")
+        if isinstance(items, list):
+            kept_items, dropped = drop_soft_constraints(items)
+            out_env = dict(constraints)
+            out_env["items"] = kept_items if isinstance(kept_items, list) else []
+            return out_env, dropped
         soft = constraints.get("soft")
         hard = constraints.get("hard")
         if soft is not None or hard is not None:

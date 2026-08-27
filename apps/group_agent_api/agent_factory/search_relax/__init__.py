@@ -2,7 +2,7 @@
 
 Off = today's single-shot search. On = model may call ``search_candidates``
 again with ``relax_level`` / optional ``pool``. Orchestrator never auto-searches
-(D-B03). ``mod.brain.profile_pool`` is the next hook only.
+(D-B03). ``mod.brain.profile_pool`` gates default ``pool=agent_profiles``.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from apps.group_agent_api.agent_factory.search_relax.ids import (
 from apps.group_agent_api.agent_factory.search_relax.module import (
     ResolvedSearchRelax,
     profile_pool_enabled,
+    resolve_pool,
     resolve_search_relax,
     search_relax_enabled,
     search_relax_max_levels,
@@ -42,6 +43,7 @@ __all__ = [
     "apply_relax",
     "drop_soft_constraints",
     "profile_pool_enabled",
+    "resolve_pool",
     "resolve_search_relax",
     "search_relax_enabled",
     "search_relax_max_levels",

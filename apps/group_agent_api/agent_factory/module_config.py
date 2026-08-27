@@ -67,6 +67,9 @@ class ModulesConfig:
     def search_relax_enabled(self) -> bool:
         return self.is_module_enabled("mod.brain.search_relax")
 
+    def profile_pool_enabled(self) -> bool:
+        return self.is_module_enabled("mod.brain.profile_pool")
+
     def search_relax_max_levels(self) -> int:
         """Inclusive level count from 0 (default 2 → L0 + L1). Min 1 = single-shot."""
         raw = self.search_relax.get("max_levels", 2)
@@ -130,6 +133,10 @@ def reply_grounding_max_attempts() -> int:
 
 def search_relax_enabled() -> bool:
     return load_modules_config().search_relax_enabled()
+
+
+def profile_pool_enabled() -> bool:
+    return load_modules_config().profile_pool_enabled()
 
 
 def search_relax_max_levels() -> int:

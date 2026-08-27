@@ -4,10 +4,11 @@ Thin YAML-gated facade over ``content_quality.guard_action_claims``. Detector
 helpers stay in ``content_quality`` so reply_grounding L0
 (``unverified_action``) can keep sharing them without duplicating regex.
 
-Overlap with ``mod.brain.reply_grounding`` L0:
-- This check (when on): early silent replace with capability-boundary copy.
-- RG L0: fail → ``ctx.check_deny`` → same-turn rewrite.
-Both may run when both YAML bits are on; do **not** relocate the RG gate.
+Overlap with ``mod.brain.reply_grounding`` L0 (same detector helper):
+- RG on (default): this check **skips** silent replace; L0 owns
+  fail → ``ctx.check_deny`` → same-turn rewrite.
+- RG off + ``chk.action_claim`` on: early silent replace with
+  capability-boundary copy (legacy async/chat path).
 Off = identity (orchestrator keeps model text).
 """
 

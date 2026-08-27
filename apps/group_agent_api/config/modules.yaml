@@ -12,12 +12,16 @@ context:
   ctx.system.network_donts: true
 
 checks:
+  # When mod.brain.reply_grounding is on, action_claim silent-replace is skipped
+  # (RG L0 unverified_action owns deny→rewrite). On alone when RG off.
   chk.action_claim: true
   chk.invented_candidate: true
   chk.reply_fact_grounding_llm: true
+  # Off = skip enforce_capability_guard (debug only — network leaks unintercepted).
   chk.capability_guard: true
   chk.finalize_templates: true
   chk.invite_scaffold: true
+  # Authority for invite LLM polish. Explicit GROUP_AGENT_LLM_POLISH ENV overrides.
   chk.invite_llm_polish: true
 
 modules:

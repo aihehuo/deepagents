@@ -283,6 +283,8 @@ def search_candidates(
         for k, v in metadata.items()
         if k not in {"user_token", "group_token", "base_dir"}
     }
+    # Hand requires ga-match-v2 whenever constraints are sent (else new_api 422).
+    # Prefer always for this tool so pool/relax stay on the v2 path.
     result = match_backend.run_match(
         query=effective.query,
         group_id=group_id,
@@ -290,6 +292,7 @@ def search_candidates(
         group_token=str(metadata.get("group_token") or "") or None,
         user_bearer=str(metadata.get("user_token") or "") or None,
         rank_query=effective.rank_query,
+        contract_version="ga-match-v2",
         constraints=hand_constraints,
         relax_level=effective.relax_level,
         pool=effective.pool,

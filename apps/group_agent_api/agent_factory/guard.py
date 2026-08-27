@@ -5,6 +5,11 @@ in_group：允许 new_api 标注的跨群候选人（``is_reachable is False``�
 以及经其它共同群可触达的候选人（``is_reachable is True`` 且 source ≠ 入口群）；
 未标注 reachability 的外群候选人仍拦截。
 违反 → 拦截（清空人脉面）+ 告警，不静默放行。
+
+YAML ``chk.capability_guard`` (via ``module_config.is_check_enabled``):
+off = skip this guard entirely (passthrough reply/candidates).
+**Risk when off:** cross-group / disclosure / non-in_group network leaks
+are not intercepted — operators must treat off as debug-only.
 """
 
 from __future__ import annotations
@@ -27,6 +32,8 @@ from apps.group_agent_api.agent_factory.contact_scrub import scrub_candidate_con
 from apps.group_agent_api.agent_factory.match_stub import MAX_CANDIDATES
 
 _logger = logging.getLogger("uvicorn.error")
+
+CHECK_ID = "chk.capability_guard"
 
 # Heuristic: @mention or explicit candidate list markers in prose
 _AT_PATTERN = re.compile(r"@[^\s@，。,.！!？?\n]{1,32}")
@@ -76,6 +83,21 @@ def _reply_has_network_leak(reply: str) -> list[str]:
     return hits
 
 
+def capability_guard_enabled(*, enabled: bool | None = None) -> bool:
+    """Resolve YAML ``chk.capability_guard``; explicit ``enabled`` wins (tests).
+
+    Missing key → **on** (fail-closed safety). Explicit ``false`` skips the guard.
+    """
+    if enabled is not None:
+        return bool(enabled)
+    from apps.group_agent_api.agent_factory.module_config import load_modules_config
+
+    cfg = load_modules_config()
+    if CHECK_ID not in cfg.checks:
+        return True
+    return cfg.is_check_enabled(CHECK_ID)
+
+
 def enforce_capability_guard(
     *,
     tier: CapabilityTier,
@@ -83,11 +105,34 @@ def enforce_capability_guard(
     candidates: list[dict[str, Any]],
     caller_group_id: str,
     user_id: str = "",
+    enabled: bool | None = None,
 ) -> GuardResult:
-    """Post-process assert. Returns sanitized reply/candidates; blocks on violation."""
+    """Post-process assert. Returns sanitized reply/candidates; blocks on violation.
+
+    When ``chk.capability_guard`` is off, returns a passthrough ``ok=True``
+    result (no strip / no alert). See module docstring for off risk.
+    """
     violations: list[str] = []
     safe_reply = reply or ""
     safe_candidates = list(candidates or [])
+
+    if not capability_guard_enabled(enabled=enabled):
+        _logger.info(
+            "action=capability_guard_skipped check_id=%s user_id=%s group_id=%s "
+            "tier=%s risk=network_leak_unintercepted",
+            CHECK_ID,
+            user_id,
+            caller_group_id,
+            tier.value,
+        )
+        return GuardResult(
+            ok=True,
+            tier=tier,
+            candidates=safe_candidates,
+            reply=safe_reply,
+            violations=[],
+            blocked=False,
+        )
 
     if not unlocks_network(tier):
         # 非在群：任何人脉面都必须为空

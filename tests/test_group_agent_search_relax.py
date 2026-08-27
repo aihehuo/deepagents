@@ -379,10 +379,10 @@ def test_profile_pool_on_passed_to_hand(
     assert captured[0]["pool"] == PROFILE_POOL
 
 
-def test_profile_pool_http_stub_logs_ignored_pool(
+def test_profile_pool_http_posts_pool(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """HTTP hand ignores pool today — resolution still tested; stub is logged."""
+    """HTTP hand POSTs pool to new_api (wired, not audit-only stub)."""
     import logging
 
     from apps.group_agent_api.agent_factory.integrations import match_backend
@@ -392,7 +392,10 @@ def test_profile_pool_http_stub_logs_ignored_pool(
     )
     reload_modules_config(yaml_path)
 
+    captured: list[dict[str, Any]] = []
+
     def _fake_fetch(**kwargs):
+        captured.append(dict(kwargs))
         return MatchResult(
             status="empty",
             candidates=[],
@@ -414,7 +417,11 @@ def test_profile_pool_http_stub_logs_ignored_pool(
             relax_level=0,
         )
     assert result.status == "empty"
-    assert any("match_backend_pool_stub" in r.message for r in caplog.records)
+    assert captured[0]["pool"] == PROFILE_POOL
+    assert any(
+        "match_backend_pool" in r.message and "http_hand_posts_pool" in r.message
+        for r in caplog.records
+    )
 
 
 _HARD_SOFT = [

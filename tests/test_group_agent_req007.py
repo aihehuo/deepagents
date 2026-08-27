@@ -211,6 +211,60 @@ def test_fetch_group_agent_match_omits_g_when_token_absent(
     assert result.status == "empty"
 
 
+def test_fetch_group_agent_match_posts_v2_constraints_and_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Brief H: HTTP payload includes contract_version + constraints + pool."""
+    captured: dict[str, Any] = {}
+
+    class _Resp:
+        status_code = 200
+        content = b"{}"
+        text = "{}"
+
+        def json(self):
+            return {
+                "contract_version": "ga-match-v2",
+                "status": "empty",
+                "candidates": [],
+                "query": "q",
+                "reason": "sc05_no_suitable_match",
+                "source_scope": "none",
+            }
+
+    def _post(url, json=None, headers=None, timeout=None):
+        captured["json"] = json
+        return _Resp()
+
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.integrations.match_client.requests.post",
+        _post,
+    )
+    monkeypatch.setenv("AIHEHUO_API_KEY", "bearer-test")
+    constraints = {
+        "version": "ga-constraint-v1",
+        "items": [
+            {
+                "field": "city",
+                "operator": "in",
+                "values": ["上海"],
+                "strength": "hard",
+            }
+        ],
+    }
+    result = fetch_group_agent_match(
+        query="找上海",
+        bearer="tok",
+        contract_version="ga-match-v2",
+        constraints=constraints,
+        pool="agent_profiles",
+    )
+    assert result.status == "empty"
+    assert captured["json"]["contract_version"] == "ga-match-v2"
+    assert captured["json"]["constraints"] == constraints
+    assert captured["json"]["pool"] == "agent_profiles"
+
+
 def test_fetch_group_agent_match_drops_candidates_not_reachable_on_wechat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

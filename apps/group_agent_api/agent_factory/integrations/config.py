@@ -200,9 +200,33 @@ def http_timeout_s() -> float:
 
 
 def llm_polish_enabled() -> bool:
-    raw = (os.environ.get("GROUP_AGENT_LLM_POLISH") or "1").strip().lower()
-    if raw in {"0", "false", "no", "off"}:
-        return False
+    """Whether invite LLM polish may run.
+
+    Precedence (TSD-14 §4.4 — business toggle in YAML):
+    1. ``modules.yaml`` ``chk.invite_llm_polish`` is the default authority.
+    2. Explicit ``GROUP_AGENT_LLM_POLISH`` ENV overrides YAML when set
+       (escape hatch for tests / emergency kill-switch; document when used).
+    3. Stub model mode / missing API key still force off.
+    """
+    env_raw = os.environ.get("GROUP_AGENT_LLM_POLISH")
+    if env_raw is not None and str(env_raw).strip() != "":
+        raw = str(env_raw).strip().lower()
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        yaml_allows = True  # ENV explicitly on — override YAML
+    else:
+        from apps.group_agent_api.agent_factory.module_config import load_modules_config
+
+        cfg = load_modules_config()
+        check_id = "chk.invite_llm_polish"
+        # Missing key → on (matches prior ENV default "1"); explicit false disables.
+        if check_id not in cfg.checks:
+            yaml_allows = True
+        else:
+            yaml_allows = cfg.is_check_enabled(check_id)
+        if not yaml_allows:
+            return False
+
     if (os.environ.get("GROUP_AGENT_MODEL_MODE") or "").lower() == "stub":
         return False
 
@@ -220,7 +244,7 @@ def llm_polish_enabled() -> bool:
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("AIHEHUO_API_KEY")
     )
-    return bool(key and key.strip() and key.strip() != "EMPTY")
+    return bool(yaml_allows and key and key.strip() and key.strip() != "EMPTY")
 
 
 def grounded_final_enabled() -> bool:

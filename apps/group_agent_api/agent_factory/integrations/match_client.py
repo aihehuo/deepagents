@@ -103,6 +103,7 @@ def fetch_group_agent_match(
     rank_query: str | None = None,
     contract_version: str | None = None,
     constraints: dict[str, Any] | None = None,
+    pool: str | None = None,
 ) -> MatchResult:
     """POST /users/group_agent_match — requires User JWT; GroupAgent ``g`` optional.
 
@@ -110,7 +111,8 @@ def fetch_group_agent_match(
     using the login bearer only. Optional ``g`` still preferred for entry-group
     preference when a leftover group_token is available.
 
-    Supports contract_version="ga-match-v2" and constraints.
+    Supports contract_version="ga-match-v2", constraints, and pool
+    (``all_reachable`` | ``agent_profiles``).
     """
     token = (group_token or "").strip()
     auth = (bearer if bearer is not None else new_api_bearer()).strip()
@@ -127,6 +129,9 @@ def fetch_group_agent_match(
         payload["contract_version"] = contract_version
     if constraints:
         payload["constraints"] = constraints
+    pool_norm = (pool or "").strip()
+    if pool_norm in {"all_reachable", "agent_profiles"}:
+        payload["pool"] = pool_norm
     if token:
         payload["g"] = token
     if excluded_ids:

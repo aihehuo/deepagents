@@ -68,21 +68,37 @@ def resolve_session_capability(
                         reason="fixture_authoritative_in_group",
                         source="stub_fixture",
                     )
+                if member:
+                    # Fixture row present → authoritative (even vs body override).
+                    return MembershipResult(
+                        tier=CapabilityTier.not_in_group,
+                        reason="fixture_authoritative_not_in_group",
+                        source="stub_fixture",
+                    )
+                # Synthetic brain_sut ids (e.g. search_relax real_llm) are not in
+                # L1 members.json — honor stub body membership so payload
+                # membership=in_group does not collapse to tier=not_in_group.
+                tier = resolve_capability(membership_override)
                 return MembershipResult(
-                    tier=CapabilityTier.not_in_group,
-                    reason="fixture_authoritative_not_in_group",
-                    source="stub_fixture",
+                    tier=tier,
+                    reason="stub_membership_fixture_miss",
+                    source="stub",
                 )
+            # Missing group/user ids → same stub override path.
+            tier = resolve_capability(membership_override)
             return MembershipResult(
-                tier=CapabilityTier.not_in_group,
-                reason="fixture_missing_group_or_user",
-                source="stub_fixture",
+                tier=tier,
+                reason="stub_membership_fixture_incomplete_ids",
+                source="stub",
             )
         except Exception as err:
+            # Fixture unavailable (env gate / parse) → honor stub body membership
+            # rather than collapsing every turn to not_in_group.
+            tier = resolve_capability(membership_override)
             return MembershipResult(
-                tier=CapabilityTier.not_in_group,
-                reason=f"fixture_error_{type(err).__name__}",
-                source="stub_fixture",
+                tier=tier,
+                reason=f"stub_membership_fixture_error_{type(err).__name__}",
+                source="stub",
             )
 
     tier = resolve_capability(membership_override)

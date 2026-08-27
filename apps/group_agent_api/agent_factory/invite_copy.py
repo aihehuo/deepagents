@@ -5,15 +5,14 @@
 五要素 / 零@ 用后处理断言，缺则告警重试，不靠模型自觉。
 
 ---
-mod.brain.invite_copy hang points (Brief B1 — document only; YAML not wired):
+mod.brain.invite_copy hang points:
 
 | check id | hang | gate today |
 |---|---|---|
 | ``chk.invite_scaffold`` | ``generate_invite_copy`` via ``invite_llm.generate_invite_with_optional_llm`` when ``should_emit_invite_artifact`` | match/candidates/`run_invite` (hard when path runs) |
-| ``chk.invite_llm_polish`` | ``invite_llm.generate_invite_with_optional_llm`` | ENV ``GROUP_AGENT_LLM_POLISH`` via ``integrations.config.llm_polish_enabled`` (not YAML) |
+| ``chk.invite_llm_polish`` | ``invite_llm.generate_invite_with_optional_llm`` | YAML ``chk.invite_llm_polish`` via ``integrations.config.llm_polish_enabled``; explicit ``GROUP_AGENT_LLM_POLISH`` ENV overrides YAML when set |
 
 Orchestrator callers: ``app/endpoints/chat.py``, ``app/async_manager.py``, ``app/endpoints/invite.py``.
-Do not wrap behind ``is_check_enabled`` here until ENV→YAML migration is deliberate.
 """
 
 from __future__ import annotations

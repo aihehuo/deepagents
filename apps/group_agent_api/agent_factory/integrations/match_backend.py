@@ -61,9 +61,8 @@ def run_match(
     ``relax_level`` / ``pool`` come from ``search_relax`` / ``profile_pool``
     (D-B03: caller must already be a model tool invocation).
 
-    HTTP hand stub: Micro ``fetch_group_agent_match`` does not yet accept
-    ``pool``; we log ``match_backend_pool_stub`` and still pass resolution
-    upstream for audit / future wire-up. Stub mode ignores pool for recall.
+    HTTP mode POSTs ``pool`` to new_api (``all_reachable`` | ``agent_profiles``).
+    Stub mode still ignores pool for local recall (no profile index in stub).
     """
     if relax_level is not None or pool:
         _logger.info(
@@ -76,8 +75,7 @@ def run_match(
     if mode == "http":
         if pool:
             _logger.info(
-                "action=match_backend_pool_stub pool=%s "
-                "note=http_hand_ignores_pool_passed_for_audit_only",
+                "action=match_backend_pool pool=%s note=http_hand_posts_pool",
                 pool,
             )
         try:
@@ -89,6 +87,7 @@ def run_match(
                 rank_query=rank_query,
                 contract_version=contract_version,
                 constraints=constraints,
+                pool=pool,
             )
         except MatchHttpError as exc:
             status, reason = disposition_for_http_error(exc)
@@ -130,6 +129,12 @@ def run_match(
             )
         return result
 
+    # Stub has no agent_profiles index; pool is observability-only here.
+    if pool:
+        _logger.info(
+            "action=match_backend_pool_stub pool=%s note=stub_ignores_pool",
+            pool,
+        )
     stub_result = get_match_stub().search(
         query=query,
         group_id=group_id,

@@ -215,7 +215,9 @@ async def _run_attempt(
         error_code = error_code or "provider_timeout"
     except Exception as exc:  # noqa: BLE001
         if not error_code:
-            if "final_callback" in str(exc):
+            if "mouth_ingress_rejected" in str(exc):
+                error_code = "mouth_ingress_rejected"
+            elif "final_callback" in str(exc):
                 error_code = "callback_5xx"
             else:
                 error_code = "transient_execution_error"
@@ -255,16 +257,19 @@ async def _run_attempt(
     )
 
     if decision.dead_letter or not decision.should_retry:
-        try:
-            await _emit(
-                "error",
-                {
-                    "error_code": error_code or "AsyncRunFailed",
-                    "message": "Task execution failed",
-                },
-            )
-        except Exception:  # noqa: BLE001
-            pass
+        # BSD-01 P0: mouth rejected without committing — do not send error
+        # terminal to Micro (leave Run non-terminal for retry / sweeper).
+        if error_code != "mouth_ingress_rejected":
+            try:
+                await _emit(
+                    "error",
+                    {
+                        "error_code": error_code or "AsyncRunFailed",
+                        "message": "Task execution failed",
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
         status = (
             ExecutionStatus.DEAD_LETTERED
             if decision.dead_letter

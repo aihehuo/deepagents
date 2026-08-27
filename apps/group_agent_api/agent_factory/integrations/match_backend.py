@@ -12,12 +12,30 @@ from apps.group_agent_api.agent_factory.integrations.match_client import (
 )
 from apps.group_agent_api.agent_factory.match_stub import (
     MatchResult,
+    MatchStatus,
     get_match_stub,
     rerank_candidates_by_detail,
 )
 
 
 _logger = logging.getLogger("uvicorn.error")
+
+# 4xx (except 408/429) → rejected; 5xx / timeout-ish / unknown → error.
+_HTTP_REJECTED_CODES = frozenset({400, 401, 403, 404, 409, 422})
+_HTTP_TIMEOUTISH_CODES = frozenset({408, 429})
+
+
+def disposition_for_http_error(exc: MatchHttpError) -> tuple[MatchStatus, str]:
+    """Map hand HTTP failure to BSD empty≠rejected≠error (never empty)."""
+    code = getattr(exc, "status_code", None)
+    reason = f"http_error:{exc}"
+    if code in _HTTP_REJECTED_CODES:
+        return "rejected", reason
+    if code is None or code >= 500 or code in _HTTP_TIMEOUTISH_CODES:
+        return "error", reason
+    if 400 <= int(code) < 500:
+        return "rejected", reason
+    return "error", reason
 
 
 def run_match(
@@ -52,24 +70,26 @@ def run_match(
                 constraints=constraints,
             )
         except MatchHttpError as exc:
+            status, reason = disposition_for_http_error(exc)
             _logger.error(
-                "ALERT action=match_backend_http_failed error=%s → empty",
+                "ALERT action=match_backend_http_failed error=%s → %s",
                 exc,
+                status,
             )
             return MatchResult(
-                status="empty",
+                status=status,
                 candidates=[],
                 query=query,
                 group_id=group_id,
-                reason=f"http_error:{exc}",
+                reason=reason,
             )
         except Exception as exc:  # noqa: BLE001
             _logger.error(
-                "ALERT action=match_backend_exception error=%s → empty",
+                "ALERT action=match_backend_exception error=%s → error",
                 exc,
             )
             return MatchResult(
-                status="empty",
+                status="error",
                 candidates=[],
                 query=query,
                 group_id=group_id,

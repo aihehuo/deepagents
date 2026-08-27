@@ -8,7 +8,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 MembershipSignal = Literal["in_group", "not_in_group", "unknown"]
-MatchStatus = Literal["matched", "weak", "empty", "skipped"]
+MatchStatus = Literal[
+    "matched", "weak", "empty", "skipped", "rejected", "error"
+]
 DeliveryKind = Literal["directed", "undirected"]
 
 

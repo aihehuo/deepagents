@@ -30,11 +30,26 @@ MAX_THIN_SKIPS_BEFORE_DEGRADED = 3
 
 # Explicit start/match — overrides thin-gate + clarifying deferral.
 # Bare「开始」must be whole-message (avoid「继续上次的方向」false positive).
+# Also treat natural "do you have someone / I need a partner" as search intent
+# so a complete first dump is not trapped in clarification (PRC-11 SC-1101).
 _FORCE_MATCH_INTENT = re.compile(
     r"(?:先匹配|先搜一下|先搜索|先推荐|直接匹配|直接搜|不用再问|先找人|"
     r"开始匹配|开始找人|开始搜|帮我(?:在(?:群里|本群|全网))?匹配|帮我(?:在(?:群里|本群|全网))?找人|"
-    r"立刻匹配|马上匹配|启动匹配|在(?:群里|本群|全网)匹配)"
+    r"立刻匹配|马上匹配|启动匹配|在(?:群里|本群|全网)匹配|"
+    r"你这边有合适|有没有合适|有合适的(?:人|人选|伙伴|合伙人|搭子)?吗|"
+    r"有合适的(?:人|人选|伙伴|合伙人|搭子)|"
+    r"有没有人选|有人选吗|"
+    r"帮我找(?:一?[个位名])?(?:人|伙伴|合伙人|合创|搭子|小伙伴)|"
+    r"(?:想找|需要找|缺一个|找一个|找一位|找一名).{0,24}"
+    r"(?:合伙人|合创|搭档|搭子|小伙伴))"
     r"|^(?:开始|开始吧)$"
+)
+
+# User is supplying doing/need/offer (or a direction switch), not a greeting.
+_PROFILE_BEARING_MESSAGE = re.compile(
+    r"(?:正在做|在做|我做|做的是|项目是|面向.{0,12}(?:学生|用户|客户)|"
+    r"需要找|想找|缺(?:一个|一位)|能提供|有.{0,8}(?:能力|经验|原型|资源)|"
+    r"合伙人|合创|搭子|教研|教培|社群运营|内容变现)"
 )
 
 # Model still digging — do not attach match cards on the same turn.
@@ -101,6 +116,34 @@ def wants_force_match(message: str | None) -> bool:
     if not text:
         return False
     return bool(_FORCE_MATCH_INTENT.search(text))
+
+
+def looks_like_profile_bearing_message(message: str | None) -> bool:
+    """True when the user turn looks like a profile dump or direction switch.
+
+    Used to force-save a stale prior-episode profile so a new complete statement
+    is not left un-bound (and therefore never match-gated).
+    """
+    text = (message or "").strip()
+    if len(text) < 18:
+        return False
+    return bool(_PROFILE_BEARING_MESSAGE.search(text))
+
+
+def should_defer_match_for_clarifying(
+    *,
+    reply: str | None,
+    user_message: str | None,
+    profile_ok: bool,
+) -> bool:
+    """Defer match only while still collecting a usable episode profile.
+
+    If this episode already has a bound profile, or the user asked to find
+    people, a follow-up question from the dialogue model must not block search.
+    """
+    if profile_ok or wants_force_match(user_message):
+        return False
+    return looks_like_clarifying_reply(reply)
 
 
 def looks_like_clarifying_reply(reply: str | None) -> bool:

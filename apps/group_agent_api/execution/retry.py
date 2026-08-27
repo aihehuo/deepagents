@@ -20,6 +20,7 @@ _PERMANENT_CODES = frozenset(
         "security_guard_failed",
         "principal_rejected",
         "callback_url_rejected",
+        "mouth_ingress_rejected",
     }
 )
 _POISON_CODES = frozenset(

@@ -282,8 +282,8 @@ async def test_both_rounds_failed_persistence_returns_actionable_reason_and_fail
         side_effect=capture_callback,
     ):
         with patch(
-            "apps.group_agent_api.app.async_manager.run_match",
-            AsyncMock(side_effect=AssertionError("Match pipeline should NOT be called when profile fails!")),
+            "apps.group_agent_api.agent_factory.search_tool.match_backend.run_match",
+            side_effect=AssertionError("search tool should NOT run when profile fails!"),
         ):
             await execute_async_run(
                 req=req,

@@ -14,23 +14,14 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from apps.group_agent_api.agent_factory.agent import FORCE_SAVE_PROMPT, UC34Observer
 from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
-from apps.group_agent_api.agent_factory.integrations.group_bind import (
-    align_match_to_trusted_group,
-)
-from apps.group_agent_api.agent_factory.integrations.match_backend import run_match
 from apps.group_agent_api.agent_factory.invite_llm import generate_invite_with_optional_llm
 from apps.group_agent_api.agent_factory.invite_copy import should_emit_invite_artifact
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
 from apps.group_agent_api.agent_factory.profile_quality import (
-    decide_match_gate,
-    looks_like_clarifying_reply,
+    looks_like_profile_bearing_message,
     wants_force_match,
-)
-from apps.group_agent_api.agent_factory.match_stub import (
-    build_broad_query_from_profile,
-    build_rank_query_from_profile,
 )
 from apps.group_agent_api.agent_factory.profile_store import (
     alert_persist_failure,
@@ -38,9 +29,7 @@ from apps.group_agent_api.agent_factory.profile_store import (
     load_profile,
 )
 from apps.group_agent_api.agent_factory.revisit import (
-    excluded_ids_for_match,
     parse_revisit_from_metadata,
-    should_skip_auto_match,
 )
 from apps.group_agent_api.agent_factory.suggested_replies import (
     extract_suggested_replies,
@@ -118,6 +107,7 @@ _RESERVED_META_KEYS = frozenset(
         "user_token",
         "run_id",
         "conversation_id",
+        "run_match",
     }
 )
 
@@ -231,12 +221,12 @@ def _should_force_profile_save(
     user_message: str | None = None,
     reply: str | None = None,
 ) -> bool:
-    """Skip FORCE_SAVE when a prior-episode profile is merely stale and the agent
-    intentionally did not overwrite yet (e.g. clarifying need/offer).
+    """Skip FORCE_SAVE when a prior-episode profile is merely stale and the
+    user has not yet given a new profile dump or asked to find people.
 
-    HOWEVER, if the user explicitly requests matching or the assistant reply claims
-    it saved/updated the profile ('已落库' / '已更新' / '帮我匹配'), we MUST force
-    a save if the model forgot to call save_group_profile!
+    Force a save when: explicit match intent, the assistant claimed it saved,
+    or the user message itself looks like doing/need/offer content (direction
+    switch or a complete first statement).
     """
     if profile_ok or profile_status == "superseded":
         return False
@@ -251,7 +241,7 @@ def _should_force_profile_save(
             text_reply = (reply or "").strip()
             wants_match = wants_force_match(text_user) or "匹配" in text_user
             claims_saved = "已落库" in text_reply or "落库" in text_reply or "已更新" in text_reply
-            if wants_match or claims_saved:
+            if wants_match or claims_saved or looks_like_profile_bearing_message(text_user):
                 return True
             return False
     return True
@@ -267,6 +257,9 @@ def _invoke_config(
     metadata: dict,
     run_id: str | None = None,
     conversation_id: str | None = None,
+    run_match: bool | None = None,
+    group_token: str | None = None,
+    user_token: str | None = None,
 ) -> dict:
     turn_id = f"{tid}::{uuid.uuid4().hex}"
     safe_meta = {
@@ -294,74 +287,12 @@ def _invoke_config(
             "membership": membership,
             **({"run_id": run_id} if run_id else {}),
             **({"conversation_id": conversation_id} if conversation_id else {}),
+            **({"run_match": "true" if run_match else "false"} if run_match is not None else {}),
+            **({"group_token": group_token} if group_token else {}),
+            **({"user_token": user_token} if user_token else {}),
             **fence_meta,
         },
     }
-
-
-def _run_match_pipeline(
-    *,
-    state: AppState,
-    user_id: str,
-    group_id: str,
-    tier,
-    profile_ok: bool,
-    run_match_flag: bool,
-    group_token: str | None,
-    user_token: str | None,
-    metadata: dict[str, Any] | None = None,
-    message: str | None = None,
-) -> tuple[str, list[dict[str, Any]], str | None, list[str], SearchLogEntry | None]:
-    """Returns (match_status, candidates, match_reason, quality_gaps, search_log)."""
-    if not run_match_flag:
-        return "skipped", [], "run_match_disabled", [], None
-    if not unlocks_network(tier):
-        return "skipped", [], f"capability_{tier.value}_no_network", [], None
-    if not profile_ok:
-        return "skipped", [], "profile_not_ready", [], None
-
-    assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
-    if not assertion.ok or assertion.profile is None:
-        return "skipped", [], "profile_not_ready", [], None
-
-    decision = decide_match_gate(
-        profile=assertion.profile,
-        model=state.quality_model or state.polish_model,
-        base_dir=state.base_dir,
-        message=message,
-        metadata=metadata,
-    )
-    gaps = list(decision.quality.gaps or [])
-    if not decision.allow_match:
-        return "skipped", [], decision.match_reason or "profile_too_thin", gaps, None
-
-    query = build_broad_query_from_profile(assertion.profile)
-    rank_query = build_rank_query_from_profile(assertion.profile)
-    result = run_match(
-        query=query,
-        group_id=group_id,
-        excluded_ids=excluded_ids_for_match(user_id, metadata),
-        group_token=group_token,
-        user_bearer=user_token,
-        rank_query=rank_query,
-    )
-    aligned = align_match_to_trusted_group(result, trusted_group_id=group_id)
-    reason = decision.match_reason or aligned.reason
-    search_log = SearchLogEntry(
-        search_id=f"search_{int(time.time() * 1000)}",
-        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        query=query,
-        rank_query=rank_query,
-        match_status=aligned.status,
-        match_reason=reason,
-        candidate_count=len(aligned.candidates),
-        candidate_names=[
-            str(c.get("name") or c.get("display_name") or "")
-            for c in aligned.candidates
-            if c.get("name") or c.get("display_name")
-        ],
-    )
-    return aligned.status, aligned.candidates, reason, gaps, search_log
 
 
 def _empty_request() -> Request:
@@ -414,6 +345,8 @@ async def chat(
     agent = state.agent
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
     reply = ""
+    messages: list[Any] = []
+    msg_count_before = 0
     assert_attempts = 1
     persist_alert: str | None = None
     profile_path: str | None = None
@@ -439,6 +372,9 @@ async def chat(
                     base_dir=str(state.base_dir),
                     membership=tier.value,
                     metadata=req.metadata or {},
+                    run_match=req.run_match,
+                    group_token=session.group_token,
+                    user_token=user_token,
                 )
                 from apps.group_agent_api.app.async_manager import (
                     _attempt_deterministic_profile_save,
@@ -630,41 +566,40 @@ async def chat(
     reply, suggested_replies = extract_suggested_replies(reply)
 
     _, revisit_hint = parse_revisit_from_metadata(req.metadata or {})
-    effective_run_match = req.run_match and not should_skip_auto_match(
-        revisit_hint=revisit_hint,
-        message=req.message,
-    )
-    if (
-        effective_run_match
-        and looks_like_clarifying_reply(reply)
-        and not wants_force_match(req.message)
-    ):
-        effective_run_match = False
-        match_reason_override = "clarifying_in_progress"
+    from apps.group_agent_api.agent_factory.search_tool import extract_search_this_turn
+
+    search_turn = extract_search_this_turn(messages, msg_count_before)
+    quality_gaps: list[str] = []
+    if search_turn.called:
+        match_status = (
+            search_turn.status
+            if search_turn.status
+            in {"matched", "weak", "empty", "skipped", "rejected", "error"}
+            else "skipped"
+        )
+        candidates = search_turn.candidates
+        match_reason = search_turn.reason or "search_candidates_tool"
+        search_log = SearchLogEntry(
+            search_id=f"search_{int(time.time() * 1000)}",
+            timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            query=search_turn.query,
+            rank_query=search_turn.rank_query,
+            match_status=match_status,
+            match_reason=match_reason,
+            candidate_count=len(candidates),
+            candidate_names=[
+                str(c.get("name") or c.get("display_name") or "")
+                for c in candidates
+                if c.get("name") or c.get("display_name")
+            ],
+        )
     else:
-        match_reason_override = None
-    match_status, candidates, match_reason, quality_gaps, search_log = await asyncio.to_thread(
-        _run_match_pipeline,
-        state=state,
-        user_id=user_id,
-        group_id=group_id,
-        tier=tier,
-        profile_ok=profile_ok,
-        run_match_flag=effective_run_match,
-        group_token=session.group_token,
-        user_token=user_token,
-        metadata=req.metadata or {},
-        message=req.message,
-    )
-    if match_reason_override and match_status == "skipped":
-        match_reason = match_reason_override
-    if (
-        req.run_match
-        and not effective_run_match
-        and match_status == "skipped"
-        and match_reason == "run_match_disabled"
-    ):
-        match_reason = "revisit_awaiting_user_branch"
+        match_status, candidates, match_reason, search_log = (
+            "skipped",
+            [],
+            "model_did_not_search",
+            None,
+        )
 
     guarded = enforce_capability_guard(
         tier=tier,
@@ -693,7 +628,7 @@ async def chat(
         req.run_invite
         and profile_ok
         and unlocks_network(tier)
-        and effective_run_match
+        and search_turn.called
         and should_emit_invite_artifact(
             match_status=match_status,
             match_reason=match_reason,
@@ -765,12 +700,43 @@ async def chat(
         from apps.group_agent_api.agent_factory.per_candidate_copy import enrich_candidates_with_single_copy
         out_candidates = enrich_candidates_with_single_copy(out_candidates, final_profile)
 
+    visible_reply = final_guarded.reply
+    from apps.group_agent_api.agent_factory.integrations.config import (
+        reply_grounding_enabled,
+    )
+
+    if reply_grounding_enabled():
+        from apps.group_agent_api.agent_factory.checks.reply_grounding import (
+            apply_reply_grounding_gate,
+            default_repair_fn,
+        )
+
+        if search_turn.called and out_candidates and match_status == "matched":
+            reply_mode = "recommendation"
+        elif search_turn.called and match_status in {"empty", "weak"}:
+            reply_mode = "no_match"
+        elif saved_this_turn and profile_ok:
+            reply_mode = "profile_confirmation"
+        else:
+            reply_mode = "dialogue"
+        judge_model = state.quality_model or state.polish_model
+        gated = apply_reply_grounding_gate(
+            reply=visible_reply,
+            reply_mode=reply_mode,
+            candidates=out_candidates,
+            profile=final_profile,
+            candidate_count=len(out_candidates),
+            model=judge_model,
+            repair_fn=default_repair_fn(judge_model),
+        )
+        visible_reply = gated.reply
+
     return ChatResponse(
         user_id=user_id,
         group_id=group_id,
         conversation_id=req.conversation_id,
         thread_id=tid,
-        reply=final_guarded.reply,
+        reply=visible_reply,
         suggested_replies=[] if combined_guard_blocked else suggested_replies,
         profile_persisted=profile_ok,
         profile_path=profile_path,
@@ -780,7 +746,7 @@ async def chat(
         persist_alert=None if profile_ok else persist_alert,
         capability=tier.value,  # type: ignore[arg-type]
         capability_source=session.membership.source,
-        match_status=match_status if out_candidates or match_status in {"empty", "skipped", "weak"} else "empty",  # noqa: E501
+        match_status=match_status if out_candidates or match_status in {"empty", "skipped", "weak", "rejected", "error"} else "empty",  # noqa: E501
         candidates=out_candidates,
         match_reason=match_reason,
         search_log=search_log,

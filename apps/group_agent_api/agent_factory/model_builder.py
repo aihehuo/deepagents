@@ -71,10 +71,37 @@ def _build_stub_model() -> Any:
             metadata = getattr(run_manager, "metadata", None) or {}
             user_id = str(metadata.get("user_id") or "")
             group_id = str(metadata.get("group_id") or "")
+            run_match_raw = str(metadata.get("run_match", "true")).strip().lower()
+            allow_search = run_match_raw not in {"0", "false", "no", "off"}
 
             tail = messages[-1] if messages else None
             if isinstance(tail, ToolMessage):
-                msg = AIMessage(content=_STUB_SAVE_ACK)
+                tool_name = str(getattr(tail, "name", "") or "")
+                content = str(getattr(tail, "content", "") or "")
+                is_search_result = tool_name == "search_candidates" or (
+                    '"candidates"' in content and '"status"' in content
+                )
+                is_save_result = tool_name == "save_group_profile" or content.startswith("ok:")
+                is_superseded = "profile_superseded" in content
+                if is_search_result:
+                    msg = AIMessage(content=_STUB_SAVE_ACK)
+                elif is_save_result and allow_search and not is_superseded:
+                    prof = _stub_profile_for(user_id, group_id)
+                    query = " ".join(
+                        p for p in (prof.get("need"), prof.get("doing")) if p
+                    ).strip() or "python"
+                    msg = AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "search_candidates",
+                                "args": {"query": query, "rank_query": query},
+                                "id": "stub_search_candidates",
+                            }
+                        ],
+                    )
+                else:
+                    msg = AIMessage(content=_STUB_SAVE_ACK)
             else:
                 prof = _stub_profile_for(user_id, group_id)
                 msg = AIMessage(

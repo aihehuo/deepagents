@@ -31,6 +31,69 @@ HEADER_CALLBACK_SIGNATURE = "X-GA-Callback-Signature"
 
 _CALLBACK_VERSION = "GA-CALLBACK-V1"
 
+_REJECT_DISPOSITIONS = frozenset({"rejected", "rejected_retry"})
+
+
+class MouthIngressRejected(Exception):
+    """Mouth returned disposition=rejected / rejected_retry (BSD-01 P0/P1).
+
+    Not a transport failure — orchestrator may repair and re-emit same seq.
+    """
+
+    def __init__(
+        self,
+        reason_code: str | None = None,
+        *,
+        status_code: int = 422,
+        disposition: str = "rejected",
+        repairable_by: str = "llm",
+        reject_class: str = "truth",
+        fields: list[str] | None = None,
+        message: str = "",
+        hint: str = "",
+        raw_body: dict[str, Any] | None = None,
+    ) -> None:
+        self.reason_code = (reason_code or "mouth_rejected").strip() or "mouth_rejected"
+        self.status_code = status_code
+        self.disposition = disposition or "rejected"
+        self.repairable_by = repairable_by or "llm"
+        self.reject_class = reject_class or "truth"
+        self.fields = list(fields or [])
+        self.message = message or ""
+        self.hint = hint or ""
+        self.raw_body = raw_body or {}
+        super().__init__(self.reason_code)
+
+
+def parse_mouth_reject_body(body: dict[str, Any] | None) -> MouthIngressRejected | None:
+    """Build MouthIngressRejected from Micro 422 JSON, or None if not a reject."""
+    if not isinstance(body, dict):
+        return None
+    disposition = str(body.get("disposition") or "").strip()
+    if disposition not in _REJECT_DISPOSITIONS:
+        return None
+    nested = body.get("reject") if isinstance(body.get("reject"), dict) else {}
+    reason = (
+        nested.get("reason_code")
+        or body.get("reason_code")
+        or body.get("error")
+        or "mouth_rejected"
+    )
+    from apps.group_agent_api.agent_factory.ingress_repair import reject_meta
+
+    meta_class, meta_by, meta_hint = reject_meta(str(reason))
+    return MouthIngressRejected(
+        str(reason),
+        status_code=422,
+        disposition=disposition,
+        repairable_by=str(nested.get("repairable_by") or meta_by),
+        reject_class=str(nested.get("class") or meta_class),
+        fields=[str(x) for x in (nested.get("fields") or []) if x],
+        message=str(nested.get("message") or body.get("message") or ""),
+        hint=str(nested.get("hint") or meta_hint),
+        raw_body=body,
+    )
+
 
 def validate_and_normalize_callback_url(url: str) -> str:
     """SSRF protection: validate candidate callback_url against allowed base URLs with strict URL parsing & normalization."""
@@ -222,6 +285,27 @@ async def send_callback_event(
                 )
                 return True
 
+            # BSD-01 P0/P1: mouth ingress reject — not transport; do not retry same payload.
+            if resp.status_code == 422:
+                body: dict[str, Any] | None
+                try:
+                    parsed_body = resp.json()
+                    body = parsed_body if isinstance(parsed_body, dict) else None
+                except Exception:  # noqa: BLE001
+                    body = None
+                rejected = parse_mouth_reject_body(body)
+                if rejected is not None:
+                    _logger.warning(
+                        "Callback mouth_rejected origin=%s path=%s run_id=%s "
+                        "reason_code=%s repairable_by=%s",
+                        parsed.netloc,
+                        parsed.path,
+                        envelope_dict.get("run_id"),
+                        rejected.reason_code,
+                        rejected.repairable_by,
+                    )
+                    raise rejected
+
             # If 3xx redirect or non-retryable 4xx (except 429), exit immediately without retry
             if (300 <= resp.status_code < 400) or (400 <= resp.status_code < 500 and resp.status_code != 429):
                 _logger.error(
@@ -241,6 +325,8 @@ async def send_callback_event(
                 resp.status_code,
             )
 
+        except MouthIngressRejected:
+            raise
         except Exception as exc:  # noqa: BLE001
             _logger.warning(
                 "Callback attempt %d/%d exception origin=%s path=%s error_type=%s",

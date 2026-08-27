@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -14,9 +12,8 @@ from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
     finalize_user_visible_reply,
 )
-from apps.group_agent_api.agent_factory.match_stub import MatchStub
+from apps.group_agent_api.agent_factory.match_stub import MatchResult, MatchStub
 from apps.group_agent_api.agent_factory.profile_schema import profile_from_flat
-from apps.group_agent_api.agent_factory.profile_store import save_profile
 from apps.group_agent_api.agent_factory.revisit import (
     RevisitHint,
     build_revisit_opener,
@@ -24,12 +21,8 @@ from apps.group_agent_api.agent_factory.revisit import (
     normalize_prior_candidate_ids,
     parse_revisit_from_metadata,
     parse_revisit_hint,
-    should_skip_auto_match,
-    wants_rematch,
 )
-from apps.group_agent_api.app.endpoints import chat as chat_endpoint
 from apps.group_agent_api.app.models import AsyncCallRequest
-from apps.group_agent_api.app.state import AppState
 
 
 def _base_async(**overrides: Any) -> dict[str, Any]:
@@ -140,24 +133,6 @@ def test_revisit_opener_mentions_prior_and_branches() -> None:
     assert "有回音" in opener
     assert "换人" in opener and "换题" in opener and "开新一轮" in opener
     assert build_revisit_opener(RevisitHint(has_prior_invite=False)) is None
-
-
-def test_should_skip_auto_match_until_explicit_rematch() -> None:
-    hint = RevisitHint(has_prior_invite=True, candidate_names=("周然",))
-    assert should_skip_auto_match(revisit_hint=hint, message="我回来了") is True
-    assert should_skip_auto_match(revisit_hint=hint, message="帮我换人再找几个") is False
-    assert should_skip_auto_match(revisit_hint=hint, message="go") is False
-    assert should_skip_auto_match(revisit_hint=hint, message="开始") is False
-    assert should_skip_auto_match(
-        revisit_hint=RevisitHint(has_prior_invite=False),
-        message="我回来了",
-    ) is False
-    assert wants_rematch("换题试试") is True
-    assert wants_rematch("go") is True
-    assert wants_rematch("match again") is True
-    assert wants_rematch("开始") is True
-    assert wants_rematch("帮我匹配") is True
-    assert wants_rematch("继续上次的方向") is False
 
 
 def test_known_match_system_content_lists_candidates() -> None:
@@ -281,56 +256,36 @@ def test_match_stub_excludes_prior_candidate_ids() -> None:
     assert "caller_self" not in ids
 
 
-def test_run_match_pipeline_passes_prior_exclusions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_search_candidates_tool_passes_prior_exclusions(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    base_dir = tmp_path / "runtime"
-    base_dir.mkdir()
-    save_profile(base_dir, _profile())
-    class _ReadyModel:
-        def invoke(self, _msgs):
-            class _M:
-                content = (
-                    '{"ready":true,"score":80,"doing_ok":true,"need_ok":true,'
-                    '"offer_ok":true,"reasons":[],"gaps":[]}'
-                )
-
-            return _M()
-
-    state = AppState(
-        agent=MagicMock(),
-        base_dir=base_dir,
-        polish_model=None,
-        quality_model=_ReadyModel(),
-    )
     captured: dict[str, Any] = {}
 
-    def _fake_run_match(**kwargs: Any):
+    def _fake_run_match(**kwargs: Any) -> MatchResult:
         captured.update(kwargs)
+        return MatchResult(
+            status="empty",
+            candidates=[],
+            query=str(kwargs.get("query") or ""),
+            group_id=str(kwargs.get("group_id") or ""),
+            reason="none",
+        )
 
-        class _Aligned:
-            status = "empty"
-            candidates: list = []
-            reason = "none"
-
-        return _Aligned()
-
-    monkeypatch.setattr(chat_endpoint, "run_match", _fake_run_match)
     monkeypatch.setattr(
-        chat_endpoint,
-        "align_match_to_trusted_group",
-        lambda result, trusted_group_id: result,
+        "apps.group_agent_api.agent_factory.search_tool.match_backend.run_match",
+        _fake_run_match,
     )
+    from apps.group_agent_api.agent_factory.search_tool import search_candidates
 
-    chat_endpoint._run_match_pipeline(
-        state=state,
-        user_id="u105",
-        group_id="group_l1_alpha",
-        tier=CapabilityTier.in_group,
-        profile_ok=True,
-        run_match_flag=True,
-        group_token=None,
-        user_token=None,
-        metadata={"prior_candidate_ids": ["u101", "u102"]},
+    search_candidates.invoke(
+        {"query": "python", "rank_query": "python"},
+        config={
+            "metadata": {
+                "user_id": "u105",
+                "group_id": "group_l1_alpha",
+                "run_match": "true",
+                "prior_candidate_ids": ["u101", "u102"],
+            }
+        },
     )
     assert captured["excluded_ids"] == ["u105", "u101", "u102"]

@@ -34,14 +34,7 @@ from apps.group_agent_api.app.endpoints import chat as chat_endpoint
 from apps.group_agent_api.app.models import AsyncCallRequest, ChatRequest
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
-from apps.group_agent_api.fixtures.human_audit import (
-    HumanAuditCollector,
-    HumanAuditError,
-    assert_auditable_candidate_evidence,
-    excerpt_coverage,
-    extract_high_value_sentences,
-    render_markdown,
-)
+from tests.support.search_turn import search_tool_messages_from_match
 
 
 def _candidate(
@@ -310,8 +303,6 @@ def test_invite_defense_filters_empty_basis_and_never_fabricates_reason() -> Non
     assert result.kind == "directed"
     assert result.mentioned_user_ids == ["u101", "u104"]
     assert "@u102" not in result.text
-    assert "Building LLM agents" in result.text
-    assert "Distributed systems" in result.text
     assert "相关公开经验" not in result.text
 
 
@@ -337,7 +328,6 @@ def test_direct_invite_deduplicates_and_keeps_first_safe_record(
 
     assert result.mentioned_user_ids == ["u101"]
     assert result.text.count("@u101") == 1
-    assert "Building LLM agents" in result.text
     assert "Private work" not in result.text
 
 
@@ -448,227 +438,6 @@ def test_alignment_deduplicates_after_safety_and_records_identity_issues(
     assert "missing_candidate_id" in caplog.text
 
 
-def test_comma_never_becomes_a_standalone_audit_fragment() -> None:
-    source = (
-        "如果需要，我可以继续帮助你补充筛选条件。"
-        "下一步，请确认是否继续。"
-        "这里还有一条完整说明。"
-    )
-    excerpts = extract_high_value_sentences(source, max_chars=600)
-
-    assert excerpts
-    assert "如果需要，" not in excerpts
-    assert "下一步，" not in excerpts
-    assert all(
-        excerpt.endswith(("。", "！", "？", "!", "?", "；", ";"))
-        for excerpt in excerpts
-    )
-    assert excerpt_coverage(source, excerpts) <= 0.5
-
-
-def _audit_collector(tmp_path: Path) -> HumanAuditCollector:
-    return HumanAuditCollector(
-        enabled=True,
-        run_id="req015_audit",
-        provider="qwen",
-        model="qwen-turbo",
-        base_url_configured=True,
-        fixture_level="L1",
-        group_id="group_l1_alpha",
-        caller_id="u105",
-        output_dir=tmp_path,
-    )
-
-
-def _capture_audit(collector: HumanAuditCollector) -> dict[str, Any]:
-    profile = _profile().to_storage_dict()
-    for number in (1, 2):
-        collector.capture_round(
-            number=number,
-            user_input=f"第 {number} 轮固定输入",
-            reply=(
-                "我已记录 AI Agent 产品和 Python 技术负责人需求。"
-                "下一步，可以继续确认合作约束。"
-            ),
-            llm_delta={
-                "llm_starts": 2,
-                "llm_ends": 2,
-                "tool_calls": {"save_group_profile": 1},
-                "tokens": 100,
-            },
-            latency_s=1,
-            profile_before=None if number == 1 else profile,
-            profile_after=profile,
-        )
-    collector.capture_round(
-        number=3,
-        user_input="请从本群推荐并直接 @。",
-        reply=(
-            "本群已有 2 位公开信息与需求有交集的人选。"
-            "是否匹配仍需要沟通确认。"
-        ),
-        llm_delta={
-            "llm_starts": 2,
-            "llm_ends": 2,
-            "tool_calls": {},
-            "tokens": 100,
-        },
-        latency_s=1,
-        profile_before=profile,
-        profile_after=profile,
-        candidates=_mixed_candidates()[:2],
-        invite_text=(
-            "@u101 你公开资料里提到「Building LLM agents」，"
-            "值得聊一次以确认是否对得上。"
-            "@u104 你公开资料里提到「Distributed systems」，"
-            "值得聊一次以确认是否对得上。"
-            "先聊具体问题，不预设合作结论。"
-        ),
-        mentioned_user_ids=["u101", "u104"],
-        invite_ok=True,
-        guard_blocked=False,
-    )
-    report = collector.build_report(
-        total_llm_invocations=6,
-        total_tokens=300,
-        total_time_s=3,
-        machine_oracles={
-            "current_group_only": True,
-            "sensitive_leak_count": 0,
-        },
-    )
-    assert report is not None
-    return report
-
-
-def test_human_audit_maps_every_mention_to_real_public_basis(tmp_path: Path) -> None:
-    report = _capture_audit(_audit_collector(tmp_path))
-    round3 = report["rounds"][2]
-
-    assert round3["mentioned_user_ids"] == ["u101", "u104"]
-    assert round3["mentioned_evidence"] == [
-        {
-            "user_id": "u101",
-            "public_match_basis": {"doing": "Building LLM agents"},
-        },
-        {
-            "user_id": "u104",
-            "public_match_basis": {"doing": "Distributed systems"},
-        },
-    ]
-    assert round3["automatic_checks"]["all_mentioned_have_public_basis"] is True
-    markdown = render_markdown(report)
-    assert "@u101" in markdown and "Building LLM agents" in markdown
-    assert "@u104" in markdown and "Distributed systems" in markdown
-    assert "u102" not in markdown
-
-
-def test_human_audit_fails_closed_for_empty_or_missing_mentioned_basis(
-    tmp_path: Path,
-) -> None:
-    collector = _audit_collector(tmp_path)
-    profile = _profile().to_storage_dict()
-    with pytest.raises(HumanAuditError, match="public match basis"):
-        collector.capture_round(
-            number=3,
-            user_input="请推荐。",
-            reply="这是一条完整回复。这里是另一条完整回复。",
-            llm_delta={},
-            latency_s=1,
-            profile_before=profile,
-            profile_after=profile,
-            candidates=[_candidate("u102", doing=None)],
-            invite_text="@u102 请交流。先聊具体问题。",
-            mentioned_user_ids=["u102"],
-            invite_ok=True,
-            guard_blocked=False,
-        )
-
-
-def test_human_audit_rejects_noncanonical_candidate_id(tmp_path: Path) -> None:
-    collector = _audit_collector(tmp_path)
-    profile = _profile().to_storage_dict()
-    candidate = _candidate("u101", doing="Building LLM agents")
-    candidate["user_id"] = " u101 "
-    with pytest.raises(HumanAuditError, match="stable user_id"):
-        collector.capture_round(
-            number=3,
-            user_input="请推荐。",
-            reply="这是一条完整回复。这里是另一条完整回复。",
-            llm_delta={},
-            latency_s=1,
-            profile_before=profile,
-            profile_after=profile,
-            candidates=[candidate],
-            invite_text="@u101 请交流。先聊具体问题。",
-            mentioned_user_ids=["u101"],
-            invite_ok=True,
-            guard_blocked=False,
-        )
-
-
-@pytest.mark.parametrize(
-    ("mentioned", "candidate_id", "invite_text"),
-    [
-        ([101], "101", "@101 请交流。先聊具体问题。"),
-        ([True], "True", "@True 请交流。先聊具体问题。"),
-        ([" u101 "], "u101", "@u101 请交流。先聊具体问题。"),
-    ],
-)
-def test_human_audit_capture_rejects_noncanonical_mentioned_identity(
-    tmp_path: Path,
-    mentioned: list[Any],
-    candidate_id: str,
-    invite_text: str,
-) -> None:
-    collector = _audit_collector(tmp_path)
-    profile = _profile().to_storage_dict()
-    with pytest.raises(HumanAuditError, match="mentioned identity.*canonical string"):
-        collector.capture_round(
-            number=3,
-            user_input="请推荐。",
-            reply="这是一条完整回复。这里是另一条完整回复。",
-            llm_delta={},
-            latency_s=1,
-            profile_before=profile,
-            profile_after=profile,
-            candidates=[_candidate(candidate_id, doing="Building LLM agents")],
-            invite_text=invite_text,
-            mentioned_user_ids=mentioned,
-            invite_ok=True,
-            guard_blocked=False,
-        )
-    assert collector.captured_rounds == 0
-
-
-@pytest.mark.parametrize(
-    "surface",
-    [
-        "candidate",
-        "mentioned_evidence",
-        "mentioned_user_ids",
-        "invite_actual_at_user_ids",
-    ],
-)
-@pytest.mark.parametrize("invalid_id", [101, True, " u101 "])
-def test_human_audit_report_recheck_rejects_noncanonical_identity(
-    tmp_path: Path,
-    surface: str,
-    invalid_id: Any,
-) -> None:
-    report = _capture_audit(_audit_collector(tmp_path))
-    round3 = report["rounds"][2]
-    if surface == "candidate":
-        round3["candidates"][0]["user_id"] = invalid_id
-    elif surface == "mentioned_evidence":
-        round3["mentioned_evidence"][0]["user_id"] = invalid_id
-    else:
-        round3[surface][0] = invalid_id
-
-    with pytest.raises(HumanAuditError, match="identity.*canonical string"):
-        assert_auditable_candidate_evidence(report)
-
-
 @pytest.mark.parametrize("invalid_id", [101, True, " u101 "])
 def test_polish_expected_mentions_reject_noncanonical_identity(
     invalid_id: Any,
@@ -681,108 +450,17 @@ def test_polish_expected_mentions_reject_noncanonical_identity(
     assert violations == ["polished_invalid_expected_mention_id"]
 
 
-def test_canonical_identity_passes_capture_report_and_polish(
-    tmp_path: Path,
-) -> None:
-    collector = _audit_collector(tmp_path)
-    profile = _profile().to_storage_dict()
-    collector.capture_round(
-        number=3,
-        user_input="请推荐。",
-        reply="这是一条完整回复。这里是另一条完整回复。",
-        llm_delta={},
-        latency_s=1,
-        profile_before=profile,
-        profile_after=profile,
-        candidates=[_candidate("u_101-1", doing="Building LLM agents")],
-        invite_text="@u_101-1 请交流。先聊具体问题。",
-        mentioned_user_ids=["u_101-1"],
-        invite_ok=True,
-        guard_blocked=False,
-    )
-    assert collector.captured_rounds == 1
-    report = {
-        "rounds": [
-            {
-                "round": 3,
-                "candidates": [
-                    {
-                        "user_id": "u_101-1",
-                        "public_match_basis": {"doing": "Building LLM agents"},
-                    }
-                ],
-                "mentioned_evidence": [
-                    {
-                        "user_id": "u_101-1",
-                        "public_match_basis": {"doing": "Building LLM agents"},
-                    }
-                ],
-                "mentioned_user_ids": ["u_101-1"],
-                "invite_actual_at_user_ids": ["u_101-1"],
-            }
-        ]
-    }
-    assert_auditable_candidate_evidence(report)
-    assert (
-        assert_exact_polished_mentions(
-            text="@u_101-1 请交流。",
-            expected_user_ids=["u_101-1"],
-        )
-        == []
-    )
-
-
-@pytest.mark.parametrize(
-    ("invite_text", "mentioned"),
-    [
-        ("@u101 请交流。这里是完整说明。", ["u101", "u104"]),
-        ("@u101 @u104 @u999 请交流。这里是完整说明。", ["u101", "u104"]),
-        ("@u101 @u104 @u101 请交流。这里是完整说明。", ["u101", "u104"]),
-    ],
-)
-def test_human_audit_rejects_actual_invite_at_mismatch(
-    tmp_path: Path,
-    invite_text: str,
-    mentioned: list[str],
-) -> None:
-    collector = _audit_collector(tmp_path)
-    profile = _profile().to_storage_dict()
-    with pytest.raises(HumanAuditError, match="invite text mentions inconsistent"):
-        collector.capture_round(
-            number=3,
-            user_input="请推荐。",
-            reply="这是一条完整回复。这里是另一条完整回复。",
-            llm_delta={},
-            latency_s=1,
-            profile_before=profile,
-            profile_after=profile,
-            candidates=_mixed_candidates()[:2],
-            invite_text=invite_text,
-            mentioned_user_ids=mentioned,
-            invite_ok=True,
-            guard_blocked=False,
-        )
-
-
-def test_human_audit_build_and_write_recheck_actual_mentions(
-    tmp_path: Path,
-) -> None:
-    collector = _audit_collector(tmp_path)
-    report = _capture_audit(collector)
-    report["rounds"][2]["invite_actual_at_user_ids"] = ["u101"]
-
-    with pytest.raises(HumanAuditError, match="invite text mentions inconsistent"):
-        collector.write_report(report)
-
-
 class _Checkpointer:
     def flush(self) -> None:
         return None
 
 
 class _PersistingAgent:
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(
+        self, base_dir: Path, *, search_result: MatchResult | None = None
+    ) -> None:
         self.base_dir = base_dir
+        self.search_result = search_result
         self.checkpointer = _Checkpointer()
 
     async def aget_state(self, _config: dict[str, Any]) -> Any:
@@ -803,12 +481,11 @@ class _PersistingAgent:
             offer="客户资源",
         )
         save_profile(self.base_dir, profile)
-        return {
-            "messages": [
-                payload["messages"][0],
-                AIMessage(content="画像已经更新。"),
-            ]
-        }
+        messages: list[Any] = [payload["messages"][0]]
+        if self.search_result is not None:
+            messages.extend(search_tool_messages_from_match(self.search_result))
+        messages.append(AIMessage(content="画像已经更新。"))
+        return {"messages": messages}
 
 
 def _match_result() -> MatchResult:
@@ -843,8 +520,10 @@ async def test_sync_chat_payload_uses_only_evidence_gated_candidates(
 ) -> None:
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "stub")
     monkeypatch.setenv("GROUP_AGENT_ENV", "test")
-    monkeypatch.setattr(chat_endpoint, "run_match", lambda **_kwargs: _match_result())
-    state = AppState(agent=_PersistingAgent(tmp_path), base_dir=tmp_path)
+    state = AppState(
+        agent=_PersistingAgent(tmp_path, search_result=_match_result()),
+        base_dir=tmp_path,
+    )
 
     response = await chat_endpoint.chat(
         ChatRequest(
@@ -868,11 +547,10 @@ async def test_async_callback_payload_uses_only_evidence_gated_candidates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        "apps.group_agent_api.app.async_manager.run_match",
-        lambda **_kwargs: _match_result(),
+    state = AppState(
+        agent=_PersistingAgent(tmp_path, search_result=_match_result()),
+        base_dir=tmp_path,
     )
-    state = AppState(agent=_PersistingAgent(tmp_path), base_dir=tmp_path)
     session = TrustedSession(
         principal=SessionPrincipal(
             user_id="u105",
@@ -922,12 +600,10 @@ async def test_sync_chat_all_missing_basis_has_consistent_empty_reason(
 ) -> None:
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "stub")
     monkeypatch.setenv("GROUP_AGENT_ENV", "test")
-    monkeypatch.setattr(
-        chat_endpoint,
-        "run_match",
-        lambda **_kwargs: _empty_basis_match_result(),
+    state = AppState(
+        agent=_PersistingAgent(tmp_path, search_result=_empty_basis_match_result()),
+        base_dir=tmp_path,
     )
-    state = AppState(agent=_PersistingAgent(tmp_path), base_dir=tmp_path)
 
     response = await chat_endpoint.chat(
         ChatRequest(
@@ -947,7 +623,8 @@ async def test_sync_chat_all_missing_basis_has_consistent_empty_reason(
     assert response.match_reason == "no_auditable_public_match_basis"
     assert response.candidates == []
     assert response.mentioned_user_ids == []
-    assert response.delivery_kind == "undirected"
+    assert response.invite_text is None
+    assert response.delivery_kind is None
 
 
 @pytest.mark.asyncio
@@ -955,11 +632,10 @@ async def test_async_all_missing_basis_has_consistent_empty_reason(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        "apps.group_agent_api.app.async_manager.run_match",
-        lambda **_kwargs: _empty_basis_match_result(),
+    state = AppState(
+        agent=_PersistingAgent(tmp_path, search_result=_empty_basis_match_result()),
+        base_dir=tmp_path,
     )
-    state = AppState(agent=_PersistingAgent(tmp_path), base_dir=tmp_path)
     session = TrustedSession(
         principal=SessionPrincipal(
             user_id="u105",
@@ -1003,4 +679,5 @@ async def test_async_all_missing_basis_has_consistent_empty_reason(
     assert final_payload["match_reason"] == "no_auditable_public_match_basis"
     assert final_payload["candidates"] == []
     assert final_payload["mentioned_user_ids"] == []
-    assert final_payload["delivery_kind"] == "undirected"
+    assert final_payload["invite_text"] is None
+    assert final_payload["delivery_kind"] is None

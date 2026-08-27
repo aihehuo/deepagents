@@ -32,28 +32,23 @@ from apps.group_agent_api.agent_factory.admin_ops_tools import (
 from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
 from apps.group_agent_api.agent_factory.integrations.callback_client import (
+    MouthIngressRejected,
     send_callback_event,
     validate_and_normalize_callback_url,
 )
 from apps.group_agent_api.agent_factory.integrations.config import async_run_timeout_s
-from apps.group_agent_api.agent_factory.integrations.group_bind import align_match_to_trusted_group
-from apps.group_agent_api.agent_factory.integrations.match_backend import run_match
 from apps.group_agent_api.agent_factory.invite_llm import generate_invite_with_optional_llm
 from apps.group_agent_api.agent_factory.invite_copy import should_emit_invite_artifact
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
-from apps.group_agent_api.agent_factory.match_stub import (
-    build_broad_query_from_profile,
-    build_rank_query_from_profile,
+from apps.group_agent_api.agent_factory.profile_quality import (
+    looks_like_clarifying_reply,
 )
-from apps.group_agent_api.agent_factory.profile_quality import decide_match_gate, wants_force_match, looks_like_clarifying_reply
 from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted, load_profile
 from apps.group_agent_api.agent_factory.revisit import (
-    excluded_ids_for_match,
     known_match_system_content,
     parse_revisit_from_metadata,
-    should_skip_auto_match,
 )
 from apps.group_agent_api.agent_factory.suggested_replies import (
     extract_suggested_replies,
@@ -365,6 +360,40 @@ _EXPLICIT_PATTERNS = [
     ),
 ]
 
+_NATURAL_DOING = re.compile(
+    r"(?:正在做|在做|做一个|最近在做|做的是)(?P<doing>.+?)(?=[。.!！]|，目前|，我|。目前)"
+)
+_NATURAL_NEED = re.compile(
+    r"(?:需要找|想找|找一个|找一位|缺一个)(?P<need>.+?)(?=[。.!！～~]|你这边|有合适|，最好)"
+)
+_NATURAL_OFFER = re.compile(
+    r"(?:目前我有|我有|能提供|可以提供|手上有)(?P<offer>.+?)(?=[。.!！]|我需要|需要找|想找)"
+)
+
+
+def _clip_dimension(value: str | None, limit: int = 200) -> str:
+    text = re.sub(r"\s+", " ", (value or "").strip())
+    return text[:limit].strip(" ，,；;。")
+
+
+def _dimensions_from_natural_chinese(text: str) -> dict[str, str] | None:
+    """Pull doing/need/offer from a spoken dump without `doing:` labels."""
+    if not text or len(text) > 2_000:
+        return None
+    doing_m = _NATURAL_DOING.search(text)
+    need_m = _NATURAL_NEED.search(text)
+    offer_m = _NATURAL_OFFER.search(text)
+    if not (doing_m and need_m and offer_m):
+        return None
+    dimensions = {
+        "doing": _clip_dimension(doing_m.group("doing")),
+        "need": _clip_dimension(need_m.group("need")),
+        "offer": _clip_dimension(offer_m.group("offer")),
+    }
+    if not all(len(value) >= 4 for value in dimensions.values()):
+        return None
+    return dimensions
+
 
 def extract_explicit_profile_dimensions(
     message: str,
@@ -385,6 +414,9 @@ def extract_explicit_profile_dimensions(
                 }
                 if all(bool(value) for value in dimensions.values()):
                     return dimensions
+        natural = _dimensions_from_natural_chinese(message)
+        if natural is not None:
+            return natural
 
     if messages:
         for msg in reversed(messages):
@@ -400,6 +432,9 @@ def extract_explicit_profile_dimensions(
                     }
                     if all(bool(value) for value in dimensions.values()):
                         return dimensions
+            natural = _dimensions_from_natural_chinese(text)
+            if natural is not None:
+                return natural
     return None
 
 
@@ -628,9 +663,6 @@ async def execute_async_run(
             return False
 
         seq += 1
-        if event_type in {"final", "error"}:
-            terminal_created = True
-
         env = CallbackEnvelope(
             version="GA-CALLBACK-V1",
             run_id=req.run_id,
@@ -644,14 +676,30 @@ async def execute_async_run(
             payload=payload,
         )
 
-        delivered = await send_callback_event(callback_url=req.callback_url, envelope_dict=env.model_dump())
+        try:
+            delivered = await send_callback_event(
+                callback_url=req.callback_url, envelope_dict=env.model_dump()
+            )
+        except MouthIngressRejected:
+            # Mouth did not commit seq — rewind for same-seq repair re-emit.
+            seq = max(0, seq - 1)
+            raise
+        except Exception:
+            if event_type in {"final", "error"}:
+                seq = max(0, seq - 1)
+            raise
+
         if event_type in {"final", "error"} and delivered:
+            terminal_created = True
             terminal_delivered = True
+        elif event_type in {"final", "error"} and not delivered:
+            # Transport fail without accept — rewind so error path can use next seq.
+            seq = max(0, seq - 1)
 
         _logger.info(
             "Callback event status run_id=%s seq=%d event=%s delivered=%s",
             req.run_id,
-            seq,
+            seq if delivered else seq,
             event_type,
             delivered,
         )
@@ -813,6 +861,9 @@ async def _execute_core_agent(
                 metadata=req.metadata or {},
                 run_id=req.run_id,
                 conversation_id=req.conversation_id,
+                run_match=req.run_match,
+                group_token=session.group_token,
+                user_token=user_token,
             )
             turn_messages: list[Any] = []
             if admin_debug:
@@ -1006,7 +1057,7 @@ async def _execute_core_agent(
             if checkpointer is not None and hasattr(checkpointer, "flush"):
                 checkpointer.flush()
 
-    # Step: Match pipeline
+    # Harvest this turn's search_candidates tool result (model-called; not orchestrator).
     _gate("match")
     match_status = "skipped"
     candidates: list[dict[str, Any]] = []
@@ -1029,103 +1080,36 @@ async def _execute_core_agent(
     reply, suggested_replies = extract_suggested_replies(reply)
 
     _, revisit_hint = parse_revisit_from_metadata(req.metadata or {})
-    effective_run_match = req.run_match and not should_skip_auto_match(
-        revisit_hint=revisit_hint,
-        message=req.message,
-    )
-    # Same-turn clarifying Q&A must not dump candidate cards (unless user forced match).
-    if (
-        effective_run_match
-        and looks_like_clarifying_reply(reply)
-        and not wants_force_match(req.message)
-    ):
-        effective_run_match = False
-        match_reason = "clarifying_in_progress"
-        _logger.info(
-            "Match deferred run_id=%s reason=clarifying_in_progress",
-            req.run_id,
-        )
+    from apps.group_agent_api.agent_factory.search_tool import extract_search_this_turn
+
+    search_turn = extract_search_this_turn(messages, msg_count_before)
     quality_gaps: list[str] = []
     search_log: SearchLogEntry | None = None
-
-    if effective_run_match and unlocks_network(tier) and profile_ok:
-        assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
-        if assertion.ok and assertion.profile is not None:
-            def _gate_and_match():
-                decision = decide_match_gate(
-                    profile=assertion.profile,
-                    model=state.quality_model or state.polish_model,
-                    base_dir=state.base_dir,
-                    message=req.message,
-                    metadata=req.metadata or {},
-                )
-                if not decision.allow_match:
-                    return (
-                        "skipped",
-                        [],
-                        decision.match_reason or "profile_too_thin",
-                        list(decision.quality.gaps or []),
-                        None,
-                    )
-                query = build_broad_query_from_profile(assertion.profile)
-                rank_query = build_rank_query_from_profile(assertion.profile)
-                c_version, capability_error = _match_contract_for_run(run_protocol_mode)
-                if capability_error:
-                    return (
-                        "empty",
-                        [],
-                        capability_error,
-                        ["match_v2_capability_unavailable"],
-                        None,
-                    )
-                use_match_v2 = c_version == "ga-match-v2"
-                c_constraints = {"version": 1, "items": assertion.profile.match_constraints} if (use_match_v2 and assertion.profile.match_constraints) else None
-                match_res = run_match(
-                    query=query,
-                    group_id=group_id,
-                    excluded_ids=excluded_ids_for_match(user_id, req.metadata or {}),
-                    group_token=session.group_token,
-                    user_bearer=user_token,
-                    rank_query=rank_query,
-                    contract_version=c_version,
-                    constraints=c_constraints,
-                )
-                aligned = align_match_to_trusted_group(
-                    match_res, trusted_group_id=group_id
-                )
-                reason = decision.match_reason or aligned.reason
-                search_log = SearchLogEntry(
-                    search_id=f"search_{int(time.time() * 1000)}",
-                    timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    query=query,
-                    rank_query=rank_query,
-                    match_status=aligned.status,
-                    match_reason=reason,
-                    candidate_count=len(aligned.candidates),
-                    candidate_names=[
-                        str(c.get("name") or c.get("display_name") or "")
-                        for c in aligned.candidates
-                        if c.get("name") or c.get("display_name")
-                    ],
-                )
-                return (
-                    aligned.status,
-                    aligned.candidates,
-                    reason,
-                    list(decision.quality.gaps or []),
-                    search_log,
-                )
-
-            match_status, candidates, match_reason, quality_gaps, search_log = await asyncio.to_thread(
-                _gate_and_match
-            )
-    elif (
-        req.run_match
-        and not effective_run_match
-        and profile_ok
-        and match_reason is None
-    ):
-        match_reason = "revisit_awaiting_user_branch"
+    if search_turn.called:
+        match_status = (
+            search_turn.status
+            if search_turn.status
+            in {"matched", "weak", "empty", "skipped", "rejected", "error"}
+            else "skipped"
+        )
+        candidates = search_turn.candidates
+        match_reason = search_turn.reason or "search_candidates_tool"
+        search_log = SearchLogEntry(
+            search_id=f"search_{int(time.time() * 1000)}",
+            timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            query=search_turn.query,
+            rank_query=search_turn.rank_query,
+            match_status=match_status,
+            match_reason=match_reason,
+            candidate_count=len(candidates),
+            candidate_names=[
+                str(c.get("name") or c.get("display_name") or "")
+                for c in candidates
+                if c.get("name") or c.get("display_name")
+            ],
+        )
+    elif match_reason is None:
+        match_reason = "model_did_not_search"
     _logger.info("Core match debug run_id=%s tier=%s profile_ok=%s match_status=%s candidates_count=%d", req.run_id, tier.value, profile_ok, match_status, len(candidates))
 
     guarded = enforce_capability_guard(
@@ -1152,7 +1136,7 @@ async def _execute_core_agent(
         req.run_invite
         and profile_ok
         and unlocks_network(tier)
-        and effective_run_match
+        and search_turn.called
         and should_emit_invite_artifact(
             match_status=match_status,
             match_reason=match_reason,
@@ -1190,7 +1174,7 @@ async def _execute_core_agent(
     elif (
         req.run_invite
         and profile_ok
-        and effective_run_match
+        and search_turn.called
         and match_status == "empty"
     ):
         _logger.info(
@@ -1238,16 +1222,19 @@ async def _execute_core_agent(
         DialogueKind,
         calculate_candidate_facts_digest,
     )
-    from apps.group_agent_api.agent_factory.integrations.config import grounded_final_enabled
+    from apps.group_agent_api.agent_factory.integrations.config import (
+        grounded_final_enabled,
+        reply_grounding_enabled,
+    )
     from apps.group_agent_api.agent_factory.integrations.profile_client import canonical_profile_digest
 
     if admin_debug:
         determined_reply_mode = ReplyMode.dialogue
     elif persistence_failure_reason or match_reason == "grounding_validation_failed":
         determined_reply_mode = ReplyMode.error
-    elif effective_run_match and out_candidates and match_status == "matched":
+    elif search_turn.called and out_candidates and match_status == "matched":
         determined_reply_mode = ReplyMode.recommendation
-    elif effective_run_match and match_status in {"empty", "weak"}:
+    elif search_turn.called and match_status in {"empty", "weak"}:
         determined_reply_mode = ReplyMode.no_match
     elif saved_this_turn and profile_ok:
         determined_reply_mode = ReplyMode.profile_confirmation
@@ -1272,8 +1259,27 @@ async def _execute_core_agent(
         ):
             determined_reply_mode = ReplyMode.error
 
+    visible_reply = final_guarded.reply
+    if reply_grounding_enabled() and determined_reply_mode != ReplyMode.error:
+        from apps.group_agent_api.agent_factory.checks.reply_grounding import (
+            apply_reply_grounding_gate,
+            default_repair_fn,
+        )
+
+        judge_model = state.quality_model or state.polish_model
+        gated = apply_reply_grounding_gate(
+            reply=visible_reply,
+            reply_mode=determined_reply_mode.value,
+            candidates=out_candidates,
+            profile=final_profile,
+            candidate_count=len(out_candidates),
+            model=judge_model,
+            repair_fn=default_repair_fn(judge_model),
+        )
+        visible_reply = gated.reply
+
     final_payload = {
-        "reply": final_guarded.reply,
+        "reply": visible_reply,
         "reply_mode": determined_reply_mode.value,
         "suggested_replies": [] if combined_guard_blocked else suggested_replies,
         "profile_persisted": profile_ok,
@@ -1281,7 +1287,7 @@ async def _execute_core_agent(
         "persistence_failure_reason": persistence_failure_reason,
         "capability": tier.value,
         "capability_source": session.membership.source,
-        "match_status": match_status if out_candidates or match_status in {"empty", "skipped", "weak"} else "empty",
+        "match_status": match_status if out_candidates or match_status in {"empty", "skipped", "weak", "rejected", "error"} else "empty",
         "candidates": out_candidates,
         "match_reason": match_reason,
         "search_log": search_log.model_dump() if search_log else None,
@@ -1375,14 +1381,14 @@ async def _execute_core_agent(
             run_id=req.run_id,
             reply_mode=determined_reply_mode,
             dialogue_kind=d_kind,
-            dialogue_text=guarded.reply if determined_reply_mode == ReplyMode.dialogue else None,
+            dialogue_text=visible_reply if determined_reply_mode == ReplyMode.dialogue else None,
             candidate_count=len(out_candidates or []),
             candidates=out_candidates or [],
             profile=profile_summary,
             match=match_summary,
             invite=invite_block,
             grounding=grounding_block,
-            reply=final_guarded.reply,
+            reply=visible_reply,
         )
         typed_dict = typed_final.model_dump(mode="json")
         typed_dict["rollout_version"] = run_rollout_version
@@ -1426,7 +1432,7 @@ async def _execute_core_agent(
         user_message=req.message,
         messages=messages,
         msg_count_before=msg_count_before,
-        reply=final_guarded.reply,
+        reply=visible_reply,
         profile_status=profile_status,
         match_status=final_payload["match_status"],
         match_reason=match_reason,
@@ -1441,6 +1447,51 @@ async def _execute_core_agent(
         final_payload["debug_trace_path"] = trace_path
 
     _gate("final_callback")
-    final_ok = await emit_callback("final", final_payload)
-    if final_ok is False:
-        raise RuntimeError("final_callback_failed")
+    from apps.group_agent_api.agent_factory.ingress_repair import (
+        MOUTH_INGRESS_MAX_ATTEMPTS,
+        apply_mouth_repair,
+        build_abandon_final_payload,
+    )
+
+    # BSD-01 P1: first final + at most one repair re-emit (same seq).
+    mouth_attempt = 1
+    current_final = final_payload
+    while True:
+        try:
+            final_ok = await emit_callback("final", current_final)
+        except MouthIngressRejected as exc:
+            _logger.warning(
+                "Mouth rejected final run_id=%s attempt=%s/%s reason_code=%s "
+                "repairable_by=%s",
+                req.run_id,
+                mouth_attempt,
+                MOUTH_INGRESS_MAX_ATTEMPTS,
+                exc.reason_code,
+                exc.repairable_by,
+            )
+            if (
+                mouth_attempt >= MOUTH_INGRESS_MAX_ATTEMPTS
+                or exc.repairable_by == "none"
+            ):
+                raise RuntimeError(
+                    f"mouth_ingress_rejected:{exc.reason_code}"
+                ) from exc
+            mouth_attempt += 1
+            repair_model = state.quality_model or state.polish_model
+            repaired = apply_mouth_repair(
+                current_final,
+                reject=exc,
+                model=repair_model,
+                attempt=mouth_attempt,
+            )
+            # If peel left a still-risky recommendation shape, fall back to abandon.
+            if (
+                repaired.get("reply_mode") == "recommendation"
+                and not (repaired.get("candidates") or [])
+            ):
+                repaired = build_abandon_final_payload(current_final)
+            current_final = repaired
+            continue
+        if final_ok is False:
+            raise RuntimeError("final_callback_failed")
+        break

@@ -7,7 +7,12 @@ from apps.group_agent_api.agent_factory.contact_scrub import (
     scrub_contact_text,
     scrub_display_name,
 )
-from apps.group_agent_api.agent_factory.profile_quality import looks_like_clarifying_reply
+from apps.group_agent_api.agent_factory.profile_quality import (
+    looks_like_clarifying_reply,
+    looks_like_profile_bearing_message,
+    should_defer_match_for_clarifying,
+    wants_force_match,
+)
 
 
 def test_scrub_contact_text_removes_wechat_and_phone() -> None:
@@ -67,3 +72,44 @@ def test_looks_like_clarifying_reply_defers_priority_ab_fork() -> None:
     assert looks_like_clarifying_reply(
         "下一步：我已按这些条件在本群找到 3 位值得进一步聊的人选，并生成了定向邀请。"
     ) is False
+
+
+def test_should_not_defer_match_when_profile_ok_or_user_asks_for_people() -> None:
+    clarifying = "能再说说你希望优先看教研还是教培吗？"
+    assert looks_like_clarifying_reply(clarifying) is True
+    assert (
+        should_defer_match_for_clarifying(
+            reply=clarifying,
+            user_message="我需要一个懂教育行业的，最好有教研经验。",
+            profile_ok=False,
+        )
+        is True
+    )
+    assert (
+        should_defer_match_for_clarifying(
+            reply=clarifying,
+            user_message="我需要一个懂教育行业的，最好有教研经验。",
+            profile_ok=True,
+        )
+        is False
+    )
+    assert (
+        should_defer_match_for_clarifying(
+            reply=clarifying,
+            user_message="你好，我正在做一个AI辅导工具。你这边有合适的吗？",
+            profile_ok=False,
+        )
+        is False
+    )
+    assert wants_force_match("你这边有合适的吗？") is True
+
+
+def test_profile_bearing_message_detects_complete_dump() -> None:
+    dump = (
+        "你好，我正在做一个AI辅导工具，面向K12学生。"
+        "目前我有技术开发能力，包括NLP和LLM，还有一个初步的原型。"
+        "我需要找一个懂教育、教研或者有教培经验的合伙人。你这边有合适的吗？"
+    )
+    assert looks_like_profile_bearing_message(dump) is True
+    assert looks_like_profile_bearing_message("你好") is False
+    assert looks_like_profile_bearing_message("我已经不充了") is False

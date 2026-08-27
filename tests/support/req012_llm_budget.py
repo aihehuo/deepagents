@@ -1,9 +1,8 @@
 """REQ-012 shared support: LLM budget guard, evidence recorder, and outcome
 classification.
 
-Importable with no network and no real-LLM credentials, so the helper tests
-in ``test_group_agent_req012_helpers.py`` run in the default gate (they must
-NOT skip with the opt-in real scenario).
+Importable with no network and no real-LLM credentials.
+Used by the brain-as-SUT real-LLM conversation test.
 """
 
 from __future__ import annotations
@@ -198,6 +197,24 @@ def classify_http_response(response: Any) -> tuple[OutcomeKind, str]:
     return OutcomeKind.INTERNAL, f"status={status} type={error_type}"
 
 
+def _usage_from_message(msg: Any) -> tuple[int, int, int]:
+    """Return (input_tokens, output_tokens, total_tokens) from a LangChain message."""
+    um = getattr(msg, "usage_metadata", None) or {}
+    in_t = int(um.get("input_tokens", 0) or 0)
+    out_t = int(um.get("output_tokens", 0) or 0)
+    tot_t = int(um.get("total_tokens", 0) or 0)
+    if not tot_t and not (in_t or out_t):
+        meta = getattr(msg, "response_metadata", None) or {}
+        tu = meta.get("token_usage") or meta.get("usage") or {}
+        if isinstance(tu, dict):
+            in_t = int(tu.get("prompt_tokens") or tu.get("input_tokens") or 0)
+            out_t = int(tu.get("completion_tokens") or tu.get("output_tokens") or 0)
+            tot_t = int(tu.get("total_tokens") or 0)
+    if not tot_t:
+        tot_t = in_t + out_t
+    return in_t, out_t, tot_t
+
+
 class LLMBudgetRecorder(BaseCallbackHandler):
     """Non-leaking LangChain callback handler.
 
@@ -218,6 +235,8 @@ class LLMBudgetRecorder(BaseCallbackHandler):
         self.llm_ends = 0
         self.tool_call_counts: dict[str, int] = {}
         self.total_tokens = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
         self.model_class: str | None = None
 
     def on_chat_model_start(self, serialized: dict, messages: list, **kwargs: Any) -> None:  # noqa: ARG002
@@ -247,8 +266,10 @@ class LLMBudgetRecorder(BaseCallbackHandler):
                         )
                         name = name or "unknown"
                         self.tool_call_counts[name] = self.tool_call_counts.get(name, 0) + 1
-                    um = getattr(msg, "usage_metadata", None) or {}
-                    self.total_tokens += int(um.get("total_tokens", 0) or 0)
+                    in_t, out_t, tot_t = _usage_from_message(msg)
+                    self.input_tokens += in_t
+                    self.output_tokens += out_t
+                    self.total_tokens += tot_t or (in_t + out_t)
         except Exception:  # noqa: BLE001 — evidence must never break the test
             pass
 
@@ -262,6 +283,8 @@ class LLMBudgetRecorder(BaseCallbackHandler):
             "llm_ends": self.llm_ends,
             "tool_calls": copy.deepcopy(self.tool_call_counts),
             "tokens": self.total_tokens,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
         }
 
     @staticmethod
@@ -273,12 +296,20 @@ class LLMBudgetRecorder(BaseCallbackHandler):
             diff = ta.get(k, 0) - tb.get(k, 0)
             if diff:
                 tool_delta[k] = diff
-        return {
+        out: dict[str, Any] = {
             "llm_starts": after["llm_starts"] - before["llm_starts"],
             "llm_ends": after["llm_ends"] - before["llm_ends"],
             "tool_calls": tool_delta,
             "tokens": after["tokens"] - before["tokens"],
         }
+        if "input_tokens" in after or "input_tokens" in before:
+            out["input_tokens"] = int(after.get("input_tokens") or 0) - int(
+                before.get("input_tokens") or 0
+            )
+            out["output_tokens"] = int(after.get("output_tokens") or 0) - int(
+                before.get("output_tokens") or 0
+            )
+        return out
 
     def attach(self, model: Any) -> Any:
         self.model_class = model.__class__.__name__

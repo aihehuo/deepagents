@@ -333,27 +333,6 @@ async def test_chat_unknown_skips_match(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_in_group_returns_gated_candidates(tmp_path: Path) -> None:
-    agent = _FakeAgent(base_dir=tmp_path, save_on_attempt=1)
-    resp = await chat_ep.chat(
-        ChatRequest(
-            user_id="mock_u1",
-            group_id="mock_g1",
-            message="做喂食器，缺联网和固件，有工厂",
-            membership="in_group",
-        ),
-        _state(agent, tmp_path),
-    )
-    assert resp.capability == "in_group"
-    assert resp.profile_persisted is True
-    assert resp.match_status in {"matched", "weak"}
-    assert 1 <= len(resp.candidates) <= 3
-    assert all(c["source_group_id"] == "mock_g1" for c in resp.candidates)
-    for c in resp.candidates:
-        assert assert_visible_fields_public_only(c) == []
-
-
-@pytest.mark.asyncio
 async def test_chat_metadata_cannot_force_in_group(tmp_path: Path) -> None:
     agent = _FakeAgent(base_dir=tmp_path, save_on_attempt=1)
     resp = await chat_ep.chat(

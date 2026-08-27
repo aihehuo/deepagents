@@ -91,8 +91,12 @@ def test_wants_force_match() -> None:
     assert wants_force_match("开始吧")
     assert wants_force_match("帮我匹配")
     assert wants_force_match("开始匹配")
+    assert wants_force_match("你这边有合适的吗？")
+    assert wants_force_match("你这边有合适的搭子吗？")
+    assert wants_force_match("我需要找一个懂教育、教研或者有教培经验的合伙人")
     assert not wants_force_match("我想再补充一下需求")
     assert not wants_force_match("继续上次的方向")
+    assert not wants_force_match("有合适的合作方式可以谈")
 
 
 def test_decide_ready_allows_match(tmp_path: Path) -> None:

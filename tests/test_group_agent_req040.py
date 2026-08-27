@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+from langchain_core.messages import AIMessage, ToolMessage
+
 from apps.group_agent_api.agent_factory.disclosure import filter_member_for_visibility
 from apps.group_agent_api.agent_factory.integrations.match_client import _normalize_candidate
 from apps.group_agent_api.agent_factory.invite_copy import (
@@ -20,6 +22,44 @@ from apps.group_agent_api.agent_factory.per_candidate_copy import (
     generate_single_candidate_copy,
 )
 from apps.group_agent_api.agent_factory.profile_schema import profile_from_flat
+from langchain_core.messages import AIMessage, ToolMessage
+
+
+def _fake_agent_with_search(base_dir: Any, *, query: str) -> Any:
+    class _FakeAgent:
+        def __init__(self) -> None:
+            self.base_dir = base_dir
+
+        async def ainvoke(self, input_dict: dict[str, Any], config: Any) -> dict[str, Any]:
+            from apps.group_agent_api.agent_factory.search_tool import search_candidates
+
+            raw = search_candidates.invoke(
+                {"query": query, "rank_query": query},
+                config=config,
+            )
+            return {
+                "messages": [
+                    *input_dict.get("messages", []),
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "search_candidates",
+                                "args": {"query": query, "rank_query": query},
+                                "id": "search_candidates_1",
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content=str(raw),
+                        name="search_candidates",
+                        tool_call_id="search_candidates_1",
+                    ),
+                    AIMessage(content="已在本群为你找人。"),
+                ]
+            }
+
+    return _FakeAgent()
 
 
 @pytest.fixture
@@ -248,14 +288,10 @@ async def test_chat_endpoint_returns_enriched_candidates_in_payload(tmp_path, mo
     )
     save_profile(tmp_path, profile)
 
-    class _FakeAgent:
-        def __init__(self, base_dir: Path):
-            self.base_dir = base_dir
-
-        async def ainvoke(self, input_dict: dict[str, Any], config: Any) -> dict[str, Any]:
-            return {"messages": list(input_dict.get("messages", []))}
-
-    state = AppState(agent=_FakeAgent(tmp_path), base_dir=tmp_path)
+    state = AppState(
+        agent=_fake_agent_with_search(tmp_path, query="固件 联网 智能喂食器"),
+        base_dir=tmp_path,
+    )
     resp = await chat_ep.chat(
         ChatRequest(
             user_id="mock_u1",
@@ -359,14 +395,10 @@ async def test_async_manager_returns_enriched_candidates_in_final_payload(tmp_pa
     )
     save_profile(tmp_path, profile)
 
-    class _FakeAgent:
-        def __init__(self, base_dir: Path):
-            self.base_dir = base_dir
-
-        async def ainvoke(self, input_dict: dict[str, Any], config: Any) -> dict[str, Any]:
-            return {"messages": list(input_dict.get("messages", []))}
-
-    state = AppState(agent=_FakeAgent(tmp_path), base_dir=tmp_path)
+    state = AppState(
+        agent=_fake_agent_with_search(tmp_path, query="嵌入式固件 联网选型"),
+        base_dir=tmp_path,
+    )
     session = TrustedSession(
         principal=SessionPrincipal(user_id="mock_u1", unionid="union_mock_u1", user_token=None, source="stub"),
         group_id="mock_g1",

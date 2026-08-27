@@ -442,7 +442,7 @@ def test_prompt_prevents_dimension_overwrite_and_pre_match_claims() -> None:
         "不得把 doing 改写成",
         "不得把 offer 改写成",
         "暂无可提供资源",
-        "最终匹配状态由系统",
+        "search_candidates",
     )
     assert all(item in SYSTEM_PROMPT for item in required_semantics)
 

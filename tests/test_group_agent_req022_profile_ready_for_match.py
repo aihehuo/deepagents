@@ -27,6 +27,7 @@ from apps.group_agent_api.app import async_manager
 from apps.group_agent_api.app.models import AsyncCallRequest, ChatRequest
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
+from tests.support.search_turn import search_tool_messages_from_match
 
 
 def _session(*, user_id: str, group_id: str) -> TrustedSession:
@@ -81,28 +82,10 @@ def _seed_profile(base_dir: Path, user_id: str, group_id: str) -> None:
 def test_hot_path_existing_profile_allows_match_without_save_call(
     tmp_path: Path,
 ) -> None:
-    """Hot path: Pre-existing profile allows run_match even if model calls no save tool."""
+    """Hot path: existing profile + model search_candidates (no save this turn)."""
     _seed_profile(tmp_path, "u-hot-1", "g-hot-1")
 
     async def run_test() -> None:
-        agent = MagicMock(spec=["ainvoke"])
-        agent.ainvoke = AsyncMock(
-            side_effect=lambda input_dict, config: {
-                "messages": [
-                    *input_dict["messages"],
-                    AIMessage(content="收到，正在为您在本群寻找互补伙伴。"),
-                ]
-            }
-        )
-        state = AppState(agent=agent, base_dir=tmp_path)
-        envelopes: list[dict[str, Any]] = []
-
-        async def capture_callback(
-            *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
-        ) -> bool:
-            envelopes.append(envelope_dict)
-            return True
-
         mock_match_result = MatchResult(
             status="matched",
             candidates=[
@@ -118,13 +101,28 @@ def test_hot_path_existing_profile_allows_match_without_save_call(
             group_id="g-hot-1",
             reason="matched_via_vector_search",
         )
+        agent = MagicMock(spec=["ainvoke"])
+        agent.ainvoke = AsyncMock(
+            side_effect=lambda input_dict, config: {
+                "messages": [
+                    *input_dict["messages"],
+                    *search_tool_messages_from_match(mock_match_result),
+                    AIMessage(content="收到，正在为您在本群寻找互补伙伴。"),
+                ]
+            }
+        )
+        state = AppState(agent=agent, base_dir=tmp_path)
+        envelopes: list[dict[str, Any]] = []
+
+        async def capture_callback(
+            *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
+        ) -> bool:
+            envelopes.append(envelope_dict)
+            return True
 
         with patch(
             "apps.group_agent_api.app.async_manager.send_callback_event",
             side_effect=capture_callback,
-        ), patch(
-            "apps.group_agent_api.app.async_manager.run_match",
-            return_value=mock_match_result,
         ):
             await async_manager.execute_async_run(
                 req=_async_request(
@@ -148,6 +146,60 @@ def test_hot_path_existing_profile_allows_match_without_save_call(
         assert len(payload["candidates"]) == 1
         # No extra FORCE_SAVE retry should be invoked
         assert agent.ainvoke.await_count == 1
+
+    asyncio.run(run_test())
+
+
+def test_orchestrator_does_not_search_when_model_skips_tool(
+    tmp_path: Path,
+) -> None:
+    """Existing profile + run_match=True is not enough; model must call search_candidates."""
+    _seed_profile(tmp_path, "u-skip-1", "g-skip-1")
+
+    async def run_test() -> None:
+        agent = MagicMock(spec=["ainvoke"])
+        agent.ainvoke = AsyncMock(
+            side_effect=lambda input_dict, config: {
+                "messages": [
+                    *input_dict["messages"],
+                    AIMessage(content="先聊聊你的需求。"),
+                ]
+            }
+        )
+        state = AppState(agent=agent, base_dir=tmp_path)
+        envelopes: list[dict[str, Any]] = []
+
+        async def capture_callback(
+            *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
+        ) -> bool:
+            envelopes.append(envelope_dict)
+            return True
+
+        with patch(
+            "apps.group_agent_api.app.async_manager.send_callback_event",
+            side_effect=capture_callback,
+        ), patch(
+            "apps.group_agent_api.agent_factory.search_tool.match_backend.run_match",
+            side_effect=AssertionError("orchestrator must not search"),
+        ):
+            await async_manager.execute_async_run(
+                req=_async_request(
+                    user_id="u-skip-1",
+                    group_id="g-skip-1",
+                    run_id="run-skip-1",
+                    message="请帮我匹配互补的合作伙伴",
+                ),
+                session=_session(user_id="u-skip-1", group_id="g-skip-1"),
+                state=state,
+                tid="thread-skip-1",
+            )
+
+        terminal = [item for item in envelopes if item["event"] == "final"]
+        assert len(terminal) == 1
+        payload = terminal[0]["payload"]
+        assert payload["match_status"] == "skipped"
+        assert payload["match_reason"] == "model_did_not_search"
+        assert payload["candidates"] == []
 
     asyncio.run(run_test())
 
@@ -231,9 +283,18 @@ def test_hot_path_incremental_save_success(
             return {
                 "messages": [
                     *input_dict["messages"],
+                    *search_tool_messages_from_match(mock_match_result),
                     AIMessage(content="好的，已为您更新画像并开始匹配。"),
                 ]
             }
+
+        mock_match_result = MatchResult(
+            status="empty",
+            candidates=[],
+            query="test query",
+            group_id="g-inc-1",
+            reason="empty_pool",
+        )
 
         agent.ainvoke = AsyncMock(side_effect=invoke_with_save)
         state = AppState(agent=agent, base_dir=tmp_path)
@@ -245,20 +306,9 @@ def test_hot_path_incremental_save_success(
             envelopes.append(envelope_dict)
             return True
 
-        mock_match_result = MatchResult(
-            status="empty",
-            candidates=[],
-            query="test query",
-            group_id="g-inc-1",
-            reason="empty_pool",
-        )
-
         with patch(
             "apps.group_agent_api.app.async_manager.send_callback_event",
             side_effect=capture_callback,
-        ), patch(
-            "apps.group_agent_api.app.async_manager.run_match",
-            return_value=mock_match_result,
         ):
             await async_manager.execute_async_run(
                 req=_async_request(
@@ -290,11 +340,19 @@ def test_sync_chat_hot_path_allows_match_without_save(
     async def run_test() -> None:
         from apps.group_agent_api.app.endpoints.chat import chat
 
+        mock_match_result = MatchResult(
+            status="empty",
+            candidates=[],
+            query="test query",
+            group_id="g-sync-1",
+            reason="empty_pool",
+        )
         agent = MagicMock(spec=["ainvoke"])
         agent.ainvoke = AsyncMock(
             side_effect=lambda input_dict, config: {
                 "messages": [
                     *input_dict["messages"],
+                    *search_tool_messages_from_match(mock_match_result),
                     AIMessage(content="同步匹配回复。"),
                 ]
             }
@@ -310,20 +368,9 @@ def test_sync_chat_hot_path_allows_match_without_save(
         )
         sess = _session(user_id="u-sync-1", group_id="g-sync-1")
 
-        mock_match_result = MatchResult(
-            status="empty",
-            candidates=[],
-            query="test query",
-            group_id="g-sync-1",
-            reason="empty_pool",
-        )
-
         with patch(
             "apps.group_agent_api.app.endpoints.chat.resolve_trusted_session",
             AsyncMock(return_value=sess),
-        ), patch(
-            "apps.group_agent_api.app.endpoints.chat.run_match",
-            return_value=mock_match_result,
         ):
             resp = await chat(req=req, state=state)
 
@@ -343,11 +390,20 @@ def test_hot_path_save_tool_error_still_allows_match_using_existing_healthy_prof
     async def run_test() -> None:
         agent = MagicMock(spec=["ainvoke"])
 
+        mock_match_result = MatchResult(
+            status="empty",
+            candidates=[],
+            query="test query",
+            group_id="g-err-1",
+            reason="empty_pool",
+        )
+
         async def invoke_with_tool_error(input_dict: dict[str, Any], config: Any) -> dict[str, Any]:
-            # Model attempts save tool call, but tool returns error or fails to change disk file
+            # Save failed, but model still called search_candidates against the existing profile.
             return {
                 "messages": [
                     *input_dict["messages"],
+                    *search_tool_messages_from_match(mock_match_result),
                     AIMessage(content="尝试保存更新画像失败：error: validation_error"),
                 ]
             }
@@ -362,20 +418,9 @@ def test_hot_path_save_tool_error_still_allows_match_using_existing_healthy_prof
             envelopes.append(envelope_dict)
             return True
 
-        mock_match_result = MatchResult(
-            status="empty",
-            candidates=[],
-            query="test query",
-            group_id="g-err-1",
-            reason="empty_pool",
-        )
-
         with patch(
             "apps.group_agent_api.app.async_manager.send_callback_event",
             side_effect=capture_callback,
-        ), patch(
-            "apps.group_agent_api.app.async_manager.run_match",
-            return_value=mock_match_result,
         ):
             await async_manager.execute_async_run(
                 req=_async_request(

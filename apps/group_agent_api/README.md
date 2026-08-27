@@ -108,11 +108,8 @@ docker build -t group-agent-api:3adaae88 -f apps/group_agent_api/Dockerfile .
 ### 运行命令
 
 ```bash
-# 1. 运行 REQ-010 单元与 Fixture 测试 (126 passed)
-PYTHONPATH=. .venv/bin/pytest tests/test_group_agent_req010.py -v
-
-# 2. 运行本地 Docker 完整容器对话 Runner
-bash apps/group_agent_api/scripts/run_req010_e2e.sh
+# Current contract suite (brain as SUT + remaining unit tests)
+PYTHONPATH=. .venv/bin/pytest tests/test_group_agent_brain_sut_poc.py tests/test_group_agent_search_tool.py -v -m "not real_llm"
 ```
 
 ### Callback Simulator 与 Fail-Closed 保护
@@ -140,19 +137,17 @@ bash apps/group_agent_api/scripts/run_req010_e2e.sh
 ### 运行命令
 
 ```bash
-# 仅当显式 opt-in 时运行。密钥只从进程环境读取，脚本不会 echo 密钥值。
+# 仅当显式 opt-in 时运行。密钥只从进程环境读取，不要 echo 密钥值。
 export GROUP_AGENT_REAL_LLM_TEST=1
 export GROUP_AGENT_PROVIDER=qwen
-export GROUP_AGENT_MODEL=qwen-turbo
+export GROUP_AGENT_MODEL=qwen-plus
 export GROUP_AGENT_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-export DASHSCOPE_API_KEY="sk-..."
+# DASHSCOPE_API_KEY must already be in the environment
 
-bash apps/group_agent_api/scripts/run_req012_real_llm.sh
+PYTHONPATH=. .venv/bin/pytest tests/test_group_agent_brain_sut_poc.py::test_brain_sut_real_llm_full_conversation -v -s
 ```
 
-Runner 行为：仅当 `GROUP_AGENT_REAL_LLM_TEST=1` 时运行，否则 skip；用 `mktemp -d` 创建全新 runtime 并在退出时清理；
-显式设置 `GROUP_AGENT_MODEL_MODE=real / INTEGRATION=stub / ENV=test / TEST_LEVEL=L1`；对 membership / match / callback
-三个生产 HTTP client 设置「调用即失败」guard；退出码非 0 表示验收失败。
+Opt-in only: without `GROUP_AGENT_REAL_LLM_TEST=1` the test skips. Ear / hand / mouth stay faked; the live LLM is the only real network.
 
 ### 硬预算
 - Scenario 1 个 / 对话 3 轮；单轮 `GROUP_AGENT_MAX_TOKENS<=800`；单请求 timeout `<=60s`；整体 `<=240s`；最大真实 LLM 调用 `<=12`。

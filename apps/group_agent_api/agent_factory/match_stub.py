@@ -16,7 +16,8 @@ from apps.group_agent_api.agent_factory.disclosure import filter_member_for_visi
 from apps.group_agent_api.agent_factory.profile_schema import GroupProfile
 from apps.group_agent_api.agent_factory.profile_store import validate_id
 
-MatchStatus = Literal["matched", "weak", "empty"]
+# BSD-01 P0: empty = successful zero hits; rejected = contract/policy; error = transport/5xx.
+MatchStatus = Literal["matched", "weak", "empty", "rejected", "error"]
 MAX_CANDIDATES = 3
 WEAK_SCORE_THRESHOLD = 0.45
 

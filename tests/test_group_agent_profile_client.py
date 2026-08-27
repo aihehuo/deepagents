@@ -618,7 +618,7 @@ async def test_async_stale_ack_is_superseded_terminal_without_retry_or_match(
         stale_ack,
     )
     monkeypatch.setattr(
-        "apps.group_agent_api.app.async_manager.run_match",
+        "apps.group_agent_api.agent_factory.search_tool.match_backend.run_match",
         unexpected_match,
     )
 

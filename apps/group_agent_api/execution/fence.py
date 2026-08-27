@@ -132,11 +132,21 @@ class SideEffectFence:
             "attempt_id": self.claim.attempt_id,
             "lease_owner_digest": self.claim.lease_owner[:16],
         }
-        ok = await send(event_type, enriched)
+        try:
+            ok = await send(event_type, enriched)
+        except Exception:
+            # Mouth reject / transport raise before Micro seq commit — rewind so
+            # the same seq can be reused (TSD-14 §7.2 / BSD P1).
+            if event_type in {"final", "error"}:
+                self.seq = max(0, self.seq - 1)
+                self.final_callback_ok = None
+            raise
         if event_type in {"final", "error"}:
             if ok:
                 self._terminal_delivered = True
                 self.final_callback_ok = True
             else:
+                # Transport False: rewind local seq; Micro did not accept.
+                self.seq = max(0, self.seq - 1)
                 self.final_callback_ok = False
         return ok

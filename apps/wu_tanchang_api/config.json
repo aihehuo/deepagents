@@ -84,7 +84,7 @@
     "qwen": {
       "name": "阿里云通义千问 / 百炼 DashScope（中国内地）",
       "api_type": "openai-compatible",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "base_url": "https://llm-zjtv3rcipcojmvi6.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
       "api_key": "env:WU_DASHSCOPE_API_KEY",
       "default_model": "qwen-flash",
       "max_tokens": "env:WU_DASHSCOPE_MAX_TOKENS",
@@ -178,7 +178,7 @@
           "deprecated": true,
           "billing_description": "与 qwen-max 同价；请改用 qwen-max"
         },
-        "deepseek-v4-flash": {
+        "deepseek-v4-flash-0731": {
           "display_name": "DeepSeek V4 Flash (百炼第三方)",
           "context_length": 131072,
           "pricing": {

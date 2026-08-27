@@ -14,8 +14,10 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from apps.group_agent_api.agent_factory.agent import FORCE_SAVE_PROMPT, UC34Observer
 from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
-from apps.group_agent_api.agent_factory.invite_llm import generate_invite_with_optional_llm
-from apps.group_agent_api.agent_factory.invite_copy import should_emit_invite_artifact
+from apps.group_agent_api.agent_factory.invite import (
+    generate_invite_with_optional_llm,
+    should_emit_invite_artifact,
+)
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
@@ -383,8 +385,8 @@ async def chat(
                     determine_persistence_failure_reason,
                 )
 
-                from apps.group_agent_api.agent_factory.revisit import (
-                    known_match_system_content,
+                from apps.group_agent_api.agent_factory.context import (
+                    prior_recommendation_system_content,
                 )
 
                 turn_messages: list[Any] = []
@@ -396,7 +398,7 @@ async def chat(
                 if known is not None:
                     turn_messages.append(known)
                 _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
-                match_reminder = known_match_system_content(revisit_for_prompt)
+                match_reminder = prior_recommendation_system_content(revisit_for_prompt)
                 if match_reminder:
                     turn_messages.append(SystemMessage(content=match_reminder))
                 turn_messages.append(HumanMessage(content=req.message))
@@ -453,66 +455,76 @@ async def chat(
                     user_message=req.message,
                     reply=reply,
                 ):
-                    for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
-                        assert_attempts = attempt
-                        if _profile_was_superseded(messages, msg_count_before):
-                            profile_status_val = "superseded"
-                            profile_ok = False
-                            break
+                    from apps.group_agent_api.agent_factory.checks.force_save_retry import (
+                        force_save_retry_enabled,
+                    )
+                    from apps.group_agent_api.agent_factory.checks.deterministic_profile_save import (
+                        deterministic_profile_save_enabled,
+                    )
 
-                        usable, path = _profile_usable_this_turn(
-                            base_dir=state.base_dir,
-                            user_id=user_id,
-                            group_id=group_id,
-                            messages=messages,
-                            msg_count_before=msg_count_before,
-                            metadata=req.metadata or {},
-                        )
-                        if usable:
-                            profile_ok = True
-                            profile_path = path
-                            profile_status_val = "persisted"
-                            persist_alert = None
-                            break
+                    if force_save_retry_enabled():
+                        for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
+                            assert_attempts = attempt
+                            if _profile_was_superseded(messages, msg_count_before):
+                                profile_status_val = "superseded"
+                                profile_ok = False
+                                break
 
-                        if attempt >= MAX_PERSIST_ATTEMPTS:
-                            break
+                            usable, path = _profile_usable_this_turn(
+                                base_dir=state.base_dir,
+                                user_id=user_id,
+                                group_id=group_id,
+                                messages=messages,
+                                msg_count_before=msg_count_before,
+                                metadata=req.metadata or {},
+                            )
+                            if usable:
+                                profile_ok = True
+                                profile_path = path
+                                profile_status_val = "persisted"
+                                persist_alert = None
+                                break
 
-                        reason = persist_alert or (
-                            assertion.reason
-                            if not assertion.ok
-                            else "profile_stale_for_episode"
-                        )
-                        alert_persist_failure(
-                            user_id=user_id,
-                            group_id=group_id,
-                            attempt=attempt,
-                            reason=reason,
-                        )
-                        persist_alert = reason
-                        UC34Observer.warn(
-                            f"action=profile_assert_failed user_id={user_id} "
-                            f"group_id={group_id} attempt={attempt} "
-                            f"reason={reason}"
-                        )
+                            if attempt >= MAX_PERSIST_ATTEMPTS:
+                                break
 
-                        before_retry = len(messages)
-                        result = await agent.ainvoke(
-                            {"messages": [HumanMessage(content=FORCE_SAVE_PROMPT)]},
-                            config,
-                        )
-                        messages = result.get("messages", [])
-                        start_idx = before_retry if before_retry < len(messages) else 0
-                        retry_reply = _extract_reply(messages, start_idx)
-                        if retry_reply:
-                            reply = _merge_force_save_reply(reply, retry_reply)
+                            reason = persist_alert or (
+                                assertion.reason
+                                if not assertion.ok
+                                else "profile_stale_for_episode"
+                            )
+                            alert_persist_failure(
+                                user_id=user_id,
+                                group_id=group_id,
+                                attempt=attempt,
+                                reason=reason,
+                            )
+                            persist_alert = reason
+                            UC34Observer.warn(
+                                f"action=profile_assert_failed user_id={user_id} "
+                                f"group_id={group_id} attempt={attempt} "
+                                f"reason={reason}"
+                            )
+
+                            before_retry = len(messages)
+                            result = await agent.ainvoke(
+                                {"messages": [HumanMessage(content=FORCE_SAVE_PROMPT)]},
+                                config,
+                            )
+                            messages = result.get("messages", [])
+                            start_idx = before_retry if before_retry < len(messages) else 0
+                            retry_reply = _extract_reply(messages, start_idx)
+                            if retry_reply:
+                                reply = _merge_force_save_reply(reply, retry_reply)
 
                     if not profile_ok and profile_status_val != "superseded":
-                        fallback_attempted = await _attempt_deterministic_profile_save(
-                            message=req.message,
-                            config=config,
-                            messages=messages,
-                        )
+                        fallback_attempted = False
+                        if deterministic_profile_save_enabled():
+                            fallback_attempted = await _attempt_deterministic_profile_save(
+                                message=req.message,
+                                config=config,
+                                messages=messages,
+                            )
                         if fallback_attempted:
                             if _profile_was_superseded(messages, msg_count_before):
                                 profile_status_val = "superseded"
@@ -708,7 +720,9 @@ async def chat(
 
     out_candidates = invite_res.candidates if (req.run_invite and 'invite_res' in locals() and invite_res.candidates) else final_guarded.candidates
     if final_profile is not None and out_candidates:
-        from apps.group_agent_api.agent_factory.per_candidate_copy import enrich_candidates_with_single_copy
+        from apps.group_agent_api.agent_factory.invite import (
+            enrich_candidates_with_single_copy,
+        )
         out_candidates = enrich_candidates_with_single_copy(out_candidates, final_profile)
 
     visible_reply = final_guarded.reply

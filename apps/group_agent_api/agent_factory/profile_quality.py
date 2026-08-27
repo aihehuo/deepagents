@@ -417,10 +417,32 @@ def assess_profile_match_ready(
     base_dir: Path,
     metadata: dict[str, Any] | None = None,
 ) -> ProfileQuality:
-    """Full assess with Layer1 → Layer2, using fingerprint cache in match_gate.json."""
+    """Full assess with Layer1 → Layer2, using fingerprint cache in match_gate.json.
+
+    ``chk.profile_quality_llm`` off (or soft ``mod.brain.check`` off): skip Layer2
+    LLM after Layer1 passes — rules-only ready (TSD-14 §4.3).
+    """
     pre = assess_length_and_role(profile)
     if not pre.ready:
         return pre
+
+    from apps.group_agent_api.agent_factory.checks.profile_quality import (
+        profile_quality_llm_enabled,
+    )
+
+    if not profile_quality_llm_enabled():
+        _logger.info(
+            "action=module_span check_id=chk.profile_quality_llm skipped=True "
+            "reason=yaml_off_rules_only"
+        )
+        return ProfileQuality(
+            ready=True,
+            score=max(int(pre.score or 0), 70),
+            gaps=[],
+            reasons=["profile_quality_llm_skipped"],
+            layer_failed=None,
+            source="rules",
+        )
 
     fp = profile_fingerprint(profile)
     path = disk_match_gate_path(base_dir, profile.user_id, profile.group_id)

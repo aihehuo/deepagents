@@ -66,6 +66,11 @@ def test_default_yaml_enables_b1_checks() -> None:
     assert cfg.is_check_enabled(FINALIZE_TEMPLATES_ID) is True
     assert cfg.is_check_enabled("chk.capability_guard") is True
     assert cfg.is_check_enabled("chk.invite_llm_polish") is True
+    assert cfg.is_check_enabled("chk.profile_quality_llm") is True
+    assert cfg.is_check_enabled("chk.force_save_retry") is True
+    assert cfg.is_check_enabled("chk.deterministic_profile_save") is True
+    assert cfg.is_check_enabled("chk.match_v2_schema") is True
+    assert cfg.brain_check_master_enabled() is True
     assert finalize_templates_enabled() is True
 
 
@@ -346,3 +351,167 @@ def test_smoke_reply_grounding_and_mouth_ingress_import() -> None:
     assert callable(check_reply_grounding)
     assert callable(apply_mouth_repair)
     assert callable(format_ingress_deny)
+
+
+def test_profile_quality_llm_off_skips_second_llm(tmp_path: Path) -> None:
+    """Off = Layer1 rules only; length-ok profile ready without invoking model."""
+    from apps.group_agent_api.agent_factory.checks.profile_quality import (
+        CHECK_ID as PQ_ID,
+    )
+    from apps.group_agent_api.agent_factory.profile_quality import (
+        assess_profile_match_ready,
+    )
+
+    yaml_path = _write_checks_yaml(
+        tmp_path / "pq_off.yaml",
+        **{PQ_ID: False},
+    )
+    reload_modules_config(yaml_path)
+
+    class _MustNotCall:
+        def invoke(self, _msgs):  # pragma: no cover
+            raise AssertionError("Layer2 LLM must not run when chk off")
+
+    profile = profile_from_flat(
+        user_id="u1",
+        group_id="g1",
+        doing="在做智能宠物喂食器硬件与 App",
+        need="需要联网固件与量产供应链对接",
+        offer="有工厂资源和硬件设计经验",
+    )
+    q = assess_profile_match_ready(
+        profile=profile,
+        model=_MustNotCall(),
+        base_dir=tmp_path,
+    )
+    assert q.ready is True
+    assert q.source == "rules"
+    assert "profile_quality_llm_skipped" in q.reasons
+
+
+def test_profile_quality_llm_on_calls_model(tmp_path: Path) -> None:
+    from apps.group_agent_api.agent_factory.checks.profile_quality import (
+        CHECK_ID as PQ_ID,
+    )
+    from apps.group_agent_api.agent_factory.profile_quality import (
+        assess_profile_match_ready,
+    )
+
+    yaml_path = _write_checks_yaml(
+        tmp_path / "pq_on.yaml",
+        **{PQ_ID: True},
+    )
+    reload_modules_config(yaml_path)
+
+    class _ReadyModel:
+        def invoke(self, _msgs):
+            class _M:
+                content = (
+                    '{"ready":true,"score":80,"doing_ok":true,"need_ok":true,'
+                    '"offer_ok":true,"reasons":[],"gaps":[]}'
+                )
+
+            return _M()
+
+    profile = profile_from_flat(
+        user_id="u1",
+        group_id="g1",
+        doing="在做智能宠物喂食器硬件与 App",
+        need="需要联网固件与量产供应链对接",
+        offer="有工厂资源和硬件设计经验",
+    )
+    q = assess_profile_match_ready(
+        profile=profile,
+        model=_ReadyModel(),
+        base_dir=tmp_path,
+    )
+    assert q.ready is True
+    assert q.source == "llm"
+
+
+def test_soft_master_off_skips_profile_quality_not_capability(
+    tmp_path: Path,
+) -> None:
+    from apps.group_agent_api.agent_factory.capability import CapabilityTier
+    from apps.group_agent_api.agent_factory.checks.profile_quality import (
+        CHECK_ID as PQ_ID,
+        profile_quality_llm_enabled,
+    )
+    from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
+
+    lines = [
+        "version: 1",
+        "preset: current",
+        "checks:",
+        f"  {PQ_ID}: true",
+        "  chk.capability_guard: true",
+        "  chk.force_save_retry: true",
+        "modules:",
+        "  mod.brain.check: false",
+        "  mod.brain.reply_grounding: false",
+        "",
+    ]
+    yaml_path = tmp_path / "soft_master_off.yaml"
+    yaml_path.write_text("\n".join(lines), encoding="utf-8")
+    reload_modules_config(yaml_path)
+
+    assert profile_quality_llm_enabled() is False
+    assert load_modules_config().is_check_enabled("chk.force_save_retry") is True
+
+    leak_reply = "群里有人可以推荐，@张三 值得认识"
+    guarded = enforce_capability_guard(
+        tier=CapabilityTier.not_in_group,
+        reply=leak_reply,
+        candidates=[{"user_id": "c1"}],
+        caller_group_id="g1",
+        user_id="u1",
+    )
+    assert guarded.blocked is True
+
+
+def test_force_save_and_deterministic_default_on_when_missing(
+    tmp_path: Path,
+) -> None:
+    from apps.group_agent_api.agent_factory.checks.deterministic_profile_save import (
+        deterministic_profile_save_enabled,
+    )
+    from apps.group_agent_api.agent_factory.checks.force_save_retry import (
+        force_save_retry_enabled,
+    )
+    from apps.group_agent_api.agent_factory.checks.match_v2_schema import (
+        match_v2_schema_enabled,
+    )
+
+    yaml_path = _write_checks_yaml(tmp_path / "hard_missing.yaml")
+    reload_modules_config(yaml_path)
+    assert force_save_retry_enabled() is True
+    assert deterministic_profile_save_enabled() is True
+    assert match_v2_schema_enabled() is True
+
+
+def test_force_save_retry_yaml_off(tmp_path: Path) -> None:
+    from apps.group_agent_api.agent_factory.checks.force_save_retry import (
+        CHECK_ID as FS_ID,
+        force_save_retry_enabled,
+    )
+
+    yaml_path = _write_checks_yaml(
+        tmp_path / "fs_off.yaml",
+        **{FS_ID: False},
+    )
+    reload_modules_config(yaml_path)
+    assert force_save_retry_enabled() is False
+
+
+def test_deterministic_profile_save_yaml_off(tmp_path: Path) -> None:
+    from apps.group_agent_api.agent_factory.checks.deterministic_profile_save import (
+        CHECK_ID as DET_ID,
+        deterministic_profile_save_enabled,
+    )
+
+    yaml_path = _write_checks_yaml(
+        tmp_path / "det_off.yaml",
+        **{DET_ID: False},
+    )
+    reload_modules_config(yaml_path)
+    assert deterministic_profile_save_enabled() is False

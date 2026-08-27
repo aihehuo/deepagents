@@ -206,19 +206,29 @@ def fetch_group_agent_match(
                     candidate["match_evidence"] = item.get("match_evidence", [])
                     candidate["connection"] = item.get("connection", {"type": "admin_referral", "available": True})
                     candidate["shared_group"] = item.get("shared_group")
-                    try:
-                        # This is the trust boundary for new_api.  Do not pass a
-                        # merely non-empty fact/evidence array downstream: every
-                        # item must satisfy the exact Micro consumer contract.
-                        candidate = CandidateV2.model_validate(candidate).model_dump(
-                            mode="json",
-                            exclude_none=True,
+                    from apps.group_agent_api.agent_factory.checks.match_v2_schema import (
+                        match_v2_schema_enabled,
+                    )
+
+                    if match_v2_schema_enabled():
+                        try:
+                            # Trust boundary for new_api — every item must satisfy
+                            # the exact Micro consumer contract (chk.match_v2_schema).
+                            candidate = CandidateV2.model_validate(candidate).model_dump(
+                                mode="json",
+                                exclude_none=True,
+                            )
+                        except ValidationError:
+                            _logger.warning(
+                                "action=match_v2_candidate_rejected "
+                                "reason=invalid_grounding_contract"
+                            )
+                            continue
+                    else:
+                        _logger.info(
+                            "action=module_span check_id=chk.match_v2_schema "
+                            "skipped=True reason=yaml_off"
                         )
-                    except ValidationError:
-                        _logger.warning(
-                            "action=match_v2_candidate_rejected reason=invalid_grounding_contract"
-                        )
-                        continue
                 candidates.append(candidate)
 
     reason = str(data.get("reason") or "")

@@ -25,6 +25,19 @@ _cached: ModulesConfig | None = None
 _cached_path: Path | None = None
 
 
+# Soft brain checks: also require ``mod.brain.check`` master (absent → on).
+# Hard / invite / RG checks are NOT listed — capability_guard, force_save,
+# deterministic, match_v2_schema, invite_*, reply_fact_grounding_llm ignore master.
+_SOFT_BRAIN_CHECK_IDS = frozenset(
+    {
+        "chk.profile_quality_llm",
+        "chk.action_claim",
+        "chk.invented_candidate",
+        "chk.finalize_templates",
+    }
+)
+
+
 @dataclass(frozen=True)
 class ModulesConfig:
     version: int
@@ -42,8 +55,27 @@ class ModulesConfig:
     def is_module_enabled(self, module_id: str) -> bool:
         return bool(self.modules.get(module_id, False))
 
+    def is_context_enabled(self, context_id: str) -> bool:
+        """Context fragment switch. Missing key → True (preset current / fail-open)."""
+        cid = str(context_id or "").strip()
+        if not cid:
+            return False
+        if cid not in self.context:
+            return True
+        return bool(self.context.get(cid, False))
+
+    def brain_check_master_enabled(self) -> bool:
+        """``mod.brain.check`` soft-master. Missing key → True (current preset)."""
+        if "mod.brain.check" not in self.modules:
+            return True
+        return bool(self.modules["mod.brain.check"])
+
     def is_check_enabled(self, check_id: str) -> bool:
-        return bool(self.checks.get(check_id, False))
+        if not bool(self.checks.get(check_id, False)):
+            return False
+        if check_id in _SOFT_BRAIN_CHECK_IDS and not self.brain_check_master_enabled():
+            return False
+        return True
 
     def reply_grounding_enabled(self) -> bool:
         """Module switch is authoritative; check id mirrors it when both set."""
@@ -69,6 +101,20 @@ class ModulesConfig:
 
     def profile_pool_enabled(self) -> bool:
         return self.is_module_enabled("mod.brain.profile_pool")
+
+    def invite_copy_enabled(self) -> bool:
+        """Missing key → on (preserve today's always-on invite path)."""
+        if "mod.brain.invite_copy" not in self.modules:
+            return True
+        return self.is_module_enabled("mod.brain.invite_copy")
+
+    def invite_scaffold_enabled(self) -> bool:
+        """Module on and ``chk.invite_scaffold`` (missing check → on)."""
+        if not self.invite_copy_enabled():
+            return False
+        if "chk.invite_scaffold" not in self.checks:
+            return True
+        return self.is_check_enabled("chk.invite_scaffold")
 
     def search_relax_max_levels(self) -> int:
         """Inclusive level count from 0 (default 2 → L0 + L1). Min 1 = single-shot."""
@@ -137,6 +183,18 @@ def search_relax_enabled() -> bool:
 
 def profile_pool_enabled() -> bool:
     return load_modules_config().profile_pool_enabled()
+
+
+def invite_copy_enabled() -> bool:
+    return load_modules_config().invite_copy_enabled()
+
+
+def invite_scaffold_enabled() -> bool:
+    return load_modules_config().invite_scaffold_enabled()
+
+
+def brain_check_master_enabled() -> bool:
+    return load_modules_config().brain_check_master_enabled()
 
 
 def search_relax_max_levels() -> int:

@@ -9,7 +9,16 @@ preset: current
 
 context:
   ctx.system.role_and_goal: true
+  ctx.system.advisor_tone: true
+  ctx.system.search_tool: true
+  ctx.system.wechat_style: true
+  ctx.system.persist_rules: true
   ctx.system.network_donts: true
+  ctx.system.suggested_replies: true
+  ctx.turn.known_profile: true
+  ctx.turn.prior_recommendation: true
+  ctx.turn.referral: true
+  ctx.force_save_prompt: true
 
 checks:
   # When mod.brain.reply_grounding is on, action_claim silent-replace is skipped
@@ -23,8 +32,21 @@ checks:
   chk.invite_scaffold: true
   # Authority for invite LLM polish. Explicit GROUP_AGENT_LLM_POLISH ENV overrides.
   chk.invite_llm_polish: true
+  # Soft: Layer-2 profile richness LLM. Off = Layer-1 rules only (TSD §4.3).
+  chk.profile_quality_llm: true
+  # Hard persistence rescues (fail-closed default on; not soft under mod.brain.check).
+  chk.force_save_retry: true
+  chk.deterministic_profile_save: true
+  # Hard v2 candidate contract validate in match_client. Off = debug only.
+  chk.match_v2_schema: true
 
 modules:
+  # System / turn prompt fragments (TSD-14 §4.2). Default on ≡ today's prompt.
+  mod.brain.context: true
+  # Soft chk.* aggregation (profile_quality / action_claim / invented /
+  # finalize_templates). Off skips those soft checks only — NOT capability_guard,
+  # force_save, deterministic, match_v2, invite_*, or reply_grounding.
+  mod.brain.check: true
   # Semantic reply-vs-candidate-facts gate (TSD-14 §4.6). Default on.
   mod.brain.reply_grounding: true
   # Multi-level search (TSD-14 §8.12). Default off ≡ today's single-shot.
@@ -35,6 +57,10 @@ modules:
   # Precedence: model-supplied known pool wins; omitted → Module default;
   # agent_profiles while off → fall back all_reachable + profile_pool_hook audit.
   mod.brain.profile_pool: false
+  # Invite scaffold + optional polish + per-candidate copy (TSD-14 §4.4).
+  # Default on ≡ today's always-on path. Off → empty invite_text / no enrich.
+  # Sub-flags: chk.invite_scaffold, chk.invite_llm_polish.
+  mod.brain.invite_copy: true
 
 reply_grounding:
   # Includes the first check (TSD-14 §4.6.4).

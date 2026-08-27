@@ -5,14 +5,16 @@
 五要素 / 零@ 用后处理断言，缺则告警重试，不靠模型自觉。
 
 ---
-mod.brain.invite_copy hang points:
+mod.brain.invite_copy hang points (YAML Module facade: ``agent_factory.invite``):
 
-| check id | hang | gate today |
+| check / module id | hang | gate |
 |---|---|---|
-| ``chk.invite_scaffold`` | ``generate_invite_copy`` via ``invite_llm.generate_invite_with_optional_llm`` when ``should_emit_invite_artifact`` | match/candidates/`run_invite` (hard when path runs) |
-| ``chk.invite_llm_polish`` | ``invite_llm.generate_invite_with_optional_llm`` | YAML ``chk.invite_llm_polish`` via ``integrations.config.llm_polish_enabled``; explicit ``GROUP_AGENT_LLM_POLISH`` ENV overrides YAML when set |
+| ``mod.brain.invite_copy`` | master; off → empty invite + no per-candidate enrich | YAML default on |
+| ``chk.invite_scaffold`` | ``invite.generate_invite_with_optional_llm`` / ``should_emit_invite_artifact`` | YAML; requires Module on |
+| ``chk.invite_llm_polish`` | polish inside ``invite_llm.generate_invite_with_optional_llm`` | YAML via ``llm_polish_enabled``; ENV override |
 
-Orchestrator callers: ``app/endpoints/chat.py``, ``app/async_manager.py``, ``app/endpoints/invite.py``.
+Orchestrator callers: ``app/endpoints/chat.py``, ``app/async_manager.py``, ``app/endpoints/invite.py``
+(import Module facade, not raw invite_llm / per_candidate_copy).
 """
 
 from __future__ import annotations

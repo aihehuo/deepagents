@@ -13,7 +13,7 @@ from apps.group_agent_api.agent_factory.integrations.group_bind import (
     align_match_to_trusted_group,
 )
 from apps.group_agent_api.agent_factory.integrations.match_backend import run_match
-from apps.group_agent_api.agent_factory.invite_llm import generate_invite_with_optional_llm
+from apps.group_agent_api.agent_factory.invite import generate_invite_with_optional_llm
 from apps.group_agent_api.agent_factory.match_stub import build_query_from_profile
 from apps.group_agent_api.agent_factory.profile_store import load_profile
 from apps.group_agent_api.app.models import InviteRequest, InviteResponse
@@ -113,7 +113,9 @@ async def invite(
 
     out_candidates = invite_res.candidates or candidates
     if profile is not None and out_candidates:
-        from apps.group_agent_api.agent_factory.per_candidate_copy import enrich_candidates_with_single_copy
+        from apps.group_agent_api.agent_factory.invite import (
+            enrich_candidates_with_single_copy,
+        )
         out_candidates = enrich_candidates_with_single_copy(out_candidates, profile)
 
     return InviteResponse(

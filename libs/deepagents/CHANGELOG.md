@@ -2,6 +2,54 @@
 
 # Deep Agents Changelog
 
+## [0.6.11](https://github.com/aihehuo/deepagents/compare/deepagents==0.6.10...deepagents==0.6.11) (2026-08-28)
+
+
+### Features
+
+* block calling kb_analyst subagent after material delivery and allow parent agent to run normally ([7ba0488](https://github.com/aihehuo/deepagents/commit/7ba04888831d015d9920fb840fb39dcc52f02260))
+* **code:** log configured and loaded skills for debugging ([f4bd443](https://github.com/aihehuo/deepagents/commit/f4bd443e86f08c462467d3256088812527d78013))
+* **group_agent_api:** REQ-005..010 group agent API, async callbacks, deploy examples ([9dfdb7b](https://github.com/aihehuo/deepagents/commit/9dfdb7bdd673bec6969cc6f0cf9b846529c63750))
+* **sdk:** `RubricMiddleware` for self-evaluated agent iteration ([#3529](https://github.com/aihehuo/deepagents/issues/3529)) ([5b8d44d](https://github.com/aihehuo/deepagents/commit/5b8d44d65c6ec43084687019cf00a37d730ac2fa))
+* **sdk:** add interrupt mode to filesystem permissions ([#3505](https://github.com/aihehuo/deepagents/issues/3505)) ([a090162](https://github.com/aihehuo/deepagents/commit/a090162ea9fd950c54fac874b8a165ca770fd2dc))
+* **sdk:** allow passing `state_schema` in `create_deep_agent` ([#3642](https://github.com/aihehuo/deepagents/issues/3642)) ([37839bd](https://github.com/aihehuo/deepagents/commit/37839bd7d67fba8c11ff0ccaaa8ac92b39609450))
+* **sdk:** read `owner_name` dynamically from workspace `owner.json` ([b931c68](https://github.com/aihehuo/deepagents/commit/b931c685c8abc0e4e6539bdb92717bc53df1f784))
+* **sdk:** support configurable subagent response format ([#3882](https://github.com/aihehuo/deepagents/issues/3882)) ([b0e4d7a](https://github.com/aihehuo/deepagents/commit/b0e4d7aa8d0ad58c65bddef3835e539b3d5b2a99))
+* **sdk:** surface subagents via inherited `lc_agent_name` projection ([e0a1ed2](https://github.com/aihehuo/deepagents/commit/e0a1ed24e6b44c31d0aac3358aeee0d6cb66b2c4))
+* **wu_tanchang:** add per-LLM-call latency observability ([8989fc4](https://github.com/aihehuo/deepagents/commit/8989fc4d3fefded1fca499c0b99a7282551e6bab))
+
+
+### Bug Fixes
+
+* **apps:** restore local agent live runs ([ec894f6](https://github.com/aihehuo/deepagents/commit/ec894f62d35238f596a07e0bf6c35ca0f174796f))
+* **examples:** reset `AccountantMiddleware` tool budget per turn ([b939a32](https://github.com/aihehuo/deepagents/commit/b939a32a88744c24fa96b2899dce3bc43901dc52))
+* **sdk,code:** rename trace version metadata to `lc_versions` ([#3928](https://github.com/aihehuo/deepagents/issues/3928)) ([27f38c5](https://github.com/aihehuo/deepagents/commit/27f38c51f960941e102dfc2f9c0220bc16736749))
+* **sdk:** add reducer for accountant_turn_id to support concurrent tool calls ([8e47b12](https://github.com/aihehuo/deepagents/commit/8e47b1274a61fe3f50bb932e3fe12e9d41ad5fce))
+* **sdk:** align `glob` path default with `grep` ([#3666](https://github.com/aihehuo/deepagents/issues/3666)) ([ece8e75](https://github.com/aihehuo/deepagents/commit/ece8e752059f493254753194bcf59befe54b3556))
+* **sdk:** compare provider in `model_matches_spec` ([#3943](https://github.com/aihehuo/deepagents/issues/3943)) ([34244b6](https://github.com/aihehuo/deepagents/commit/34244b6aebde4c237758dacedccdc3e22f3ca8e5))
+* **sdk:** don't swallow `TypeError` from custom `token_counter` ([#3927](https://github.com/aihehuo/deepagents/issues/3927)) ([a6ec9d0](https://github.com/aihehuo/deepagents/commit/a6ec9d0e797a8b8a7d53d7debb197bb25e80be41))
+* **sdk:** export `DeepAgentState` ([#3653](https://github.com/aihehuo/deepagents/issues/3653)) ([14a9047](https://github.com/aihehuo/deepagents/commit/14a904757c2d9d797945b6ea1bc9529f1f8cf369))
+* **sdk:** guard empty binary reads with empty-content warning ([#3675](https://github.com/aihehuo/deepagents/issues/3675)) ([2c2cec8](https://github.com/aihehuo/deepagents/commit/2c2cec87476f06e32c7b09cedd2c44e0c713f147))
+* **sdk:** handle `Overwrite`-wrapped messages in tool result interception ([#3905](https://github.com/aihehuo/deepagents/issues/3905)) ([a043c5a](https://github.com/aihehuo/deepagents/commit/a043c5a6717374c405a3ed740cfdafdd196f5f21))
+* **sdk:** handle base64 reads with unknown file extensions ([#3663](https://github.com/aihehuo/deepagents/issues/3663)) ([9857a08](https://github.com/aihehuo/deepagents/commit/9857a08b6144b2f001d8f4bf03ac2f254c6b2da4))
+* **sdk:** keep private state out of subagent propagation ([#3542](https://github.com/aihehuo/deepagents/issues/3542)) ([7ff9553](https://github.com/aihehuo/deepagents/commit/7ff9553fc057a682ba503ebfe9a870adb51ab848))
+* **sdk:** make sync glob timeout bound wall-clock time ([#3866](https://github.com/aihehuo/deepagents/issues/3866)) ([cba6caf](https://github.com/aihehuo/deepagents/commit/cba6caf8f708133381506ecc9e217e7e3ca1c7f2))
+* **sdk:** normalize read slices after windowing ([#3888](https://github.com/aihehuo/deepagents/issues/3888)) ([33d900c](https://github.com/aihehuo/deepagents/commit/33d900c98b686aa7e7782d0be3019010ced5f03a))
+* **sdk:** pass through summarization factory prompt knobs ([#3559](https://github.com/aihehuo/deepagents/issues/3559)) ([a663cad](https://github.com/aihehuo/deepagents/commit/a663cad8858a78a5d063af0c51bb789bfb1aba2b))
+* **sdk:** propagate goto and graph in Commands returned by tools ([#3391](https://github.com/aihehuo/deepagents/issues/3391)) ([d92aef6](https://github.com/aihehuo/deepagents/commit/d92aef68f70a5e5277c43a50581e7895e682c417))
+* **sdk:** route `BaseSandbox async` helpers through aexecute ([#3996](https://github.com/aihehuo/deepagents/issues/3996)) ([52dcf1a](https://github.com/aihehuo/deepagents/commit/52dcf1a42cb00dd614b336038e4398472f78859d))
+* **sdk:** stream Python grep fallback ([#3886](https://github.com/aihehuo/deepagents/issues/3886)) ([3673d95](https://github.com/aihehuo/deepagents/commit/3673d95d41aa00f03fbfe2083e46afa485800f3a))
+* **sdk:** support `allowed_symlink_roots` in `FilesystemBackend` under virtual mode ([2c13049](https://github.com/aihehuo/deepagents/commit/2c130496e3b802a9c43da7c02fc8d217562e2e69))
+* **sdk:** surface missing path errors in `FilesystemBackend.ls` ([#3574](https://github.com/aihehuo/deepagents/issues/3574)) ([4c28760](https://github.com/aihehuo/deepagents/commit/4c28760abbbe43117f2118793f11ff9d4f71761e))
+* **sdk:** timeout python grep fallback ([#1937](https://github.com/aihehuo/deepagents/issues/1937)) ([665a18e](https://github.com/aihehuo/deepagents/commit/665a18e7fe7f291319af6780328384cc658af899))
+
+
+### Performance Improvements
+
+* **sdk:** cache filesystem system prompts ([#3889](https://github.com/aihehuo/deepagents/issues/3889)) ([2f432ba](https://github.com/aihehuo/deepagents/commit/2f432ba63687d7c8488d5d41d0551d02b4ae00b4))
+* **sdk:** cache grep glob matchers ([#3887](https://github.com/aihehuo/deepagents/issues/3887)) ([eae3cf1](https://github.com/aihehuo/deepagents/commit/eae3cf148de3f8c8ee9ffd8af6e5a5e06cce9d6f))
+* **sdk:** count tokens once per model call in summarization middleware ([#3877](https://github.com/aihehuo/deepagents/issues/3877)) ([6558c8c](https://github.com/aihehuo/deepagents/commit/6558c8ca3d8e10e3309f95c807e740914af3175f))
+
 ## [0.6.10](https://github.com/langchain-ai/deepagents/compare/deepagents==0.6.9...deepagents==0.6.10) (2026-06-13)
 
 ### Bug Fixes

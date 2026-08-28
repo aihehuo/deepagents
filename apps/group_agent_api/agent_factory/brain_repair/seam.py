@@ -11,6 +11,7 @@ import logging
 from typing import Any, Awaitable, Callable, Literal
 
 from apps.group_agent_api.agent_factory.brain_repair.reject import MouthIngressRejected
+from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
 from apps.group_agent_api.agent_factory.ingress_repair import (
     MOUTH_INGRESS_MAX_ATTEMPTS,
     apply_mouth_repair,
@@ -93,6 +94,22 @@ async def emit_final_with_mouth_repair(
                 exc.reason_code,
                 exc.repairable_by,
             )
+            record_decision_point(
+                phase="ingress_mouth",
+                detail={
+                    "status": "rejected",
+                    "attempts": mouth_attempt,
+                    "max_attempts": max_attempts,
+                    "reason_code": exc.reason_code,
+                    "repairable_by": exc.repairable_by,
+                    "action": decide_mouth_repair_action(
+                        reject=exc,
+                        attempt=mouth_attempt,
+                        max_attempts=max_attempts,
+                    ),
+                },
+                run_id=run_id,
+            )
             if decide_mouth_repair_action(
                 reject=exc,
                 attempt=mouth_attempt,
@@ -108,5 +125,29 @@ async def emit_final_with_mouth_repair(
             )
             continue
         if final_ok is False:
+            record_decision_point(
+                phase="ingress_mouth",
+                detail={
+                    "status": "failed",
+                    "attempts": mouth_attempt,
+                    "reason": "final_callback_failed",
+                },
+                run_id=run_id,
+            )
             raise RuntimeError("final_callback_failed")
+
+        record_decision_point(
+            phase="ingress_mouth",
+            detail={
+                "status": "delivered",
+                "attempts": mouth_attempt,
+                "repaired": mouth_attempt > 1,
+                "delivery_kind": current_final.get("delivery_kind"),
+                "reply_mode": current_final.get("reply_mode"),
+                "candidates_count": len(current_final.get("candidates") or []),
+                "profile_status": current_final.get("profile_status"),
+                "match_status": current_final.get("match_status"),
+            },
+            run_id=run_id,
+        )
         return True

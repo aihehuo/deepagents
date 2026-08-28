@@ -22,6 +22,7 @@ from apps.group_agent_api.agent_factory.content_quality import (
     is_need_shaped_doing,
     is_preference_shaped_offer,
 )
+from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
 from apps.group_agent_api.agent_factory.integrations.config import integration_mode
 from apps.group_agent_api.agent_factory.integrations.profile_client import (
     ProfileHttpError,
@@ -175,6 +176,29 @@ def save_group_profile(
                         parsed_constraints.append(parsed_c)
                     except Exception as c_exc:
                         return f"error: invalid_match_constraint:{c_exc}"
+
+        if parsed_constraints:
+            hard_constraints = [
+                c.model_dump(mode="json")
+                for c in parsed_constraints
+                if getattr(c, "strength", "") == "hard"
+            ]
+            soft_constraints = [
+                c.model_dump(mode="json")
+                for c in parsed_constraints
+                if getattr(c, "strength", "") != "hard"
+            ]
+            record_decision_point(
+                phase="constraint_extraction",
+                detail={
+                    "source": "save_group_profile",
+                    "hard_constraints": hard_constraints,
+                    "soft_constraints": soft_constraints,
+                    "total_count": len(parsed_constraints),
+                },
+                run_id=run_id,
+                thread_id=str(metadata.get("thread_id") or ""),
+            )
 
         # REQ-032-FIX3: atomic fencing commit at write boundary
         from apps.group_agent_api.execution.active_fence import (

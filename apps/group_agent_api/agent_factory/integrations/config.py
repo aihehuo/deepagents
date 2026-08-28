@@ -279,7 +279,11 @@ def profile_v2_enabled() -> bool:
 
 def v2_canary_enabled() -> bool:
     """True when v2 canary is enabled (REQ-XCUT-004)."""
-    raw = (os.environ.get("GROUP_AGENT_V2_CANARY_ENABLED") or "0").strip().lower()
+    raw = (
+        os.environ.get("GROUP_AGENT_V2_CANARY_ENABLED")
+        or os.environ.get("GROUP_AGENT_V2_CANARY")
+        or "0"
+    ).strip().lower()
     return raw in {"1", "true", "yes", "on"}
 
 
@@ -304,13 +308,13 @@ def v2_user_allowlist() -> set[int]:
     return result
 
 
-def v2_enabled_for_user(user_id: int | str) -> bool:
-    """Evaluate whether v2 is enabled for a specific user ID."""
+def is_canary_user(user_id: int | str | None) -> bool:
+    """Check if user_id is in canary allowlist (user 1 allowed by default when canary on)."""
     if v2_force_off():
         return False
-    if not (grounded_final_enabled() and match_v2_enabled()):
-        return False
     if not v2_canary_enabled():
+        return False
+    if user_id is None:
         return False
     try:
         uid = int(str(user_id).strip())
@@ -318,4 +322,36 @@ def v2_enabled_for_user(user_id: int | str) -> bool:
             return False
     except (ValueError, TypeError):
         return False
-    return uid in v2_user_allowlist()
+
+    allowlist = v2_user_allowlist()
+    if allowlist:
+        return uid in allowlist
+    # Default canary user when GROUP_AGENT_V2_CANARY is enabled but allowlist ENV is empty
+    return uid == 1
+
+
+def v2_enabled_for_user(user_id: int | str) -> bool:
+    """Evaluate whether v2 is enabled for a specific user ID."""
+    if not is_canary_user(user_id):
+        return False
+    if not (grounded_final_enabled() and match_v2_enabled()):
+        return False
+    return True
+
+
+def search_relax_enabled_for_user(user_id: int | str | None = None) -> bool:
+    """Evaluate whether search_relax is enabled (YAML on or user in canary allowlist)."""
+    from apps.group_agent_api.agent_factory.module_config import (
+        search_relax_enabled_for_user as _yaml_search_relax_for_user,
+    )
+
+    return _yaml_search_relax_for_user(user_id)
+
+
+def profile_pool_enabled_for_user(user_id: int | str | None = None) -> bool:
+    """Evaluate whether profile_pool is enabled (YAML on or user in canary allowlist)."""
+    from apps.group_agent_api.agent_factory.module_config import (
+        profile_pool_enabled_for_user as _yaml_profile_pool_for_user,
+    )
+
+    return _yaml_profile_pool_for_user(user_id)

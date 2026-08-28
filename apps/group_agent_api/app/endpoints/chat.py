@@ -33,6 +33,19 @@ from apps.group_agent_api.agent_factory.profile_store import (
 from apps.group_agent_api.agent_factory.revisit import (
     parse_revisit_from_metadata,
 )
+from apps.group_agent_api.agent_factory.debug_trace import (
+    debug_trace_enabled,
+    end_decision_trace,
+    record_decision_point,
+    start_decision_trace,
+    write_turn_trace,
+)
+from apps.group_agent_api.agent_factory.module_config import (
+    reply_grounding_enabled_for_user,
+    search_relax_enabled,
+    search_relax_enabled_for_user,
+)
+from apps.group_agent_api.agent_factory.search_relax import search_relax_system_addon
 from apps.group_agent_api.agent_factory.suggested_replies import (
     extract_suggested_replies,
 )
@@ -356,6 +369,7 @@ async def chat(
     profile_status_val = "failed"
     persistence_failure_reason: str | None = None
 
+    _trace_buf, _trace_token = start_decision_trace()
     try:
         async with lock:
             try:
@@ -401,6 +415,12 @@ async def chat(
                 match_reminder = prior_recommendation_system_content(revisit_for_prompt)
                 if match_reminder:
                     turn_messages.append(SystemMessage(content=match_reminder))
+
+                if search_relax_enabled_for_user(user_id) and not search_relax_enabled():
+                    relax_addon = search_relax_system_addon(user_id=user_id)
+                    if relax_addon:
+                        turn_messages.append(SystemMessage(content=relax_addon))
+
                 turn_messages.append(HumanMessage(content=req.message))
                 result = await agent.ainvoke(
                     {"messages": turn_messages},
@@ -725,25 +745,48 @@ async def chat(
         )
         out_candidates = enrich_candidates_with_single_copy(out_candidates, final_profile)
 
-    visible_reply = final_guarded.reply
-    from apps.group_agent_api.agent_factory.integrations.config import (
-        reply_grounding_enabled,
+    if search_turn.called and out_candidates and match_status == "matched":
+        reply_mode = "recommendation"
+    elif search_turn.called and match_status in {"empty", "weak"}:
+        reply_mode = "no_match"
+    elif saved_this_turn and profile_ok:
+        reply_mode = "profile_confirmation"
+    else:
+        reply_mode = "dialogue"
+
+    is_clarifying = looks_like_profile_bearing_message(req.message) is False and (
+        "？" in guarded.reply or "?" in guarded.reply
+    )
+    if search_turn.called:
+        intent_route = "search"
+    elif saved_this_turn and profile_ok:
+        intent_route = "profile_save"
+    elif is_clarifying:
+        intent_route = "clarification"
+    else:
+        intent_route = "chit_chat"
+
+    record_decision_point(
+        phase="intent_route",
+        detail={
+            "route": intent_route,
+            "reply_mode": reply_mode,
+            "search_called": search_turn.called,
+            "profile_saved_this_turn": saved_this_turn,
+            "profile_persisted": profile_ok,
+            "is_clarification": is_clarifying,
+            "user_message": req.message[:100],
+        },
+        thread_id=tid,
     )
 
-    if reply_grounding_enabled():
+    visible_reply = final_guarded.reply
+    if reply_grounding_enabled_for_user(user_id):
         from apps.group_agent_api.agent_factory.checks.reply_grounding import (
             apply_reply_grounding_gate,
             default_repair_fn,
         )
 
-        if search_turn.called and out_candidates and match_status == "matched":
-            reply_mode = "recommendation"
-        elif search_turn.called and match_status in {"empty", "weak"}:
-            reply_mode = "no_match"
-        elif saved_this_turn and profile_ok:
-            reply_mode = "profile_confirmation"
-        else:
-            reply_mode = "dialogue"
         judge_model = state.quality_model or state.polish_model
         gated = apply_reply_grounding_gate(
             reply=visible_reply,
@@ -753,8 +796,34 @@ async def chat(
             candidate_count=len(out_candidates),
             model=judge_model,
             repair_fn=default_repair_fn(judge_model),
+            user_id=user_id,
+            thread_id=tid,
         )
         visible_reply = gated.reply
+
+    if debug_trace_enabled():
+        write_turn_trace(
+            base_dir=state.base_dir,
+            run_id=None,
+            thread_id=tid,
+            user_id=user_id,
+            group_id=group_id,
+            conversation_id=req.conversation_id,
+            episode_id=_episode_id_from_metadata(req.metadata),
+            user_message=req.message,
+            messages=messages,
+            msg_count_before=msg_count_before,
+            reply=visible_reply,
+            profile_status=profile_status_val,
+            match_status=match_status,
+            match_reason=match_reason,
+            extra={
+                "delivery_kind": delivery_kind,
+                "invite_ok": invite_ok,
+            },
+        )
+
+    end_decision_trace(_trace_token)
 
     return ChatResponse(
         user_id=user_id,

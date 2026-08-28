@@ -7,6 +7,7 @@ gated by GROUP_AGENT_DEBUG_TRACE=1.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -18,6 +19,70 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 _logger = logging.getLogger("uvicorn.error")
+
+_turn_decision_collector: contextvars.ContextVar[list[dict[str, Any]] | None] = (
+    contextvars.ContextVar("turn_decision_collector", default=None)
+)
+
+
+def start_decision_trace() -> tuple[list[dict[str, Any]], contextvars.Token]:
+    """Start capturing decision points for the current turn context."""
+    buf: list[dict[str, Any]] = []
+    token = _turn_decision_collector.set(buf)
+    return buf, token
+
+
+def get_current_decision_trace() -> list[dict[str, Any]]:
+    """Return a copy of decision points recorded in the current turn context."""
+    buf = _turn_decision_collector.get()
+    return list(buf) if buf is not None else []
+
+
+def end_decision_trace(token: contextvars.Token) -> list[dict[str, Any]]:
+    """End turn capture and return all recorded decision points."""
+    buf = _turn_decision_collector.get() or []
+    _turn_decision_collector.reset(token)
+    return buf
+
+
+def record_decision_point(
+    phase: str,
+    detail: dict[str, Any],
+    *,
+    run_id: str | None = None,
+    thread_id: str | None = None,
+    turn: str | int | None = None,
+    collector: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Log structured DECISION_POINT and record into active turn trace."""
+    scrubbed = _scrub_mapping(detail)
+    point: dict[str, Any] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "phase": phase,
+        "detail": scrubbed,
+    }
+    if run_id:
+        point["run_id"] = run_id
+    if thread_id:
+        point["thread_id"] = thread_id
+    if turn is not None:
+        point["turn"] = turn
+
+    detail_str = json.dumps(scrubbed, ensure_ascii=False, default=str)
+    _logger.info(
+        "DECISION_POINT run_id=%s turn=%s phase=%s detail=%s",
+        run_id or "norun",
+        turn if turn is not None else "-",
+        phase,
+        detail_str,
+    )
+    if collector is not None:
+        collector.append(point)
+    cur_buf = _turn_decision_collector.get()
+    if cur_buf is not None and collector is not cur_buf:
+        cur_buf.append(point)
+    return point
+
 
 _SECRET_KEY_RE = re.compile(
     r"(token|secret|password|authorization|api[_-]?key|hmac|cookie)",
@@ -153,6 +218,7 @@ def write_turn_trace(
     match_status: str | None = None,
     match_reason: str | None = None,
     extra: dict[str, Any] | None = None,
+    decision_points: list[dict[str, Any]] | None = None,
 ) -> str | None:
     """Write one turn trace JSON. Returns path when written, else None."""
     if not debug_trace_enabled():
@@ -165,6 +231,17 @@ def write_turn_trace(
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     safe_run = (run_id or "norun").replace("/", "_")[:80]
     path = out_dir / f"{stamp}_{safe_run}.json"
+
+    # Merge explicit decision points with any captured in the active turn context
+    merged_decision_points: list[dict[str, Any]] = []
+    seen_points: set[str] = set()
+
+    for p in (decision_points or []) + get_current_decision_trace():
+        if isinstance(p, dict):
+            key = f"{p.get('timestamp')}_{p.get('phase')}_{json.dumps(p.get('detail'), sort_keys=True, default=str)}"
+            if key not in seen_points:
+                seen_points.add(key)
+                merged_decision_points.append(p)
 
     payload = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
@@ -182,6 +259,7 @@ def write_turn_trace(
         "msg_count_before": msg_count_before,
         "msg_count_after": len(messages),
         "turn_messages": serialize_messages_delta(messages, msg_count_before),
+        "decision_points": _scrub_mapping(merged_decision_points),
         "extra": _scrub_mapping(extra or {}),
         "note": (
             "Ops debug dump only. Not stored in Micro session memory (TSD-03). "

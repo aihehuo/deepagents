@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
 from apps.group_agent_api.agent_factory.checks.reply_grounding.deny import (
     format_check_deny,
 )
@@ -54,22 +55,42 @@ def apply_reply_grounding_gate(
     max_attempts: int | None = None,
     locale: str = "zh-CN",
     enabled: bool | None = None,
+    user_id: int | str | None = None,
+    run_id: str | None = None,
+    thread_id: str | None = None,
 ) -> ReplyGroundingGateResult:
     """When enabled, do not let a failing reply reach the user.
 
     Flow: check → (fail + llm repair) × (max_attempts-1) → abandon draft → recheck.
     When disabled, returns the original reply unchanged.
     """
-    from apps.group_agent_api.agent_factory.integrations.config import (
-        reply_grounding_enabled,
-    )
     from apps.group_agent_api.agent_factory.module_config import (
+        reply_grounding_enabled_for_user,
         reply_grounding_max_attempts,
     )
 
     if enabled is None:
-        enabled = reply_grounding_enabled()
+        enabled = reply_grounding_enabled_for_user(user_id)
     if not enabled:
+        record_decision_point(
+            phase="reply_grounding",
+            detail={
+                "initial_draft": reply or "",
+                "reply_mode": reply_mode,
+                "enabled": False,
+                "passed": True,
+                "skipped": True,
+                "verdict": "skipped",
+                "attempts": 0,
+                "rewrite_attempts": 0,
+                "violated_codes": [],
+                "violated_spans": [],
+                "abandoned": False,
+                "final_text": reply or "",
+            },
+            run_id=run_id,
+            thread_id=thread_id,
+        )
         return ReplyGroundingGateResult(
             reply=reply or "",
             passed=True,
@@ -103,6 +124,28 @@ def apply_reply_grounding_gate(
         result = check_reply_grounding(payload, model=model, l0_only=l0_only)
         results.append(result)
         if result.verdict == Verdict.pass_:
+            record_decision_point(
+                phase="reply_grounding",
+                detail={
+                    "initial_draft": reply or "",
+                    "reply_mode": reply_mode,
+                    "enabled": True,
+                    "passed": True,
+                    "skipped": False,
+                    "verdict": result.verdict.value,
+                    "attempts": attempt,
+                    "rewrite_attempts": max(0, attempt - 1),
+                    "violated_codes": result.codes,
+                    "violated_spans": [
+                        s.model_dump(mode="json") if hasattr(s, "model_dump") else s
+                        for s in (getattr(result, "spans", []) or [])
+                    ],
+                    "abandoned": False,
+                    "final_text": current,
+                },
+                run_id=run_id,
+                thread_id=thread_id,
+            )
             return ReplyGroundingGateResult(
                 reply=current,
                 passed=True,
@@ -170,10 +213,35 @@ def apply_reply_grounding_gate(
         )
         results.append(abandon_result)
 
-    return ReplyGroundingGateResult(
-        reply=abandoned if abandon_result.verdict == Verdict.pass_ else _hard_safe_reply(
+    final_abandon_text = (
+        abandoned if abandon_result.verdict == Verdict.pass_ else _hard_safe_reply(
             ground.candidate_count
-        ),
+        )
+    )
+    record_decision_point(
+        phase="reply_grounding",
+        detail={
+            "initial_draft": reply or "",
+            "reply_mode": reply_mode,
+            "enabled": True,
+            "passed": False,
+            "skipped": False,
+            "verdict": results[0].verdict.value if results else "fail",
+            "attempts": len(results),
+            "rewrite_attempts": max(0, len(results) - 1),
+            "violated_codes": results[0].codes if results else [],
+            "violated_spans": [
+                s.model_dump(mode="json") if hasattr(s, "model_dump") else s
+                for s in (getattr(results[0], "spans", []) or [])
+            ] if results else [],
+            "abandoned": True,
+            "final_text": final_abandon_text,
+        },
+        run_id=run_id,
+        thread_id=thread_id,
+    )
+    return ReplyGroundingGateResult(
+        reply=final_abandon_text,
         passed=True,
         skipped=False,
         attempts=len(results),

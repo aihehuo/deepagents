@@ -17,9 +17,11 @@ from apps.group_agent_api.agent_factory.search_relax.ids import (
 from apps.group_agent_api.agent_factory.search_relax.module import (
     ResolvedSearchRelax,
     profile_pool_enabled,
+    profile_pool_enabled_for_user,
     resolve_pool,
     resolve_search_relax,
     search_relax_enabled,
+    search_relax_enabled_for_user,
     search_relax_max_levels,
     search_relax_system_addon,
 )
@@ -43,9 +45,11 @@ __all__ = [
     "apply_relax",
     "drop_soft_constraints",
     "profile_pool_enabled",
+    "profile_pool_enabled_for_user",
     "resolve_pool",
     "resolve_search_relax",
     "search_relax_enabled",
+    "search_relax_enabled_for_user",
     "search_relax_max_levels",
     "search_relax_system_addon",
     "shorten_rank_query",

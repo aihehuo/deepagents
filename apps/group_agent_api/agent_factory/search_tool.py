@@ -12,6 +12,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
+from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
 from apps.group_agent_api.agent_factory.integrations.group_bind import (
     align_match_to_trusted_group,
 )
@@ -265,6 +266,9 @@ def search_candidates(
             ensure_ascii=False,
         )
 
+    run_id = str(metadata.get("run_id") or "").strip()
+    tid = str(metadata.get("thread_id") or metadata.get("tid") or "").strip()
+
     resolved_constraints, constraints_source = resolve_search_constraints(
         constraints, metadata
     )
@@ -274,9 +278,35 @@ def search_candidates(
         relax_level=relax_level,
         pool=pool,
         constraints=resolved_constraints,
+        user_id=user_id,
     )
     effective = resolved.args
     hand_constraints = normalize_constraints_for_hand(effective.constraints)
+
+    raw_items: list[Any] = []
+    if isinstance(resolved_constraints, list):
+        raw_items = resolved_constraints
+    elif isinstance(resolved_constraints, dict) and "items" in resolved_constraints:
+        raw_items = resolved_constraints.get("items") or []
+
+    hard_c = [
+        c for c in raw_items if isinstance(c, dict) and c.get("strength") == "hard"
+    ]
+    soft_c = [
+        c for c in raw_items if isinstance(c, dict) and c.get("strength") != "hard"
+    ]
+    record_decision_point(
+        phase="constraint_extraction",
+        detail={
+            "source": constraints_source,
+            "hard_constraints": hard_c,
+            "soft_constraints": soft_c,
+            "dropped_soft": effective.dropped_soft,
+            "total_count": len(raw_items),
+        },
+        run_id=run_id,
+        thread_id=tid,
+    )
 
     extra_meta = {
         k: v
@@ -298,6 +328,70 @@ def search_candidates(
         pool=effective.pool,
     )
     aligned = align_match_to_trusted_group(result, trusted_group_id=group_id)
+
+    candidates_list = list(aligned.candidates or [])
+    scores = [
+        float(
+            c.get("score")
+            if c.get("score") is not None
+            else (c.get("match_score") or 0.0)
+        )
+        for c in candidates_list
+        if isinstance(c, dict)
+        and (c.get("score") is not None or c.get("match_score") is not None)
+    ]
+    score_dist = {
+        "count": len(candidates_list),
+        "scores": scores,
+        "min": min(scores) if scores else None,
+        "max": max(scores) if scores else None,
+        "avg": round(sum(scores) / len(scores), 3) if scores else None,
+    }
+
+    record_decision_point(
+        phase="tool_call_search_candidates",
+        detail={
+            "query": effective.query,
+            "rank_query": effective.rank_query,
+            "pool": effective.pool,
+            "pool_source": resolved.pool_source,
+            "relax_level": effective.relax_level,
+            "raw_level": resolved.raw_level,
+            "clamped": resolved.clamped,
+            "candidates_count": len(candidates_list),
+            "match_score_distribution": score_dist,
+            "status": aligned.status,
+            "reason": aligned.reason or "",
+            "search_relax_enabled": resolved.enabled,
+            "profile_pool_enabled": resolved.profile_pool_enabled,
+        },
+        run_id=run_id,
+        thread_id=tid,
+    )
+
+    if (
+        effective.relax_level > 0
+        or resolved.enabled
+        or aligned.status in {"empty", "weak"}
+    ):
+        record_decision_point(
+            phase="search_relaxation",
+            detail={
+                "trigger": (
+                    "zero_or_weak_candidates"
+                    if aligned.status in {"empty", "weak"}
+                    else "level_applied"
+                ),
+                "relax_level": effective.relax_level,
+                "status": aligned.status,
+                "strategy": effective.strategy_note,
+                "dropped_soft": effective.dropped_soft,
+                "search_relax_enabled": resolved.enabled,
+            },
+            run_id=run_id,
+            thread_id=tid,
+        )
+
     payload = {
         "status": aligned.status,
         "reason": aligned.reason or "",
@@ -311,7 +405,7 @@ def search_candidates(
         "pool_source": resolved.pool_source,
         "constraints_source": constraints_source,
         "dropped_soft": effective.dropped_soft,
-        "candidates": list(aligned.candidates or []),
+        "candidates": candidates_list,
     }
     if resolved.profile_pool_hook:
         payload["profile_pool_hook"] = "noted_not_mounted"

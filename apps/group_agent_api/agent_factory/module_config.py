@@ -88,6 +88,17 @@ class ModulesConfig:
             )
         return module_on
 
+    def reply_grounding_enabled_for_user(
+        self, user_id: int | str | None = None
+    ) -> bool:
+        if self.reply_grounding_enabled():
+            return True
+        if user_id is None:
+            return False
+        from apps.group_agent_api.agent_factory.integrations.config import is_canary_user
+
+        return is_canary_user(user_id)
+
     def reply_grounding_max_attempts(self) -> int:
         raw = self.reply_grounding.get("max_attempts", 2)
         try:
@@ -99,8 +110,30 @@ class ModulesConfig:
     def search_relax_enabled(self) -> bool:
         return self.is_module_enabled("mod.brain.search_relax")
 
+    def search_relax_enabled_for_user(
+        self, user_id: int | str | None = None
+    ) -> bool:
+        if self.search_relax_enabled():
+            return True
+        if user_id is None:
+            return False
+        from apps.group_agent_api.agent_factory.integrations.config import is_canary_user
+
+        return is_canary_user(user_id)
+
     def profile_pool_enabled(self) -> bool:
         return self.is_module_enabled("mod.brain.profile_pool")
+
+    def profile_pool_enabled_for_user(
+        self, user_id: int | str | None = None
+    ) -> bool:
+        if self.profile_pool_enabled():
+            return True
+        if user_id is None:
+            return False
+        from apps.group_agent_api.agent_factory.integrations.config import is_canary_user
+
+        return is_canary_user(user_id)
 
     def invite_copy_enabled(self) -> bool:
         """Missing key → on (preserve today's always-on invite path)."""
@@ -173,6 +206,10 @@ def reply_grounding_enabled() -> bool:
     return load_modules_config().reply_grounding_enabled()
 
 
+def reply_grounding_enabled_for_user(user_id: int | str | None = None) -> bool:
+    return load_modules_config().reply_grounding_enabled_for_user(user_id)
+
+
 def reply_grounding_max_attempts() -> int:
     return load_modules_config().reply_grounding_max_attempts()
 
@@ -181,8 +218,16 @@ def search_relax_enabled() -> bool:
     return load_modules_config().search_relax_enabled()
 
 
+def search_relax_enabled_for_user(user_id: int | str | None = None) -> bool:
+    return load_modules_config().search_relax_enabled_for_user(user_id)
+
+
 def profile_pool_enabled() -> bool:
     return load_modules_config().profile_pool_enabled()
+
+
+def profile_pool_enabled_for_user(user_id: int | str | None = None) -> bool:
+    return load_modules_config().profile_pool_enabled_for_user(user_id)
 
 
 def invite_copy_enabled() -> bool:

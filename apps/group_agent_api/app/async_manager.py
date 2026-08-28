@@ -56,6 +56,18 @@ from apps.group_agent_api.agent_factory.context import (
 from apps.group_agent_api.agent_factory.revisit import (
     parse_revisit_from_metadata,
 )
+from apps.group_agent_api.agent_factory.debug_trace import (
+    end_decision_trace,
+    record_decision_point,
+    start_decision_trace,
+    write_turn_trace,
+)
+from apps.group_agent_api.agent_factory.module_config import (
+    reply_grounding_enabled_for_user,
+    search_relax_enabled,
+    search_relax_enabled_for_user,
+)
+from apps.group_agent_api.agent_factory.search_relax import search_relax_system_addon
 from apps.group_agent_api.agent_factory.suggested_replies import (
     extract_suggested_replies,
 )
@@ -748,217 +760,183 @@ async def _execute_core_agent(
     messages: list[Any] = []
     msg_count_before = 0
 
+    _trace_buf, _trace_token = start_decision_trace()
     async with lock:
         try:
-            test_lvl = os.environ.get("GROUP_AGENT_TEST_LEVEL")
-            if test_lvl and load_profile(state.base_dir, user_id, group_id) is None:
-                try:
-                    from apps.group_agent_api.fixtures.loader import load_fixture
-                    from apps.group_agent_api.agent_factory.profile_schema import GroupProfile, ProfileField
-                    from apps.group_agent_api.agent_factory.profile_store import save_profile
-                    ds = load_fixture(test_lvl)
-                    m_key = f"{group_id}:{user_id}"
-                    m = ds.members.get(m_key)
-                    if m and m.profile:
-                        p = GroupProfile(
-                            user_id=user_id,
-                            group_id=group_id,
-                            doing=ProfileField(value=m.profile.get("doing", "Building AI")),
-                            need=ProfileField(value=m.profile.get("need", "Co-founder")),
-                            offer=ProfileField(value=m.profile.get("offer", "Python")),
-                        )
-                        save_profile(state.base_dir, p)
-                except Exception as exc:
-                    _logger.error("Fixture seed error: %s", exc)
-            agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
-            msg_count_before = (
-                len(agent_state.values.get("messages", []))
-                if agent_state and agent_state.values
-                else 0
-            )
-            config = _invoke_config(
-                tid=tid,
-                user_id=user_id,
-                group_id=group_id,
-                base_dir=str(state.base_dir),
-                membership=tier.value,
-                metadata=req.metadata or {},
-                run_id=req.run_id,
-                conversation_id=req.conversation_id,
-                run_match=req.run_match,
-                group_token=session.group_token,
-                user_token=user_token,
-            )
-            turn_messages: list[Any] = []
-            if admin_debug:
-                # Keep ops tools fresh: history often contains stale 401 narratives
-                # that otherwise cause the model to skip tool calls.
-                from apps.group_agent_api.agent_factory.admin_ops_tools import (
-                    ADMIN_TURN_REMINDER,
+                test_lvl = os.environ.get("GROUP_AGENT_TEST_LEVEL")
+                if test_lvl and load_profile(state.base_dir, user_id, group_id) is None:
+                    try:
+                        from apps.group_agent_api.fixtures.loader import load_fixture
+                        from apps.group_agent_api.agent_factory.profile_schema import GroupProfile, ProfileField
+                        from apps.group_agent_api.agent_factory.profile_store import save_profile
+                        ds = load_fixture(test_lvl)
+                        m_key = f"{group_id}:{user_id}"
+                        m = ds.members.get(m_key)
+                        if m and m.profile:
+                            p = GroupProfile(
+                                user_id=user_id,
+                                group_id=group_id,
+                                doing=ProfileField(value=m.profile.get("doing", "Building AI")),
+                                need=ProfileField(value=m.profile.get("need", "Co-founder")),
+                                offer=ProfileField(value=m.profile.get("offer", "Python")),
+                            )
+                            save_profile(state.base_dir, p)
+                    except Exception as exc:
+                        _logger.error("Fixture seed error: %s", exc)
+                agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
+                msg_count_before = (
+                    len(agent_state.values.get("messages", []))
+                    if agent_state and agent_state.values
+                    else 0
                 )
-
-                turn_messages.append(SystemMessage(content=ADMIN_TURN_REMINDER))
-            else:
-                known = _known_profile_system_message(
-                    base_dir=state.base_dir,
+                config = _invoke_config(
+                    tid=tid,
                     user_id=user_id,
                     group_id=group_id,
+                    base_dir=str(state.base_dir),
+                    membership=tier.value,
+                    metadata=req.metadata or {},
+                    run_id=req.run_id,
+                    conversation_id=req.conversation_id,
+                    run_match=req.run_match,
+                    group_token=session.group_token,
+                    user_token=user_token,
                 )
-                if known is not None:
-                    turn_messages.append(known)
-                ref_msg = _referral_context_system_message(req.metadata or {})
-                if ref_msg is not None:
-                    turn_messages.append(ref_msg)
-                _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
-                from apps.group_agent_api.agent_factory.revisit import parse_prior_recommendation
-                prior_rec = parse_prior_recommendation((req.metadata or {}).get("prior_recommendation"))
-                match_reminder = prior_recommendation_system_content(
-                    revisit_for_prompt, prior_rec=prior_rec
-                )
-                if match_reminder:
-                    turn_messages.append(SystemMessage(content=match_reminder))
-            turn_messages.append(HumanMessage(content=req.message))
-            _logger.info(
-                "Core agent ainvoke start run_id=%s thread_id=%s msg_len=%d admin_debug=%s",
-                req.run_id,
-                tid,
-                len(req.message or ""),
-                admin_debug,
-            )
-            _ainvoke_t0 = time.monotonic()
-            try:
-                result = await agent.ainvoke(
-                    {"messages": turn_messages},
-                    config,
-                )
-            except Exception:
-                _logger.exception(
-                    "Core agent ainvoke failed run_id=%s thread_id=%s elapsed_s=%.2f",
-                    req.run_id,
-                    tid,
-                    time.monotonic() - _ainvoke_t0,
-                )
-                raise
-            _logger.info(
-                "Core agent ainvoke done run_id=%s thread_id=%s elapsed_s=%.2f n_msgs=%d",
-                req.run_id,
-                tid,
-                time.monotonic() - _ainvoke_t0,
-                len(result.get("messages", []) or []),
-            )
-            messages = result.get("messages", [])
-            reply = _extract_reply(messages, msg_count_before)
+                turn_messages: list[Any] = []
+                if admin_debug:
+                    # Keep ops tools fresh: history often contains stale 401 narratives
+                    # that otherwise cause the model to skip tool calls.
+                    from apps.group_agent_api.agent_factory.admin_ops_tools import (
+                        ADMIN_TURN_REMINDER,
+                    )
 
-            # chk.action_claim (YAML): unauthorized group-send / @ / admin claims.
-            from apps.group_agent_api.agent_factory.checks.action_claim import (
-                apply_action_claim_guard,
-            )
-            guarded_dialogue_text, action_claim_blocked = apply_action_claim_guard(
-                reply
-            )
-            if action_claim_blocked:
-                reply = guarded_dialogue_text
-                UC34Observer.warn(
-                    f"action=action_claim_blocked run_id={req.run_id}"
-                )
-
-            if admin_debug:
-                profile_ok = False
-                profile_status = "admin_skip"
-            else:
-                assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
-
-                if _profile_was_superseded(messages, msg_count_before):
-                    profile_status = "superseded"
-                    profile_ok = False
+                    turn_messages.append(SystemMessage(content=ADMIN_TURN_REMINDER))
                 else:
-                    usable, _path = _profile_usable_this_turn(
+                    known = _known_profile_system_message(
                         base_dir=state.base_dir,
                         user_id=user_id,
                         group_id=group_id,
+                    )
+                    if known is not None:
+                        turn_messages.append(known)
+                    ref_msg = _referral_context_system_message(req.metadata or {})
+                    if ref_msg is not None:
+                        turn_messages.append(ref_msg)
+                    _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
+                    from apps.group_agent_api.agent_factory.revisit import parse_prior_recommendation
+                    prior_rec = parse_prior_recommendation((req.metadata or {}).get("prior_recommendation"))
+                    match_reminder = prior_recommendation_system_content(
+                        revisit_for_prompt, prior_rec=prior_rec
+                    )
+                    if match_reminder:
+                        turn_messages.append(SystemMessage(content=match_reminder))
+
+                    # If search_relax is enabled for this user via canary but off globally in YAML,
+                    # dynamically inject the search relaxation addon into turn context.
+                    if search_relax_enabled_for_user(user_id) and not search_relax_enabled():
+                        relax_addon = search_relax_system_addon(user_id=user_id)
+                        if relax_addon:
+                            turn_messages.append(SystemMessage(content=relax_addon))
+                turn_messages.append(HumanMessage(content=req.message))
+                _logger.info(
+                    "Core agent ainvoke start run_id=%s thread_id=%s msg_len=%d admin_debug=%s",
+                    req.run_id,
+                    tid,
+                    len(req.message or ""),
+                    admin_debug,
+                )
+                _ainvoke_t0 = time.monotonic()
+                try:
+                    result = await agent.ainvoke(
+                        {"messages": turn_messages},
+                        config,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Core agent ainvoke failed run_id=%s thread_id=%s elapsed_s=%.2f",
+                        req.run_id,
+                        tid,
+                        time.monotonic() - _ainvoke_t0,
+                    )
+                    raise
+                _logger.info(
+                    "Core agent ainvoke done run_id=%s thread_id=%s elapsed_s=%.2f n_msgs=%d",
+                    req.run_id,
+                    tid,
+                    time.monotonic() - _ainvoke_t0,
+                    len(result.get("messages", []) or []),
+                )
+                messages = result.get("messages", [])
+                reply = _extract_reply(messages, msg_count_before)
+
+                # chk.action_claim (YAML): unauthorized group-send / @ / admin claims.
+                from apps.group_agent_api.agent_factory.checks.action_claim import (
+                    apply_action_claim_guard,
+                )
+                guarded_dialogue_text, action_claim_blocked = apply_action_claim_guard(
+                    reply
+                )
+                if action_claim_blocked:
+                    reply = guarded_dialogue_text
+                    UC34Observer.warn(
+                        f"action=action_claim_blocked run_id={req.run_id}"
+                    )
+
+                if admin_debug:
+                    profile_ok = False
+                    profile_status = "admin_skip"
+                else:
+                    assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
+
+                    if _profile_was_superseded(messages, msg_count_before):
+                        profile_status = "superseded"
+                        profile_ok = False
+                    else:
+                        usable, _path = _profile_usable_this_turn(
+                            base_dir=state.base_dir,
+                            user_id=user_id,
+                            group_id=group_id,
+                            messages=messages,
+                            msg_count_before=msg_count_before,
+                            metadata=req.metadata or {},
+                        )
+                        if usable:
+                            profile_ok = True
+                            profile_status = "persisted"
+                        else:
+                            profile_ok = False
+                            if assertion.ok:
+                                # Prior episode profile exists but is not bound to this episode.
+                                pass
+                    if _should_force_profile_save(
+                        profile_ok=profile_ok,
+                        profile_status=profile_status,
+                        persist_alert=(
+                            "profile_stale_for_episode"
+                            if (not profile_ok and assertion.ok and profile_status != "superseded")
+                            else None
+                        ),
                         messages=messages,
                         msg_count_before=msg_count_before,
-                        metadata=req.metadata or {},
-                    )
-                    if usable:
-                        profile_ok = True
-                        profile_status = "persisted"
-                    else:
-                        profile_ok = False
-                        if assertion.ok:
-                            # Prior episode profile exists but is not bound to this episode.
-                            pass
-                if _should_force_profile_save(
-                    profile_ok=profile_ok,
-                    profile_status=profile_status,
-                    persist_alert=(
-                        "profile_stale_for_episode"
-                        if (not profile_ok and assertion.ok and profile_status != "superseded")
-                        else None
-                    ),
-                    messages=messages,
-                    msg_count_before=msg_count_before,
-                    user_message=req.message,
-                    reply=reply,
-                ):
-                    from apps.group_agent_api.agent_factory.checks.force_save_retry import (
-                        force_save_retry_enabled,
-                    )
-                    from apps.group_agent_api.agent_factory.checks.deterministic_profile_save import (
-                        deterministic_profile_save_enabled,
-                    )
+                        user_message=req.message,
+                        reply=reply,
+                    ):
+                        from apps.group_agent_api.agent_factory.checks.force_save_retry import (
+                            force_save_retry_enabled,
+                        )
+                        from apps.group_agent_api.agent_factory.checks.deterministic_profile_save import (
+                            deterministic_profile_save_enabled,
+                        )
 
-                    _gate("profile_force_save")
-                    if force_save_retry_enabled():
-                        for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
-                            _gate("profile_force_save_iter")
-                            if _profile_was_superseded(messages, msg_count_before):
-                                profile_status = "superseded"
-                                profile_ok = False
-                                break
+                        _gate("profile_force_save")
+                        if force_save_retry_enabled():
+                            for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
+                                _gate("profile_force_save_iter")
+                                if _profile_was_superseded(messages, msg_count_before):
+                                    profile_status = "superseded"
+                                    profile_ok = False
+                                    break
 
-                            usable, _path = _profile_usable_this_turn(
-                                base_dir=state.base_dir,
-                                user_id=user_id,
-                                group_id=group_id,
-                                messages=messages,
-                                msg_count_before=msg_count_before,
-                                metadata=req.metadata or {},
-                            )
-                            if usable:
-                                profile_ok = True
-                                profile_status = "persisted"
-                                break
-
-                            if attempt >= MAX_PERSIST_ATTEMPTS:
-                                break
-
-                            before_retry = len(messages)
-                            result = await agent.ainvoke(
-                                {"messages": [HumanMessage(content=FORCE_SAVE_PROMPT)]},
-                                config,
-                            )
-                            messages = result.get("messages", [])
-                            start_idx = before_retry if before_retry < len(messages) else 0
-                            retry_reply = _extract_reply(messages, start_idx)
-                            if retry_reply:
-                                reply = _merge_force_save_reply(reply, retry_reply)
-
-                    if not profile_ok and profile_status != "superseded":
-                        profile_status = "failed"
-                        fallback_attempted = False
-                        if deterministic_profile_save_enabled():
-                            _gate("profile_deterministic_save")
-                            fallback_attempted = await _attempt_deterministic_profile_save(
-                                message=req.message,
-                                config=config,
-                                messages=messages,
-                            )
-                        if fallback_attempted:
-                            if _profile_was_superseded(messages, msg_count_before):
-                                profile_status = "superseded"
-                                profile_ok = False
-                            else:
                                 usable, _path = _profile_usable_this_turn(
                                     base_dir=state.base_dir,
                                     user_id=user_id,
@@ -970,27 +948,69 @@ async def _execute_core_agent(
                                 if usable:
                                     profile_ok = True
                                     profile_status = "persisted"
+                                    break
 
-                    if not profile_ok and profile_status == "failed":
-                        last_reason = (
-                            assertion.reason
-                            if not assertion.ok
-                            else "profile_stale_for_episode"
-                        )
-                        persistence_failure_reason = determine_persistence_failure_reason(
-                            messages,
-                            msg_count_before,
-                            attempt=MAX_PERSIST_ATTEMPTS,
-                            last_assertion_reason=last_reason,
-                        )
-                        UC34Observer.warn(
-                            f"action=profile_persistence_failed user_id={user_id} "
-                            f"group_id={group_id} run_id={req.run_id} "
-                            f"reason={persistence_failure_reason}"
-                        )
-                elif not profile_ok and profile_status != "superseded":
-                    # Clarifying turn on a new episode: keep the first reply, skip match.
-                    profile_status = "stale_episode"
+                                if attempt >= MAX_PERSIST_ATTEMPTS:
+                                    break
+
+                                before_retry = len(messages)
+                                result = await agent.ainvoke(
+                                    {"messages": [HumanMessage(content=FORCE_SAVE_PROMPT)]},
+                                    config,
+                                )
+                                messages = result.get("messages", [])
+                                start_idx = before_retry if before_retry < len(messages) else 0
+                                retry_reply = _extract_reply(messages, start_idx)
+                                if retry_reply:
+                                    reply = _merge_force_save_reply(reply, retry_reply)
+
+                        if not profile_ok and profile_status != "superseded":
+                            profile_status = "failed"
+                            fallback_attempted = False
+                            if deterministic_profile_save_enabled():
+                                _gate("profile_deterministic_save")
+                                fallback_attempted = await _attempt_deterministic_profile_save(
+                                    message=req.message,
+                                    config=config,
+                                    messages=messages,
+                                    )
+                            if fallback_attempted:
+                                if _profile_was_superseded(messages, msg_count_before):
+                                    profile_status = "superseded"
+                                    profile_ok = False
+                                else:
+                                    usable, _path = _profile_usable_this_turn(
+                                        base_dir=state.base_dir,
+                                        user_id=user_id,
+                                        group_id=group_id,
+                                        messages=messages,
+                                        msg_count_before=msg_count_before,
+                                        metadata=req.metadata or {},
+                                    )
+                                    if usable:
+                                        profile_ok = True
+                                        profile_status = "persisted"
+
+                        if not profile_ok and profile_status == "failed":
+                            last_reason = (
+                                assertion.reason
+                                if not assertion.ok
+                                else "profile_stale_for_episode"
+                            )
+                            persistence_failure_reason = determine_persistence_failure_reason(
+                                messages,
+                                msg_count_before,
+                                attempt=MAX_PERSIST_ATTEMPTS,
+                                last_assertion_reason=last_reason,
+                            )
+                            UC34Observer.warn(
+                                f"action=profile_persistence_failed user_id={user_id} "
+                                f"group_id={group_id} run_id={req.run_id} "
+                                f"reason={persistence_failure_reason}"
+                            )
+                    elif not profile_ok and profile_status != "superseded":
+                        # Clarifying turn on a new episode: keep the first reply, skip match.
+                        profile_status = "stale_episode"
 
         finally:
             checkpointer = get_agent_checkpointer(agent)
@@ -1183,6 +1203,32 @@ async def _execute_core_agent(
     else:
         determined_reply_mode = ReplyMode.dialogue
 
+    is_clarifying = looks_like_clarifying_reply(guarded.reply)
+    if search_turn.called:
+        intent_route = "search"
+    elif saved_this_turn and profile_ok:
+        intent_route = "profile_save"
+    elif is_clarifying:
+        intent_route = "clarification"
+    else:
+        intent_route = "chit_chat"
+
+    record_decision_point(
+        phase="intent_route",
+        detail={
+            "route": intent_route,
+            "reply_mode": determined_reply_mode.value,
+            "search_called": search_turn.called,
+            "profile_saved_this_turn": saved_this_turn,
+            "profile_persisted": profile_ok,
+            "is_clarification": is_clarifying,
+            "admin_debug": admin_debug,
+            "user_message": req.message[:100],
+        },
+        run_id=req.run_id,
+        thread_id=tid,
+    )
+
     is_v2_run = (run_protocol_mode == "grounded_v2")
 
     # A profile confirmation is a persisted-state assertion.  In grounded
@@ -1202,7 +1248,7 @@ async def _execute_core_agent(
             determined_reply_mode = ReplyMode.error
 
     visible_reply = final_guarded.reply
-    if reply_grounding_enabled() and determined_reply_mode != ReplyMode.error:
+    if reply_grounding_enabled_for_user(user_id) and determined_reply_mode != ReplyMode.error:
         from apps.group_agent_api.agent_factory.checks.reply_grounding import (
             apply_reply_grounding_gate,
             default_repair_fn,
@@ -1217,6 +1263,9 @@ async def _execute_core_agent(
             candidate_count=len(out_candidates),
             model=judge_model,
             repair_fn=default_repair_fn(judge_model),
+            user_id=user_id,
+            run_id=req.run_id,
+            thread_id=tid,
         )
         visible_reply = gated.reply
 
@@ -1401,3 +1450,4 @@ async def _execute_core_agent(
         run_id=req.run_id,
         logger=_logger,
     )
+    end_decision_trace(_trace_token)

@@ -41,8 +41,10 @@ __all__ = [
     "PROFILE_POOL",
     "ResolvedSearchRelax",
     "search_relax_enabled",
+    "search_relax_enabled_for_user",
     "search_relax_max_levels",
     "profile_pool_enabled",
+    "profile_pool_enabled_for_user",
     "resolve_pool",
     "resolve_search_relax",
     "search_relax_system_addon",
@@ -62,12 +64,26 @@ class ResolvedSearchRelax:
     pool_source: str = "default"  # model | module_default | fallback_module_off | unknown
 
 
-def search_relax_enabled(*, enabled: bool | None = None) -> bool:
+def search_relax_enabled(
+    *,
+    enabled: bool | None = None,
+    user_id: int | str | None = None,
+) -> bool:
     if enabled is not None:
         return bool(enabled)
-    from apps.group_agent_api.agent_factory.module_config import load_modules_config
+    from apps.group_agent_api.agent_factory.module_config import (
+        search_relax_enabled_for_user,
+    )
 
-    return load_modules_config().is_module_enabled(MODULE_ID)
+    return search_relax_enabled_for_user(user_id)
+
+
+def search_relax_enabled_for_user(user_id: int | str | None = None) -> bool:
+    from apps.group_agent_api.agent_factory.module_config import (
+        search_relax_enabled_for_user as _module_search_relax_enabled_for_user,
+    )
+
+    return _module_search_relax_enabled_for_user(user_id)
 
 
 def search_relax_max_levels(*, max_levels: int | None = None) -> int:
@@ -79,25 +95,40 @@ def search_relax_max_levels(*, max_levels: int | None = None) -> int:
     return load_modules_config().search_relax_max_levels()
 
 
-def profile_pool_enabled(*, enabled: bool | None = None) -> bool:
-    """True when ``mod.brain.profile_pool`` is on (YAML / override)."""
+def profile_pool_enabled(
+    *,
+    enabled: bool | None = None,
+    user_id: int | str | None = None,
+) -> bool:
+    """True when ``mod.brain.profile_pool`` is on (YAML / override / canary user)."""
     if enabled is not None:
         return bool(enabled)
-    from apps.group_agent_api.agent_factory.module_config import load_modules_config
+    from apps.group_agent_api.agent_factory.module_config import (
+        profile_pool_enabled_for_user,
+    )
 
-    return load_modules_config().is_module_enabled(PROFILE_POOL_MODULE_ID)
+    return profile_pool_enabled_for_user(user_id)
+
+
+def profile_pool_enabled_for_user(user_id: int | str | None = None) -> bool:
+    from apps.group_agent_api.agent_factory.module_config import (
+        profile_pool_enabled_for_user as _module_profile_pool_enabled_for_user,
+    )
+
+    return _module_profile_pool_enabled_for_user(user_id)
 
 
 def resolve_pool(
     pool: str | None = "",
     *,
     profile_pool: bool | None = None,
+    user_id: int | str | None = None,
 ) -> tuple[str, bool, str]:
     """Resolve effective pool + hook flag + source label.
 
     See module docstring for precedence vs model-supplied pool.
     """
-    pp_on = profile_pool_enabled(enabled=profile_pool)
+    pp_on = profile_pool_enabled(enabled=profile_pool, user_id=user_id)
     requested = str(pool or "").strip()
 
     if not requested:
@@ -126,6 +157,7 @@ def resolve_search_relax(
     enabled: bool | None = None,
     max_levels: int | None = None,
     profile_pool: bool | None = None,
+    user_id: int | str | None = None,
 ) -> ResolvedSearchRelax:
     """Map tool args → effective search args.
 
@@ -135,11 +167,11 @@ def resolve_search_relax(
     Never schedules another search — D-B03.
     """
     raw_level = _parse_level(relax_level)
-    on = search_relax_enabled(enabled=enabled)
+    on = search_relax_enabled(enabled=enabled, user_id=user_id)
     cap = search_relax_max_levels(max_levels=max_levels)
-    pp_on = profile_pool_enabled(enabled=profile_pool)
+    pp_on = profile_pool_enabled(enabled=profile_pool, user_id=user_id)
     resolved_pool, pool_hook, pool_source = resolve_pool(
-        pool, profile_pool=pp_on
+        pool, profile_pool=pp_on, user_id=user_id
     )
 
     if not on:
@@ -186,13 +218,14 @@ def search_relax_system_addon(
     enabled: bool | None = None,
     max_levels: int | None = None,
     profile_pool: bool | None = None,
+    user_id: int | str | None = None,
 ) -> str:
     """Extra system-prompt lines when the Module is on; empty when off."""
-    if not search_relax_enabled(enabled=enabled):
+    if not search_relax_enabled(enabled=enabled, user_id=user_id):
         return ""
     cap = search_relax_max_levels(max_levels=max_levels)
     top = max(0, cap - 1)
-    pp_on = profile_pool_enabled(enabled=profile_pool)
+    pp_on = profile_pool_enabled(enabled=profile_pool, user_id=user_id)
     if pp_on:
         pool_line = (
             "- `pool`：`mod.brain.profile_pool` 已开；省略时默认 `agent_profiles`。"

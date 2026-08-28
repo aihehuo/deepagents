@@ -173,15 +173,15 @@ def fetch_group_agent_match(
         if status not in {"matched", "weak", "empty"}:
             status = "empty"
 
-    group_id = str(data.get("group_id") or "")
+    group_id = str(data.get("group_id") or "global")
     raw_cands = data.get("candidates") or []
     candidates: list[dict[str, Any]] = []
     if isinstance(raw_cands, list):
         for item in raw_cands[:MAX_CANDIDATES]:
             if isinstance(item, dict):
-                # Reject source_group_id == 'global' in non-global group contexts
+                # Reject source_group_id == 'global' in specific (non-global) group contexts
                 cand_src_group = str(item.get("source_group_id") or item.get("group_id") or "").strip().lower()
-                if group_id != "global" and cand_src_group == "global":
+                if group_id and group_id != "global" and cand_src_group == "global":
                     continue
                 # For v2, check CandidateFact and MatchEvidence
                 if is_v2:

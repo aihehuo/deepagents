@@ -164,11 +164,12 @@ def test_wp3_match_v2_rejects_global_and_missing_evidence(monkeypatch: pytest.Mo
         "contract_version": "ga-match-v2",
         "status": "matched",
         "reason": "matched_2",
+        "group_id": "grp_entry_123",
         "candidates": [
             {
                 "user_id": "1001",
                 "display_name": "张三",
-                "source_group_id": "global",  # must be rejected
+                "source_group_id": "global",  # must be rejected in specific group context
                 "wechat_reachable": True,
                 "facts": [{"field": "doing", "value": "AI"}],
                 "match_evidence": [{"initiator_field": "need", "candidate_field": "doing", "relation": "match", "summary": "契合"}],

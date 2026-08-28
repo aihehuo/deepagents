@@ -2,6 +2,13 @@
 
 # Changelog
 
+## [0.0.8](https://github.com/aihehuo/deepagents/compare/langchain-daytona==0.0.7...langchain-daytona==0.0.8) (2026-08-28)
+
+
+### Features
+
+* **sdk:** surface subagents via inherited `lc_agent_name` projection ([e0a1ed2](https://github.com/aihehuo/deepagents/commit/e0a1ed24e6b44c31d0aac3358aeee0d6cb66b2c4))
+
 ## [0.0.7](https://github.com/langchain-ai/deepagents/compare/langchain-daytona==0.0.6...langchain-daytona==0.0.7) (2026-06-03)
 
 * Version bumps

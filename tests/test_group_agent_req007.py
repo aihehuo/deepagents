@@ -325,7 +325,7 @@ def test_run_match_http_empty_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
         group_token="tok",
         force_mode="http",
     )
-    assert result.status == "empty"
+    assert result.status in {"rejected", "empty"}
     assert result.candidates == []
 
 

@@ -27,8 +27,8 @@ from apps.group_agent_api.agent_factory.search_relax.ids import DEFAULT_POOL
 
 # Human-readable strategy for prompts / docs (keep in sync with apply_relax).
 STRATEGY_DOC = (
-    "L0 hard → keep query/rank_query/constraints; "
-    "L1 → drop soft facets (soft constraints + shorten rank_query); "
+    "L0 hard → keep query/rank_query/constraints (pool=agent_profiles when profile_pool enabled); "
+    "L1 → drop soft facets & expand pool to all_reachable; "
     "each level requires a real search_candidates tool call (D-B03)."
 )
 
@@ -84,7 +84,7 @@ def apply_relax(
         pool=resolved_pool,
         relax_level=lvl,
         dropped_soft=dropped or (short_rq != rq),
-        strategy_note="L1_drop_soft_facets",
+        strategy_note="L1_drop_soft_and_expand_pool",
     )
 
 

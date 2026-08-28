@@ -111,7 +111,19 @@ def test_search_relax_and_profile_pool_canary_gating(
     assert search_relax_enabled_for_user(2) is False
     assert profile_pool_enabled_for_user(2) is False
 
-    # resolve_search_relax for user 1 gets enabled=True and profile_pool_enabled=True
+    # resolve_search_relax for user 1 (canary) at L0 defaults to agent_profiles, at L1 expands to all_reachable
+    resolved_u1_l0 = resolve_search_relax(
+        query="AI 架构师",
+        rank_query="AI 架构师 上海",
+        relax_level=0,
+        pool="",
+        user_id=1,
+    )
+    assert resolved_u1_l0.enabled is True
+    assert resolved_u1_l0.profile_pool_enabled is True
+    assert resolved_u1_l0.args.pool == "agent_profiles"
+    assert resolved_u1_l0.args.relax_level == 0
+
     resolved_u1 = resolve_search_relax(
         query="AI 架构师",
         rank_query="AI 架构师 上海",
@@ -121,8 +133,10 @@ def test_search_relax_and_profile_pool_canary_gating(
     )
     assert resolved_u1.enabled is True
     assert resolved_u1.profile_pool_enabled is True
-    assert resolved_u1.args.pool == "agent_profiles"
+    assert resolved_u1.args.pool == "all_reachable"
+    assert resolved_u1.pool_source == "relaxed_expansion"
     assert resolved_u1.args.relax_level == 1
+    assert resolved_u1.args.strategy_note == "L1_drop_soft_and_expand_pool"
 
     # resolve_search_relax for user 2 gets enabled=False and pool all_reachable
     resolved_u2 = resolve_search_relax(
@@ -195,7 +209,8 @@ def test_search_candidates_tool_with_user_canary(
         assert data["search_relax_enabled"] is True
         assert data["profile_pool_enabled"] is True
         assert data["relax_level"] == 1
-        assert data["pool"] == "agent_profiles"
+        assert data["pool"] == "all_reachable"
+        assert data["strategy"] == "L1_drop_soft_and_expand_pool"
         assert data["dropped_soft"] == 1
         assert len(data["candidates"]) == 2
 

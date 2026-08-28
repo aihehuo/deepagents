@@ -146,6 +146,8 @@ def test_on_path_l1_drops_soft_facets(tmp_path: Path) -> None:
     addon = search_relax_system_addon()
     assert "mod.brain.search_relax" in addon
     assert "D-B03" in addon
+    assert "L0: 优先搜索群内有画像成员" in addon
+    assert "L1: 若初次未找到或召回较少" in addon
 
     long_rq = "需要找懂 langchain 的合伙人；比如做过 RAG 落地的人"
     resolved = resolve_search_relax(
@@ -159,7 +161,7 @@ def test_on_path_l1_drops_soft_facets(tmp_path: Path) -> None:
     )
     assert resolved.enabled is True
     assert resolved.args.relax_level == 1
-    assert resolved.args.strategy_note == "L1_drop_soft_facets"
+    assert resolved.args.strategy_note == "L1_drop_soft_and_expand_pool"
     assert resolved.args.dropped_soft is True
     assert resolved.args.rank_query == "需要找懂 langchain 的合伙人"
     strengths = {c["field"]: c["strength"] for c in resolved.args.constraints}
@@ -243,7 +245,7 @@ def test_on_path_two_real_tool_levels_fake_hand(
     )
     assert p1["status"] == "matched"
     assert p1["relax_level"] == 1
-    assert p1["strategy"] == "L1_drop_soft_facets"
+    assert p1["strategy"] == "L1_drop_soft_and_expand_pool"
     assert p1["candidates"][0]["user_id"] == "c_relaxed"
     assert p1["rank_query"] != long_rq  # shortened
 
@@ -292,6 +294,17 @@ def test_profile_pool_on_defaults_agent_profiles(tmp_path: Path) -> None:
     assert explicit.pool_source == "model"
     assert explicit.profile_pool_hook is False
 
+    relaxed = resolve_search_relax(query="x", rank_query="x", relax_level=1, pool="")
+    assert relaxed.args.pool == "all_reachable"
+    assert relaxed.pool_source == "relaxed_expansion"
+    assert relaxed.args.strategy_note == "L1_drop_soft_and_expand_pool"
+
+    relaxed_explicit = resolve_search_relax(
+        query="x", rank_query="x", relax_level=1, pool="agent_profiles"
+    )
+    assert relaxed_explicit.args.pool == PROFILE_POOL
+    assert relaxed_explicit.pool_source == "model"
+
 
 def test_profile_pool_on_model_all_reachable_wins(tmp_path: Path) -> None:
     """Model-supplied known pool beats Module default."""
@@ -334,13 +347,17 @@ def test_profile_pool_on_with_search_relax_off(tmp_path: Path) -> None:
 
 
 def test_resolve_pool_helper_precedence() -> None:
-    pool, hook, src = resolve_pool("", profile_pool=True)
+    pool, hook, src = resolve_pool("", relax_level=0, profile_pool=True)
     assert (pool, hook, src) == (PROFILE_POOL, False, "module_default")
-    pool, hook, src = resolve_pool("all_reachable", profile_pool=True)
+    pool, hook, src = resolve_pool("", relax_level=1, profile_pool=True)
+    assert (pool, hook, src) == ("all_reachable", False, "relaxed_expansion")
+    pool, hook, src = resolve_pool("all_reachable", relax_level=1, profile_pool=True)
     assert (pool, hook, src) == ("all_reachable", False, "model")
-    pool, hook, src = resolve_pool("agent_profiles", profile_pool=False)
+    pool, hook, src = resolve_pool("agent_profiles", relax_level=1, profile_pool=True)
+    assert (pool, hook, src) == (PROFILE_POOL, False, "model")
+    pool, hook, src = resolve_pool("agent_profiles", relax_level=1, profile_pool=False)
     assert (pool, hook, src) == ("all_reachable", True, "fallback_module_off")
-    pool, hook, src = resolve_pool("weird", profile_pool=True)
+    pool, hook, src = resolve_pool("weird", relax_level=1, profile_pool=True)
     assert (pool, hook, src) == ("all_reachable", False, "unknown")
 
 
@@ -534,7 +551,7 @@ def test_live_path_l1_drops_soft_keeps_hard(
     )
     payload = json.loads(raw)
     assert payload["relax_level"] == 1
-    assert payload["strategy"] == "L1_drop_soft_facets"
+    assert payload["strategy"] == "L1_drop_soft_and_expand_pool"
     assert payload["dropped_soft"] is True
     assert payload["rank_query"] == "需要找懂 langchain 的合伙人"
     assert payload["rank_query"] != long_rq
@@ -643,6 +660,54 @@ def test_live_path_profile_autoload_constraints(
     fields = _constraint_fields(captured[0]["constraints"])
     assert fields == {"city", "industry"}
     assert "experience_tags" not in fields
+
+
+def test_profile_pool_on_l1_expands_pool_to_all_reachable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    yaml_path = _write_modules_yaml(
+        tmp_path / "pp_l1_expand.yaml", search_relax=True, profile_pool=True
+    )
+    reload_modules_config(yaml_path)
+
+    captured: list[dict[str, Any]] = []
+
+    def _fake_run_match(**kwargs):
+        captured.append(dict(kwargs))
+        return MatchResult(
+            status="empty",
+            candidates=[],
+            query=kwargs["query"],
+            group_id=kwargs["group_id"],
+            reason="empty",
+        )
+
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.search_tool.match_backend.run_match",
+        _fake_run_match,
+    )
+
+    # L0 with omitted pool -> agent_profiles
+    p0 = json.loads(
+        search_candidates.invoke(
+            {"query": "K12数学 教研", "relax_level": 0},
+            config={"metadata": {"user_id": "u_k12", "group_id": "g1", "run_match": "true"}},
+        )
+    )
+    assert p0["pool"] == "agent_profiles"
+    assert p0["strategy"] == "L0_hard"
+    assert captured[0]["pool"] == "agent_profiles"
+
+    # L1 with omitted pool -> expands to all_reachable
+    p1 = json.loads(
+        search_candidates.invoke(
+            {"query": "K12数学 教研", "relax_level": 1},
+            config={"metadata": {"user_id": "u_k12", "group_id": "g1", "run_match": "true"}},
+        )
+    )
+    assert p1["pool"] == "all_reachable"
+    assert p1["strategy"] == "L1_drop_soft_and_expand_pool"
+    assert captured[1]["pool"] == "all_reachable"
 
 
 def test_system_prompt_teaches_hard_soft_constraints() -> None:

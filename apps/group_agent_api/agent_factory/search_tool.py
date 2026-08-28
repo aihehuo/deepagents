@@ -215,8 +215,8 @@ def search_candidates(
         rank_query: 可选的细排序文本；默认与 query 相同。
         relax_level: 放宽级别（0=硬约束）。仅当 mod.brain.search_relax 开启时生效；
             empty 后可再调本工具并提高级别。编排不会代搜。
-        pool: 候选池。省略时：mod.brain.profile_pool 开 → agent_profiles，关 →
-            all_reachable。模型显式传入优先；关模块时 agent_profiles 回退全池。
+        pool: 候选池。省略时：L0 且 mod.brain.profile_pool 开启时默认 agent_profiles；
+            L1 放宽或 profile_pool 关闭时扩展为 all_reachable。模型显式传入优先；关模块时 agent_profiles 回退全池。
         constraints: 可选匹配约束（与 save_group_profile.match_constraints 同形）。
             省略时从本用户×群已落库画像自动加载。L1 会丢掉 soft、保留 hard。
     """

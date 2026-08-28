@@ -10,7 +10,9 @@ Pool precedence (documented):
 1. Model-supplied known pool (``agent_profiles`` | ``all_reachable``) wins
    over the Module default — except ``agent_profiles`` while Module is **off**
    falls back to ``all_reachable`` and sets ``profile_pool_hook`` (audit).
-2. Omitted / empty pool → Module on: ``agent_profiles``; off: ``all_reachable``.
+2. Omitted / empty pool →
+   - relax_level=0: Module on: ``agent_profiles``; off: ``all_reachable``.
+   - relax_level>=1: ``all_reachable`` (relaxation expands pool).
 3. Unknown pool token → ``all_reachable``.
 """
 
@@ -121,6 +123,7 @@ def profile_pool_enabled_for_user(user_id: int | str | None = None) -> bool:
 def resolve_pool(
     pool: str | None = "",
     *,
+    relax_level: int | str | None = 0,
     profile_pool: bool | None = None,
     user_id: int | str | None = None,
 ) -> tuple[str, bool, str]:
@@ -129,9 +132,12 @@ def resolve_pool(
     See module docstring for precedence vs model-supplied pool.
     """
     pp_on = profile_pool_enabled(enabled=profile_pool, user_id=user_id)
+    level = _parse_level(relax_level)
     requested = str(pool or "").strip()
 
     if not requested:
+        if level >= 1:
+            return DEFAULT_POOL, False, "relaxed_expansion"
         if pp_on:
             return PROFILE_POOL, False, "module_default"
         return DEFAULT_POOL, False, "default"
@@ -170,11 +176,11 @@ def resolve_search_relax(
     on = search_relax_enabled(enabled=enabled, user_id=user_id)
     cap = search_relax_max_levels(max_levels=max_levels)
     pp_on = profile_pool_enabled(enabled=profile_pool, user_id=user_id)
-    resolved_pool, pool_hook, pool_source = resolve_pool(
-        pool, profile_pool=pp_on, user_id=user_id
-    )
 
     if not on:
+        resolved_pool, pool_hook, pool_source = resolve_pool(
+            pool, relax_level=0, profile_pool=pp_on, user_id=user_id
+        )
         args = apply_relax(
             level=0,
             query=query,
@@ -194,6 +200,9 @@ def resolve_search_relax(
 
     effective = min(max(0, raw_level), cap - 1)
     clamped = effective != raw_level
+    resolved_pool, pool_hook, pool_source = resolve_pool(
+        pool, relax_level=effective, profile_pool=pp_on, user_id=user_id
+    )
 
     args = apply_relax(
         level=effective,
@@ -228,7 +237,7 @@ def search_relax_system_addon(
     pp_on = profile_pool_enabled(enabled=profile_pool, user_id=user_id)
     if pp_on:
         pool_line = (
-            "- `pool`：`mod.brain.profile_pool` 已开；省略时默认 `agent_profiles`。"
+            "- `pool`：`mod.brain.profile_pool` 已开；省略时默认 `agent_profiles`（L1 放宽时自动扩展为 `all_reachable`）。"
             " 模型显式传入 `all_reachable` / `agent_profiles` 优先于默认。\n"
         )
     else:
@@ -239,6 +248,8 @@ def search_relax_system_addon(
     return (
         "\n## 搜人多级放宽（mod.brain.search_relax 已开启）\n"
         f"- 策略：{STRATEGY_DOC}\n"
+        "- L0: 优先搜索群内有画像成员 (pool=agent_profiles) 并保留硬性与偏好条件。\n"
+        "- L1: 若初次未找到或召回较少，放宽偏好条件并将搜索范围扩展至全平台可达人脉 (pool=all_reachable)。\n"
         "- 首次调用 `search_candidates` 时用 `relax_level=0`（硬约束）。\n"
         f"- 若工具返回 `status=empty`，可**再调用一次**工具并提高 `relax_level`"
         f"（最高 {top}）；每一级必须是真实 tool call，禁止等待系统代搜（D-B03）。\n"

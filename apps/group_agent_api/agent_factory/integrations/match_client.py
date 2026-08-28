@@ -44,7 +44,19 @@ def _normalize_candidate(raw: dict[str, Any], *, fallback_group: str) -> dict[st
     if isinstance(doing, str):
         doing = {"value": doing, "disclosure": "confirmed_public"}
     elif not isinstance(doing, dict):
-        doing = None
+        facts = raw.get("facts")
+        if isinstance(facts, list):
+            for f in facts:
+                if isinstance(f, dict) and f.get("field") == "doing":
+                    val = str(f.get("value") or "").strip()
+                    disc = f.get("disclosure") or "confirmed_public"
+                    if val:
+                        doing = {"value": val, "disclosure": disc}
+                        break
+            else:
+                doing = None
+        else:
+            doing = None
 
     normalized = {
         # Preserve the raw type/value for the downstream stable-ID gate.

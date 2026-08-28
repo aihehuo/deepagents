@@ -233,6 +233,7 @@ class CandidateV2(BaseModel):
     facts: list[CandidateFactV1] = Field(..., min_length=1)
     match_evidence: list[MatchEvidenceV1] = Field(..., min_length=1)
     connection: CandidateConnectionV1 = Field(default_factory=CandidateConnectionV1)
+    doing: dict[str, Any] | None = None
     # Forward-compatible copy fields
     invite_text: str | None = None
     match_highlights: list[str] | None = None

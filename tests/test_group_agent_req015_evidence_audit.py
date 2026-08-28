@@ -681,3 +681,41 @@ async def test_async_all_missing_basis_has_consistent_empty_reason(
     assert final_payload["mentioned_user_ids"] == []
     assert final_payload["invite_text"] is None
     assert final_payload["delivery_kind"] is None
+
+
+def test_public_match_basis_extracts_v2_facts() -> None:
+    from apps.group_agent_api.agent_factory.disclosure import public_match_basis
+
+    # Candidate with v2 facts
+    v2_cand = {
+        "user_id": "101",
+        "facts": [
+            {
+                "field": "doing",
+                "value": "AI 搜索与大模型出海业务",
+                "disclosure": "confirmed_public",
+                "source_ref": "profile:101:1",
+                "source_version": 1,
+                "source_group_id": "global",
+            }
+        ],
+    }
+    basis = public_match_basis(v2_cand)
+    assert basis == {"doing": "AI 搜索与大模型出海业务"}
+
+    # Candidate with v2 facts but card_allowed only (not public)
+    non_pub_cand = {
+        "user_id": "102",
+        "facts": [
+            {
+                "field": "doing",
+                "value": "非公开业务",
+                "disclosure": "card_allowed",
+                "source_ref": "profile:102:1",
+                "source_version": 1,
+                "source_group_id": "global",
+            }
+        ],
+    }
+    assert public_match_basis(non_pub_cand) == {}
+

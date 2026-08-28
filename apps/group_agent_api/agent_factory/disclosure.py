@@ -106,7 +106,19 @@ def public_match_basis(candidate: dict[str, Any]) -> dict[str, str]:
     REQ-015 intentionally requires confirmed-public ``doing``. Public offer
     may still be visible in a candidate payload, but it is not sufficient on
     its own to justify a directed recommendation.
+    Supports both legacy top-level doing and v2 contract candidate facts.
     """
+    # 1. First check v2 facts list for confirmed_public doing
+    facts = candidate.get("facts")
+    if isinstance(facts, list):
+        for f in facts:
+            if isinstance(f, dict) and f.get("field") == "doing":
+                val = str(f.get("value") or "").strip()
+                disc = f.get("disclosure")
+                if val and (disc in {PUBLIC.value, PUBLIC, "confirmed_public"}):
+                    return {"doing": val}
+
+    # 2. Fall back to top-level doing field
     doing = _field_public(
         candidate.get("doing")
         if isinstance(candidate.get("doing"), dict)

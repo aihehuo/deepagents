@@ -188,6 +188,7 @@ def _public_value(field: dict[str, Any] | None) -> str:
     if field.get("disclosure") not in {
         DisclosureLevel.confirmed_public.value,
         DisclosureLevel.confirmed_public,
+        "confirmed_public",
     }:
         return ""
     return str(field.get("value") or "").strip()

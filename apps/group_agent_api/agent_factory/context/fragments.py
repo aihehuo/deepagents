@@ -54,7 +54,7 @@ PROMPT_PIECES: tuple[tuple[str, str], ...] = (
   1. 先按需调用 `save_group_profile` 更新画像（若有新细节）；
   2. **必须立即调用 `search_candidates` 工具**，绝对禁止不搜就继续打字聊闲话，更严禁在文本中凭空编造候选人。
 - **追问轮次上限**：画像三维（doing/need/offer）齐备后，追问不得超过 1-2 轮；只要用户在此期间再次询问是否有合适人选或类似项目，必须立即执行 `search_candidates` 搜人。
-- `query` 必须由你根据本轮对话和已落库画像自己组织（关键词或短句），不能留空。
+- **检索语言规则（强制）**：无论用户使用何种语言交流，`query` 与 `rank_query` **主体必须使用中文关键词**（底层数据库以中文画像为主），可中英文夹杂保留专业术语/技术概念/英文缩写（如 `AI Agent`、`SaaS`、`CTO`、`Java`、`Python`、`Web3`、`K12` 等），严禁生成全英文检索长句（如 `"AI Agent platform backend architect"` 应写为 `"AI Agent平台 后端架构师 技术合伙人"`）。
 - 禁止不调用 `search_candidates` 就声称找到人、没找到人、或「系统会附加候选人」。
 - 工具返回后，只能根据返回的 `candidates` 说话；`status=empty` 就说本轮没找到，不要编造人选。
 - 同一轮最多搜一次（除非系统另行开启多级放宽说明）。""",
@@ -80,6 +80,7 @@ PROMPT_PIECES: tuple[tuple[str, str], ...] = (
 - **hard（必须保留）**：`city` / `industry`；用户明确「必须 / 只要 / 不要 / 仅限」→ `strength=hard`。
 - **soft（可放宽）**：技术栈、长尾举例、「比如…」、过细项目名词 → 用 `experience_tags`（或同类）且 `strength=soft`；也可只放进 `rank_query`，**禁止**写成 hard。
 - 字段用约定名：`city` / `industry` / `role` / `company_size` / `experience_tags` 等；operator 常用 `in` / `not_in` / `eq`。
+- **约束值规范**：`city` / `industry` / `role` 的 values 必须使用标准中文（如 `values: ["上海"]`，严禁使用拼音或英文翻译如 `["Shanghai"]`）。
 - 搜人时：可把同一列表传给 `search_candidates(constraints=...)`；若省略，工具会从本用户×群已落库画像自动加载。""",
     ),
     (

@@ -211,14 +211,14 @@ def search_candidates(
     """在当前群搜索可匹配的候选人。用户要求匹配、搜人、推荐或 @ 时必须调用。
 
     Args:
-        query: 你根据本轮对话和画像组织的检索词（必填）。不要留空。
-        rank_query: 可选的细排序文本；默认与 query 相同。
+        query: 检索词（必填）。主体必须使用中文关键词（可夹杂技术术语/英文缩写如 AI Agent, CTO, SaaS），严禁生成纯英文检索短句。
+        rank_query: 可选的细排序文本；默认与 query 相同（以中文为主）。
         relax_level: 放宽级别（0=硬约束）。仅当 mod.brain.search_relax 开启时生效；
             empty 后可再调本工具并提高级别。编排不会代搜。
         pool: 候选池。省略时：L0 且 mod.brain.profile_pool 开启时默认 agent_profiles；
             L1 放宽或 profile_pool 关闭时扩展为 all_reachable。模型显式传入优先；关模块时 agent_profiles 回退全池。
         constraints: 可选匹配约束（与 save_group_profile.match_constraints 同形）。
-            省略时从本用户×群已落库画像自动加载。L1 会丢掉 soft、保留 hard。
+            字段值（如 city）必须为标准中文名称。省略时从本用户×群已落库画像自动加载。L1 会丢掉 soft、保留 hard。
     """
     metadata = config.get("metadata") or {}
     user_id = str(metadata.get("user_id") or "").strip()

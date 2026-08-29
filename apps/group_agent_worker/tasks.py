@@ -257,19 +257,16 @@ async def _run_attempt(
     )
 
     if decision.dead_letter or not decision.should_retry:
-        # BSD-01 P0: mouth rejected without committing — do not send error
-        # terminal to Micro (leave Run non-terminal for retry / sweeper).
-        if error_code != "mouth_ingress_rejected":
-            try:
-                await _emit(
-                    "error",
-                    {
-                        "error_code": error_code or "AsyncRunFailed",
-                        "message": "Task execution failed",
-                    },
-                )
-            except Exception:  # noqa: BLE001
-                pass
+        try:
+            await _emit(
+                "error",
+                {
+                    "error_code": error_code or "AsyncRunFailed",
+                    "message": "智能体处理遇到异常或超时，请稍后重试",
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
         status = (
             ExecutionStatus.DEAD_LETTERED
             if decision.dead_letter

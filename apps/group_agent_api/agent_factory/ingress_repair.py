@@ -136,6 +136,7 @@ def peel_final_payload(payload: dict[str, Any], *, reason_code: str) -> dict[str
 
     def _clear_candidates() -> None:
         out["candidates"] = []
+        out["candidate_count"] = 0
         out["match_status"] = "empty"
         out["invite_text"] = None
         out["delivery_kind"] = None
@@ -152,6 +153,7 @@ def peel_final_payload(payload: dict[str, Any], *, reason_code: str) -> dict[str
         grounded = out.get("grounded_final")
         if isinstance(grounded, dict):
             grounded = dict(grounded)
+            grounded["candidate_count"] = 0
             m2 = grounded.get("match")
             if isinstance(m2, dict):
                 m2 = dict(m2)

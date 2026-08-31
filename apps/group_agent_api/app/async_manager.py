@@ -851,6 +851,7 @@ async def _execute_core_agent(
                     os.environ.get("GROUP_AGENT_STREAMING_ENABLED", "0").lower() in {"1", "true", "yes"}
                     and hasattr(agent, "astream")
                 )
+                _ainvoke_t0 = time.monotonic()
                 try:
                     if streaming_enabled:
                         buffer = StreamChunkBuffer(emit_callback=emit_callback, min_interval_s=0.1)

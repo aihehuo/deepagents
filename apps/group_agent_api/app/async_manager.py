@@ -861,7 +861,14 @@ async def _execute_core_agent(
                             config,
                             stream_mode=["messages", "updates"],
                         ):
-                            subgraph_path, mode, data = chunk
+                            if isinstance(chunk, tuple) and len(chunk) == 3:
+                                subgraph_path, mode, data = chunk
+                            elif isinstance(chunk, tuple) and len(chunk) == 2:
+                                mode, data = chunk
+                                subgraph_path = ()
+                            else:
+                                continue
+
                             if mode == "updates":
                                 tool_triggered_this_turn = True
                                 if isinstance(data, dict):
@@ -872,7 +879,7 @@ async def _execute_core_agent(
                                                 {"phase": "searching", "step": "正在匹配合适的人选..."},
                                             )
                             elif mode == "messages":
-                                msg_chunk, metadata = data
+                                msg_chunk = data[0] if isinstance(data, (tuple, list)) and data else data
                                 if isinstance(msg_chunk, AIMessageChunk):
                                     if (
                                         getattr(msg_chunk, "tool_calls", None)

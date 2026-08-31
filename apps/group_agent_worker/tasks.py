@@ -221,11 +221,12 @@ async def _run_attempt(
                 error_code = "callback_5xx"
             else:
                 error_code = "transient_execution_error"
-        _logger.error(
-            "worker_attempt_error run_id=%s attempt_id=%s error_code=%s",
+        _logger.exception(
+            "worker_attempt_error run_id=%s attempt_id=%s error_code=%s exc=%s",
             req.run_id,
             claim.attempt_id,
             error_code,
+            exc,
         )
     finally:
         stop_hb.set()

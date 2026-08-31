@@ -870,10 +870,10 @@ async def _execute_core_agent(
                                 continue
 
                             if mode == "updates":
-                                tool_triggered_this_turn = True
                                 if isinstance(data, dict):
                                     for node_name in data:
                                         if node_name == "tools":
+                                            tool_triggered_this_turn = True
                                             await emit_callback(
                                                 "progress",
                                                 {"phase": "searching", "step": "正在匹配合适的人选..."},

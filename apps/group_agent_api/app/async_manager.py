@@ -68,9 +68,11 @@ from apps.group_agent_api.agent_factory.module_config import (
     search_relax_enabled_for_user,
 )
 from apps.group_agent_api.agent_factory.search_relax import search_relax_system_addon
+from apps.group_agent_api.agent_factory.stream_buffer import StreamChunkBuffer
 from apps.group_agent_api.agent_factory.suggested_replies import (
     extract_suggested_replies,
 )
+from langchain_core.messages import AIMessageChunk
 from apps.group_agent_api.app.endpoints.chat import (
     MAX_PERSIST_ATTEMPTS,
     _extract_reply,
@@ -845,28 +847,68 @@ async def _execute_core_agent(
                     len(req.message or ""),
                     admin_debug,
                 )
-                _ainvoke_t0 = time.monotonic()
+                streaming_enabled = (
+                    os.environ.get("GROUP_AGENT_STREAMING_ENABLED", "0").lower() in {"1", "true", "yes"}
+                    and hasattr(agent, "astream")
+                )
                 try:
-                    result = await agent.ainvoke(
-                        {"messages": turn_messages},
-                        config,
-                    )
+                    if streaming_enabled:
+                        buffer = StreamChunkBuffer(emit_callback=emit_callback, min_interval_s=0.1)
+                        tool_triggered_this_turn = False
+                        async for chunk in agent.astream(
+                            {"messages": turn_messages},
+                            config,
+                            stream_mode=["messages", "updates"],
+                        ):
+                            subgraph_path, mode, data = chunk
+                            if mode == "updates":
+                                tool_triggered_this_turn = True
+                                if isinstance(data, dict):
+                                    for node_name in data:
+                                        if node_name == "tools":
+                                            await emit_callback(
+                                                "progress",
+                                                {"phase": "searching", "step": "正在匹配合适的人选..."},
+                                            )
+                            elif mode == "messages":
+                                msg_chunk, metadata = data
+                                if isinstance(msg_chunk, AIMessageChunk):
+                                    if (
+                                        getattr(msg_chunk, "tool_calls", None)
+                                        or getattr(msg_chunk, "tool_call_chunks", None)
+                                    ):
+                                        tool_triggered_this_turn = True
+                                    elif msg_chunk.content and not tool_triggered_this_turn:
+                                        await buffer.feed_token(str(msg_chunk.content))
+                        await buffer.flush()
+                        agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
+                        messages = (
+                            agent_state.values.get("messages", [])
+                            if agent_state and agent_state.values
+                            else []
+                        )
+                    else:
+                        result = await agent.ainvoke(
+                            {"messages": turn_messages},
+                            config,
+                        )
+                        messages = result.get("messages", [])
                 except Exception:
                     _logger.exception(
-                        "Core agent ainvoke failed run_id=%s thread_id=%s elapsed_s=%.2f",
+                        "Core agent execution failed run_id=%s thread_id=%s elapsed_s=%.2f",
                         req.run_id,
                         tid,
                         time.monotonic() - _ainvoke_t0,
                     )
                     raise
                 _logger.info(
-                    "Core agent ainvoke done run_id=%s thread_id=%s elapsed_s=%.2f n_msgs=%d",
+                    "Core agent execution done run_id=%s thread_id=%s elapsed_s=%.2f n_msgs=%d streaming=%s",
                     req.run_id,
                     tid,
                     time.monotonic() - _ainvoke_t0,
-                    len(result.get("messages", []) or []),
+                    len(messages or []),
+                    streaming_enabled,
                 )
-                messages = result.get("messages", [])
                 reply = _extract_reply(messages, msg_count_before)
 
                 # chk.action_claim (YAML): unauthorized group-send / @ / admin claims.

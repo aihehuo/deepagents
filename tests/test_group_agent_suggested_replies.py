@@ -28,6 +28,21 @@ def test_extracts_model_authored_suggestions_and_hides_marker() -> None:
     ]
 
 
+def test_extracts_whitespace_variant_and_never_leaks_private_marker() -> None:
+    reply, suggestions = extract_suggested_replies(
+        '正文第一段\n< suggested_replies >['
+        '{"label":"聚焦AI创业者","reply":"主要面向AI方向的早期创业者"},'
+        '{"label":"卡在匹配不准","reply":"现在最大的问题是匹配不够准"},'
+        '{"label":"缺技术合伙人","reply":"急需技术合伙人一起搭MVP"}'
+        "]</suggested_replies>\n正文第二段"
+    )
+
+    assert reply == "正文第一段\n\n正文第二段"
+    assert len(suggestions) == 3
+    assert suggestions[0]["label"] == "聚焦AI创业者"
+    assert "suggested_replies" not in reply
+
+
 def test_invalid_or_single_suggestion_fails_closed() -> None:
     reply, suggestions = extract_suggested_replies(
         '正文<suggested_replies>[{"label":"只有一个","reply":"不显示"}]</suggested_replies>'

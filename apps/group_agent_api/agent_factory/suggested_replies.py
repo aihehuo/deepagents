@@ -18,7 +18,7 @@ SUGGESTED_REPLIES_PROMPT = """
 """
 
 _MARKER_RE = re.compile(
-    r"<suggested_replies>\s*(.*?)\s*</suggested_replies>",
+    r"<\s*suggested_replies\s*>\s*(.*?)\s*<\s*/\s*suggested_replies\s*>",
     flags=re.IGNORECASE | re.DOTALL,
 )
 

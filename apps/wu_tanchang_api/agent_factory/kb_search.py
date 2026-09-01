@@ -28,6 +28,32 @@ class NoteHit:
     matched_keywords: list[str]
     matched_insights: list[str]
     raw_path: str
+    xhs_url: str | None = None
+
+
+_xhs_links_cache: dict[str, dict[str, str | None]] = {}
+
+
+def _load_xhs_links_by_id(kb_dir: Path) -> dict[str, str | None]:
+    """Load xhs_links.json keyed by note id; empty dict if file missing."""
+    cache_key = str(kb_dir.resolve())
+    if cache_key in _xhs_links_cache:
+        return _xhs_links_cache[cache_key]
+
+    links_path = kb_dir / "xhs_links.json"
+    by_id: dict[str, str | None] = {}
+    if links_path.exists():
+        try:
+            payload = json.loads(links_path.read_text(encoding="utf-8"))
+            for note in payload.get("notes", []):
+                note_id = note.get("id")
+                if note_id:
+                    by_id[note_id] = note.get("url")
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("[kb_search] failed to load xhs_links.json: %s", exc)
+
+    _xhs_links_cache[cache_key] = by_id
+    return by_id
 
 
 _clients_cache: dict[str, tuple[Any, Any, Path]] = {}
@@ -121,6 +147,9 @@ def _get_kb_connection(config: RunnableConfig | None) -> tuple[Any, Any, Path]:
     if cache_key in _clients_cache:
         return _clients_cache[cache_key]
 
+    # Pre-load xhs links for this kb directory
+    _load_xhs_links_by_id(db_path.parent)
+
     # Check existence
     if not db_path.exists():
         msg = f"SQLite database file not found at {db_path}. Please run kb_build_db.py first."
@@ -176,6 +205,7 @@ def semantic_search(
         List of NoteHit items.
     """
     _chroma_client, _collection, _db_path = _get_kb_connection(config)
+    xhs_by_id = _load_xhs_links_by_id(_db_path.parent)
 
     # Generate query embedding
     query_emb = get_embeddings([query], _api_key, model=_embedding_model)[0]
@@ -262,6 +292,7 @@ def semantic_search(
                 matched_keywords=keywords,
                 matched_insights=insights,
                 raw_path=note_row["raw_path"],
+                xhs_url=xhs_by_id.get(note_id),
             )
         )
         seen_notes.add(note_id)
@@ -360,6 +391,8 @@ def kb_semantic_search(
             lines.append("- **核心洞察**:")
             for ins in hit.matched_insights:
                 lines.append(f"  * {ins}")
+            if hit.xhs_url:
+                lines.append(f"- **探店笔记网页**: {hit.xhs_url}")
             lines.append(f"- **路径**: `{hit.raw_path}`")
             lines.append("")
         return "\n".join(lines)
@@ -388,6 +421,11 @@ def get_note_content(
         conn.close()
         if not row:
             return f"错误: 未找到 ID 为 '{note_id}' 的笔记。"
-        return f"### {row['title']}\n\n{row['content']}"
+        xhs_by_id = _load_xhs_links_by_id(_db_path.parent)
+        xhs_url = xhs_by_id.get(note_id)
+        header = f"### {row['title']}"
+        if xhs_url:
+            header += f"\n\n**探店笔记网页**: {xhs_url}"
+        return f"{header}\n\n{row['content']}"
     except Exception as e:  # noqa: BLE001
         return f"错误: 无法获取笔记内容 ({e})"

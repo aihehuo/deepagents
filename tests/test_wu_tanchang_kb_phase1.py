@@ -3,14 +3,24 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from apps.wu_tanchang_api.agent_factory.kb_search import NoteHit, kb_semantic_search, semantic_search
+from apps.wu_tanchang_api.agent_factory.kb_search import (
+    NoteHit,
+    get_note_content,
+    kb_semantic_search,
+    semantic_search,
+)
 from apps.wu_tanchang_api.scripts.kb_build_db import validate_db_constraints
 from apps.wu_tanchang_api.scripts.kb_extract import validate_extraction
+from apps.wu_tanchang_api.scripts.kb_import_xhs_links import (
+    build_xhs_links,
+    extract_xhs_url,
+)
 
 
 def test_validate_extraction_valid() -> None:
@@ -244,6 +254,7 @@ def test_kb_semantic_search_tool(mock_search: MagicMock) -> None:
             matched_keywords=["关键一", "关键二"],
             matched_insights=["洞察一", "洞察二"],
             raw_path="kb/raw/test.md",
+            xhs_url="https://xhslink.cn/o/test123",
         )
     ]
 
@@ -255,7 +266,27 @@ def test_kb_semantic_search_tool(mock_search: MagicMock) -> None:
     assert "- **关键词**: 关键一, 关键二" in res
     assert "  * 洞察一" in res
     assert "  * 洞察二" in res
+    assert "- **探店笔记网页**: https://xhslink.cn/o/test123" in res
     assert "- **路径**: `kb/raw/test.md`" in res
+
+
+@patch("apps.wu_tanchang_api.agent_factory.kb_search.semantic_search")
+def test_kb_semantic_search_tool_omits_xhs_line_when_missing(mock_search: MagicMock) -> None:
+    """Do not emit 暂无 — other tenants have no xhs_links.json."""
+    mock_search.return_value = [
+        NoteHit(
+            note_id="wu-test",
+            title="测试笔记标题",
+            brand="测试品牌",
+            score=0.85,
+            matched_keywords=["关键一"],
+            matched_insights=["洞察一"],
+            raw_path="kb/raw/test.md",
+            xhs_url=None,
+        )
+    ]
+    res = kb_semantic_search.invoke({"query": "测试需求", "k": 1})
+    assert "探店笔记网页" not in res
 
 
 @patch("apps.wu_tanchang_api.agent_factory.kb_search._get_kb_connection")
@@ -265,3 +296,79 @@ def test_kb_semantic_search_tool_handles_missing_db_error(mock_get_conn: MagicMo
 
     res = kb_semantic_search.invoke({"query": "测试", "k": 1})
     assert "错误: 知识库向量索引未构建" in res
+
+
+def test_extract_xhs_url_from_share_text() -> None:
+    """Extract short link from Xiaohongshu share口令."""
+    text = "复制这段话 https://xhslink.cn/o/4J5VnH4DmGh 打开小红书"
+    assert extract_xhs_url(text) == "https://xhslink.cn/o/4J5VnH4DmGh"
+    glued = "https://xhslink.cn/o/4J5VnH4DmGh，复制本条信息，打开【小红书】App"
+    assert extract_xhs_url(glued) == "https://xhslink.cn/o/4J5VnH4DmGh"
+    assert extract_xhs_url("视频已下架，暂无连接") is None
+
+
+def test_kb_import_xhs_links_from_workspace_excel() -> None:
+    """Import script aligns Excel stems with index.json and writes expected counts."""
+    workspace = Path(__file__).resolve().parents[1] / "apps/wu_tanchang_api/workspace"
+    xlsx_path = workspace / "kb/raw/短视频连接.xlsx"
+    index_path = workspace / "kb/index.json"
+    if not xlsx_path.exists():
+        pytest.skip("短视频连接.xlsx not present locally (gitignored raw/)")
+
+    payload = build_xhs_links(
+        xlsx_path=xlsx_path,
+        index_path=index_path,
+        generated_from="kb/raw/短视频连接.xlsx",
+    )
+
+    assert len(payload["notes"]) == 70
+    assert sum(1 for n in payload["notes"] if n["status"] == "ok") == 69
+    assert sum(1 for n in payload["notes"] if n["status"] == "taken_down") == 1
+    assert len(payload["unmatched_excel_rows"]) == 1
+    assert any("3又1/2" in row for row in payload["unmatched_excel_rows"])
+
+    bake = next(n for n in payload["notes"] if n["id"] == "wu-bake-no-title")
+    assert bake["url"] is None
+    assert bake["status"] == "taken_down"
+
+    punch = next(n for n in payload["notes"] if n["id"] == "wu-punch-monday")
+    assert punch["url"] and punch["url"].startswith("https://xhslink.cn/")
+
+
+@patch("apps.wu_tanchang_api.agent_factory.kb_search._get_kb_connection")
+def test_get_note_content_includes_xhs_url(mock_get_conn: MagicMock, tmp_path: Path) -> None:
+    """get_note_content prepends探店笔记网页 when xhs_links.json has a URL."""
+    kb_dir = tmp_path / "kb"
+    kb_dir.mkdir()
+    db_path = kb_dir / "kb.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE notes (id TEXT PRIMARY KEY, title TEXT, content TEXT);"
+    )
+    conn.execute(
+        "INSERT INTO notes VALUES ('wu-test', '测试标题', '正文内容');"
+    )
+    conn.commit()
+    conn.close()
+
+    (kb_dir / "xhs_links.json").write_text(
+        json.dumps(
+            {
+                "notes": [
+                    {
+                        "id": "wu-test",
+                        "raw_stem": "stem",
+                        "url": "https://xhslink.cn/o/notecontent",
+                        "status": "ok",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    mock_get_conn.return_value = (MagicMock(), MagicMock(), db_path)
+    res = get_note_content.invoke({"note_id": "wu-test"})
+    assert "**探店笔记网页**: https://xhslink.cn/o/notecontent" in res
+    assert "正文内容" in res
+

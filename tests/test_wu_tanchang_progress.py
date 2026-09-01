@@ -120,3 +120,29 @@ def test_get_progress_status_ignored_cases() -> None:
         subgraph_path=None, stream_mode="updates", data="invalid"
     )
     assert status is None
+
+
+def test_llm_span_to_user_status() -> None:
+    from apps.wu_tanchang_api.app.user_progress import llm_span_to_user_status
+
+    assert (
+        llm_span_to_user_status("llm_call_start", {"agent": "front"})
+        == "正在思考怎么回答…"
+    )
+    assert (
+        llm_span_to_user_status("llm_call_start", {"agent": "kb_analyst"})
+        == "正在检索与分析案例…"
+    )
+    assert (
+        llm_span_to_user_status(
+            "llm_call_slow", {"agent": "kb_analyst", "threshold_s": 30}
+        )
+        == "正在检索案例，通常需要一点时间…"
+    )
+    assert (
+        llm_span_to_user_status(
+            "llm_call_slow", {"agent": "front", "threshold_s": 120}
+        )
+        == "这一步还在生成，请再等一会儿…"
+    )
+    assert llm_span_to_user_status("llm_call_end", {"agent": "front"}) is None

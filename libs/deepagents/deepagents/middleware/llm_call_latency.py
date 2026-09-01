@@ -31,6 +31,8 @@ _logger = logging.getLogger("uvicorn.error")
 DEFAULT_SLOW_THRESHOLDS_S: tuple[float, ...] = (30.0, 60.0, 120.0)
 
 EmitFn = Callable[[str], None]
+SpanEventFn = Callable[[str, dict[str, Any]], None]
+SpanEventFactory = Callable[[], SpanEventFn | None]
 
 
 def _safe_dual_emit(emit: EmitFn | None, msg: str) -> None:
@@ -175,6 +177,7 @@ class LlmCallSpan:
         model: str = "",
         message_count: int | None = None,
         tools_count: int | None = None,
+        span_event_factory: SpanEventFactory | None = None,
     ) -> None:
         self.call_id = call_id or uuid.uuid4().hex[:12]
         self.call_seq = call_seq
@@ -187,6 +190,8 @@ class LlmCallSpan:
         self.model = model
         self.message_count = message_count
         self.tools_count = tools_count
+        self._span_event_factory = span_event_factory
+        self._span_event: SpanEventFn | None = None
         self._started_at = 0.0
         self._done = False
         self._lock = threading.Lock()
@@ -203,13 +208,30 @@ class LlmCallSpan:
             "tools_count": self.tools_count,
         }
 
+    def _fire_span_event(
+        self, action: str, extra: dict[str, Any] | None = None
+    ) -> None:
+        if self._span_event is None:
+            return
+        fields = {**self._base_fields(), **(extra or {})}
+        try:
+            self._span_event(action, fields)
+        except Exception:  # noqa: BLE001
+            pass
+
     def start(self) -> None:
         """Emit llm_call_start and schedule slow-call timers."""
         self._started_at = time.perf_counter()
+        if self._span_event_factory is not None:
+            try:
+                self._span_event = self._span_event_factory()
+            except Exception:  # noqa: BLE001
+                self._span_event = None
         _safe_dual_emit(
             self._emit,
             _format_fields(action="llm_call_start", **self._base_fields()),
         )
+        self._fire_span_event("llm_call_start")
         for threshold in self._slow_thresholds_s:
             timer = threading.Timer(threshold, self._emit_slow, args=(threshold,))
             timer.daemon = True
@@ -221,17 +243,21 @@ class LlmCallSpan:
             if self._done:
                 return
             elapsed_ms = int((time.perf_counter() - self._started_at) * 1000)
+        extra = {
+            "threshold_s": int(threshold_s)
+            if threshold_s == int(threshold_s)
+            else threshold_s,
+            "elapsed_ms": elapsed_ms,
+        }
         _safe_dual_emit(
             self._emit,
             _format_fields(
                 action="llm_call_slow",
                 **self._base_fields(),
-                threshold_s=int(threshold_s)
-                if threshold_s == int(threshold_s)
-                else threshold_s,
-                elapsed_ms=elapsed_ms,
+                **extra,
             ),
         )
+        self._fire_span_event("llm_call_slow", extra)
 
     def _cancel_timers(self) -> None:
         for timer in self._timers:
@@ -370,6 +396,7 @@ class LlmCallLatencyMiddleware(AgentMiddleware):
         emit: EmitFn | None = None,
         slow_thresholds_s: Sequence[float] = DEFAULT_SLOW_THRESHOLDS_S,
         agent_label: str = "",
+        span_event_factory: SpanEventFactory | None = None,
     ) -> None:
         """Initialize middleware.
 
@@ -377,10 +404,14 @@ class LlmCallLatencyMiddleware(AgentMiddleware):
             emit: Optional extra sink (e.g. ``UC18Observer.info``).
             slow_thresholds_s: Elapsed seconds at which to emit ``llm_call_slow``.
             agent_label: Short label for front/owner/subagent identity in logs.
+            span_event_factory: Optional per-call factory for user-visible
+                progress. Invoked on the agent thread at call start so slow
+                timers can reuse the captured handler.
         """
         self._emit = emit
         self._slow_thresholds_s = tuple(slow_thresholds_s)
         self._agent_label = agent_label
+        self._span_event_factory = span_event_factory
         self._seq_lock = threading.Lock()
         self._call_seq = 0
 
@@ -399,6 +430,7 @@ class LlmCallLatencyMiddleware(AgentMiddleware):
             model=model_label(getattr(request, "model", None)),
             message_count=_message_count(request),
             tools_count=_tools_count(request),
+            span_event_factory=self._span_event_factory,
         )
 
     def wrap_model_call(

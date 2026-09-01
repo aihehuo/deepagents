@@ -44,6 +44,7 @@ from apps.wu_tanchang_api.agent_factory.utils import (
     default_runtime_dir,
     get_workspace_owner_name,
 )
+from apps.wu_tanchang_api.app.user_progress import span_event_factory
 from apps.wu_tanchang_api.checkpointer import DiskBackedInMemorySaver
 from apps.wu_tanchang_api.config import WuAgentConfig
 from langchain_core.runnables import RunnableConfig
@@ -64,6 +65,7 @@ def _llm_latency_middleware(agent_label: str) -> LlmCallLatencyMiddleware:
     return LlmCallLatencyMiddleware(
         emit=UC18Observer.info,
         agent_label=agent_label,
+        span_event_factory=span_event_factory,
     )
 
 _ACTIVE_AGENTS_LOCK = threading.Lock()

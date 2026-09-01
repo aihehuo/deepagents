@@ -206,3 +206,28 @@ async def test_allm_call_span_context_manager() -> None:
     assert emit.actions() == ["llm_call_start", "llm_call_end"]
     # Second end from context manager else is a no-op
     assert emit.actions().count("llm_call_end") == 1
+
+
+def test_span_event_factory_captured_at_start() -> None:
+    events: list[tuple[str, dict]] = []
+
+    def factory():
+        def handler(action: str, fields: dict) -> None:
+            events.append((action, fields))
+
+        return handler
+
+    span = LlmCallSpan(
+        call_seq=1,
+        emit=_EmitRecorder(),
+        slow_thresholds_s=(),
+        agent_label="kb_analyst",
+        span_event_factory=factory,
+    )
+    span.start()
+    span._emit_slow(30.0)
+    span.end()
+
+    assert [item[0] for item in events] == ["llm_call_start", "llm_call_slow"]
+    assert events[0][1]["agent"] == "kb_analyst"
+    assert events[1][1]["threshold_s"] == 30

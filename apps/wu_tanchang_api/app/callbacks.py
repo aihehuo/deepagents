@@ -15,6 +15,10 @@ from urllib.parse import urlsplit, urlunsplit
 from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from pathlib import Path
+from apps.wu_tanchang_api.app.user_progress import (
+    reset_progress_sink,
+    set_progress_sink,
+)
 from apps.wu_tanchang_api.app.utils import get_progress_status, get_agent_checkpointer
 from apps.wu_tanchang_api.agent_factory.utils import get_workspace_agent_id
 
@@ -160,13 +164,18 @@ def invoke_callback(callback_url: str, payload: dict[str, Any]) -> bool:
 
 
 def send_heartbeat(
-    callback_url: str, session_id: str, metadata: dict[str, Any]
+    callback_url: str,
+    session_id: str,
+    metadata: dict[str, Any],
+    *,
+    elapsed_s: int = 0,
 ) -> None:
     """Send a liveness heartbeat to the backend callback receiver."""
     heartbeat_url = f"{callback_url.rstrip('/')}/heartbeat"
     payload = {
         "session_id": session_id,
         "timestamp": datetime.utcnow().isoformat() + "Z",
+        "elapsed_s": elapsed_s,
         "metadata": metadata,
     }
     try:
@@ -238,11 +247,18 @@ def run_async_stream_with_callback(
 
         register_active_agent(thread_id, agent)
         heartbeat_stop = asyncio.Event()
+        heartbeat_started = datetime.utcnow()
 
         async def _heartbeat_loop() -> None:
             while not heartbeat_stop.is_set():
+                elapsed_s = int(
+                    (datetime.utcnow() - heartbeat_started).total_seconds()
+                )
                 await loop.run_in_executor(
-                    None, send_heartbeat, callback_url, thread_id, metadata
+                    None,
+                    lambda elapsed=elapsed_s: send_heartbeat(
+                        callback_url, thread_id, metadata, elapsed_s=elapsed
+                    ),
                 )
                 try:
                     await asyncio.wait_for(heartbeat_stop.wait(), timeout=10)
@@ -269,7 +285,24 @@ def run_async_stream_with_callback(
         }
         fallback_message_id = f"wu_{uuid.uuid4().hex}"
         active_message_id: str | None = None
+        last_status: str | None = None
 
+        def _emit_user_status(status: str) -> None:
+            nonlocal last_status
+            if not status or status == last_status:
+                return
+            last_status = status
+            invoke_callback(
+                callback_url,
+                {
+                    **base_payload,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "type": "status",
+                    "status": status,
+                },
+            )
+
+        sink_token = set_progress_sink(_emit_user_status)
         try:
             turn_id = f"{thread_id}::{uuid.uuid4().hex}"
             config = {
@@ -285,8 +318,8 @@ def run_async_stream_with_callback(
                     **metadata,
                 },
             }
-            last_status: str | None = None
             timeout_seconds = _env_float("WU_CALLBACK_STREAM_TIMEOUT_S", 300.0)
+            _emit_user_status("已收到，正在思考…")
             async with asyncio.timeout(timeout_seconds):
                 async for chunk in agent.astream(
                     {"messages": [HumanMessage(content=user_message)]},
@@ -365,6 +398,7 @@ def run_async_stream_with_callback(
                 },
             )
         finally:
+            reset_progress_sink(sink_token)
             unregister_active_agent(thread_id)
             checkpointer = get_agent_checkpointer(agent)
             if checkpointer is not None and hasattr(checkpointer, "flush"):

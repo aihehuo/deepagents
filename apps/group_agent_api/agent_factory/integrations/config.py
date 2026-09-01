@@ -309,7 +309,11 @@ def v2_user_allowlist() -> set[int]:
 
 
 def is_canary_user(user_id: int | str | None) -> bool:
-    """Check if user_id is in canary allowlist (user 1 allowed by default when canary on)."""
+    """Check whether an authenticated user is covered by the general v2 rollout.
+
+    The historical function name remains for compatibility. The per-user allowlist
+    is intentionally no longer consulted after general availability.
+    """
     if v2_force_off():
         return False
     if not v2_canary_enabled():
@@ -323,11 +327,7 @@ def is_canary_user(user_id: int | str | None) -> bool:
     except (ValueError, TypeError):
         return False
 
-    allowlist = v2_user_allowlist()
-    if allowlist:
-        return uid in allowlist
-    # Default canary user when GROUP_AGENT_V2_CANARY is enabled but allowlist ENV is empty
-    return uid == 1
+    return True
 
 
 def v2_enabled_for_user(user_id: int | str) -> bool:

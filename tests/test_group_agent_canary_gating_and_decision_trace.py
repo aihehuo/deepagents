@@ -1,4 +1,4 @@
-"""Unit tests for user ID 1 / canary gating & decision point tracing."""
+"""Unit tests for general rollout gating & decision point tracing."""
 
 from __future__ import annotations
 
@@ -66,22 +66,22 @@ def test_canary_user_checking_basic(monkeypatch: pytest.MonkeyPatch) -> None:
     assert is_canary_user(1) is False
     assert is_canary_user("1") is False
 
-    # 2. Canary enabled without explicit allowlist (default allows user 1)
+    # 2. Rollout enabled for every valid authenticated user ID.
     monkeypatch.setenv("GROUP_AGENT_V2_CANARY", "1")
     assert is_canary_user(1) is True
     assert is_canary_user("1") is True
     assert is_canary_user("  1  ") is True
-    assert is_canary_user(2) is False
+    assert is_canary_user(2) is True
     assert is_canary_user("user_1") is False
     assert is_canary_user(None) is False
     assert is_canary_user(-1) is False
 
-    # 3. Explicit allowlist
+    # 3. The legacy allowlist no longer restricts the general rollout.
     monkeypatch.setenv("GROUP_AGENT_V2_USER_ALLOWLIST", "1,42,100")
     assert is_canary_user(1) is True
     assert is_canary_user(42) is True
     assert is_canary_user(100) is True
-    assert is_canary_user(2) is False
+    assert is_canary_user(2) is True
 
     # 4. Force off override
     monkeypatch.setenv("GROUP_AGENT_V2_FORCE_OFF", "1")
@@ -100,16 +100,16 @@ def test_search_relax_and_profile_pool_canary_gating(
     assert search_relax_enabled_for_user(1) is False
     assert profile_pool_enabled_for_user(1) is False
 
-    # Enable canary for user 1
+    # Enable the general rollout.
     monkeypatch.setenv("GROUP_AGENT_V2_CANARY", "1")
     assert search_relax_enabled_for_user(1) is True
     assert search_relax_enabled_for_user("1") is True
     assert profile_pool_enabled_for_user(1) is True
     assert profile_pool_enabled_for_user("1") is True
 
-    # User 2 is not enabled
-    assert search_relax_enabled_for_user(2) is False
-    assert profile_pool_enabled_for_user(2) is False
+    # Other authenticated users receive the same modules.
+    assert search_relax_enabled_for_user(2) is True
+    assert profile_pool_enabled_for_user(2) is True
 
     # resolve_search_relax for user 1 (canary) at L0 defaults to agent_profiles, at L1 expands to all_reachable
     resolved_u1_l0 = resolve_search_relax(
@@ -138,7 +138,7 @@ def test_search_relax_and_profile_pool_canary_gating(
     assert resolved_u1.args.relax_level == 1
     assert resolved_u1.args.strategy_note == "L1_drop_soft_and_expand_pool"
 
-    # resolve_search_relax for user 2 gets enabled=False and pool all_reachable
+    # resolve_search_relax for user 2 follows the same rollout path.
     resolved_u2 = resolve_search_relax(
         query="AI 架构师",
         rank_query="AI 架构师 上海",
@@ -146,10 +146,10 @@ def test_search_relax_and_profile_pool_canary_gating(
         pool="",
         user_id=2,
     )
-    assert resolved_u2.enabled is False
-    assert resolved_u2.profile_pool_enabled is False
+    assert resolved_u2.enabled is True
+    assert resolved_u2.profile_pool_enabled is True
     assert resolved_u2.args.pool == "all_reachable"
-    assert resolved_u2.args.relax_level == 0
+    assert resolved_u2.args.relax_level == 1
 
 
 def test_search_candidates_tool_with_user_canary(

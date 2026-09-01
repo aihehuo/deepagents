@@ -372,3 +372,16 @@ def test_get_note_content_includes_xhs_url(mock_get_conn: MagicMock, tmp_path: P
     assert "**探店笔记网页**: https://xhslink.cn/o/notecontent" in res
     assert "正文内容" in res
 
+
+def test_kb_analyst_prompt_requires_url_and_forbids_dropping_links() -> None:
+    from apps.wu_tanchang_api.agent_factory.agent import (
+        FRONTEND_SYSTEM_PROMPT_TEMPLATE,
+        KB_ANALYST_PROMPT,
+    )
+
+    assert "探店笔记网页：" in KB_ANALYST_PROMPT
+    assert "必写整行、原样复制" in KB_ANALYST_PROMPT
+    assert "禁止谎称未收录" in KB_ANALYST_PROMPT
+    assert "[品牌 · 看探店笔记](完整URL)" in FRONTEND_SYSTEM_PROMPT_TEMPLATE
+    assert "禁止对用户说「库里没有该品类笔记」" in FRONTEND_SYSTEM_PROMPT_TEMPLATE
+

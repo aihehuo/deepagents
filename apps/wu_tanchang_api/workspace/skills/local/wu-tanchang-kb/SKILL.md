@@ -34,6 +34,8 @@ grep -i '阿德\|Punch Monday' kb/index.json
 ```
 
 - **Exit code / output empty** → 该品牌**无探店笔记**，不得说「吴探长探店 XX」
+- 检索标题/品牌已含用户品类（如「火锅」）→ **不得**说该品类没有笔记
+- 工具返回 **探店笔记网页** URL 时，交给前置助手时必须保留完整短链
 - 笔记原文已归档为 chunks，不提供原文文件查询
 
 3. Search index for related entries:

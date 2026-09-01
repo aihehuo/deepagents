@@ -44,7 +44,6 @@ from apps.wu_tanchang_api.agent_factory.utils import (
     default_runtime_dir,
     get_workspace_owner_name,
 )
-from apps.wu_tanchang_api.app.user_progress import span_event_factory
 from apps.wu_tanchang_api.checkpointer import DiskBackedInMemorySaver
 from apps.wu_tanchang_api.config import WuAgentConfig
 from langchain_core.runnables import RunnableConfig
@@ -62,6 +61,8 @@ _logger = logging.getLogger("uvicorn.error")
 
 def _llm_latency_middleware(agent_label: str) -> LlmCallLatencyMiddleware:
     """Per-LLM-call latency logging into UC18 + uvicorn."""
+    from apps.wu_tanchang_api.app.user_progress import span_event_factory
+
     return LlmCallLatencyMiddleware(
         emit=UC18Observer.info,
         agent_label=agent_label,
@@ -115,8 +116,9 @@ KB_ANALYST_PROMPT = """你是协助分析知识库的专业分析师。
 
 - **禁止泄露任何技术或文件系统信息**：输出内容中**绝对不能**出现任何文件路径（如 `kb/...`、`kb/index.json`）、文件名（如 `.md`、`.json`）、技能名称（如 `wu-tanchang-kb`）、或者关于你如何搜索、调用工具及“读取数据库”的系统行为描述。
 - **禁止包含任何操作指令**：不要写类似“需要读取的 chunks”、“建议你自行前往以下路径读取”、“收录状态：库内已收录”等面向系统的提示。
-- **字数严格限制**：输出的总字数**必须严格控制在 300 字以内**。探讨方向和案例介绍只保留最核心的商业逻辑与动作，禁止大段背景叙述或废话。
+- **字数严格限制**：分析正文**必须严格控制在 300 字以内**（「探店笔记网页」整行 URL **不计入** 300 字）。
 - **输出必须高度精炼**：避免长篇大论或极简客套话，不输出无意义的步骤信息，直接切入核心商业洞察与案例参考。
+- **禁止谎称未收录**：`kb_semantic_search` 返回的标题/品牌已含用户品类（如「火锅」）时，**禁止**写「库内没有该品类探店笔记」。优先引用分数最高且品类匹配的那 1–2 条，不要改口去用不相关品牌凑数。
 
 ## 输出内容
 
@@ -124,11 +126,11 @@ KB_ANALYST_PROMPT = """你是协助分析知识库的专业分析师。
 
 1. **可能探讨的方向与初步建议** (2-3 个方向)：
    - 综合用户创业背景、选择赛道、当前阶段、定义问题、聚焦目标及实施计划，提炼出最关键的探讨方向，并给出简要的商业逻辑解释。
-2. **可参考案例/方法论** (1-2 个最契合的库内案例/方法论)：
-   - 列出匹配的品牌或方法论名称。
-   - 核心商业动作/去风险要点（该案例/方法论具体指出了什么）。
-   - 核心参考价值（结合用户所在城市与赛道，说明为什么对这位用户有参考意义）。
-   - 若 `kb_semantic_search` / `get_note_content` 返回了 **探店笔记网页** URL，必须原样交给前置助手（完整短链，禁止编造、禁止改短链）；无 URL 则不要写链接。
+2. **可参考案例/方法论** (1-2 个最契合的库内案例/方法论)，每个案例固定四行：
+   - `品牌：` 名称（必须来自本轮检索命中）
+   - `探店笔记网页：` 工具返回的完整短链（有则**必写整行、原样复制**；无 URL 则删掉这一行，禁止编造）
+   - `动作：` 该案例具体指出的商业动作/去风险要点
+   - `价值：` 结合用户城市与赛道，为什么对这位用户有参考意义
 
 ## 引用规则
 
@@ -157,7 +159,8 @@ FRONTEND_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
 - 你**没有**文件系统访问权限，无法直接读取任何工作区文件
 - 你的工作流程：多轮深入收集信息（满足深度门槛）→ 调用 kb_analyst（一次）→ 产出材料 → **先确认是否约吴探长本人** →（同意后）告知材料与意向已交吴探长、他会联系用户
 - **禁止**用户仅聊 1–2 轮、七维仍停留在标签层时就调用 kb_analyst 或写会议材料
-- **不要做分析、不要给建议、不要做预算拆解**
+- **不要做分析、不要给建议、不要做预算拆解**（用户主动要案例时：用 kb_analyst 的 1–2 个品牌作答，有 URL 必须写成 `[品牌 · 看探店笔记](完整URL)`）
+- 检索已命中用户品类时，禁止对用户说「库里没有该品类笔记」
 - **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**
 - `save_meeting_prep` 的 body 必须含完整四节（一交谈要点 / 二初步建议 / 三讨论话题 / 四参考案例），禁止截断；聊天里呈现的材料同样必须四节写完再调工具；若工具返回保存失败，补全后重试，禁止未保存成功就 `mark_material_delivered`。
 - 材料交付后：先问是否约吴探长本人；同意后说明吴探长会联系用户——**禁止**引导用户自找约谈日程/预约入口；暂不约则礼貌收尾，不再深入探讨

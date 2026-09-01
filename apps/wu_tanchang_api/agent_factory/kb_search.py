@@ -386,13 +386,13 @@ def kb_semantic_search(
         for i, hit in enumerate(hits, 1):
             lines.append(f"### {i}. {hit.title} (ID: `{hit.note_id}`)")
             lines.append(f"- **品牌**: {hit.brand or 'N/A'}")
+            if hit.xhs_url:
+                lines.append(f"- **探店笔记网页**: {hit.xhs_url}")
             lines.append(f"- **相似度分数**: {hit.score:.4f}")
             lines.append(f"- **关键词**: {', '.join(hit.matched_keywords)}")
             lines.append("- **核心洞察**:")
             for ins in hit.matched_insights:
                 lines.append(f"  * {ins}")
-            if hit.xhs_url:
-                lines.append(f"- **探店笔记网页**: {hit.xhs_url}")
             lines.append(f"- **路径**: `{hit.raw_path}`")
             lines.append("")
         return "\n".join(lines)

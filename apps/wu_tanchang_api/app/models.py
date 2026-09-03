@@ -94,3 +94,14 @@ class ExtractIntakeResponse(BaseModel):
     total: int = 7
     ready_for_prediagnosis: bool = False
     source: str = "llm"
+
+
+class KbNoteResponse(BaseModel):
+    """KB note body + Xiaohongshu share口令 for the calendar drawer."""
+
+    id: str
+    title: str
+    body: str = ""
+    share_text: str = ""
+    url: str | None = None
+    status: str = "ok"

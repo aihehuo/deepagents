@@ -333,6 +333,9 @@ def test_kb_import_xhs_links_from_workspace_excel() -> None:
 
     punch = next(n for n in payload["notes"] if n["id"] == "wu-punch-monday")
     assert punch["url"] and punch["url"].startswith("https://xhslink.cn/")
+    assert punch["url"] in punch["share_text"]
+    assert "小红书" in punch["share_text"]
+    assert bake["share_text"] and "下架" in bake["share_text"]
 
 
 @patch("apps.wu_tanchang_api.agent_factory.kb_search._get_kb_connection")

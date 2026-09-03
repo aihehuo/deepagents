@@ -5,7 +5,14 @@ from __future__ import annotations
 from fastapi import FastAPI, Header
 from fastapi.responses import StreamingResponse
 
-from apps.wu_tanchang_api.app.endpoints import async_chat, chat, extract_intake, health, reset
+from apps.wu_tanchang_api.app.endpoints import (
+    async_chat,
+    chat,
+    extract_intake,
+    health,
+    kb_notes,
+    reset,
+)
 from apps.wu_tanchang_api.app.models import (
     CallWuTanchangAsyncRequest,
     CallWuTanchangAsyncResponse,
@@ -13,6 +20,7 @@ from apps.wu_tanchang_api.app.models import (
     ChatResponse,
     ExtractIntakeRequest,
     ExtractIntakeResponse,
+    KbNoteResponse,
     ResetRequest,
     ResetResponse,
 )
@@ -66,6 +74,13 @@ def create_app() -> FastAPI:
         x_agent_key: str | None = Header(default=None, alias="X-Agent-Key"),
     ) -> ExtractIntakeResponse:
         return await extract_intake.extract_intake(req, x_agent_key=x_agent_key)
+
+    @app.get("/kb/notes", response_model=KbNoteResponse)
+    async def kb_notes_endpoint(
+        url: str,
+        x_agent_key: str | None = Header(default=None, alias="X-Agent-Key"),
+    ) -> KbNoteResponse:
+        return await kb_notes.get_kb_note(url=url, x_agent_key=x_agent_key)
 
     return app
 

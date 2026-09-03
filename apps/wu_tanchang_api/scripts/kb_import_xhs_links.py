@@ -126,6 +126,7 @@ def build_xhs_links(
                 "id": note_id,
                 "raw_stem": raw_stem,
                 "url": url,
+                "share_text": share_text,
                 "status": status,
             }
         )

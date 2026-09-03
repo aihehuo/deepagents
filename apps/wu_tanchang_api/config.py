@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,46 @@ class WuModelConfig:
 
 
 @dataclass(frozen=True)
+class WuPromptModules:
+    """On/off flags for front-agent content modules. Defaults all on."""
+
+    profile: bool = True
+    eight_dim_anchors: bool = True
+    kb_cases: bool = True
+
+    def is_enabled(self, module_id: str) -> bool:
+        """Return whether a module id is on."""
+        return bool(getattr(self, module_id, False))
+
+    def enabled_ids(self) -> tuple[str, ...]:
+        """Return enabled module ids in canonical order."""
+        return tuple(
+            mid
+            for mid in ("profile", "eight_dim_anchors", "kb_cases")
+            if self.is_enabled(mid)
+        )
+
+
+def parse_prompt_modules(raw: Any) -> WuPromptModules:
+    """Parse a `modules` object from agent config JSON. Missing keys default on."""
+    data = raw if isinstance(raw, dict) else {}
+
+    def _flag(key: str) -> bool:
+        if key not in data:
+            return True
+        value = data[key]
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() not in {"0", "false", "off", "no", ""}
+
+    return WuPromptModules(
+        profile=_flag("profile"),
+        eight_dim_anchors=_flag("eight_dim_anchors"),
+        kb_cases=_flag("kb_cases"),
+    )
+
+
+@dataclass(frozen=True)
 class WuAgentConfig:
     """Resolved configuration for one named agent profile."""
 
@@ -33,6 +73,7 @@ class WuAgentConfig:
     model: str
     max_tokens: int
     workspace: str
+    modules: WuPromptModules = field(default_factory=WuPromptModules)
 
 
 @dataclass(frozen=True)
@@ -286,6 +327,22 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
         model = _get_str(merged, "model") or _get_str(defaults, "model") or fallback
         max_tokens = _get_int(merged, "max_tokens", 4000)
         workspace = _get_str(merged, "workspace", "") or ""
+        default_modules = defaults.get("modules")
+        entry_modules = entry.get("modules")
+        if isinstance(default_modules, dict) and isinstance(entry_modules, dict):
+            modules_raw: Any = {**default_modules, **entry_modules}
+        elif "modules" in entry:
+            modules_raw = entry_modules
+        else:
+            modules_raw = default_modules
+        # Missing modules object = not a Wu front-agent profile (all off).
+        # A present object still defaults unspecified keys to on.
+        if modules_raw is None:
+            modules = WuPromptModules(
+                profile=False, eight_dim_anchors=False, kb_cases=False
+            )
+        else:
+            modules = parse_prompt_modules(modules_raw)
 
         agent_config = WuAgentConfig(
             name=name,
@@ -293,6 +350,7 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
             model=model,
             max_tokens=max_tokens,
             workspace=workspace,
+            modules=modules,
         )
         agents[name] = agent_config
 
@@ -308,6 +366,13 @@ def load_agent_registry(data: dict[str, Any] | None = None) -> WuAgentRegistry |
         model=_get_str(defaults, "model") or _provider_default_model(default_provider),
         max_tokens=_get_int(defaults, "max_tokens", 4000),
         workspace=_get_str(defaults, "workspace", "") or "",
+        modules=(
+            parse_prompt_modules(defaults.get("modules"))
+            if isinstance(defaults.get("modules"), dict)
+            else WuPromptModules(
+                profile=False, eight_dim_anchors=False, kb_cases=False
+            )
+        ),
     )
     return WuAgentRegistry(
         defaults=defaults_config, agents=agents, default_name=default_name

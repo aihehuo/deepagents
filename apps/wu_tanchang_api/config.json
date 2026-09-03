@@ -14,18 +14,33 @@
         "default": true,
         "model": "deepseek-v4-flash",
         "max_tokens": 4000,
-        "workspace": "workspace"
+        "workspace": "workspace",
+        "modules": {
+          "profile": true,
+          "eight_dim_anchors": true,
+          "kb_cases": true
+        }
       },
       {
         "name": "owner",
         "model": "deepseek-v4-flash",
         "max_tokens": 4000,
-        "workspace": "workspace_owner"
+        "workspace": "workspace_owner",
+        "modules": {
+          "profile": false,
+          "eight_dim_anchors": false,
+          "kb_cases": false
+        }
       },
       {
         "name": "aihehuo",
         "model": "deepseek-v4-flash",
-        "workspace": "workspace_aihehuo"
+        "workspace": "workspace_aihehuo",
+        "modules": {
+          "profile": false,
+          "eight_dim_anchors": false,
+          "kb_cases": false
+        }
       }
     ]
   },

@@ -40,12 +40,19 @@ from apps.wu_tanchang_api.agent_factory.kb_search import (
     kb_semantic_search,
 )
 from apps.wu_tanchang_api.agent_factory.model_builder import create_model
+from apps.wu_tanchang_api.agent_factory.prompt_modules import (
+    WU_PROMPT_MODULES_OFF,
+    compose_frontend_rules,
+    compose_module_orchestration,
+    load_enabled_module_files,
+    meeting_prep_policy_for_run,
+)
 from apps.wu_tanchang_api.agent_factory.utils import (
     default_runtime_dir,
     get_workspace_owner_name,
 )
 from apps.wu_tanchang_api.checkpointer import DiskBackedInMemorySaver
-from apps.wu_tanchang_api.config import WuAgentConfig
+from apps.wu_tanchang_api.config import WuAgentConfig, WuPromptModules
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
@@ -155,16 +162,7 @@ FRONTEND_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
 
 ## 基本规则
 
-- 严格按照人格文件中的指导行事
-- 你**没有**文件系统访问权限，无法直接读取任何工作区文件
-- 你的工作流程：多轮深入收集信息（满足深度门槛）→ 调用 kb_analyst（一次）→ 产出材料 → **先确认是否约吴探长本人** →（同意后）告知材料与意向已交吴探长、他会联系用户
-- **禁止**用户仅聊 1–2 轮、七维仍停留在标签层时就调用 kb_analyst 或写会议材料
-- **不要做分析、不要给建议、不要做预算拆解**（用户主动要案例时：用 kb_analyst 的 1–2 个品牌作答，有 URL 必须写成 `[品牌 · 看探店笔记](完整URL)`）
-- 检索已命中用户品类时，禁止对用户说「库里没有该品类笔记」
-- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**
-- `save_meeting_prep` 的 body 必须含完整四节（一交谈要点 / 二初步建议 / 三讨论话题 / 四参考案例），禁止截断；聊天里呈现的材料同样必须四节写完再调工具；若工具返回保存失败，补全后重试，禁止未保存成功就 `mark_material_delivered`。
-- 材料交付后：先问是否约吴探长本人；同意后说明吴探长会联系用户——**禁止**引导用户自找约谈日程/预约入口；暂不约则礼貌收尾，不再深入探讨
-"""
+""" + compose_frontend_rules(WuPromptModules())
 
 
 OWNER_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
@@ -241,22 +239,30 @@ def save_meeting_prep(
     if not body:
         return "保存失败：body 为空"
 
-    # Reject truncated / incomplete prep — UI brief needs all four sections.
-    missing = [m for m in ("一、", "二、", "三、", "四、") if m not in body]
-    if "【会议准备" not in body or missing:
+    # Reject truncated / incomplete prep — required/forbidden follow the
+    # active agent's module policy (legacy four-section if not a Wu profile).
+    required_headings, forbidden_headings = meeting_prep_policy_for_run(config)
+    missing = [m for m in required_headings if m not in body]
+    forbidden = [heading for heading in forbidden_headings if heading in body]
+    if "【会议准备" not in body or missing or forbidden:
         _logger.warning(
-            "[AgentTool] save_meeting_prep incomplete body missing=%s len=%s",
+            "[AgentTool] save_meeting_prep invalid body missing=%s forbidden=%s len=%s required=%s",
             missing,
+            forbidden,
             len(body),
+            required_headings,
         )
+        need = "、".join(required_headings) if required_headings else "（当前无内容节）"
         return (
             "保存失败：会议准备材料不完整。"
-            "body 必须含【会议准备】标题，以及完整的「一、二、三、四、」四节"
-            f"（缺少：{', '.join(missing) if missing else '标题'}）。"
+            f"body 必须含【会议准备】标题，以及当前启用模块对应的章节（{need}）"
+            f"（缺少：{', '.join(missing) if missing else '无'}；"
+            f"未启用却出现：{', '.join(forbidden) if forbidden else '无'}）。"
             "请把完整 Markdown 写入 body 后重试，不要截断。"
         )
-    if len(body) < 350:
-        return "保存失败：材料过短，请写全四节后再保存"
+    min_len = max(80, 80 * max(len(required_headings), 1))
+    if len(body) < min_len:
+        return "保存失败：材料过短，请写全已启用模块对应的章节后再保存"
 
     # Enforce body size limit (S4)
     if len(body) > 50000:
@@ -476,16 +482,16 @@ def run_aihehuo_skill_script(
         return f"错误：无法执行脚本 {type(e).__name__}: {e!s}"
 
 
-def _load_persona_files(workspace_path: Path) -> str:
-    """Load all .md personality files from workspace root into a single string.
+def _load_persona_files(workspace_path: Path, modules: WuPromptModules | None = None) -> str:
+    """Load personality files plus enabled content modules.
 
     Args:
         workspace_path: Path to the workspace directory.
+        modules: On/off flags; defaults all on.
 
     Returns:
-        Concatenated content of all personality .md files.
+        Concatenated content of persona files, enabled modules, and orchestration.
     """
-    # Only load the core persona files; skip kb/, memory/ directories
     persona_files = ["IDENTITY.md", "SOUL.md", "AGENTS.md", "USER.md"]
     parts: list[str] = []
     for name in persona_files:
@@ -496,6 +502,11 @@ def _load_persona_files(workspace_path: Path) -> str:
                 parts.append(f"=== {md_file.name} ===\n{content}")
         except OSError:
             _logger.warning("[Agent] Could not read persona file: %s", md_file)
+    if modules is not None:
+        module_block = load_enabled_module_files(workspace_path, modules)
+        if module_block:
+            parts.append(module_block)
+        parts.append(compose_module_orchestration(modules))
     return "\n\n".join(parts)
 
 
@@ -541,12 +552,21 @@ def create_agent(
 
     # Pre-load persona files from workspace root into system prompt
     effective_workspace = agent_config.workspace if agent_config else "workspace"
+    configured_modules = agent_config.modules if agent_config else WuPromptModules()
+    agent_name = agent_config.name if agent_config else "default"
     workspace_path = (
         backend_root / effective_workspace
         if (backend_root / effective_workspace).exists()
         else backend_root
     )
-    persona_content = _load_persona_files(workspace_path)
+    is_owner = agent_name == "owner"
+    uses_prompt_modules = not is_owner and (workspace_path / "modules").is_dir()
+    # Only Wu workspaces that ship `modules/` may use the three content switches.
+    # YC / 爱合伙 inherit model settings from defaults but must not inherit Wu
+    # orchestration, even if config.json still carries module flags.
+    modules = configured_modules if uses_prompt_modules else WU_PROMPT_MODULES_OFF
+    persona_modules = modules if uses_prompt_modules else None
+    persona_content = _load_persona_files(workspace_path, persona_modules)
     _logger.info(
         "[Agent] Loaded %d persona file(s) from %s",
         persona_content.count("===") if persona_content else 0,
@@ -659,8 +679,6 @@ def create_agent(
     # ------------------------------------------------------------------
     # Determine agent configuration: owner mode vs. client front-end mode
     # ------------------------------------------------------------------
-    is_owner = agent_config and agent_config.name == "owner"
-
     if is_owner:
         from apps.wu_tanchang_api.agent_factory.owner_tools import (
             get_client_detail,
@@ -684,23 +702,11 @@ def create_agent(
         subagents = []
     else:
         tools = [mark_material_delivered, save_meeting_prep]
-        
-        # Build dynamic front-end system prompt based on aihehuo_skills availability
-        frontend_rules = [
-            "- 严格按照人格文件中的指导行事",
-            "- 你**没有**文件系统访问权限，无法直接读取任何工作区文件",
-        ]
-
-        if aihehuo_skills:
-            frontend_rules.append(
-                "- 如果用户询问爱合伙平台的相关数据、博客、微信群、项目或常见问题等信息，你可以随时调用子代理 `aihehuo_cruncher` 来获取最新数据并回复用户。**注意：在给用户的任何消息中，绝对禁止提及子代理 `aihehuo_cruncher` 的名字或说明是从该子代理获取的数据，直接将获取到的分析或信息以你自己的口吻加工整理后回复给用户。**"
-            )
-        frontend_rules.extend([
-            "- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**",
-            "- `save_meeting_prep` 的 body 必须含完整四节（一/二/三/四），禁止截断；聊天呈现同样须四节写完；若保存失败须补全后重试，禁止未保存成功就 mark_material_delivered。",
-        ])
-        
-        rules_text = "\n".join(frontend_rules)
+        rules_text = compose_frontend_rules(
+            modules,
+            has_aihehuo=bool(aihehuo_skills),
+            uses_prompt_modules=uses_prompt_modules,
+        )
         dynamic_frontend_prompt = f"""你是一个通用智能助手。
 
 ## 你的人格
@@ -722,8 +728,9 @@ def create_agent(
             _llm_latency_middleware("front"),
             PromptLoggingMiddleware(),
         ]
-        
-        subagents = [kb_subagent]
+
+        include_kb = (not uses_prompt_modules) or modules.kb_cases
+        subagents = [kb_subagent] if include_kb else []
         if aihehuo_skills:
             aihehuo_cruncher_prompt = """你是协助获取和分析爱合伙相关数据的专业分析助理。
 你拥有调用爱合伙官方博客、常见问题（FAQS）、微信群数据、用户行为和周趋势等公开数据接口技能。
@@ -758,6 +765,8 @@ def create_agent(
     )
     try:
         agent.workspace_name = effective_workspace
+        agent.prompt_modules = modules
+        agent.uses_prompt_modules = uses_prompt_modules
     except AttributeError:
         pass
 

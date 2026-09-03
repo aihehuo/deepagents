@@ -57,7 +57,7 @@ async def resolve_dynamic_agent(
       - Fallback 2: workspace
     """
     from pathlib import Path
-    from apps.wu_tanchang_api.config import WuAgentConfig
+    from apps.wu_tanchang_api.config import WuAgentConfig, WuPromptModules
     from apps.wu_tanchang_api.agent_factory.agent import create_agent
     import re
 
@@ -166,12 +166,27 @@ async def resolve_dynamic_agent(
                         model = "deepseek-v4-flash"
                         max_tokens = 4000
 
+                    inherited_modules = (
+                        base_cfg.modules if base_cfg else WuPromptModules()
+                    )
+                    uses_wu_modules = (
+                        backend_path / resolved_workspace / "modules"
+                    ).is_dir()
                     agent_cfg = WuAgentConfig(
                         name=config_name,
                         provider=provider,
                         model=model,
                         max_tokens=max_tokens,
                         workspace=resolved_workspace,
+                        modules=(
+                            inherited_modules
+                            if uses_wu_modules
+                            else WuPromptModules(
+                                profile=False,
+                                eight_dim_anchors=False,
+                                kb_cases=False,
+                            )
+                        ),
                     )
 
                     agent, _ckpt = await asyncio.to_thread(

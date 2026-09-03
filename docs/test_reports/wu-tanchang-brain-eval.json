@@ -1,0 +1,758 @@
+{
+  "generated_at": "2026-09-03T14:46:45.290702+08:00",
+  "started": "2026-09-03T14:39:06.514837+08:00",
+  "model": "deepseek-v4-flash",
+  "personas": [
+    {
+      "id": "sh_hotpot_idea",
+      "title": "上海 · 想法期 · 火锅",
+      "city": "上海",
+      "category": "火锅",
+      "stage": "想法期",
+      "passed": true,
+      "nodes": {
+        "profile": {
+          "passed": true,
+          "score": [
+            9,
+            9
+          ],
+          "elapsed_s": 33.06317090988159,
+          "tools": [
+            "save_meeting_prep",
+            "save_meeting_prep",
+            "mark_material_delivered",
+            "mark_material_delivered"
+          ],
+          "checks": [
+            {
+              "id": "recap_or_city",
+              "ok": true,
+              "detail": "首轮是否点到 上海/火锅",
+              "critical": true
+            },
+            {
+              "id": "asks_one_question",
+              "ok": true,
+              "detail": "首轮应追问",
+              "critical": true
+            },
+            {
+              "id": "no_score_in_chat",
+              "ok": true,
+              "detail": "收集阶段不念八维评分",
+              "critical": true
+            },
+            {
+              "id": "no_kb_tools",
+              "ok": true,
+              "detail": "tools=['save_meeting_prep', 'save_meeting_prep', 'mark_material_delivered', 'mark_material_delivered']",
+              "critical": true
+            },
+            {
+              "id": "section_one",
+              "ok": true,
+              "detail": "需含「一、交谈要点」或城市",
+              "critical": true
+            },
+            {
+              "id": "city",
+              "ok": true,
+              "detail": "需出现城市 上海",
+              "critical": true
+            },
+            {
+              "id": "category",
+              "ok": true,
+              "detail": "需出现赛道 火锅",
+              "critical": true
+            },
+            {
+              "id": "no_section_four",
+              "ok": true,
+              "detail": "画像节点不得写第四节",
+              "critical": true
+            },
+            {
+              "id": "no_score_sheet",
+              "ok": true,
+              "detail": "不得打分量表",
+              "critical": true
+            },
+            {
+              "id": "first_turn_questioned",
+              "ok": true,
+              "detail": "多轮追问由调用方按 turn 另记",
+              "critical": false
+            }
+          ],
+          "output": "你做过两年后厨管理，对火锅出品有底，但第一次自己开店，最担心选址和定价匹配不上——这是很多从后厨转老板的人最真实的顾虑。\n\n先问一个方向上的问题：**你心里有偏好的火锅品类吗？比如川渝老火锅、潮汕牛肉、还是台式小火锅？另外，在上海有具体看中的区域或商圈吗？**\n明白，还在想法阶段，一个人起步，品类和品牌都还没框定。\n\n顺着你说到**客单价撑不住**这个担心——火锅在上海的客单价跨度很大，街边老火锅七八十也能吃，商场里精致一点的做到150-200也不稀奇。**你心里大概想切哪个价位段？比如人均80-100还是120-150？** 这个定了，才能往下去想选址和模型的事。\n明白，选址和定价就是火锅店最关键的\"生死线\"，你拎得很清。\n\n我再问一个能帮面谈时更聚焦的问题：**假设选址和定价都到位，这家店你希望做到什么样的状态？比如月营业额目标、回本周期，或者想做成什么样的一家店？** 这样吴探长面谈时能帮你判断这个目标在什么位置是合理的。\n好的，材料已整理完毕，先呈现给你看。\n\n---\n\n【会议准备 · 供面谈参考】\n\n**一、交谈要点**\n\n- **城市：** 上海\n- **创业背景：** 两年后厨管理经验，第一次开店，团队仅自己一人\n- **选择赛道：** 火锅（品类未定，对标品牌未定）\n- **阶段：** 想法期，计划半年内选址装修\n- **定义问题：** 核心卡点是选址与定价的匹配判断——在上海以80万预算能否做成一家火锅店、客单价应定在什么区间才能存活\n- **聚焦目标：** 先活下来，稳扎稳打\n- **实施计划：** 预算80万，单人团队，半年内完成选址与装修\n\n**关键讨论锚点（待吴探长面谈深入）：**\n- 80万预算在上海做火锅，模型应该做多大面积、什么模式（街边/商场/社区）\n- 选址与定价的联动关系：不同商圈对应的客单价区间\n- 单人起步的团队短板与补位策略\n\n---\n\n材料先保存，然后确认一下——**要不要和吴探长本人约一次一对一面谈？** 他会基于这份材料跟你深聊选址、定价和模型判断\n材料已保存并交付。\n\n那我再确认一下：**这份面谈材料已经整理好了，要不要和吴探长本人约一次一对一面谈？** 他会基于这份材料跟你深聊选址、定价和模型判断。"
+        },
+        "eight_dim_anchors": {
+          "passed": true,
+          "score": [
+            7,
+            7
+          ],
+          "elapsed_s": 13.16780400276184,
+          "tools": [],
+          "checks": [
+            {
+              "id": "no_kb_tools",
+              "ok": true,
+              "detail": "tools=[]",
+              "critical": true
+            },
+            {
+              "id": "section_two",
+              "ok": true,
+              "detail": "需含「二、」",
+              "critical": true
+            },
+            {
+              "id": "section_three",
+              "ok": true,
+              "detail": "需含「三、」",
+              "critical": true
+            },
+            {
+              "id": "one_to_three_full_labels",
+              "ok": true,
+              "detail": "完整锚点名 3 个: ['行业赛道与品类战略', '市场细分与目标客群定位', '投资测算与模型迭代']",
+              "critical": true
+            },
+            {
+              "id": "evidence_grounded",
+              "ok": true,
+              "detail": "回指画像词: ['选址', '客单', '80万', '后厨']",
+              "critical": true
+            },
+            {
+              "id": "no_score",
+              "ok": true,
+              "detail": "不打分",
+              "critical": true
+            },
+            {
+              "id": "not_final_plan",
+              "ok": true,
+              "detail": "不得写成已交付方案",
+              "critical": true
+            }
+          ],
+          "output": "好的，以下是基于用户画像生成的会议准备材料：\n\n---\n\n【会议准备 · 供面谈参考】\n\n**二、初步建议（八维锚点）**\n\n从你提供的背景来看，你有两年后厨管理经验，但未独立开过店，选择在上海做火锅赛道，预算80万，核心顾虑是\"选址和客单价能否撑住\"。面谈会围绕以下三个锚点展开：\n\n1. **行业赛道与品类战略** — 上海火锅市场竞争白热化，你的后厨经验是优势，但品类选择需要更精准的切口（细分赛道、差异化定位）。\n2. **市场细分与目标客群定位** — 你担心的客单价和选址，本质上是同一个问题：你的目标客群是谁、他们在哪、愿意为什么买单。\n3. **投资测算与模型迭代** — 80万在上海做火锅店，需要逐一拆解是否够用、回本周期多长、单店存活的关键指标是什么。\n\n结论见面后由吴探长团队给出，这里先锚定方向。\n\n**三、建议讨论话题**\n\n1. **【行业赛道与品类战略】** 你提到想做火锅，但上海火锅从川渝到潮汕、从单人小锅到高端涮肉，品类极多。见面建议准备好：你心中对标哪几家店？打算做哪种火锅类型？凭什么让顾客选你不选别人？\n\n2. **【市场细分与目标客群定位】** 你担心客单价和选址，这需要先明确客群画像。见面建议准备：你理想中的客单价区间是多少？准备覆盖周边几公里的人群？选址是社区、商圈还是街边？\n\n3. **【投资测算与模型迭代】** 80万预算在上海做火锅需要非常精打细算。见面建议准备：你的80万打算怎么分配（装修、设备、租金押金、食材备货、流动资金）？预期多久回本？月盈亏平衡点预估多少？\n\n---\n\n材料已整理好。要不要和**吴探长本人**约一次一对一面谈？他会基于这份材料跟你深聊，帮你把这三个锚点逐个拆透。"
+        },
+        "kb_cases": {
+          "passed": true,
+          "score": [
+            4,
+            4
+          ],
+          "elapsed_s": 36.36972999572754,
+          "tools": [
+            "task",
+            "task",
+            "save_meeting_prep",
+            "save_meeting_prep",
+            "mark_material_delivered",
+            "mark_material_delivered"
+          ],
+          "checks": [
+            {
+              "id": "used_search",
+              "ok": true,
+              "detail": "tools=['task', 'task', 'save_meeting_prep', 'save_meeting_prep', 'mark_material_delivered', 'mark_material_delivered']",
+              "critical": true
+            },
+            {
+              "id": "no_false_deny",
+              "ok": true,
+              "detail": "denied=False brand_hit=True",
+              "critical": true
+            },
+            {
+              "id": "no_invented_hotpot",
+              "ok": true,
+              "detail": "未命中烧烤时不得拿大虎火锅凑数",
+              "critical": true
+            },
+            {
+              "id": "named_hit",
+              "ok": true,
+              "detail": "hints=('大虎',)",
+              "critical": true
+            },
+            {
+              "id": "markdown_xhs",
+              "ok": false,
+              "detail": "命中时应给出 [品牌 · 看探店笔记](https://xhslink.cn/o/…)",
+              "critical": false
+            }
+          ],
+          "output": "好的，我马上查一下知识库，看看吴探长团队有没有火锅相关的探店案例\n好的，我查到了结果。知识库中检索到与**火锅品类**相关的品牌，我来如实告诉你。\n\n---\n\n检索命中了 **大虎老火锅**（上海愚园路，新世代老火锅排队王案例），但该条目未收录在知识库正式索引中，因此无法提供探店笔记链接。\n\n目前知识库内火锅品类的正式收录案例有限，没有完整的探店笔记链接可以分享给你。\n\n---\n\n不过，你已经有不错的起步条件——**上海、火锅、80万预算、后厨背景**，这些都是很具体的信息。我这边先帮你整理一份会议准备材料，供你和吴探长面谈时使用\n以上这份面谈材料我已经整理好了。要不要和**吴探长本人**约一次一对一面谈？他会基于这份材料跟你深聊火锅店的开店模型、预算分配等关键问题。"
+        }
+      }
+    },
+    {
+      "id": "hz_bakery_prep",
+      "title": "杭州 · 筹备中 · 烘焙",
+      "city": "杭州",
+      "category": "烘焙",
+      "stage": "筹备中",
+      "passed": true,
+      "nodes": {
+        "profile": {
+          "passed": true,
+          "score": [
+            9,
+            9
+          ],
+          "elapsed_s": 37.45128393173218,
+          "tools": [
+            "save_meeting_prep",
+            "save_meeting_prep",
+            "mark_material_delivered",
+            "mark_material_delivered"
+          ],
+          "checks": [
+            {
+              "id": "recap_or_city",
+              "ok": true,
+              "detail": "首轮是否点到 杭州/烘焙",
+              "critical": true
+            },
+            {
+              "id": "asks_one_question",
+              "ok": true,
+              "detail": "首轮应追问",
+              "critical": true
+            },
+            {
+              "id": "no_score_in_chat",
+              "ok": true,
+              "detail": "收集阶段不念八维评分",
+              "critical": true
+            },
+            {
+              "id": "no_kb_tools",
+              "ok": true,
+              "detail": "tools=['save_meeting_prep', 'save_meeting_prep', 'mark_material_delivered', 'mark_material_delivered']",
+              "critical": true
+            },
+            {
+              "id": "section_one",
+              "ok": true,
+              "detail": "需含「一、交谈要点」或城市",
+              "critical": true
+            },
+            {
+              "id": "city",
+              "ok": true,
+              "detail": "需出现城市 杭州",
+              "critical": true
+            },
+            {
+              "id": "category",
+              "ok": true,
+              "detail": "需出现赛道 烘焙",
+              "critical": true
+            },
+            {
+              "id": "no_section_four",
+              "ok": true,
+              "detail": "画像节点不得写第四节",
+              "critical": true
+            },
+            {
+              "id": "no_score_sheet",
+              "ok": true,
+              "detail": "不得打分量表",
+              "critical": true
+            },
+            {
+              "id": "first_turn_questioned",
+              "ok": true,
+              "detail": "多轮追问由调用方按 turn 另记",
+              "critical": false
+            }
+          ],
+          "output": "收到，杭州滨江社区底商80平，铺位基本谈下来了，这个阶段能把铺位锁住就是一步好棋。\n\n想先了解一下——你和朋友计划做哪类烘焙？是偏社区日常的面包、还是蛋糕切块 + 饮品下午茶，还是想走现烤+零售复合型？心里有对标的目标品牌吗？\n怕算不清回本，这是很多筹备期老板最焦虑的坎，也是必须算清楚的事。\n\n你之前做电商，对数据敏感是优势；合伙人会做蛋糕，产品有底子。那我先帮你们把品类定准——打算主攻**蛋糕切块+饮品**（偏下午茶走客单价），还是**社区日常面包**（走复购率），还是**生日蛋糕预订+现烤零售**混着来？这个定了，设备和回本模型才能往下拆。\n明白，核心卡点就是：**投多少、做什么、多久能回本**——这是面谈最有价值拆的点。\n\n聊到这，我再问一个关键问题方便帮吴探长准备材料：**你心里有没有一个阶段性的经营目标？** 比如月营收想做到多少、或者几个月内要盈亏平衡？你做过电商，对成本和转化有概念，这个目标数字大概画在哪？\n好的，材料马上出。\n\n---\n\n【会议准备 · 供面谈参考】\n\n**一、交谈要点**\n\n**城市**：杭州，滨江社区底商，80平\n**创业背景**：用户此前做电商，对数据与转化敏感；合伙人是蛋糕师，产品端有底子。两人合伙，分工需进一步确认。\n**选择赛道**：烘焙，品类已锁定，但产品线宽度未定（蛋糕切块+饮品 / 社区日常面包 / 生日蛋糕预订+现烤零售），直接影响设备投入与回本模型。\n**阶段**：筹备中。铺位基本谈下，设备未订，计划2个月内装修开业。\n**定义问题**：\n- 投资模型是否打得平——投入多少、多久回本\n- 产品线做多宽——品类组合与坪效匹配\n**聚焦目标**：12个月内回本，月营收目标待拆解\n**实施计划**：2个月装修开业，具体落地步骤需面谈明确\n\n**可讨论的具体分歧点**：\n- 产品线宽度与投资规模之间的最优解：做窄（单品深挖/蛋糕预订）vs 做宽（现烤+切块+饮品），设备投入、人员配置、毛利结构差异大\n- 社区底商80平的面积配比：前场后厨各占多少，堂食/外带比例如何定\n- 电商背景如何迁移到线下私域与复购管理\n\n---\n\n材料已整理好。要不要和**吴探长本人**约一次一对一面谈？他会基于这份材料跟你深聊投资模型和产品线方案\n材料与面谈意向已经交给吴探长了，他会主动联系你安排一对一面谈，帮你们拆投资模型和产品线方案。祝顺利！"
+        },
+        "eight_dim_anchors": {
+          "passed": true,
+          "score": [
+            7,
+            7
+          ],
+          "elapsed_s": 19.86244010925293,
+          "tools": [
+            "save_meeting_prep",
+            "save_meeting_prep",
+            "mark_material_delivered",
+            "mark_material_delivered"
+          ],
+          "checks": [
+            {
+              "id": "no_kb_tools",
+              "ok": true,
+              "detail": "tools=['save_meeting_prep', 'save_meeting_prep', 'mark_material_delivered', 'mark_material_delivered']",
+              "critical": true
+            },
+            {
+              "id": "section_two",
+              "ok": true,
+              "detail": "需含「二、」",
+              "critical": true
+            },
+            {
+              "id": "section_three",
+              "ok": true,
+              "detail": "需含「三、」",
+              "critical": true
+            },
+            {
+              "id": "one_to_three_full_labels",
+              "ok": true,
+              "detail": "完整锚点名 3 个: ['行业赛道与品类战略', '业务设计与菜单工程', '投资测算与模型迭代']",
+              "critical": true
+            },
+            {
+              "id": "evidence_grounded",
+              "ok": true,
+              "detail": "回指画像词: ['合伙', '回本', '烘焙']",
+              "critical": true
+            },
+            {
+              "id": "no_score",
+              "ok": true,
+              "detail": "不打分",
+              "critical": true
+            },
+            {
+              "id": "not_final_plan",
+              "ok": true,
+              "detail": "不得写成已交付方案",
+              "critical": true
+            }
+          ],
+          "output": "收到，画像已就位。我根据你提供的信息，挂上 1–3 个有证据的八维锚点，生成会议准备材料。\n\n---\n\n【会议准备 · 供面谈参考】\n\n**二、初步建议（八维锚点）**\n\n从你的描述来看——电商转行、合伙人擅长做蛋糕、选址杭州滨江社区底商约80平、目标12个月回本——见面我会重点围绕以下三个锚点展开：\n\n1. **行业赛道与品类战略**：烘焙赛道在滨江社区还能不能做，社区烘焙 vs 商圈烘焙的差异化机会在哪\n2. **业务设计与菜单工程**：产品线到底该多宽、核心爆品是什么、客单价如何定——这也是你明确提到的“产品线宽度”问题\n3. **投资测算与模型迭代**：80平底商的固定成本结构、盈亏平衡点、12个月回本是否可行——你关心的“账能不能打平”正是这个锚点的核心\n\n见面会从这三个锚点切入，具体结论由吴探长团队面谈后给出。\n\n**三、建议讨论话题**\n\n1. **【行业赛道与品类战略】** 你选择烘焙赛道且电商转行，见面建议准备：滨江社区周边已有烘焙店/面包房的分布情况、你的目标客群画像（白领占比？家庭客群？年轻情侣？）。\n2. **【业务设计与菜单工程】** 你明确提到“产品线宽度”是核心关切，见面建议准备：合伙人擅长的具体蛋糕品类（生日蛋糕/甜品/面包/西点？）、计划的主力客单价区间、是否有预包装或线上订单的规划。\n3. **【投资测算与模型迭代】** 你关注“账能不能打平”和“12个月回本”，见面建议准备：杭州滨江社区底商80平的预估月租金/转让费、装修预算与设备采购清单、预期日均客流与客单价估算。\n\n---\n\n\n材料已经整理好并同步给吴探长团队了。\n\n要不要和**吴探长本人**约一次一对一面谈？他会基于这份材料，针对你关心的产品线宽度、回本模型、社区烘焙定位这几个锚点深入聊透。"
+        },
+        "kb_cases": {
+          "passed": true,
+          "score": [
+            4,
+            4
+          ],
+          "elapsed_s": 39.25225782394409,
+          "tools": [
+            "task",
+            "task"
+          ],
+          "checks": [
+            {
+              "id": "used_search",
+              "ok": true,
+              "detail": "tools=['task', 'task']",
+              "critical": true
+            },
+            {
+              "id": "no_false_deny",
+              "ok": true,
+              "detail": "denied=False brand_hit=True",
+              "critical": true
+            },
+            {
+              "id": "no_invented_hotpot",
+              "ok": true,
+              "detail": "未命中烧烤时不得拿大虎火锅凑数",
+              "critical": true
+            },
+            {
+              "id": "named_hit",
+              "ok": true,
+              "detail": "hints=('Punch Monday', 'Bake', '面包', '吐司', '烘焙')",
+              "critical": true
+            },
+            {
+              "id": "markdown_xhs",
+              "ok": true,
+              "detail": "命中时应给出 [品牌 · 看探店笔记](https://xhslink.cn/o/…)",
+              "critical": false
+            }
+          ],
+          "output": "好的，我来查一下知识库中烘焙/面包相关的探店笔记。\n\n\n知识库检索到了，命中2个烘焙相关品牌，都有探店笔记，直接给你：\n\n---\n\n**1. Paper Stone Bakery**（上海首家网红欧洲石窑面包）\n[Paper Stone Bakery · 看探店笔记](https://xhslink.cn/o/8L4SGtF7xHJ)\n石窑工艺+天然食材\"一材多品\"降低研发成本，回字形动线+中岛导流+试吃服务提升决策效率。对社区底商烘焙店的启发：高颜值+体验感设计，能把功能性消费升维成情绪性消费。\n\n**2. 崎本の店**（日式吐司赛道）\n[崎本の店 · 看探店笔记](https://xhslink.cn/o/5Ts0ClD2mTM)\n吐司做引流心智锚定，副品线瞄准早餐/下午茶高频场景实现结构盈利，共享后端设备控成本。社区底商可直接借鉴其\"A类商圈B类铺位\"选址逻辑和\"三王一后\"产品结构法则。\n\n---\n\n我根据你刚才说的信息（杭州滨江、社区底商、烘焙、合伙筹备中），整理了一份面谈参考材料，你看看：\n\n---\n\n【会议准备 · 供面谈参考】\n\n**四、可参考案例**\n- **Paper Stone Bakery**：[查看探店笔记](https://xhslink.cn/o/8L4SGtF7xHJ) — 石窑工艺、一材多品、回字形动线，适合社区底商做情绪消费升维\n- **崎本の店**：[查看探店笔记](https://xhslink.cn/o/5Ts0ClD2mTM) — 日式吐司心智锚定、高频场景结构盈利、A类商圈B类铺位选址逻辑\n\n---\n\n材料整理好了。要不要和**吴探长本人**约一次一对一面谈？他会基于这份材料跟你深聊你的合伙模式、选址和产品结构。"
+        }
+      }
+    },
+    {
+      "id": "cd_tea_bottleneck",
+      "title": "成都 · 已开店瓶颈 · 茶饮",
+      "city": "成都",
+      "category": "茶饮",
+      "stage": "已开店/瓶颈期",
+      "passed": true,
+      "nodes": {
+        "profile": {
+          "passed": true,
+          "score": [
+            9,
+            9
+          ],
+          "elapsed_s": 43.6837899684906,
+          "tools": [
+            "save_meeting_prep",
+            "save_meeting_prep",
+            "mark_material_delivered",
+            "mark_material_delivered"
+          ],
+          "checks": [
+            {
+              "id": "recap_or_city",
+              "ok": true,
+              "detail": "首轮是否点到 成都/茶饮",
+              "critical": true
+            },
+            {
+              "id": "asks_one_question",
+              "ok": true,
+              "detail": "首轮应追问",
+              "critical": true
+            },
+            {
+              "id": "no_score_in_chat",
+              "ok": true,
+              "detail": "收集阶段不念八维评分",
+              "critical": true
+            },
+            {
+              "id": "no_kb_tools",
+              "ok": true,
+              "detail": "tools=['save_meeting_prep', 'save_meeting_prep', 'mark_material_delivered', 'mark_material_delivered']",
+              "critical": true
+            },
+            {
+              "id": "section_one",
+              "ok": true,
+              "detail": "需含「一、交谈要点」或城市",
+              "critical": true
+            },
+            {
+              "id": "city",
+              "ok": true,
+              "detail": "需出现城市 成都",
+              "critical": true
+            },
+            {
+              "id": "category",
+              "ok": true,
+              "detail": "需出现赛道 茶饮",
+              "critical": true
+            },
+            {
+              "id": "no_section_four",
+              "ok": true,
+              "detail": "画像节点不得写第四节",
+              "critical": true
+            },
+            {
+              "id": "no_score_sheet",
+              "ok": true,
+              "detail": "不得打分量表",
+              "critical": true
+            },
+            {
+              "id": "first_turn_questioned",
+              "ok": true,
+              "detail": "多轮追问由调用方按 turn 另记",
+              "critical": false
+            }
+          ],
+          "output": "成都，三家茶饮店，招牌杨枝甘露，客单从22掉到16——这个下滑幅度不小，员工流动大也说明门店运营可能承压。\n\n先问一个关键问题：**你觉得客单从22掉到16，主要是主动调价，还是被同行卷下来的？** 另外，三家店大概各多大面积？\n两年老店、40平标准店、靠水果茶出利润——这些信息很关键。折扣战卷到客单降了6块，利润空间肯定被压得很紧。\n\n问两个方向的事：**你当初是怎么入行做茶饮的？团队现在几个人、怎么分工？** 另外，三家店都在成都同一个区还是分散开的？\n你提到的\"人效\"和\"SKU要不要砍\"，确实是现在茶饮店最要命的两件事——很多店SKU一多，备料复杂、损耗高、员工操作也难标准化。\n\n刚才问到你入行和团队的情况，方便聊聊吗？**当初是怎么想到做茶饮的？团队现在几个人、怎么分工？** 这样才好判断你手里的人和产品结构是不是匹配。\n好的，明白。按你给的来，我整理材料。\n\n【会议准备 · 供面谈参考】\n\n**一、交谈要点**\n\n**城市：** 成都\n**创业背景：** （待补充——未详述入行经历与团队构成）\n**选择赛道：** 茶饮赛道，主打水果茶，招牌杨枝甘露\n**阶段：** 已开店2年 / 瓶颈期\n**定义问题：**\n- 人效过低，员工流动大\n- SKU该不该砍，产品线如何收缩\n- 是否关掉一家店，集中资源提利润\n**聚焦目标：** 单店利润拉回正，暂不扩张第四家\n**实施计划：** （待补充——未详述落地步骤与时间安排）\n\n**已开店补充信息：**\n- 门店数：3家 | 标准店面积：约40㎡\n- 客单价：22元→16元（受折扣战冲击）\n- 招牌：杨枝甘露 | 利润来源：水果茶\n- 员工流动：大\n- 自认优势：（待补充）\n\n---\n\n材料整理好了。要不要和**吴探长本人**约一次一对一面谈？他会基于这份材料跟你深聊关店判断、人效和产品收缩的具体打法\n材料已交到吴探长那边。你考虑一下，要不要约吴探长本人一对一聊？他拿到这份材料，可以直接跟你深聊关店判断、人效和产品线收缩的具体打法——等你决定。"
+        },
+        "eight_dim_anchors": {
+          "passed": true,
+          "score": [
+            7,
+            7
+          ],
+          "elapsed_s": 16.88127899169922,
+          "tools": [
+            "save_meeting_prep",
+            "save_meeting_prep",
+            "mark_material_delivered",
+            "mark_material_delivered"
+          ],
+          "checks": [
+            {
+              "id": "no_kb_tools",
+              "ok": true,
+              "detail": "tools=['save_meeting_prep', 'save_meeting_prep', 'mark_material_delivered', 'mark_material_delivered']",
+              "critical": true
+            },
+            {
+              "id": "section_two",
+              "ok": true,
+              "detail": "需含「二、」",
+              "critical": true
+            },
+            {
+              "id": "section_three",
+              "ok": true,
+              "detail": "需含「三、」",
+              "critical": true
+            },
+            {
+              "id": "one_to_three_full_labels",
+              "ok": true,
+              "detail": "完整锚点名 3 个: ['业务设计与菜单工程', '运营系统与服务标准', '投资测算与模型迭代']",
+              "critical": true
+            },
+            {
+              "id": "evidence_grounded",
+              "ok": true,
+              "detail": "回指画像词: ['客单', '三家', '员工', '杨枝甘露']",
+              "critical": true
+            },
+            {
+              "id": "no_score",
+              "ok": true,
+              "detail": "不打分",
+              "critical": true
+            },
+            {
+              "id": "not_final_plan",
+              "ok": true,
+              "detail": "不得写成已交付方案",
+              "critical": true
+            }
+          ],
+          "output": "好的，用户画像已收齐。根据信息，我来直接生成会议准备材料。\n\n---\n\n【会议准备 · 供面谈参考】\n\n**二、初步建议（八维锚点）**\n\n你在成都已开出三家茶饮店，招牌杨枝甘露撑起客流，但客单持续下跌、员工流动率高，正面临\"砍SKU还是关店\"的抉择。从你\"先优化人效和菜单、暂不扩张\"的务实态度看，见面会重点围绕三个锚点展开：**业务设计与菜单工程**——你的菜单到底在赚钱还是漏钱；**运营系统与服务标准**——人效为什么一直提不上来；**投资测算与模型迭代**——单店利润转正的具体路径。结论见面后由吴探长团队给出。\n\n**三、建议讨论话题**\n\n1. **【业务设计与菜单工程】** 你提到利润主要来自水果茶，但招牌是杨枝甘露，又考虑砍SKU——见面建议带上完整菜单（含售价、成本率、日均销量），一起拆解哪些SKU在拖累利润、哪些该砍，菜单结构怎么调能稳住客单价。\n\n2. **【运营系统与服务标准】** 三家店约40平，员工流动已成常态——见面建议带上近三个月的排班表、人效数据和离职记录，看看是培训体系没跟上、还是薪酬结构出了问题，把\"人走了店还能不能转\"的标准先立起来。\n\n3. **【投资测算与模型迭代】** 你的目标是单店利润转正，暂时不扩张——见面建议带上每家店的损益表（房租、人力、原料、水电全口径），算清楚单店盈亏平衡点在哪，再决定是调菜单还是关店。\n\n---\n\n材料已整理好。要不要和**吴探长本人**约一次一对一面谈？他会基于这份材料跟你深聊。\n\n\n材料已保存并交付。你考虑一下，是否要和吴探长本人约一次一对一面谈？他会基于这份材料跟你深聊，围绕菜单优化、人效提升、单店利润转正这三个方向具体拆解。"
+        },
+        "kb_cases": {
+          "passed": true,
+          "score": [
+            4,
+            4
+          ],
+          "elapsed_s": 46.014803886413574,
+          "tools": [
+            "task",
+            "task"
+          ],
+          "checks": [
+            {
+              "id": "used_search",
+              "ok": true,
+              "detail": "tools=['task', 'task']",
+              "critical": true
+            },
+            {
+              "id": "no_false_deny",
+              "ok": true,
+              "detail": "denied=False brand_hit=True",
+              "critical": true
+            },
+            {
+              "id": "no_invented_hotpot",
+              "ok": true,
+              "detail": "未命中烧烤时不得拿大虎火锅凑数",
+              "critical": true
+            },
+            {
+              "id": "named_hit",
+              "ok": true,
+              "detail": "hints=('茶饮', '大悦城', '茶')",
+              "critical": true
+            },
+            {
+              "id": "markdown_xhs",
+              "ok": true,
+              "detail": "命中时应给出 [品牌 · 看探店笔记](https://xhslink.cn/o/…)",
+              "critical": false
+            }
+          ],
+          "output": "好的，我来查一下知识库中茶饮相关的探店笔记。\n\n\n知识库检索到了，直接说结果——\n\n**两个与茶饮相关的案例命中你的场景：**\n\n1. **大悦城茶饮市场调查（爆品趋势拆解）**\n   [大悦城茶饮市场调查 · 看探店笔记](https://xhslink.cn/o/AfW4PkoQebC)\n   → 成都大悦城客群与你的商圈高度重叠，重点看\"主品锚定价格带\"的做法，避免全线降价损伤品牌感。\n\n2. **上海高端奶茶—红茶公司商业拆解**\n   [上海高端奶茶红茶公司 · 看探店笔记](https://xhslink.cn/o/1Waten8T2eq)\n   → 面对客单下跌，反其道用\"做减法\"聚焦单一茶类，建立专业信任与溢价能力。这个思路对成都中高端商圈的多店模型有参考价值。\n\n如果你愿意，我可以继续了解你那三家店的具体情况，帮你梳理一份面谈用的会议准备材料，再让吴探长本人跟你深聊。要推进吗？"
+        }
+      }
+    },
+    {
+      "id": "cs_bbq_idea",
+      "title": "长沙 · 想法期 · 烧烤",
+      "city": "长沙",
+      "category": "烧烤",
+      "stage": "想法期",
+      "passed": true,
+      "nodes": {
+        "profile": {
+          "passed": true,
+          "score": [
+            9,
+            9
+          ],
+          "elapsed_s": 27.838928937911987,
+          "tools": [
+            "save_meeting_prep",
+            "save_meeting_prep",
+            "mark_material_delivered",
+            "mark_material_delivered"
+          ],
+          "checks": [
+            {
+              "id": "recap_or_city",
+              "ok": true,
+              "detail": "首轮是否点到 长沙/烧烤",
+              "critical": true
+            },
+            {
+              "id": "asks_one_question",
+              "ok": true,
+              "detail": "首轮应追问",
+              "critical": true
+            },
+            {
+              "id": "no_score_in_chat",
+              "ok": true,
+              "detail": "收集阶段不念八维评分",
+              "critical": true
+            },
+            {
+              "id": "no_kb_tools",
+              "ok": true,
+              "detail": "tools=['save_meeting_prep', 'save_meeting_prep', 'mark_material_delivered', 'mark_material_delivered']",
+              "critical": true
+            },
+            {
+              "id": "section_one",
+              "ok": true,
+              "detail": "需含「一、交谈要点」或城市",
+              "critical": true
+            },
+            {
+              "id": "city",
+              "ok": true,
+              "detail": "需出现城市 长沙",
+              "critical": true
+            },
+            {
+              "id": "category",
+              "ok": true,
+              "detail": "需出现赛道 烧烤",
+              "critical": true
+            },
+            {
+              "id": "no_section_four",
+              "ok": true,
+              "detail": "画像节点不得写第四节",
+              "critical": true
+            },
+            {
+              "id": "no_score_sheet",
+              "ok": true,
+              "detail": "不得打分量表",
+              "critical": true
+            },
+            {
+              "id": "first_turn_questioned",
+              "ok": true,
+              "detail": "多轮追问由调用方按 turn 另记",
+              "critical": false
+            }
+          ],
+          "output": "大学城夜宵烧烤，地段选得不错——学生流量大，夜宵氛围好。不过租金不便宜意味着压力不小，自己又没做过餐饮，这个组合确实需要想清楚再下手。\n\n先问一个关键问题：**你看中大学城那条街，具体是看重什么？是学生客流、夜宵聚集效应，还是别的？**\n50万启动资金、一个人、没经验，这个组合在长沙烧烤赛道里，属于\"轻量入局\"——资金不算宽裕，试错空间有限。\n\n再追问一个：**你大概了解过那条街现有几家烧烤夜宵吗？他们的生意怎么样、客单价大概多少？** 这个信息能帮你判断是真有机会，还是进去硬扛。\n你这个问题问得很实在——外行能不能做、租金扛不扛得住，这正是面谈要帮你拆解的核心。\n\n我顺着再问一个：**如果你决定上，50万资金里，你心里预期租金和装修各占多少？有没有想过第一个月要卖多少才能不亏？** 这个能帮你提前算算账，也让面谈更有针对性。\n好的，深度够了，现在为你输出会议准备材料。\n\n---\n\n【会议准备 · 供面谈参考】\n\n**一、交谈要点**\n\n- **城市**：长沙\n- **创业背景**：无餐饮经验，个人单干，无团队\n- **选择赛道**：夜宵烧烤，选址在大学城一条街，看重学生客流与夜宵聚集效应\n- **阶段**：想法期\n- **定义问题**：① 外行能否入局烧烤赛道 ② 高租金能否扛得住 ③ 综合判断要不要上\n- **聚焦目标**：先活过第一年，站稳脚跟\n- **实施计划**：资金50万，目前未做租金/装修占比规划，未做盈亏平衡测算\n\n**可讨论的分歧点（供面谈参考）：**\n- 外行入烧烤 vs 烧烤看似门槛低实则供应链与出品管理有坑\n- 大学城客流大但客单价低、假期空窗期明显，高租金是否匹配\n- 50万在长沙烧烤赛道是\"够试\"还是\"紧巴巴\"\n\n---\n\n这份材料我已经整理好了。要不要和**吴探长本人**约一次一对一面谈？他会基于这份材料跟你深聊。\n\n\n材料已提交。就看你的意愿了——**要不要和吴探长本人约一次一对一面谈？** 他会基于这份材料，跟你深聊外行入局和租金承压这个决策。"
+        },
+        "eight_dim_anchors": {
+          "passed": true,
+          "score": [
+            7,
+            7
+          ],
+          "elapsed_s": 19.647655248641968,
+          "tools": [
+            "save_meeting_prep",
+            "save_meeting_prep",
+            "mark_material_delivered",
+            "mark_material_delivered"
+          ],
+          "checks": [
+            {
+              "id": "no_kb_tools",
+              "ok": true,
+              "detail": "tools=['save_meeting_prep', 'save_meeting_prep', 'mark_material_delivered', 'mark_material_delivered']",
+              "critical": true
+            },
+            {
+              "id": "section_two",
+              "ok": true,
+              "detail": "需含「二、」",
+              "critical": true
+            },
+            {
+              "id": "section_three",
+              "ok": true,
+              "detail": "需含「三、」",
+              "critical": true
+            },
+            {
+              "id": "one_to_three_full_labels",
+              "ok": true,
+              "detail": "完整锚点名 3 个: ['行业赛道与品类战略', '市场细分与目标客群定位', '投资测算与模型迭代']",
+              "critical": true
+            },
+            {
+              "id": "evidence_grounded",
+              "ok": true,
+              "detail": "回指画像词: ['夜宵', '租金', '烧烤']",
+              "critical": true
+            },
+            {
+              "id": "no_score",
+              "ok": true,
+              "detail": "不打分",
+              "critical": true
+            },
+            {
+              "id": "not_final_plan",
+              "ok": true,
+              "detail": "不得写成已交付方案",
+              "critical": true
+            }
+          ],
+          "output": "根据你提供的画像，我整理好了会议准备材料，先呈现给你看——\n\n---\n\n【会议准备 · 供面谈参考】\n\n**二、初步建议（八维锚点）**\n\n你提到\"外行能否做\"——说明你清楚这个赛道有门槛，但不确定自己的位置在哪。长沙大学城的夜宵烧烤竞争格局、品类生命周期，以及你作为无经验创业者能否找到差异化切入点，是见面首先要拆透的事。你反复提到\"租金能否撑住\"\"活过第一年\"\"资金约50万\"，说明投资测算是你真正的焦虑底线——不是能不能赚钱，而是能不能活过第一年不崩。大学城客群以学生为主，消费力有限但复购高，你的客单价、菜单结构、目标客群画像是否精准，决定了你第一年能不能站稳。见面会从这三个锚点展开，结论由吴探长团队面谈后给出。\n\n**三、建议讨论话题**\n\n1. **【行业赛道与品类战略】** 为何挂在这里：你无餐饮经验，选的是夜宵烧烤这个高竞争、高淘汰率的赛道。见面建议准备——你观察到的长沙大学城已有烧烤/夜宵品牌有哪些，你设想的差异化方向（品类、时段、形式）是什么。\n\n2. **【市场细分与目标客群定位】** 为何挂在这里：大学城是典型的学生流量池，但学期/假期波动大，客单价敏感。见面建议准备——你预设的客单价区间、主要客层画像（本科生/研究生/教职工/周边居民），以及你对\"大学城夜宵场景\"的具体理解。\n\n3. **【投资测算与模型迭代】** 为何挂在这里：50万资金、铺位未签、\"活过第一年\"是你的核心恐惧。见面建议准备——你目前预估的租金成本、装修设备预算、人工配置，以及你心里那根\"不能超过多少才敢签铺\"的底线数字。\n\n\n材料已整理好并提交。要不要和**吴探长本人**约一次一对一面谈？他会基于这份材料跟你深聊，把大学城夜宵烧烤那三个锚点彻底拆透。"
+        },
+        "kb_cases": {
+          "passed": true,
+          "score": [
+            3,
+            3
+          ],
+          "elapsed_s": 31.977179050445557,
+          "tools": [
+            "task",
+            "task"
+          ],
+          "checks": [
+            {
+              "id": "used_search",
+              "ok": true,
+              "detail": "tools=['task', 'task']",
+              "critical": true
+            },
+            {
+              "id": "no_false_deny",
+              "ok": true,
+              "detail": "denied=False brand_hit=False",
+              "critical": true
+            },
+            {
+              "id": "no_invented_hotpot",
+              "ok": true,
+              "detail": "未命中烧烤时不得拿大虎火锅凑数",
+              "critical": true
+            }
+          ],
+          "output": "好的，我马上查知识库，看看有没有烧烤相关的探店笔记和案例。\n\n\n知识库查完了，目前确实**没有收录烧烤/夜宵赛道的探店笔记或案例**，所以没法直接给你点名推荐。不编造，有一说一。\n\n不过你给的信息我已经记下了——长沙大学城、夜宵烧烤、预算50万、无餐饮经验。我先把这些整理成一份面谈参考材料，方便后续推进。\n\n---\n\n**【会议准备 · 供面谈参考】**\n\n**背景概况**：意向在长沙大学城开夜宵烧烤，预算50万元，无餐饮行业经验。\n\n**四、可参考案例**\n（当前知识库暂未收录烧烤/夜宵赛道的探店笔记与案例，无法提供直接参考。）\n\n---\n\n材料整理好了。要不要和**吴探长本人**约一次一对一面谈？他会基于你这些情况跟你深聊，给你更落地的分析。"
+        }
+      }
+    }
+  ]
+}

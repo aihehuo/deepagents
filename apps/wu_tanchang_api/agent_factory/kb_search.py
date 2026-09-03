@@ -16,6 +16,49 @@ from langchain_core.tools import tool
 
 _logger = logging.getLogger("uvicorn.error")
 
+# Index.json uses both labels for the same 探店笔记 corpus; treating them as one
+# filter avoids dropping 喜茶 / 霸王茶姬 when the tool is called with either name.
+_SERIES_ALIASES: dict[str, tuple[str, ...]] = {
+    "商业探店笔记": ("商业探店笔记", "探店商业笔记"),
+    "探店商业笔记": ("商业探店笔记", "探店商业笔记"),
+}
+
+
+def _expand_series_filters(series: list[str] | None) -> list[str] | None:
+    if not series:
+        return None
+    out: list[str] = []
+    for name in series:
+        label = (name or "").strip()
+        if not label:
+            continue
+        for item in _SERIES_ALIASES.get(label, (label,)):
+            if item not in out:
+                out.append(item)
+    return out or None
+
+
+def _chroma_where(
+    *,
+    vec_type: Literal["note", "insight", "all"],
+    series: list[str] | None,
+) -> dict[str, Any] | None:
+    """Build a Chroma 0.5 where clause (exactly one top-level operator)."""
+    clauses: list[dict[str, Any]] = []
+    if vec_type != "all":
+        clauses.append({"vec_type": vec_type})
+    names = _expand_series_filters(series)
+    if names:
+        if len(names) == 1:
+            clauses.append({"series": names[0]})
+        else:
+            clauses.append({"series": {"$in": names}})
+    if not clauses:
+        return None
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
+
 
 @dataclass
 class NoteHit:
@@ -210,25 +253,29 @@ def semantic_search(
     # Generate query embedding
     query_emb = get_embeddings([query], _api_key, model=_embedding_model)[0]
 
-    # Build where clause
-    where_clause = {}
-    if vec_type != "all":
-        where_clause["vec_type"] = vec_type
-
-    if series:
-        if len(series) == 1:
-            where_clause["series"] = series[0]
-        else:
-            where_clause["series"] = {"$in": series}
+    where_clause = _chroma_where(vec_type=vec_type, series=series)
 
     # If filtering categories, retrieve more results from vector db to allow post-filtering
     query_k = k * 4 if categories else k
 
-    results = _collection.query(
-        query_embeddings=[query_emb],
-        n_results=query_k,
-        where=where_clause or None,
-    )
+    try:
+        results = _collection.query(
+            query_embeddings=[query_emb],
+            n_results=query_k,
+            where=where_clause,
+        )
+    except ValueError as exc:
+        if not series:
+            raise
+        _logger.warning(
+            "[kb_search] chroma where rejected series filter (%s); retrying without series",
+            exc,
+        )
+        results = _collection.query(
+            query_embeddings=[query_emb],
+            n_results=query_k,
+            where=_chroma_where(vec_type=vec_type, series=None),
+        )
 
     hits = []
     seen_notes = set()
@@ -400,9 +447,11 @@ def kb_semantic_search(
             lines.append("")
         return "\n".join(lines)
     except FileNotFoundError as e:
+        _logger.warning("[kb_semantic_search] kb missing: %s", e)
         _emit_kb_search_log(query=query, hits=[], config=config, series=series)
         return f"错误: 知识库向量索引未构建, 请先运行 kb_build_vectors.py。({e})"
     except Exception as e:  # noqa: BLE001
+        _logger.exception("[kb_semantic_search] failed: %s", e)
         _emit_kb_search_log(query=query, hits=[], config=config, series=series)
         return f"错误: 语义检索失败 ({e})"
 

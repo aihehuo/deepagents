@@ -9,6 +9,7 @@ from unittest.mock import patch
 from apps.wu_tanchang_api.agent_factory.prompt_modules import (
     WU_PROMPT_MODULES_OFF,
     compose_frontend_rules,
+    compose_meeting_prep_skeleton,
     compose_module_orchestration,
     load_enabled_module_files,
     meeting_prep_forbidden_headings,
@@ -401,3 +402,27 @@ def test_wu_save_follows_modules_even_when_thread_name_is_workspace_id() -> None
         assert "未启用却出现：四、" in res
     finally:
         unregister_active_agent(tid)
+
+
+def test_kb_cite_format_lives_in_module_not_frontend_rules() -> None:
+    """Citation how-to is MODULE:kb_cases only; basic rules stay tool/order."""
+    rules = compose_frontend_rules(WuPromptModules())
+    assert "[品牌 · 看探店笔记]" not in rules
+    assert "禁止对用户说「库里没有该品类笔记」" not in rules
+    cases = (
+        Path(__file__).resolve().parents[1]
+        / "apps"
+        / "wu_tanchang_api"
+        / "workspace"
+        / "modules"
+        / "kb_cases.md"
+    ).read_text(encoding="utf-8")
+    assert "[品牌 · 看探店笔记](完整URL)" in cases
+    assert "禁止说「库里没有该品类笔记」" in cases
+    assert "不能只 save 不展示" in cases
+
+
+def test_section_four_skeleton_is_marked_as_unfilled_template() -> None:
+    text = compose_meeting_prep_skeleton(WuPromptModules())
+    assert "禁止把上一行模板" in text
+    assert "来自 kb_analyst" not in text

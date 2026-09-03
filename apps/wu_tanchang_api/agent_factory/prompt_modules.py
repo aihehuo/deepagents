@@ -1,10 +1,11 @@
 """Composable, on/off prompt modules for the Wu Tanchang front agent.
 
-Three content modules sit beside the orchestrator persona (AGENTS.md):
+Layering (do not copy the same rule into two layers):
 
-- profile: 七维画像勾画
-- eight_dim_anchors: 八维锚点 / 给用户看的初步建议
-- kb_cases: 知识库探店笔记引用
+- IDENTITY / SOUL / USER / AGENTS.md — persona + workflow (files)
+- modules/*.md — how each content module works
+- compose_module_orchestration — on/off table + heading skeleton
+- compose_frontend_rules — tool order, filesystem, early-exit; not citation how-to
 """
 
 from __future__ import annotations
@@ -227,8 +228,8 @@ def compose_meeting_prep_skeleton(modules: WuPromptModules) -> str:
         sections.extend(
             [
                 "四、可参考案例",
-                "（来自 kb_analyst，1–2 个品牌；有探店笔记网页 URL 时写成 "
-                "`[品牌 · 看探店笔记](完整URL)`）",
+                "- [品牌 · 看探店笔记](完整短链)",
+                "↑ 换成 kb_analyst 本轮返回的真实品牌与 URL；禁止把上一行模板原样留给用户。",
                 "",
             ]
         )
@@ -275,18 +276,13 @@ def compose_frontend_rules(
             "- **禁止**用户仅聊 1–2 轮、七维仍停留在标签层时就写会议材料"
             + ("或调用 kb_analyst" if modules.kb_cases else "")
         )
-    if modules.kb_cases:
-        rules.append(
-            "- 用户主动要案例时：用 kb_analyst 的 1–2 个品牌作答，有 URL 必须写成 `[品牌 · 看探店笔记](完整URL)`"
-        )
-        rules.append("- 检索已命中用户品类时，禁止对用户说「库里没有该品类笔记」")
-    else:
+    if not modules.kb_cases:
         rules.append("- **禁止**调用 kb_analyst 或编造探店案例")
     rules.extend(
         [
             "- **当你生成会议准备材料后，必须先将材料以文字完整呈现给用户，然后调用 `save_meeting_prep` 工具保存材料，最后调用 `mark_material_delivered` 工具标记完成。顺序不可颠倒。**",
             "- `save_meeting_prep` 的 body 必须含【会议准备】及【模块编排】要求的各节；若保存失败须按缺节补全后重试，禁止未保存成功就 `mark_material_delivered`。",
-            "- 材料交付后：先问是否约吴探长本人；同意后说明吴探长会联系用户——**禁止**引导用户自找约谈日程/预约入口；暂不约则礼貌收尾，不再深入探讨",
+            "- 材料交付后的约谈步骤见 AGENTS.md「材料交付后」：先问是否约吴探长本人，禁止引导自助预约入口。",
         ]
     )
     return "\n".join(rules)

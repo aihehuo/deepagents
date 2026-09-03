@@ -12,14 +12,24 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from langchain_core.messages import AIMessageChunk, HumanMessage
+from langchain_core.messages import HumanMessage
 
 from pathlib import Path
+from apps.wu_tanchang_api.app.stream_history import (
+    extract_main_agent_ai_delta,
+    normalize_message_text,
+    should_emit_streamed_ai_text,
+    snapshot_pre_turn_ai,
+)
 from apps.wu_tanchang_api.app.user_progress import (
     reset_progress_sink,
     set_progress_sink,
 )
-from apps.wu_tanchang_api.app.utils import get_progress_status, get_agent_checkpointer
+from apps.wu_tanchang_api.app.utils import (
+    aget_agent_state,
+    get_progress_status,
+    get_agent_checkpointer,
+)
 from apps.wu_tanchang_api.agent_factory.utils import get_workspace_agent_id
 
 _logger = logging.getLogger("uvicorn.error")
@@ -198,31 +208,6 @@ def send_heartbeat(
         )
 
 
-def _message_id_from_chunk(message: Any) -> str | None:
-    if hasattr(message, "id"):
-        return getattr(message, "id", None)
-    if isinstance(message, dict):
-        return message.get("id")
-    return None
-
-
-def _extract_text_delta(message: Any) -> str:
-    content = getattr(message, "content", None)
-    if content is None and isinstance(message, dict):
-        content = message.get("content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict) and isinstance(item.get("text"), str):
-                parts.append(item["text"])
-        return "".join(parts)
-    return ""
-
-
 def run_async_stream_with_callback(
     *,
     agent: Any,
@@ -320,6 +305,14 @@ def run_async_stream_with_callback(
             }
             timeout_seconds = _env_float("WU_CALLBACK_STREAM_TIMEOUT_S", 300.0)
             _emit_user_status("已收到，正在思考…")
+            agent_state = await aget_agent_state(agent, config)
+            pre_messages = (
+                agent_state.values.get("messages", [])
+                if agent_state and agent_state.values
+                else []
+            )
+            pre_turn_ai = snapshot_pre_turn_ai(pre_messages)
+            skipped_history = 0
             async with asyncio.timeout(timeout_seconds):
                 async for chunk in agent.astream(
                     {"messages": [HumanMessage(content=user_message)]},
@@ -331,32 +324,34 @@ def run_async_stream_with_callback(
                         continue
                     subgraph_path, stream_mode, data = chunk
 
-                    # Skip subagent raw text chunks to avoid polluting the main chat bubble
-                    if stream_mode == "messages" and subgraph_path:
-                        continue
-
-                    if (
-                        stream_mode == "messages"
-                        and not subgraph_path
-                        and isinstance(data, tuple)
-                        and data
-                    ):
-                        msg_chunk = data[0]
-                        if isinstance(msg_chunk, AIMessageChunk):
-                            text = _extract_text_delta(msg_chunk)
-                            if not text:
-                                continue
-                            payload = {
-                                **base_payload,
-                                "timestamp": datetime.utcnow().isoformat() + "Z",
-                                "type": "message",
-                                "message_id": _message_id_from_chunk(msg_chunk)
-                                or fallback_message_id,
-                                "message": text,
-                            }
-                            active_message_id = payload["message_id"]
-                            if invoke_callback(callback_url, payload):
-                                break
+                    if stream_mode == "messages":
+                        if (
+                            not subgraph_path
+                            and isinstance(data, tuple)
+                            and data
+                        ):
+                            msg_chunk = data[0]
+                            replay_text = normalize_message_text(msg_chunk)
+                            if replay_text and not should_emit_streamed_ai_text(
+                                msg_chunk, pre_turn_ai
+                            ):
+                                skipped_history += 1
+                        delta = extract_main_agent_ai_delta(
+                            subgraph_path, stream_mode, data, pre_turn_ai
+                        )
+                        if delta is None:
+                            continue
+                        text, chunk_message_id = delta
+                        payload = {
+                            **base_payload,
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "type": "message",
+                            "message_id": chunk_message_id or fallback_message_id,
+                            "message": text,
+                        }
+                        active_message_id = payload["message_id"]
+                        if invoke_callback(callback_url, payload):
+                            break
 
                     if stream_mode == "updates":
                         status = get_progress_status(
@@ -384,6 +379,14 @@ def run_async_stream_with_callback(
             }
             if active_message_id:
                 final_payload["message_id"] = active_message_id
+            if skipped_history:
+                _logger.info(
+                    "[WuCallback] skipped checkpoint-history stream chunks "
+                    "thread_id=%s count=%d pre_ai_ids=%d",
+                    thread_id,
+                    skipped_history,
+                    len(pre_turn_ai.ids),
+                )
             invoke_callback(callback_url, final_payload)
         except Exception as exc:  # noqa: BLE001
             _logger.exception("[WuCallback] Stream failed thread_id=%s", thread_id)

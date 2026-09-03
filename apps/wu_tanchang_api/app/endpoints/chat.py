@@ -11,10 +11,14 @@ from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from apps.wu_tanchang_api.app.models import ChatRequest, ChatResponse
 from apps.wu_tanchang_api.app.state import AppState
+from apps.wu_tanchang_api.app.stream_history import (
+    extract_main_agent_ai_delta,
+    snapshot_pre_turn_ai,
+)
 from apps.wu_tanchang_api.app.utils import (
     get_progress_status,
     thread_id,
@@ -412,6 +416,11 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
 
                     last_status: str | None = None
                     turn_id = f"{tid}::{uuid.uuid4().hex}"
+                    pre_turn_ai = snapshot_pre_turn_ai(
+                        agent_state.values.get("messages", [])
+                        if agent_state and agent_state.values
+                        else []
+                    )
 
                     async for chunk in agent.astream(
                         {"messages": [HumanMessage(content=req.message)]},
@@ -432,10 +441,6 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                             continue
                         subgraph_path, current_stream_mode, data = chunk
 
-                        # Skip subagent raw text chunks to avoid polluting the main chat bubble
-                        if current_stream_mode == "messages" and subgraph_path:
-                            continue
-
                         # Handle "updates" mode — progress info (including subagents)
                         if current_stream_mode == "updates":
                             status = get_progress_status(
@@ -451,20 +456,18 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                                 payload = {"type": "progress", "message": status}
                                 yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-                        # Handle "messages" mode — text deltas (only from the main agent)
-                        if (
-                            current_stream_mode == "messages"
-                            and not subgraph_path
-                            and isinstance(data, tuple)
-                            and len(data) == 2
-                        ):
-                            msg_chunk, _metadata = data
-                            if isinstance(msg_chunk, AIMessageChunk):
-                                if msg_chunk.content:
-                                    chunk_text = str(msg_chunk.content)
-                                    final_parts.append(chunk_text)
-                                    payload = {"type": "delta", "text": chunk_text}
-                                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                        delta = extract_main_agent_ai_delta(
+                            subgraph_path,
+                            current_stream_mode,
+                            data,
+                            pre_turn_ai,
+                        )
+                        if delta is None:
+                            continue
+                        chunk_text, _chunk_id = delta
+                        final_parts.append(chunk_text)
+                        payload = {"type": "delta", "text": chunk_text}
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
                 except Exception as exc:  # noqa: BLE001
                     import traceback

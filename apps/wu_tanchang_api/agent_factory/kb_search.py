@@ -312,6 +312,9 @@ def _emit_kb_search_log(
     series: str | None = None,
 ) -> None:
     """Push KB recall hits to Micro/UI debug panel as search_log (wu-agent)."""
+    from apps.wu_tanchang_api.agent_factory.kb_case_store import remember_kb_hits
+
+    remember_kb_hits(config, hits)
     if not config:
         return
     metadata = config.get("metadata") or {}

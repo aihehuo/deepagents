@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 import requests
 from fastapi import HTTPException
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
 from apps.wu_tanchang_api.app import callbacks
 from apps.wu_tanchang_api.app.callbacks import CallbackUrlError, validate_callback_url
@@ -37,6 +37,12 @@ class FakeCheckpointer:
 class FakeAgent:
     def __init__(self, messages: list[Any] | None = None) -> None:
         self.checkpointer = FakeCheckpointer(messages)
+
+    async def aget_state(self, _config: dict[str, Any]) -> Any:
+        class _State:
+            values = {"messages": self.checkpointer.messages}
+
+        return _State()
 
 
 def test_callback_url_requires_allowed_base_url() -> None:
@@ -156,3 +162,65 @@ def test_chat_rejects_when_call_async_run_is_active() -> None:
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["error"] == "stream_in_progress"
+
+
+class HistoryReplayAgent:
+    """Resumed thread whose astream first dumps checkpoint AI text."""
+
+    WELCOME = (
+        "你好，创业者！我是吴探长智能体，你的\"实体店商业外脑\"。"
+        "15年商业洞察与策略思维已就位。"
+    )
+    NEXT = "写字楼底商、50平、外流不错但进店少——这个画面很清楚了。"
+
+    def __init__(self) -> None:
+        self.checkpointer = FakeCheckpointer(
+            [
+                HumanMessage(content="开了家茶饮店", id="h1"),
+                AIMessage(content=self.WELCOME, id="ai-hist-1"),
+            ]
+        )
+        self.workspace_name = "workspace"
+
+    async def aget_state(self, _config: dict[str, Any]) -> Any:
+        class _State:
+            values = {"messages": self.checkpointer.messages}
+
+        return _State()
+
+    async def astream(self, *_args: Any, **_kwargs: Any) -> Any:
+        replay = AIMessageChunk(content=self.WELCOME, id="ai-hist-1")
+        fresh = AIMessageChunk(content=self.NEXT, id="ai-new-1")
+        yield (), "messages", (replay, {})
+        yield (), "messages", (fresh, {})
+
+
+def test_callback_stream_does_not_repost_checkpoint_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    posted: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(callbacks, "send_heartbeat", lambda *_a, **_k: None)
+    monkeypatch.setattr(callbacks, "get_workspace_agent_id", lambda _path: "default")
+    monkeypatch.setattr(
+        callbacks,
+        "invoke_callback",
+        lambda _url, payload: posted.append(payload) or False,
+    )
+
+    callbacks.run_async_stream_with_callback(
+        agent=HistoryReplayAgent(),
+        user_message="店是50平左右，开在写字楼底商",
+        thread_id="wt::default::1::wu_agent_1",
+        user_id="1",
+        conversation_id="wu_agent_1",
+        agent_name="default",
+        metadata={},
+        callback_url="http://host.docker.internal:3001/wu_tanchang_callbacks/1/wu_agent_1",
+    )
+
+    message_bodies = [
+        item["message"] for item in posted if item.get("type") == "message"
+    ]
+    assert HistoryReplayAgent.WELCOME not in message_bodies
+    assert message_bodies == [HistoryReplayAgent.NEXT]

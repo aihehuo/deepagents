@@ -110,8 +110,9 @@ KB_ANALYST_PROMPT = """你是协助分析知识库的专业分析师。
 2. 用 `kb_semantic_search` 工具做语义召回（query=用户选择赛道+定义问题+聚焦目标，k=5）。
 3. 对返回的 note_id，用 `wu-tanchang-kb` 技能 grep `kb/index.json` 验证收录——
     只有 grep 命中的案例/品牌才能引用。
-4. 对验证通过 of 1-2 个最契合条目，使用 `get_note_content` 工具读取其完整笔记内容。
+4. 对验证通过的 1–2 个最契合条目，使用 `get_note_content` 工具读取其完整笔记内容。
 5. 综合用户的七维信息（特别是创业背景、赛道、定义问题、目标与实施计划），提供高度精炼的业务建议与探讨切入点，作为前置助手生成会议材料的内部参考。
+6. 本子代理输出给前置助手内部使用。分析正文仍以本节 **300 字** 为准，不要按 PLAYBOOK 里的飞书字数写长文。
 
 ## 检索原则
 
@@ -152,17 +153,23 @@ KB_ANALYST_PROMPT = """你是协助分析知识库的专业分析师。
 # =========================================================================
 # Front-end agent prompt: personality files are pre-loaded at startup
 # =========================================================================
-FRONTEND_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
+def build_frontend_system_prompt(*, persona_content: str, rules_text: str) -> str:
+    """Single front-agent system prompt shell. Rules come from compose_frontend_rules."""
+    return (
+        "你是一个通用智能助手。\n\n"
+        "## 你的人格\n\n"
+        "以下是你的人格定义文件内容，请在对话中严格遵守：\n\n"
+        f"{persona_content}\n\n"
+        "## 基本规则\n\n"
+        f"{rules_text}\n"
+    )
 
-## 你的人格
 
-以下是你的人格定义文件内容，请在对话中严格遵守：
-
-{persona_content}
-
-## 基本规则
-
-""" + compose_frontend_rules(WuPromptModules())
+# Import-time snapshot for tests that read the default (all-modules-on) shell.
+FRONTEND_SYSTEM_PROMPT_TEMPLATE = build_frontend_system_prompt(
+    persona_content="{persona_content}",
+    rules_text=compose_frontend_rules(WuPromptModules()),
+)
 
 
 OWNER_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
@@ -242,6 +249,16 @@ def save_meeting_prep(
     # Reject truncated / incomplete prep — required/forbidden follow the
     # active agent's module policy (legacy four-section if not a Wu profile).
     required_headings, forbidden_headings = meeting_prep_policy_for_run(config)
+    cases_chat: str | None = None
+    if "四、" in required_headings:
+        from apps.wu_tanchang_api.agent_factory.kb_case_store import (
+            ground_meeting_prep_kb_cases,
+            last_kb_hits_for_config,
+        )
+
+        body, cases_chat = ground_meeting_prep_kb_cases(
+            body, last_kb_hits_for_config(config)
+        )
     missing = [m for m in required_headings if m not in body]
     forbidden = [heading for heading in forbidden_headings if heading in body]
     if "【会议准备" not in body or missing or forbidden:
@@ -385,6 +402,12 @@ def save_meeting_prep(
             UC25Observer.info(
                 f"action=save_prep_success user_id={user_id} thread_id={thread_id} status_code={response.status_code} duration_ms={duration_ms}"
             )
+            if cases_chat:
+                from apps.wu_tanchang_api.agent_factory.kb_case_store import (
+                    emit_kb_cases_chat,
+                )
+
+                emit_kb_cases_chat(config, cases_chat)
             return "meeting_prep_saved"
         _logger.error(
             "[AgentTool] Failed to save meeting prep: status_code=%s, response=%s",
@@ -707,20 +730,9 @@ def create_agent(
             has_aihehuo=bool(aihehuo_skills),
             uses_prompt_modules=uses_prompt_modules,
         )
-        dynamic_frontend_prompt = f"""你是一个通用智能助手。
-
-## 你的人格
-
-以下是你的人格定义文件内容，请在对话中严格遵守：
-
-{{persona_content}}
-
-## 基本规则
-
-{rules_text}
-"""
-        system_prompt = dynamic_frontend_prompt.format(
-            persona_content=persona_content
+        system_prompt = build_frontend_system_prompt(
+            persona_content=persona_content,
+            rules_text=rules_text,
         )
         middleware = [
             AccountantMiddleware(max_tool_calls=20),

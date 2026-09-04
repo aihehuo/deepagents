@@ -312,6 +312,7 @@ def run_async_stream_with_callback(
                 else []
             )
             pre_turn_ai = snapshot_pre_turn_ai(pre_messages)
+            msg_count_before = len(pre_messages)
             skipped_history = 0
             async with asyncio.timeout(timeout_seconds):
                 async for chunk in agent.astream(
@@ -370,6 +371,23 @@ def run_async_stream_with_callback(
                             }
                             if invoke_callback(callback_url, payload):
                                 return
+
+            # Calendar UI uses /call_async (not /chat). Persist prep here when
+            # the model printed 【会议准备】 but skipped save_meeting_prep.
+            post_state = await aget_agent_state(agent, config)
+            post_messages = (
+                list(post_state.values.get("messages", []))
+                if post_state and post_state.values
+                else []
+            )
+            from apps.wu_tanchang_api.agent_factory.meeting_prep_persist import (
+                ensure_meeting_prep_persisted,
+            )
+
+            ensure_meeting_prep_persisted(
+                new_messages=post_messages[msg_count_before:],
+                config=config,
+            )
 
             final_payload = {
                 **base_payload,

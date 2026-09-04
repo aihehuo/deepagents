@@ -63,11 +63,13 @@ def turn_has_successful_save(messages: list[Any]) -> bool:
 
 def extract_prep_body_from_messages(messages: list[Any]) -> str | None:
     """Longest AI span starting at 【会议准备】 in the given messages."""
+    from apps.wu_tanchang_api.app.stream_history import normalize_message_text
+
     best: str | None = None
     for msg in messages or []:
         if not isinstance(msg, AIMessage):
             continue
-        text = str(msg.content or "")
+        text = normalize_message_text(msg)
         idx = text.find("【会议准备")
         if idx < 0:
             continue

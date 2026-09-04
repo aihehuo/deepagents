@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 import requests
@@ -224,3 +225,75 @@ def test_callback_stream_does_not_repost_checkpoint_history(
     ]
     assert HistoryReplayAgent.WELCOME not in message_bodies
     assert message_bodies == [HistoryReplayAgent.NEXT]
+
+
+def test_callback_stream_auto_persists_meeting_prep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Calendar uses /call_async; ensure runs after stream when model skipped save."""
+    from langchain_core.messages import AIMessage
+
+    class _PrepAgent:
+        async def astream(self, *_args: Any, **_kwargs: Any) -> Any:
+            chunk = AIMessageChunk(
+                content="材料如下：\n\n【会议准备】\n\n一、交谈要点\nx\n\n"
+                "二、初步建议\ny\n\n三、建议讨论话题\nz\n\n四、可参考案例\nw",
+                id="ai-prep-1",
+            )
+            yield (), "messages", (chunk, {})
+
+        @property
+        def checkpointer(self) -> None:
+            return None
+
+    class _EmptyState:
+        values = {"messages": []}
+
+    class _State:
+        values = {
+            "messages": [
+                AIMessage(
+                    content="材料如下：\n\n【会议准备】\n\n一、交谈要点\nx\n\n"
+                    "二、初步建议\ny\n\n三、建议讨论话题\nz\n\n四、可参考案例\nw"
+                    + ("补足长度。" * 40),
+                    id="ai-prep-1",
+                )
+            ]
+        }
+
+    called: dict[str, Any] = {}
+
+    def _ensure(*, new_messages: list[Any], config: dict[str, Any]) -> str:
+        called["new_messages"] = new_messages
+        called["config"] = config
+        return "meeting_prep_saved"
+
+    monkeypatch.setattr(callbacks, "send_heartbeat", lambda *_a, **_k: None)
+    monkeypatch.setattr(callbacks, "get_workspace_agent_id", lambda _path: "default")
+    monkeypatch.setattr(callbacks, "invoke_callback", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        callbacks,
+        "aget_agent_state",
+        AsyncMock(side_effect=[_EmptyState(), _State()]),
+    )
+    monkeypatch.setattr(
+        "apps.wu_tanchang_api.agent_factory.meeting_prep_persist.ensure_meeting_prep_persisted",
+        _ensure,
+    )
+
+    callbacks.run_async_stream_with_callback(
+        agent=_PrepAgent(),
+        user_message="够了，出材料",
+        thread_id="wt::default::1::wu_agent_1",
+        user_id="1",
+        conversation_id="wu_agent_1",
+        agent_name="default",
+        metadata={"source": "wu_agent_ui"},
+        callback_url="http://host.docker.internal:3001/wu_tanchang_callbacks/1/wu_agent_1",
+    )
+
+    assert "new_messages" in called
+    assert called["config"]["metadata"]["user_id"] == "1"
+    assert any(
+        "【会议准备" in str(getattr(m, "content", "")) for m in called["new_messages"]
+    )

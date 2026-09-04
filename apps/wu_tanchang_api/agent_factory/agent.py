@@ -191,14 +191,25 @@ OWNER_SYSTEM_PROMPT_TEMPLATE = """你是一个通用智能助手。
 
 @tool
 def mark_material_delivered(*, config: RunnableConfig) -> str:
-    """先把会议准备材料的文字内容完整输出到回复中呈现给用户，然后调用此工具标记材料已完成交付。顺序不可颠倒：先呈现材料，再调此工具。
+    """先把会议准备材料的文字内容完整输出到回复中呈现给用户，再调用 save_meeting_prep 保存，最后才调用此工具标记交付。顺序不可颠倒。
 
     调用此工具后，系统会知道该用户的对话已完成前置阶段。
     """
+    from apps.wu_tanchang_api.agent_factory.meeting_prep_persist import (
+        thread_prep_saved,
+    )
+
     metadata = config.get("metadata") or {}
     user_id = metadata.get("user_id", "unknown")
     configurable = config.get("configurable") or {}
     thread_id = configurable.get("thread_id", "unknown")
+    # Do not hard-fail here: models sometimes emit save+mark in one step or
+    # skip save entirely. Post-turn ensure_meeting_prep_persisted recovers.
+    if not thread_prep_saved(str(thread_id)):
+        UC25Observer.warn(
+            f"action=mark_delivered_without_save user_id={user_id} "
+            f"thread_id={thread_id} (post-turn auto-save will try)"
+        )
     UC25Observer.info(f"action=mark_delivered user_id={user_id} thread_id={thread_id} status=success")
     return "material_delivered"
 
@@ -399,6 +410,11 @@ def save_meeting_prep(
         duration_ms = int((time.time() - start_call_time) * 1000)
         if response.status_code == 201:
             _logger.info("[AgentTool] Meeting prep saved successfully.")
+            from apps.wu_tanchang_api.agent_factory.meeting_prep_persist import (
+                mark_thread_prep_saved,
+            )
+
+            mark_thread_prep_saved(str(thread_id))
             UC25Observer.info(
                 f"action=save_prep_success user_id={user_id} thread_id={thread_id} status_code={response.status_code} duration_ms={duration_ms}"
             )

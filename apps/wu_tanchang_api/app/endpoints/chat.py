@@ -286,19 +286,30 @@ async def chat(req: ChatRequest, state: AppState) -> ChatResponse:
 
                 register_active_agent(tid, agent)
                 turn_id = f"{tid}::{uuid.uuid4().hex}"
+                run_config = {
+                    "configurable": {
+                        "thread_id": tid,
+                        "deepagents_turn_id": turn_id,
+                    },
+                    "metadata": {
+                        "user_id": req.user_id,
+                        **(req.metadata or {}),
+                    },
+                }
                 try:
                     result = await agent.ainvoke(
                         {"messages": [HumanMessage(content=req.message)]},
-                        {
-                            "configurable": {
-                                "thread_id": tid,
-                                "deepagents_turn_id": turn_id,
-                            },
-                            "metadata": {
-                                "user_id": req.user_id,
-                                **(req.metadata or {}),
-                            },
-                        },
+                        run_config,
+                    )
+                    # Model often prints 【会议准备】 but skips save_meeting_prep —
+                    # persist from AI text before unregistering the active agent.
+                    from apps.wu_tanchang_api.agent_factory.meeting_prep_persist import (
+                        ensure_meeting_prep_persisted,
+                    )
+
+                    ensure_meeting_prep_persisted(
+                        new_messages=list(result.get("messages", []))[msg_count_before:],
+                        config=run_config,
                     )
                 finally:
                     unregister_active_agent(tid)
@@ -416,6 +427,16 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
 
                     last_status: str | None = None
                     turn_id = f"{tid}::{uuid.uuid4().hex}"
+                    run_config = {
+                        "configurable": {
+                            "thread_id": tid,
+                            "deepagents_turn_id": turn_id,
+                        },
+                        "metadata": {
+                            "user_id": req.user_id,
+                            **(req.metadata or {}),
+                        },
+                    }
                     pre_turn_ai = snapshot_pre_turn_ai(
                         agent_state.values.get("messages", [])
                         if agent_state and agent_state.values
@@ -424,16 +445,7 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
 
                     async for chunk in agent.astream(
                         {"messages": [HumanMessage(content=req.message)]},
-                        config={
-                            "configurable": {
-                                "thread_id": tid,
-                                "deepagents_turn_id": turn_id,
-                            },
-                            "metadata": {
-                                "user_id": req.user_id,
-                                **(req.metadata or {}),
-                            },
-                        },
+                        config=run_config,
                         stream_mode=["messages", "updates"],
                         subgraphs=True,
                     ):
@@ -468,6 +480,24 @@ async def chat_stream(req: ChatRequest, state: AppState) -> StreamingResponse:
                         final_parts.append(chunk_text)
                         payload = {"type": "delta", "text": chunk_text}
                         yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+                    # Persist prep if the model showed material but skipped the tool.
+                    post_state = await aget_agent_state(
+                        agent, {"configurable": {"thread_id": tid}}
+                    )
+                    post_messages = (
+                        list(post_state.values.get("messages", []))
+                        if post_state and post_state.values
+                        else []
+                    )
+                    from apps.wu_tanchang_api.agent_factory.meeting_prep_persist import (
+                        ensure_meeting_prep_persisted,
+                    )
+
+                    ensure_meeting_prep_persisted(
+                        new_messages=post_messages[msg_count_before:],
+                        config=run_config,
+                    )
 
                 except Exception as exc:  # noqa: BLE001
                     import traceback

@@ -1,0 +1,386 @@
+{
+  "fixture_version": "venue-entry-v1",
+  "synthetic_only": true,
+  "idempotency": {
+    "projection": {
+      "space_id": "community_cafe",
+      "memory_scope_id": "community_cafe_host",
+      "visitor_user_id": "101",
+      "visit_id": "venue_fixture_first_101"
+    },
+    "expected_key": "ga_venue_8a5b79e8fd1f25c6afed4bdcb776824ce23ecf0867923dd8f4f598e700f0698b"
+  },
+  "vectors": [
+    {
+      "name": "v1_legacy_chinese",
+      "message": "我想找技术合伙人",
+      "projection": {
+        "client_message_id": "ga_ios_fixture_legacy_101",
+        "conversation_id": "ga_global_101",
+        "episode_id": "ep_fixture0000001",
+        "group_id": "global",
+        "group_token_sha256": "-",
+        "message_sha256": "8e9843721d027ca82d5676523a367685210a591488ec8d90dac6c3097f70f6e0",
+        "metadata": {
+          "source": "ios_app"
+        },
+        "request_schema_version": 1,
+        "run_invite": true,
+        "run_match": true,
+        "unionid": "union_fixture_101",
+        "user_id": 101,
+        "willing_to_at": true
+      },
+      "expected_sha256": "8fc7ca23191b6466769f19235c3ba64e62aacedf04fbdf4d282e97cd2c2b49da"
+    },
+    {
+      "name": "v2_first_visit",
+      "request": {
+        "request_schema_version": 2,
+        "queue_schema_version": 2,
+        "run_id": "ga_run_venue_fixture_101",
+        "idempotency_key": "ga_venue_8a5b79e8fd1f25c6afed4bdcb776824ce23ecf0867923dd8f4f598e700f0698b",
+        "user_id": "101",
+        "unionid": "union_fixture_101",
+        "group_id": "global",
+        "conversation_id": "ga_global_101",
+        "episode_id": "ep_fixture0000001",
+        "input_kind": "venue_event",
+        "message": null,
+        "event": {
+          "name": "venue_entered",
+          "visit_id": "venue_fixture_first_101"
+        },
+        "venue_context": {
+          "space_id": "community_cafe",
+          "space_kind": "cafe_bar",
+          "owner_user_id": null,
+          "host_agent_id": "community_barista",
+          "memory_scope_id": "community_cafe_host",
+          "host_config_version": 1,
+          "context_policy_version": 1,
+          "visitor_user_id": "101",
+          "timezone": "Asia/Shanghai",
+          "mode_override": "auto",
+          "effective_mode": "day"
+        },
+        "context_snapshot": {
+          "episode_id": "ep_fixture0000001",
+          "user_turn_version": 0,
+          "recent_messages": [],
+          "previous_greeting": null,
+          "previous_visit_at": null
+        },
+        "metadata": {
+          "source": "ios_app"
+        },
+        "callback_url": "https://micro.example.test/micro/group_agent_callbacks/ga_run_venue_fixture_101",
+        "rollout_context": {
+          "protocol_mode": "grounded_v2",
+          "rollout_version": "ga-v2-canary-v1"
+        },
+        "run_match": false,
+        "run_invite": false,
+        "willing_to_at": false,
+        "group_token": null,
+        "user_token": null,
+        "request_fingerprint": "70accc0c6f4649cfb174c1abc89501dc6bf30be1a1b829c2059d1ba23b230818",
+        "membership": "unknown"
+      },
+      "projection": {
+        "request_schema_version": 2,
+        "queue_schema_version": 2,
+        "run_id": "ga_run_venue_fixture_101",
+        "idempotency_key": "ga_venue_8a5b79e8fd1f25c6afed4bdcb776824ce23ecf0867923dd8f4f598e700f0698b",
+        "user_id": "101",
+        "unionid": "union_fixture_101",
+        "group_id": "global",
+        "conversation_id": "ga_global_101",
+        "episode_id": "ep_fixture0000001",
+        "input_kind": "venue_event",
+        "message": null,
+        "event": {
+          "name": "venue_entered",
+          "visit_id": "venue_fixture_first_101"
+        },
+        "venue_context": {
+          "space_id": "community_cafe",
+          "space_kind": "cafe_bar",
+          "owner_user_id": null,
+          "host_agent_id": "community_barista",
+          "memory_scope_id": "community_cafe_host",
+          "host_config_version": 1,
+          "context_policy_version": 1,
+          "visitor_user_id": "101",
+          "timezone": "Asia/Shanghai",
+          "mode_override": "auto",
+          "effective_mode": "day"
+        },
+        "context_snapshot": {
+          "episode_id": "ep_fixture0000001",
+          "user_turn_version": 0,
+          "recent_messages": [],
+          "previous_greeting": null,
+          "previous_visit_at": null
+        },
+        "metadata": {
+          "source": "ios_app"
+        },
+        "callback_url": "https://micro.example.test/micro/group_agent_callbacks/ga_run_venue_fixture_101",
+        "rollout_context": {
+          "protocol_mode": "grounded_v2",
+          "rollout_version": "ga-v2-canary-v1"
+        },
+        "run_match": false,
+        "run_invite": false,
+        "willing_to_at": false,
+        "group_token_sha256": "-",
+        "user_token_sha256": "-",
+        "membership": "unknown"
+      },
+      "expected_sha256": "70accc0c6f4649cfb174c1abc89501dc6bf30be1a1b829c2059d1ba23b230818"
+    },
+    {
+      "name": "v2_revisit_night",
+      "request": {
+        "request_schema_version": 2,
+        "queue_schema_version": 2,
+        "run_id": "ga_run_venue_fixture_return_101",
+        "idempotency_key": "ga_venue_67832c36b3db6c74a060adc50410cec47ca5504990f511ea9406e5313950ff04",
+        "user_id": "101",
+        "unionid": "union_fixture_101",
+        "group_id": "global",
+        "conversation_id": "ga_global_101",
+        "episode_id": "ep_fixture0000001",
+        "input_kind": "venue_event",
+        "message": null,
+        "event": {
+          "name": "venue_entered",
+          "visit_id": "venue_fixture_return_101"
+        },
+        "venue_context": {
+          "space_id": "community_cafe",
+          "space_kind": "cafe_bar",
+          "owner_user_id": null,
+          "host_agent_id": "community_bartender",
+          "memory_scope_id": "community_cafe_host",
+          "host_config_version": 1,
+          "context_policy_version": 1,
+          "visitor_user_id": "101",
+          "timezone": "Asia/Shanghai",
+          "mode_override": "night",
+          "effective_mode": "night"
+        },
+        "context_snapshot": {
+          "episode_id": "ep_fixture0000001",
+          "user_turn_version": 1,
+          "recent_messages": [
+            {
+              "message_id": "gam_fixture_user_101",
+              "role": "user",
+              "text": "我在探索创业咖啡馆，想先验证用户是否愿意再来。",
+              "created_at": "2026-09-12T02:00:05.000000Z",
+              "run_id": "ga_run_fixture_user_101",
+              "episode_id": "ep_fixture0000001",
+              "result_kind": "conversation",
+              "visit_id": null
+            }
+          ],
+          "previous_greeting": {
+            "message_id": "gam_fixture_101",
+            "text": "欢迎，今天想先喝杯咖啡，还是聊聊正在酝酿的想法？",
+            "created_at": "2026-09-12T02:00:02.000000Z"
+          },
+          "previous_visit_at": "2026-09-12T02:00:00.000000Z"
+        },
+        "metadata": {
+          "source": "ios_app"
+        },
+        "callback_url": "https://micro.example.test/micro/group_agent_callbacks/ga_run_venue_fixture_return_101",
+        "rollout_context": {
+          "protocol_mode": "grounded_v2",
+          "rollout_version": "ga-v2-canary-v1"
+        },
+        "run_match": false,
+        "run_invite": false,
+        "willing_to_at": false,
+        "group_token": null,
+        "user_token": null,
+        "request_fingerprint": "5129944b46016a66ad53d94a8980d0292870691ef9475a0a80bb73da9312aa2c",
+        "membership": "unknown"
+      },
+      "projection": {
+        "request_schema_version": 2,
+        "queue_schema_version": 2,
+        "run_id": "ga_run_venue_fixture_return_101",
+        "idempotency_key": "ga_venue_67832c36b3db6c74a060adc50410cec47ca5504990f511ea9406e5313950ff04",
+        "user_id": "101",
+        "unionid": "union_fixture_101",
+        "group_id": "global",
+        "conversation_id": "ga_global_101",
+        "episode_id": "ep_fixture0000001",
+        "input_kind": "venue_event",
+        "message": null,
+        "event": {
+          "name": "venue_entered",
+          "visit_id": "venue_fixture_return_101"
+        },
+        "venue_context": {
+          "space_id": "community_cafe",
+          "space_kind": "cafe_bar",
+          "owner_user_id": null,
+          "host_agent_id": "community_bartender",
+          "memory_scope_id": "community_cafe_host",
+          "host_config_version": 1,
+          "context_policy_version": 1,
+          "visitor_user_id": "101",
+          "timezone": "Asia/Shanghai",
+          "mode_override": "night",
+          "effective_mode": "night"
+        },
+        "context_snapshot": {
+          "episode_id": "ep_fixture0000001",
+          "user_turn_version": 1,
+          "recent_messages": [
+            {
+              "message_id": "gam_fixture_user_101",
+              "role": "user",
+              "text": "我在探索创业咖啡馆，想先验证用户是否愿意再来。",
+              "created_at": "2026-09-12T02:00:05.000000Z",
+              "run_id": "ga_run_fixture_user_101",
+              "episode_id": "ep_fixture0000001",
+              "result_kind": "conversation",
+              "visit_id": null
+            }
+          ],
+          "previous_greeting": {
+            "message_id": "gam_fixture_101",
+            "text": "欢迎，今天想先喝杯咖啡，还是聊聊正在酝酿的想法？",
+            "created_at": "2026-09-12T02:00:02.000000Z"
+          },
+          "previous_visit_at": "2026-09-12T02:00:00.000000Z"
+        },
+        "metadata": {
+          "source": "ios_app"
+        },
+        "callback_url": "https://micro.example.test/micro/group_agent_callbacks/ga_run_venue_fixture_return_101",
+        "rollout_context": {
+          "protocol_mode": "grounded_v2",
+          "rollout_version": "ga-v2-canary-v1"
+        },
+        "run_match": false,
+        "run_invite": false,
+        "willing_to_at": false,
+        "group_token_sha256": "-",
+        "user_token_sha256": "-",
+        "membership": "unknown"
+      },
+      "expected_sha256": "5129944b46016a66ad53d94a8980d0292870691ef9475a0a80bb73da9312aa2c"
+    },
+    {
+      "name": "v2_space_text",
+      "request": {
+        "request_schema_version": 2,
+        "queue_schema_version": 2,
+        "run_id": "ga_run_venue_fixture_text_101",
+        "idempotency_key": "ga_fixture_text_101",
+        "user_id": "101",
+        "unionid": "union_fixture_101",
+        "group_id": "global",
+        "conversation_id": "ga_global_101",
+        "episode_id": "ep_fixture0000001",
+        "input_kind": "user_message",
+        "message": "我有一个新想法",
+        "event": null,
+        "venue_context": {
+          "space_id": "community_cafe",
+          "space_kind": "cafe_bar",
+          "owner_user_id": null,
+          "host_agent_id": "community_barista",
+          "memory_scope_id": "community_cafe_host",
+          "host_config_version": 1,
+          "context_policy_version": 1,
+          "visitor_user_id": "101",
+          "timezone": "Asia/Shanghai",
+          "mode_override": "auto",
+          "effective_mode": "day"
+        },
+        "context_snapshot": {
+          "episode_id": "ep_fixture0000001",
+          "user_turn_version": 2,
+          "recent_messages": [],
+          "previous_greeting": null,
+          "previous_visit_at": null
+        },
+        "metadata": {
+          "source": "ios_app",
+          "client_message_id": "ga_ios_fixture_text_101",
+          "source_message_id": 501
+        },
+        "callback_url": "https://micro.example.test/micro/group_agent_callbacks/ga_run_venue_fixture_text_101",
+        "rollout_context": {
+          "protocol_mode": "grounded_v2",
+          "rollout_version": "ga-v2-canary-v1"
+        },
+        "run_match": true,
+        "run_invite": true,
+        "willing_to_at": true,
+        "group_token": null,
+        "user_token": null,
+        "request_fingerprint": "7e9d8219d8bcbfa37be732047d1ba26340a107a0c4e60c6bea8709cdf8aae8f9",
+        "membership": "unknown"
+      },
+      "projection": {
+        "request_schema_version": 2,
+        "queue_schema_version": 2,
+        "run_id": "ga_run_venue_fixture_text_101",
+        "idempotency_key": "ga_fixture_text_101",
+        "user_id": "101",
+        "unionid": "union_fixture_101",
+        "group_id": "global",
+        "conversation_id": "ga_global_101",
+        "episode_id": "ep_fixture0000001",
+        "input_kind": "user_message",
+        "message": "我有一个新想法",
+        "event": null,
+        "venue_context": {
+          "space_id": "community_cafe",
+          "space_kind": "cafe_bar",
+          "owner_user_id": null,
+          "host_agent_id": "community_barista",
+          "memory_scope_id": "community_cafe_host",
+          "host_config_version": 1,
+          "context_policy_version": 1,
+          "visitor_user_id": "101",
+          "timezone": "Asia/Shanghai",
+          "mode_override": "auto",
+          "effective_mode": "day"
+        },
+        "context_snapshot": {
+          "episode_id": "ep_fixture0000001",
+          "user_turn_version": 2,
+          "recent_messages": [],
+          "previous_greeting": null,
+          "previous_visit_at": null
+        },
+        "metadata": {
+          "source": "ios_app",
+          "client_message_id": "ga_ios_fixture_text_101",
+          "source_message_id": 501
+        },
+        "callback_url": "https://micro.example.test/micro/group_agent_callbacks/ga_run_venue_fixture_text_101",
+        "rollout_context": {
+          "protocol_mode": "grounded_v2",
+          "rollout_version": "ga-v2-canary-v1"
+        },
+        "run_match": true,
+        "run_invite": true,
+        "willing_to_at": true,
+        "group_token_sha256": "-",
+        "user_token_sha256": "-",
+        "membership": "unknown"
+      },
+      "expected_sha256": "7e9d8219d8bcbfa37be732047d1ba26340a107a0c4e60c6bea8709cdf8aae8f9"
+    }
+  ]
+}

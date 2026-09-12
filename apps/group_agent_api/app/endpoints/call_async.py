@@ -31,7 +31,12 @@ async def call_async(
     """Async endpoint: validates principal & SSRF, then durable or legacy admission."""
     # 1. Validate and normalize callback_url against SSRF allowlist
     canonical_url = validate_and_normalize_callback_url(req.callback_url)
+    if req.request_schema_version == 2 and canonical_url != req.callback_url:
+        raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "v2 callback_url must already be canonical"})
     req.callback_url = canonical_url
+    raw_body = await request.body() if req.request_schema_version == 2 else None
+    if raw_body is not None and len(raw_body) > 128 * 1024:
+        raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "request budget exceeded"})
 
     # 2. Resolve trusted session (validates GA-PRINCIPAL-V1 headers vs body fields)
     session = await resolve_trusted_session(
@@ -42,13 +47,15 @@ async def call_async(
         body_unionid=req.unionid,
         body_group_token=req.group_token,
         body_user_token=req.user_token,
+        request_schema_version=req.request_schema_version or 1,
+        request_body=raw_body,
     )
 
     tid = thread_id(
         user_id=session.principal.user_id,
         group_id=session.group_id,
         conversation_id=req.conversation_id,
-        episode_id=(
+        episode_id=req.episode_id if req.request_schema_version == 2 else (
             str((req.metadata or {}).get("episode_id") or (req.metadata or {}).get("episodeId") or "").strip()
             or None
         ),
@@ -81,6 +88,8 @@ async def call_async(
         return result.response
 
     # --- Legacy process-local path (GROUP_AGENT_DURABLE_QUEUE_ENABLED=0) ---
+    if req.request_schema_version == 2:
+        raise HTTPException(status_code=503, detail={"error": "queue_unavailable", "message": "v2 requires durable execution"})
     status, cached, slot = await reserve_idempotency_slot(req, session)
 
     if status == "HIT" and cached is not None:

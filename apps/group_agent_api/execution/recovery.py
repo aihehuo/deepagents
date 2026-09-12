@@ -9,9 +9,9 @@ from typing import Callable
 
 from apps.group_agent_api.execution.config import DurableQueueConfig
 from apps.group_agent_api.execution.models import (
-    QUEUE_SCHEMA_VERSION,
     BrokerDeliveryRef,
     ExecutionStatus,
+    SUPPORTED_SCHEMA_PAIRS,
 )
 from apps.group_agent_api.execution.redis_store import ExecutionStore, ExecutionStoreError
 
@@ -38,6 +38,7 @@ def _publish_then_queued(
     idempotency_key: str,
     request_fingerprint: str,
     expected_status: str,
+    queue_schema_version: int = 1,
 ) -> str:
     """Claim recovery ownership, publish, then CAS to queued.
 
@@ -47,6 +48,11 @@ def _publish_then_queued(
     At most one new delivery per run per recovery claim window under multi-replica.
     """
     delivery_id = str(uuid.uuid4())
+    record = store.get(run_id)
+    if record is not None:
+        queue_schema_version = record.queue_schema_version
+        if (record.request_schema_version, queue_schema_version) not in SUPPORTED_SCHEMA_PAIRS:
+            raise ExecutionStoreError("unsupported_queue_schema")
     kind = store.claim_publish_delivery(
         run_id,
         expected_status=expected_status,
@@ -58,7 +64,7 @@ def _publish_then_queued(
         return "conflict"
 
     delivery = BrokerDeliveryRef(
-        queue_schema_version=QUEUE_SCHEMA_VERSION,
+        queue_schema_version=queue_schema_version,
         run_id=run_id,
         idempotency_key=idempotency_key,
         request_fingerprint=request_fingerprint,

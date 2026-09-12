@@ -11,15 +11,18 @@ from typing import Any
 
 from celery import shared_task
 from celery.exceptions import Reject
+from fastapi import HTTPException
 
 from apps.group_agent_api.agent_factory.capability import CapabilityTier
 from apps.group_agent_api.agent_factory.integrations.callback_client import send_callback_event
 from apps.group_agent_api.agent_factory.integrations.config import async_run_timeout_s
 from apps.group_agent_api.agent_factory.integrations.membership_client import MembershipResult
 from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
-from apps.group_agent_api.app.async_manager import execute_async_run_core
+from apps.group_agent_api.app.async_manager import VenueEventExecutorUnavailable, execute_async_run_core
 from apps.group_agent_api.app.models import AsyncCallRequest, CallbackEnvelope
 from apps.group_agent_api.app.session import TrustedSession
+from apps.group_agent_api.app.utils import thread_id
+from apps.group_agent_api.app.venue_protocol import callback_bindings, lease_scope
 from apps.group_agent_api.execution.active_fence import (
     ActiveAttemptFence,
     FenceRejectedError,
@@ -30,7 +33,7 @@ from apps.group_agent_api.execution.crypto import PayloadCryptoError, decrypt_en
 from apps.group_agent_api.execution.dlq import push_dlq_index
 from apps.group_agent_api.execution.fence import LeaseLostError, SideEffectFence
 from apps.group_agent_api.execution.models import (
-    QUEUE_SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_PAIRS,
     BrokerDeliveryRef,
     ExecutionStatus,
     LeaseClaim,
@@ -63,6 +66,10 @@ def _rebuild_session(envelope: dict[str, Any]) -> tuple[AsyncCallRequest, Truste
         group_id=str(sess["group_id"]),
         group_token=sess.get("group_token"),
     )
+    if req.request_schema_version == 2:
+        expected_tid = thread_id(user_id=req.user_id, group_id=req.group_id, conversation_id=req.conversation_id, episode_id=req.episode_id)
+        if req.user_id != principal.user_id or req.unionid != principal.unionid or req.group_id != session.group_id or (req.user_token or "").strip() != (principal.user_token or "").strip() or (req.group_token or "").strip() != (session.group_token or "").strip() or str(envelope["thread_id"]) != expected_tid:
+            raise ValueError("binding_mismatch: invalid trusted envelope")
     return req, session, str(envelope["thread_id"])
 
 
@@ -121,18 +128,19 @@ async def _run_attempt(
     cfg = rt["config"]
     bp = rt["backpressure"]
     provider = (os.environ.get("GROUP_AGENT_PROVIDER") or "default").strip() or "default"
+    operational_scope = lease_scope(req)
 
-    bp.on_start_running(conversation_id=req.conversation_id, provider=provider)
+    bp.on_start_running(conversation_id=operational_scope, provider=provider)
     fence = SideEffectFence(
         store=store,
         claim=claim,
-        conversation_id=req.conversation_id,
+        conversation_id=operational_scope,
         abort_on_heartbeat_failures=cfg.heartbeat_fail_threshold,
     )
     active = ActiveAttemptFence(
         store=store,
         claim=claim,
-        conversation_id=req.conversation_id,
+        conversation_id=operational_scope,
         cancel_event=threading.Event(),
     )
     fence_tokens = set_active_fence(active, require=True)
@@ -157,22 +165,23 @@ async def _run_attempt(
         env = CallbackEnvelope(
             version="GA-CALLBACK-V1",
             run_id=req.run_id,
-            idempotency_key=req.idempotency_key,
+            **({"idempotency_key": req.idempotency_key} if req.request_schema_version != 2 else {}),
             seq=fence.seq,
             event=event_type,  # type: ignore[arg-type]
-            occurred_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            occurred_at=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
             user_id=session.principal.user_id,
             group_id=session.group_id,
             conversation_id=req.conversation_id,
             payload=payload,
+            **callback_bindings(req),
         )
         return await send_callback_event(
             callback_url=req.callback_url,
-            envelope_dict=env.model_dump(),
+            envelope_dict=env.model_dump(exclude={"idempotency_key"} if req.request_schema_version == 2 else {"episode_id", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"}),
         )
 
     async def _emit(event_type: str, payload: dict[str, Any]) -> bool:
-        return await fence.emit(event_type, payload, send=_deliver)
+        return await fence.emit(event_type, payload, send=_deliver, include_attempt_metadata=req.input_kind != "venue_event")
 
     def _side_effect_gate(action: str) -> None:
         fence.check_side_effect(action)
@@ -182,7 +191,7 @@ async def _run_attempt(
     error_code = ""
     outcome = "unknown"
     try:
-        await _emit("progress", {"phase": "started", "message": "processing_started"})
+        await _emit("progress", {"phase": "preparing_greeting"} if req.input_kind == "venue_event" else {"phase": "started", "message": "processing_started"})
         await asyncio.wait_for(
             execute_async_run_core(
                 req=req,
@@ -205,7 +214,7 @@ async def _run_attempt(
         else:
             store.finish(
                 claim,
-                conversation_id=req.conversation_id,
+                conversation_id=operational_scope,
                 status=ExecutionStatus.SUCCEEDED,
             )
             outcome = ExecutionStatus.SUCCEEDED.value
@@ -213,6 +222,8 @@ async def _run_attempt(
         outcome = "lost_lease"
     except asyncio.TimeoutError:
         error_code = error_code or "provider_timeout"
+    except VenueEventExecutorUnavailable:
+        error_code = "venue_event_executor_unavailable"
     except Exception as exc:  # noqa: BLE001
         if not error_code:
             if "mouth_ingress_rejected" in str(exc):
@@ -237,7 +248,7 @@ async def _run_attempt(
         bp.on_finish(
             user_id=session.principal.user_id,
             group_id=session.group_id,
-            conversation_id=req.conversation_id,
+            conversation_id=operational_scope,
             provider=provider,
             was_queued=True,
         )
@@ -276,7 +287,7 @@ async def _run_attempt(
         try:
             store.finish(
                 claim,
-                conversation_id=req.conversation_id,
+                conversation_id=operational_scope,
                 status=status,
                 error_code=decision.reason_code,
             )
@@ -288,7 +299,7 @@ async def _run_attempt(
         bp.on_finish(
             user_id=session.principal.user_id,
             group_id=session.group_id,
-            conversation_id=req.conversation_id,
+            conversation_id=operational_scope,
             provider=provider,
             was_queued=True,
         )
@@ -298,7 +309,7 @@ async def _run_attempt(
     try:
         store.schedule_retry(
             claim,
-            conversation_id=req.conversation_id,
+            conversation_id=operational_scope,
             next_attempt_at=next_at,
             error_code=decision.reason_code,
         )
@@ -309,7 +320,7 @@ async def _run_attempt(
     bp.on_retry_wait(
         user_id=session.principal.user_id,
         group_id=session.group_id,
-        conversation_id=req.conversation_id,
+        conversation_id=operational_scope,
         provider=provider,
     )
     return "retry"
@@ -348,7 +359,7 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
     cfg = rt["config"]
     record = store.get(ref.run_id)
 
-    if ref.queue_schema_version != QUEUE_SCHEMA_VERSION:
+    if type(ref.queue_schema_version) is not int or ref.queue_schema_version not in {1, 2}:
         # FIX4: schema/binding mismatch isolates the delivery only — never mutate ledger.
         publish_unmappable_poison(
             cfg,
@@ -363,6 +374,8 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
     if (
         record.idempotency_key != ref.idempotency_key
         or record.request_fingerprint != ref.request_fingerprint
+        or record.queue_schema_version != ref.queue_schema_version
+        or (record.request_schema_version, record.queue_schema_version) not in SUPPORTED_SCHEMA_PAIRS
     ):
         # FIX4: forged/stale delivery must not terminate a healthy ledger Run.
         publish_unmappable_poison(
@@ -416,10 +429,15 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
             expected_status=record.status.value,
         )
 
-    req, session, tid = _rebuild_session(envelope)
+    try:
+        req, session, tid = _rebuild_session(envelope)
+        if req.run_id != record.run_id or req.idempotency_key != record.idempotency_key or req.request_fingerprint != record.request_fingerprint or req.request_schema_version != record.request_schema_version or req.queue_schema_version != record.queue_schema_version or (req.request_schema_version == 2 and (req.input_kind != record.input_kind or lease_scope(req) != record.conversation_id)):
+            raise ValueError("binding_mismatch: ledger and request differ")
+    except (ValueError, KeyError, TypeError, HTTPException):
+        return _poison_mapped_run(store=store, cfg=cfg, run_id=ref.run_id, conversation_id=record.conversation_id or ref.run_id, error_code="binding_conflict", expected_status=record.status.value)
     outcome = store.claim_lease(
         run_id=ref.run_id,
-        conversation_id=req.conversation_id,
+        conversation_id=lease_scope(req),
         owner=cfg.worker_instance_id,
     )
     if outcome.kind == "conversation_busy":

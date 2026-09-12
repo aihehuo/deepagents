@@ -30,6 +30,7 @@ TERMINAL_STATUSES = frozenset(
 
 QUEUE_SCHEMA_VERSION = 1
 REQUEST_SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_PAIRS = frozenset({(1, 1), (2, 2)})
 
 
 class RetryClass(str, Enum):
@@ -92,6 +93,7 @@ class ExecutionRecord:
     user_id_digest: str | None = None
     group_id_digest: str | None = None
     provider: str | None = None
+    input_kind: str | None = None
     terminal_fence: str | None = None
     fencing_token: int = 0
     replay_audit: list[dict[str, str]] = field(default_factory=list)
@@ -119,6 +121,7 @@ class ExecutionRecord:
             "user_id_digest": self.user_id_digest,
             "group_id_digest": self.group_id_digest,
             "provider": self.provider,
+            "input_kind": self.input_kind,
             "terminal_fence": self.terminal_fence,
         }
         for key, value in optional_str.items():
@@ -206,6 +209,7 @@ class ExecutionRecord:
             user_id_digest=(str(data["user_id_digest"]) if data.get("user_id_digest") else None),
             group_id_digest=(str(data["group_id_digest"]) if data.get("group_id_digest") else None),
             provider=(str(data["provider"]) if data.get("provider") else None),
+            input_kind=(str(data["input_kind"]) if data.get("input_kind") else None),
             terminal_fence=(str(data["terminal_fence"]) if data.get("terminal_fence") else None),
             fencing_token=_i("fencing_token", 0),
             replay_audit=replay_audit,
@@ -233,8 +237,10 @@ class BrokerDeliveryRef:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BrokerDeliveryRef:
+        if type(data["queue_schema_version"]) is not int:
+            raise ValueError("unsupported_queue_schema")
         return cls(
-            queue_schema_version=int(data["queue_schema_version"]),
+            queue_schema_version=data["queue_schema_version"],
             run_id=str(data["run_id"]),
             idempotency_key=str(data["idempotency_key"]),
             request_fingerprint=str(data["request_fingerprint"]),

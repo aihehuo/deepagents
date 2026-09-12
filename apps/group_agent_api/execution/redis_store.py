@@ -847,6 +847,13 @@ class ExecutionStore:
         del conversation_id
         if record is None:
             raise ExecutionStoreError("missing_record")
+        if record.request_schema_version == 2:
+            if record.input_kind == "venue_event":
+                # A read-only greeting must not supersede the ordinary run's
+                # user×group profile write epoch. It still has run fencing.
+                return self._cfg.key("greeting_epoch", record.run_id)
+            if record.input_kind != "user_message":
+                raise ExecutionStoreError("binding_conflict")
         if not record.user_id_digest or not record.group_id_digest:
             raise ExecutionStoreError("fence_identity_missing")
         return self._cfg.key(

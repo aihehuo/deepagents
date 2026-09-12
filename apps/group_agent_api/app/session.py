@@ -44,6 +44,8 @@ async def resolve_trusted_session(
     body_unionid: str | None,
     body_group_token: str | None,
     body_user_token: str | None,
+    request_schema_version: int = 1,
+    request_body: bytes | None = None,
 ) -> TrustedSession:
     """Resolve principal + membership + trusted group_id off the event loop."""
 
@@ -53,6 +55,8 @@ async def resolve_trusted_session(
             body_user_id=body_user_id,
             body_unionid=body_unionid,
             body_user_token=body_user_token,
+            request_schema_version=request_schema_version,
+            request_body=request_body,
         )
         try:
             user_id = validate_id(principal.user_id, field="user_id")

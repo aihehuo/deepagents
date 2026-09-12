@@ -1,0 +1,31 @@
+{
+  "fixture_version": "venue-entry-v1",
+  "synthetic_only": true,
+  "test_key": "venue-contract-test-only-not-production",
+  "timestamp": "1789178400",
+  "nonce": "venue_fixture_nonce_00000000000001",
+  "principal_v2": {
+    "canonical_payload": "GA-PRINCIPAL-V2\nuser_id=101\nunionid=union_fixture_101\ntoken_sha256=-\ngroup_token_sha256=-\nts=1789178400\nnonce=venue_fixture_nonce_00000000000001\nmethod=POST\npath=/call_async",
+    "expected_signature": "f3eec7e14b591c9a8a03b8f35f8dca6c253d1fbcb6004062572f57da8bd34f73"
+  },
+  "vectors": [
+    {
+      "name": "v2_request_body",
+      "version": "GA-REQUEST-V2",
+      "method": "POST",
+      "path": "/call_async",
+      "raw_body": "{\"callback_url\":\"https://micro.example.test/micro/group_agent_callbacks/ga_run_venue_fixture_101\",\"context_snapshot\":{\"episode_id\":\"ep_fixture0000001\",\"previous_greeting\":null,\"previous_visit_at\":null,\"recent_messages\":[],\"user_turn_version\":0},\"conversation_id\":\"ga_global_101\",\"episode_id\":\"ep_fixture0000001\",\"event\":{\"name\":\"venue_entered\",\"visit_id\":\"venue_fixture_first_101\"},\"group_id\":\"global\",\"group_token\":null,\"idempotency_key\":\"ga_venue_8a5b79e8fd1f25c6afed4bdcb776824ce23ecf0867923dd8f4f598e700f0698b\",\"input_kind\":\"venue_event\",\"membership\":\"unknown\",\"message\":null,\"metadata\":{\"source\":\"ios_app\"},\"queue_schema_version\":2,\"request_fingerprint\":\"70accc0c6f4649cfb174c1abc89501dc6bf30be1a1b829c2059d1ba23b230818\",\"request_schema_version\":2,\"rollout_context\":{\"protocol_mode\":\"grounded_v2\",\"rollout_version\":\"ga-v2-canary-v1\"},\"run_id\":\"ga_run_venue_fixture_101\",\"run_invite\":false,\"run_match\":false,\"unionid\":\"union_fixture_101\",\"user_id\":\"101\",\"user_token\":null,\"venue_context\":{\"context_policy_version\":1,\"effective_mode\":\"day\",\"host_agent_id\":\"community_barista\",\"host_config_version\":1,\"memory_scope_id\":\"community_cafe_host\",\"mode_override\":\"auto\",\"owner_user_id\":null,\"space_id\":\"community_cafe\",\"space_kind\":\"cafe_bar\",\"timezone\":\"Asia/Shanghai\",\"visitor_user_id\":\"101\"},\"willing_to_at\":false}",
+      "expected_body_sha256": "d4d14532dee0c6292712dfede09f68fb059f3e64008dbdae02ccec900d3334e3",
+      "expected_signature": "21d1d836bd705a3efc96ae087b046b8bcdd8ba835ebb09e08e374dc9a0fc4b37"
+    },
+    {
+      "name": "v1_callback_body",
+      "version": "GA-CALLBACK-V1",
+      "method": "POST",
+      "path": "/micro/group_agent_callbacks/ga_run_venue_fixture_101",
+      "raw_body": "{\"conversation_id\":\"ga_global_101\",\"episode_id\":\"ep_fixture0000001\",\"event\":\"final\",\"event_name\":\"venue_entered\",\"group_id\":\"global\",\"host_agent_id\":\"community_barista\",\"input_kind\":\"venue_event\",\"memory_scope_id\":\"community_cafe_host\",\"occurred_at\":\"2026-09-12T02:00:02.000000Z\",\"payload\":{\"reply\":\"欢迎，今天想先喝杯咖啡，还是聊聊正在酝酿的想法？\",\"result_kind\":\"greeting\",\"suggested_replies\":[{\"label\":\"聊聊想法\",\"reply\":\"我想聊聊最近的创业想法\"}]},\"run_id\":\"ga_run_venue_fixture_101\",\"seq\":1,\"space_id\":\"community_cafe\",\"user_id\":\"101\",\"version\":\"GA-CALLBACK-V1\",\"visit_id\":\"venue_fixture_first_101\"}",
+      "expected_body_sha256": "40e0f6b12df24ed9e4e55575c240727d7a0a9c736dd1a45b8b7e137e05ae4505",
+      "expected_signature": "d96dc8151181e8e97bcdfed578be08030ee4bc93719198f2fb339f1f826e495d"
+    }
+  ]
+}

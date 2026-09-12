@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse
 from apps.group_agent_api.app.session import TrustedSession
+from apps.group_agent_api.app.venue_protocol import lease_scope, validate_v2_request
 from apps.group_agent_api.execution.backpressure import BackpressureController
 from apps.group_agent_api.execution.config import (
     DurableQueueConfig,
@@ -20,8 +21,7 @@ from apps.group_agent_api.execution.config import (
 )
 from apps.group_agent_api.execution.crypto import digest_id, encrypt_envelope
 from apps.group_agent_api.execution.models import (
-    QUEUE_SCHEMA_VERSION,
-    REQUEST_SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_PAIRS,
     BrokerDeliveryRef,
     EncryptedPayload,
     ExecutionRecord,
@@ -93,10 +93,13 @@ def validate_durable_request_fields(req: AsyncCallRequest) -> tuple[int, str]:
             "durable_fields_required",
             "request_schema_version, request_fingerprint, queue_schema_version required",
         )
-    if int(schema) != REQUEST_SCHEMA_VERSION:
-        _error_response(400, "schema_invalid", "request_schema_version must be 1")
-    if int(queue_schema) != QUEUE_SCHEMA_VERSION:
-        _error_response(400, "schema_invalid", "queue_schema_version must be 1")
+    if type(schema) is not int or type(queue_schema) is not int or (schema, queue_schema) not in SUPPORTED_SCHEMA_PAIRS:
+        _error_response(400, "schema_invalid", "unsupported request/queue schema pair")
+    if schema == 2:
+        try:
+            validate_v2_request(req.model_dump())
+        except ValueError:
+            _error_response(400, "schema_invalid", "v2 request fingerprint or structure invalid")
     try:
         fp = validate_request_fingerprint(str(fingerprint))
     except ValueError:
@@ -120,6 +123,8 @@ def admit_durable_async_call(
     Idempotent hits are not blocked by admission quota.
     """
     schema, fingerprint = validate_durable_request_fields(req)
+    if schema == 2 and (req.user_id != session.principal.user_id or req.unionid != session.principal.unionid or req.group_id != session.group_id or (req.user_token or "").strip() != (session.principal.user_token or "").strip() or (req.group_token or "").strip() != (session.group_token or "").strip()):
+        _error_response(400, "binding_mismatch", "frozen request must match trusted session")
     provider = (os.environ.get("GROUP_AGENT_PROVIDER") or "default").strip() or "default"
 
     # FIX1 BLOCKER-4: binding hit before quota — saturated system still returns original ACK.
@@ -127,6 +132,7 @@ def admit_durable_async_call(
     if existing is not None:
         if (
             existing.request_schema_version != schema
+            or existing.queue_schema_version != req.queue_schema_version
             or existing.request_fingerprint != fingerprint
             or existing.run_id != req.run_id
         ):
@@ -157,7 +163,7 @@ def admit_durable_async_call(
     bp = backpressure.check_and_reserve(
         user_id=session.principal.user_id,
         group_id=session.group_id,
-        conversation_id=req.conversation_id,
+        conversation_id=lease_scope(req),
         provider=provider,
     )
     if not bp.allowed:
@@ -186,15 +192,16 @@ def admit_durable_async_call(
             idempotency_key=req.idempotency_key,
             request_schema_version=schema,
             request_fingerprint=fingerprint,
-            queue_schema_version=QUEUE_SCHEMA_VERSION,
+            queue_schema_version=req.queue_schema_version,
             status=ExecutionStatus.ACCEPTED,
             created_at=now,
             payload_key_version=ciphertext.key_version,
             payload_ciphertext=ciphertext,
-            conversation_id=req.conversation_id,
+            conversation_id=lease_scope(req),
             user_id_digest=digest_id(session.principal.user_id),
             group_id_digest=digest_id(session.group_id),
             provider=provider,
+            input_kind=req.input_kind,
         )
         try:
             kind, loaded = store.create_or_get(record=record)
@@ -271,7 +278,7 @@ def _ack(req: AsyncCallRequest, thread_id: str, status: str) -> AsyncCallRespons
         message="accepted",
         idempotency_key=req.idempotency_key,
         execution_status=status,
-        queue_schema_version=QUEUE_SCHEMA_VERSION,
+        queue_schema_version=req.queue_schema_version,
     )
 
 
@@ -293,7 +300,7 @@ def _enqueue_and_ack(
     if expected not in {"accepted", "enqueue_failed"}:
         expected = "accepted"
     delivery = BrokerDeliveryRef(
-        queue_schema_version=QUEUE_SCHEMA_VERSION,
+        queue_schema_version=loaded.queue_schema_version,
         run_id=loaded.run_id,
         idempotency_key=loaded.idempotency_key,
         request_fingerprint=loaded.request_fingerprint,

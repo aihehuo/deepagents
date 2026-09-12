@@ -83,6 +83,7 @@ from apps.group_agent_api.app.endpoints.chat import (
 )
 from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse, CallbackEnvelope, SearchLogEntry
 from apps.group_agent_api.app.session import TrustedSession
+from apps.group_agent_api.app.venue_protocol import callback_bindings, calculate_v2_fingerprint
 from apps.group_agent_api.app.state import AppState
 from apps.group_agent_api.app.utils import aget_agent_state, get_agent_checkpointer
 
@@ -422,6 +423,10 @@ async def _attempt_deterministic_profile_save(
 
 def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession) -> str:
     """Construct complete canonical request fingerprint derived from TrustedSession & canonical callback URL."""
+    if req.request_schema_version == 2:
+        if req.user_id != session.principal.user_id or req.unionid != session.principal.unionid or req.group_id != session.group_id or (req.user_token or "").strip() != (session.principal.user_token or "").strip() or (req.group_token or "").strip() != (session.group_token or "").strip():
+            raise ValueError("binding_mismatch: request fingerprint requires trusted principal")
+        return calculate_v2_fingerprint(req.model_dump())
     canonical_url = validate_and_normalize_callback_url(req.callback_url)
     group_token_sha = hashlib.sha256((session.group_token or "").encode("utf-8")).hexdigest()
     user_token_sha = hashlib.sha256((session.principal.user_token or "").encode("utf-8")).hexdigest()
@@ -604,19 +609,20 @@ async def execute_async_run(
         env = CallbackEnvelope(
             version="GA-CALLBACK-V1",
             run_id=req.run_id,
-            idempotency_key=req.idempotency_key,
+            **({"idempotency_key": req.idempotency_key} if req.request_schema_version != 2 else {}),
             seq=seq,
             event=event_type,  # type: ignore[arg-type]
-            occurred_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            occurred_at=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
             user_id=user_id,
             group_id=group_id,
             conversation_id=req.conversation_id,
             payload=payload,
+            **callback_bindings(req),
         )
 
         try:
             delivered = await send_callback_event(
-                callback_url=req.callback_url, envelope_dict=env.model_dump()
+                callback_url=req.callback_url, envelope_dict=env.model_dump(exclude_none=True)
             )
         except MouthIngressRejected:
             # Mouth did not commit seq — rewind for same-seq repair re-emit.
@@ -721,6 +727,10 @@ async def execute_async_run_core(
         side_effect_gate: Optional callable ``(action: str) -> None`` that raises
             when the attempt lost lease ownership (worker fence).
     """
+    if req.input_kind == "venue_event":
+        # DA-002 will provide an isolated read-only executor. Never synthesize
+        # a HumanMessage or invoke checkpoint/profile/matching tools here.
+        raise VenueEventExecutorUnavailable("venue_event_executor_unavailable")
     await _execute_core_agent(
         req=req,
         session=session,
@@ -729,6 +739,10 @@ async def execute_async_run_core(
         emit_callback=emit_callback,
         side_effect_gate=side_effect_gate,
     )
+
+
+class VenueEventExecutorUnavailable(RuntimeError):
+    """Permanent explicit hold until the DA-002 greeting executor is ready."""
 
 
 async def _execute_core_agent(

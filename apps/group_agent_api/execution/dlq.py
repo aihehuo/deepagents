@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from apps.group_agent_api.execution.config import DurableQueueConfig
 from apps.group_agent_api.execution.models import (
-    QUEUE_SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_PAIRS,
     BrokerDeliveryRef,
     ExecutionRecord,
     ExecutionStatus,
@@ -113,6 +113,8 @@ class DlqAdmin:
             raise ExecutionStoreError("missing_record")
         if record.status != ExecutionStatus.DEAD_LETTERED:
             raise ExecutionStoreError("not_dead_lettered")
+        if (record.request_schema_version, record.queue_schema_version) not in SUPPORTED_SCHEMA_PAIRS:
+            raise ExecutionStoreError("unsupported_queue_schema")
         rid = replay_id or str(uuid.uuid4())
         # FIX2: dead_lettered → enqueue_failed only via operator/replay CAS.
         self._store.mark_dlq_replay_to_enqueue_failed(
@@ -122,7 +124,7 @@ class DlqAdmin:
             reason=reason,
         )
         delivery = BrokerDeliveryRef(
-            queue_schema_version=QUEUE_SCHEMA_VERSION,
+            queue_schema_version=record.queue_schema_version,
             run_id=record.run_id,
             idempotency_key=record.idempotency_key,
             request_fingerprint=record.request_fingerprint,

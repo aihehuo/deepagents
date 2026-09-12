@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -68,10 +69,11 @@ def canonical_principal_payload(
     nonce: str,
     method: str,
     path: str,
+    version: str = "GA-PRINCIPAL-V1",
 ) -> str:
     return "\n".join(
         [
-            _CANON_VERSION,
+            version,
             f"user_id={user_id}",
             f"unionid={unionid}",
             f"token_sha256={_token_digest(user_token)}",
@@ -95,8 +97,26 @@ def sign_principal(
     method: str = "POST",
     path: str = "/chat",
     secret: str | None = None,
+    request_schema_version: int = 1,
+    request_body: bytes | None = None,
 ) -> dict[str, str]:
-    """Build signed principal headers (Calendar/BFF + tests)."""
+    """Build signed principal headers (Calendar/BFF + tests).
+
+    Args:
+        user_id: Trusted OAuth user identifier.
+        unionid: Trusted OAuth union identifier.
+        user_token: Optional signed user token.
+        group_token: Optional signed group capability token.
+        ts: Timestamp header; defaults to server time.
+        nonce: Unique transport nonce; generated when absent.
+        method: Actual HTTP method.
+        path: Actual HTTP path.
+        secret: Test / caller secret override.
+        request_schema_version: Experimental v2 additionally signs raw body.
+        request_body: Exact serialized HTTP body, mandatory for v2.
+    """
+    if request_schema_version not in {1, 2}:
+        raise ValueError("unsupported request schema version")
     key = (secret if secret is not None else principal_hmac_secret()).encode("utf-8")
     if not key:
         raise ValueError("missing principal HMAC secret")
@@ -111,6 +131,7 @@ def sign_principal(
         nonce=nonce_s,
         method=method,
         path=path,
+        version="GA-PRINCIPAL-V2" if request_schema_version == 2 else _CANON_VERSION,
     )
     sig = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
     headers = {
@@ -124,7 +145,25 @@ def sign_principal(
         headers[HEADER_USER_TOKEN] = user_token
     if group_token:
         headers[HEADER_GROUP_TOKEN] = group_token
+    if request_schema_version == 2:
+        if request_body is None:
+            raise ValueError("v2 signing requires the exact HTTP request body")
+        headers["X-GA-Request-Version"] = "GA-REQUEST-V2"
+        headers["X-GA-Request-Signature"] = hmac.new(key, canonical_request_payload(method=method, path=path, body=request_body, ts=ts_s, nonce=nonce_s).encode("utf-8"), hashlib.sha256).hexdigest()
     return headers
+
+
+def canonical_request_payload(*, method: str, path: str, body: bytes, ts: str, nonce: str) -> str:
+    """Bind v2 semantics to raw transport bytes, sharing the principal nonce.
+
+    Args:
+        method: Actual HTTP method.
+        path: Actual received HTTP path.
+        body: Original HTTP body bytes, never reserialized.
+        ts: Principal timestamp header.
+        nonce: Principal nonce header.
+    """
+    return "\n".join(["GA-REQUEST-V2", f"method={method.upper()}", f"path={path}", f"body_sha256={hashlib.sha256(body).hexdigest()}", f"ts={ts}", f"nonce={nonce}"])
 
 
 def _remember_nonce(nonce: str, *, ttl_s: float) -> None:
@@ -200,6 +239,7 @@ def assert_unionid_user_bind(*, unionid: str, user_id: str) -> None:
 
 def _verify_hmac_principal(
     request: Request,
+    *, request_schema_version: int = 1, request_body: bytes | None = None,
 ) -> tuple[str, str, str | None, str | None]:
     secret = principal_hmac_secret()
     if not secret:
@@ -249,6 +289,17 @@ def _verify_hmac_principal(
 
     method = (request.method or "POST").upper()
     path = request.url.path if request.url else "/"
+    request_version = request.headers.get("X-GA-Request-Version")
+    request_signature = request.headers.get("X-GA-Request-Signature") or ""
+    if request_schema_version == 2:
+        if request_version != "GA-REQUEST-V2" or request_body is None or re.fullmatch(r"[0-9a-f]{64}", request_signature) is None:
+            raise HTTPException(status_code=401, detail={"error": "request_signature_invalid"})
+        request_payload = canonical_request_payload(method=method, path=path, body=request_body, ts=ts, nonce=nonce)
+        body_expected = hmac.new(secret.encode("utf-8"), request_payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(body_expected, request_signature):
+            raise HTTPException(status_code=401, detail={"error": "request_signature_invalid"})
+    elif request_version is not None or request_signature:
+        raise HTTPException(status_code=401, detail={"error": "request_version_mismatch"})
     payload = canonical_principal_payload(
         user_id=hdr_uid,
         unionid=hdr_union,
@@ -258,6 +309,7 @@ def _verify_hmac_principal(
         nonce=nonce,
         method=method,
         path=path,
+        version="GA-PRINCIPAL-V2" if request_schema_version == 2 else _CANON_VERSION,
     )
     expected = hmac.new(
         secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
@@ -279,6 +331,8 @@ def resolve_session_principal(
     body_unionid: str | None = None,
     body_user_token: str | None = None,
     force_mode: str | None = None,
+    request_schema_version: int = 1,
+    request_body: bytes | None = None,
 ) -> SessionPrincipal:
     """Resolve caller identity.
 
@@ -306,7 +360,7 @@ def resolve_session_principal(
             source="body_stub",
         )
 
-    hdr_uid, hdr_union, hdr_tok, hdr_group = _verify_hmac_principal(request)
+    hdr_uid, hdr_union, hdr_tok, hdr_group = _verify_hmac_principal(request, request_schema_version=request_schema_version, request_body=request_body)
 
     if body_uid and body_uid != hdr_uid:
         raise HTTPException(

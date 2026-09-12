@@ -111,10 +111,18 @@ class SideEffectFence:
         payload: dict[str, Any],
         *,
         send: EmitFn,
+        include_attempt_metadata: bool = True,
     ) -> bool:
         """Emit callback only when fence still owns the lease.
 
         Terminal is marked delivered only when send() returns True.
+
+        Args:
+            event_type: Callback event name.
+            payload: Semantic callback payload.
+            send: Transport callable.
+            include_attempt_metadata: Defaults to legacy diagnostic enrichment;
+                false for strict venue greeting payloads. Lease checks remain.
         """
         if event_type in {"final", "error"} and self._terminal_delivered:
             return False
@@ -127,11 +135,9 @@ class SideEffectFence:
             )
             return False
         self.seq += 1
-        enriched = {
-            **payload,
-            "attempt_id": self.claim.attempt_id,
-            "lease_owner_digest": self.claim.lease_owner[:16],
-        }
+        enriched = dict(payload)
+        if include_attempt_metadata:
+            enriched.update({"attempt_id": self.claim.attempt_id, "lease_owner_digest": self.claim.lease_owner[:16]})
         try:
             ok = await send(event_type, enriched)
         except Exception:

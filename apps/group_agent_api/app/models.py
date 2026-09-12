@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from fastapi import HTTPException
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from apps.group_agent_api.app.venue_protocol import validate_v2_callback, validate_v2_request
 
 MembershipSignal = Literal["in_group", "not_in_group", "unknown"]
 MatchStatus = Literal[
@@ -364,7 +367,12 @@ class AsyncCallRequest(BaseModel):
     unionid: str | None = Field(None, max_length=128, description="Trusted session unionid")
     group_id: str = Field(..., min_length=1, max_length=128, description="Trusted group ID")
     conversation_id: str = Field("default", min_length=1, max_length=128, description="Micro owned conversation ID")
-    message: str = Field(..., min_length=1, max_length=8192, description="User message text")
+    message: str | None = Field(..., min_length=1, max_length=8192, description="User text; null only for a v2 venue event")
+    episode_id: str | None = None
+    input_kind: Literal["user_message", "venue_event"] | None = None
+    event: dict[str, Any] | None = None
+    venue_context: dict[str, Any] | None = None
+    context_snapshot: dict[str, Any] | None = None
     group_token: str | None = Field(None, max_length=1024, description="Group capability token")
     user_token: str | None = Field(None, max_length=1024, description="User bearer token")
     callback_url: str = Field(..., min_length=1, max_length=1024, description="Micro callback URL")
@@ -392,6 +400,24 @@ class AsyncCallRequest(BaseModel):
         None,
         description="Server-originated rollout protocol mode and version (REQ-XCUT-004)",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_input_protocol(cls, value: Any) -> Any:
+        """Gate strict v2 before legacy coercion; never downgrade an event."""
+        if not isinstance(value, dict):
+            return value
+        if value.get("request_schema_version") == 2:
+            if type(value["request_schema_version"]) is not int or type(value.get("queue_schema_version")) is not int or value.get("queue_schema_version") != 2:
+                raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "unsupported request/queue schema pair"})
+            return validate_v2_request(value)
+        if value.get("request_schema_version") not in (None, 1):
+            raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "unsupported request version"})
+        if any(value.get(key) is not None for key in ("episode_id", "input_kind", "event", "venue_context", "context_snapshot")):
+            raise ValueError("schema_invalid: typed input requires protocol v2")
+        if value.get("message") is None or not str(value.get("message", "")).strip():
+            raise ValueError("schema_invalid: user_message requires nonempty text")
+        return value
 
     @field_validator("metadata")
     @classmethod
@@ -427,11 +453,65 @@ CallbackEventType = Literal["progress", "chunk", "final", "error", "heartbeat"]
 class CallbackEnvelope(BaseModel):
     version: str = "GA-CALLBACK-V1"
     run_id: str
-    idempotency_key: str
+    idempotency_key: str | None = None
     seq: int
     event: CallbackEventType
     occurred_at: str
     user_id: str
     group_id: str
     conversation_id: str
+    episode_id: str | None = None
+    space_id: str | None = None
+    host_agent_id: str | None = None
+    memory_scope_id: str | None = None
+    input_kind: Literal["user_message", "venue_event"] | None = None
+    event_name: Literal["venue_entered"] | None = None
+    visit_id: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_callback_protocol(cls, value: Any) -> Any:
+        """Preserve old callbacks while rejecting v2 coercion/unknown fields."""
+        if isinstance(value, dict) and value.get("input_kind") is not None:
+            return validate_v2_callback(value)
+        if isinstance(value, dict) and "idempotency_key" not in value:
+            raise ValueError("legacy callback requires idempotency_key")
+        return value
+
+    @model_validator(mode="after")
+    def validate_venue_callback(self) -> CallbackEnvelope:
+        """Reject unsupported event output before signing or delivery."""
+        if self.input_kind is None:
+            return self
+        if not all((self.episode_id, self.space_id, self.host_agent_id, self.memory_scope_id)):
+            raise ValueError("binding_mismatch: missing v2 callback identity")
+        if self.space_id != "community_cafe" or self.memory_scope_id != "community_cafe_host" or self.host_agent_id not in {"community_barista", "community_bartender"}:
+            raise ValueError("binding_mismatch: unsupported venue identity")
+        if self.input_kind == "venue_event":
+            if self.event_name != "venue_entered" or not re.fullmatch(r"venue_[A-Za-z0-9_-]{1,96}", self.visit_id or ""):
+                raise ValueError("binding_mismatch: missing visit identity")
+            if self.event == "chunk":
+                raise ValueError("event_not_allowed")
+            if self.event == "progress" and self.payload != {"phase": "preparing_greeting"}:
+                raise ValueError("event_not_allowed")
+            if self.event == "final":
+                _GreetingPayload.model_validate(self.payload)
+                if not self.payload["reply"].strip():
+                    raise ValueError("greeting_schema_invalid: empty reply")
+        elif self.event_name is not None or self.visit_id is not None:
+            raise ValueError("binding_mismatch: user_message is not a visit")
+        return self
+
+
+class _SuggestedGreetingReply(BaseModel):
+    model_config = {"extra": "forbid", "strict": True}
+    label: str = Field(min_length=1, max_length=40)
+    reply: str = Field(min_length=1, max_length=200)
+
+
+class _GreetingPayload(BaseModel):
+    model_config = {"extra": "forbid", "strict": True}
+    result_kind: Literal["greeting"]
+    reply: str = Field(min_length=1, max_length=1000)
+    suggested_replies: list[_SuggestedGreetingReply] = Field(default_factory=list, max_length=3)

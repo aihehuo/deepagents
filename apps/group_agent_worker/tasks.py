@@ -19,6 +19,7 @@ from apps.group_agent_api.agent_factory.integrations.config import async_run_tim
 from apps.group_agent_api.agent_factory.integrations.membership_client import MembershipResult
 from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
 from apps.group_agent_api.app.async_manager import VenueEventExecutorUnavailable, execute_async_run_core
+from apps.group_agent_api.agent_factory.venue_greeting import VenueGreetingError
 from apps.group_agent_api.app.models import AsyncCallRequest, CallbackEnvelope
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.utils import thread_id
@@ -224,6 +225,8 @@ async def _run_attempt(
         error_code = error_code or "provider_timeout"
     except VenueEventExecutorUnavailable:
         error_code = "venue_event_executor_unavailable"
+    except VenueGreetingError as exc:
+        error_code = exc.code
     except Exception as exc:  # noqa: BLE001
         if not error_code:
             if "mouth_ingress_rejected" in str(exc):

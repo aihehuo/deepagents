@@ -15,6 +15,8 @@ CTX_SYSTEM_SUGGESTED_REPLIES = "ctx.system.suggested_replies"
 CTX_TURN_KNOWN_PROFILE = "ctx.turn.known_profile"
 CTX_TURN_PRIOR_RECOMMENDATION = "ctx.turn.prior_recommendation"
 CTX_TURN_REFERRAL = "ctx.turn.referral"
+CTX_VENUE_DAY = "ctx.turn.venue_day"
+CTX_VENUE_NIGHT = "ctx.turn.venue_night"
 
 # Force-save HumanMessage fragment (not part of system_prompt).
 CTX_FORCE_SAVE_PROMPT = "ctx.force_save_prompt"
@@ -33,6 +35,8 @@ TURN_FRAGMENT_IDS: tuple[str, ...] = (
     CTX_TURN_KNOWN_PROFILE,
     CTX_TURN_PRIOR_RECOMMENDATION,
     CTX_TURN_REFERRAL,
+    CTX_VENUE_DAY,
+    CTX_VENUE_NIGHT,
 )
 
 ALL_CONTEXT_IDS: tuple[str, ...] = (

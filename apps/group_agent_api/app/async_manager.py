@@ -727,22 +727,29 @@ async def execute_async_run_core(
         side_effect_gate: Optional callable ``(action: str) -> None`` that raises
             when the attempt lost lease ownership (worker fence).
     """
-    if req.input_kind == "venue_event":
-        # DA-002 will provide an isolated read-only executor. Never synthesize
-        # a HumanMessage or invoke checkpoint/profile/matching tools here.
+    from apps.group_agent_api.agent_factory.host_context import HostContext, active_host_context
+    from apps.group_agent_api.agent_factory.venue_greeting import execute_venue_greeting
+
+    if req.input_kind == "venue_event" and state.greeting_model is None:
         raise VenueEventExecutorUnavailable("venue_event_executor_unavailable")
-    await _execute_core_agent(
-        req=req,
-        session=session,
-        state=state,
-        tid=tid,
-        emit_callback=emit_callback,
-        side_effect_gate=side_effect_gate,
-    )
+    host = HostContext.from_request(req, principal=session.principal, base_dir=state.base_dir) if req.request_schema_version == 2 else None
+    with active_host_context(host):
+        if req.input_kind == "venue_event":
+            await execute_venue_greeting(host=host, model=state.greeting_model, emit_callback=emit_callback, side_effect_gate=side_effect_gate)
+            return
+        await _execute_core_agent(req=req, session=session, state=state, tid=tid, emit_callback=emit_callback, side_effect_gate=side_effect_gate)
 
 
 class VenueEventExecutorUnavailable(RuntimeError):
     """Permanent explicit hold until the DA-002 greeting executor is ready."""
+
+
+def _execution_metadata(req: AsyncCallRequest) -> dict[str, Any]:
+    """Derive trusted episode scope without changing the signed request body."""
+    metadata = dict(req.metadata or {})
+    if req.request_schema_version == 2:
+        metadata["episode_id"] = req.episode_id
+    return metadata
 
 
 async def _execute_core_agent(
@@ -762,6 +769,7 @@ async def _execute_core_agent(
     run_protocol_mode, run_rollout_version = _trusted_rollout_context(req)
     tier = session.membership.tier
     user_token = session.principal.user_token
+    runtime_metadata = _execution_metadata(req)
     admin_debug = is_admin_debug_source(req.metadata or {})
     agent = (
         state.admin_agent
@@ -811,7 +819,7 @@ async def _execute_core_agent(
                     group_id=group_id,
                     base_dir=str(state.base_dir),
                     membership=tier.value,
-                    metadata=req.metadata or {},
+                    metadata=runtime_metadata,
                     run_id=req.run_id,
                     conversation_id=req.conversation_id,
                     run_match=req.run_match,
@@ -828,7 +836,7 @@ async def _execute_core_agent(
 
                     turn_messages.append(SystemMessage(content=ADMIN_TURN_REMINDER))
                 else:
-                    known = _known_profile_system_message(
+                    known = None if req.request_schema_version == 2 else _known_profile_system_message(
                         base_dir=state.base_dir,
                         user_id=user_id,
                         group_id=group_id,
@@ -962,7 +970,7 @@ async def _execute_core_agent(
                             group_id=group_id,
                             messages=messages,
                             msg_count_before=msg_count_before,
-                            metadata=req.metadata or {},
+                            metadata=runtime_metadata,
                         )
                         if usable:
                             profile_ok = True
@@ -1007,7 +1015,7 @@ async def _execute_core_agent(
                                     group_id=group_id,
                                     messages=messages,
                                     msg_count_before=msg_count_before,
-                                    metadata=req.metadata or {},
+                                    metadata=runtime_metadata,
                                 )
                                 if usable:
                                     profile_ok = True
@@ -1049,7 +1057,7 @@ async def _execute_core_agent(
                                         group_id=group_id,
                                         messages=messages,
                                         msg_count_before=msg_count_before,
-                                        metadata=req.metadata or {},
+                                        metadata=runtime_metadata,
                                     )
                                     if usable:
                                         profile_ok = True
@@ -1475,7 +1483,7 @@ async def _execute_core_agent(
     from apps.group_agent_api.agent_factory.debug_trace import write_turn_trace
     from apps.group_agent_api.agent_factory.profile_quality import episode_key_from_metadata
 
-    meta = req.metadata or {}
+    meta = runtime_metadata
     trace_path = write_turn_trace(
         base_dir=state.base_dir,
         run_id=req.run_id,

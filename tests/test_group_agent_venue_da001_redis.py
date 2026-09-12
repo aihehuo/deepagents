@@ -47,6 +47,7 @@ def test_v2_worker_hold_does_not_lock_or_fence_normal_chat(env_cfg: Any, monkeyp
     normal_epoch = store._r.get(epoch_key)
     assert store.epoch_key_for_record(event_record, conversation_id=lease_scope(event)) != epoch_key
     state = MagicMock()
+    state.greeting_model = None
     runtime = {"store": store, "config": config, "state": state, "backpressure": bp}
     monkeypatch.setattr(tasks, "get_worker_runtime", lambda: runtime)
     callback = AsyncMock(return_value=True)

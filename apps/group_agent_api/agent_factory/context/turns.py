@@ -22,6 +22,7 @@ __all__ = [
     "known_profile_system_message",
     "referral_context_system_message",
     "prior_recommendation_system_content",
+    "venue_host_system_content",
 ]
 
 
@@ -63,6 +64,19 @@ def known_profile_system_message(
             "3. 不要假装没有画像；缺的维度再追问。"
         )
     )
+
+
+def venue_host_system_content(host: Any, *, greeting: bool = False, existing_messages: list[Any] | None = None) -> str:
+    """Build ephemeral host context; callers must not persist this as a turn.
+
+    Args:
+        host: Authorized host binding.
+        greeting: Read-only greeting task versus ordinary conversation.
+        existing_messages: Checkpoint messages for context deduplication.
+    """
+    from apps.group_agent_api.agent_factory.context.venue import venue_system_content
+
+    return venue_system_content(host, greeting=greeting, existing_messages=existing_messages)
 
 
 def referral_context_system_message(

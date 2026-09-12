@@ -36,6 +36,7 @@ def get_worker_runtime() -> dict[str, Any]:
 
     polish_model = None
     quality_model = None
+    greeting_model = None
     try:
         from apps.group_agent_api.agent_factory.integrations.config import llm_polish_enabled
         from apps.group_agent_api.agent_factory.model_builder import create_model
@@ -43,6 +44,7 @@ def get_worker_runtime() -> dict[str, Any]:
         if llm_polish_enabled():
             polish_model = create_model(log_prefix="[GroupAgentWorkerPolish]")
         quality_model = polish_model or create_model(log_prefix="[GroupAgentWorkerQuality]")
+        greeting_model = create_model(log_prefix="[GroupAgentWorkerVenueGreeting]")
     except Exception as exc:  # noqa: BLE001
         _logger.warning("worker polish/quality model unavailable error_type=%s", type(exc).__name__)
 
@@ -56,6 +58,7 @@ def get_worker_runtime() -> dict[str, Any]:
         durable_config=cfg,
         durable_store=store,
         backpressure=BackpressureController(store._r, cfg),  # noqa: SLF001
+        greeting_model=greeting_model,
     )
     _RUNTIME.update(
         {

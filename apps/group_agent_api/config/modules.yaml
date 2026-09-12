@@ -18,6 +18,9 @@ context:
   ctx.turn.known_profile: true
   ctx.turn.prior_recommendation: true
   ctx.turn.referral: true
+  # Per-run tone only; immutable privacy/policy never depends on these toggles.
+  ctx.turn.venue_day: true
+  ctx.turn.venue_night: true
   ctx.force_save_prompt: true
 
 checks:

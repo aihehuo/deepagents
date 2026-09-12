@@ -266,9 +266,11 @@ def test_v2_callback_fixture_and_constraints() -> None:
     assert callback_bindings(req)["visit_id"] == req.event["visit_id"]
 
 
-async def test_event_executor_hold_never_calls_agent_or_emits_human_turn() -> None:
+async def test_event_executor_hold_never_calls_agent_or_emits_human_turn(tmp_path: Path) -> None:
     req = AsyncCallRequest.model_validate(REQUESTS[0]["request"])
     state = MagicMock()
+    state.base_dir = tmp_path
+    state.greeting_model = None
     emit = AsyncMock()
     with pytest.raises(VenueEventExecutorUnavailable):
         await execute_async_run_core(req=req, session=_session(req), state=state, tid="fixture_tid", emit_callback=emit)
@@ -278,14 +280,16 @@ async def test_event_executor_hold_never_calls_agent_or_emits_human_turn() -> No
     assert classify_error("venue_event_executor_unavailable").value == "permanent"
 
 
-async def test_v2_ordinary_dispatches_to_original_checkpoint_core(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_v2_ordinary_dispatches_to_original_checkpoint_core(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from apps.group_agent_api.app import async_manager
 
     req = AsyncCallRequest.model_validate(REQUESTS[2]["request"])
     core = AsyncMock()
     monkeypatch.setattr(async_manager, "_execute_core_agent", core)
     tid = thread_id(user_id=req.user_id, group_id=req.group_id, conversation_id=req.conversation_id, episode_id=req.episode_id)
-    await execute_async_run_core(req=req, session=_session(req), state=MagicMock(), tid=tid, emit_callback=AsyncMock())
+    state = MagicMock()
+    state.base_dir = tmp_path
+    await execute_async_run_core(req=req, session=_session(req), state=state, tid=tid, emit_callback=AsyncMock())
     core.assert_awaited_once()
     assert core.await_args.kwargs["req"] is req
     assert core.await_args.kwargs["tid"].endswith(req.episode_id)

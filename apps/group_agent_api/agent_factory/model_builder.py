@@ -69,6 +69,14 @@ def _build_stub_model() -> Any:
 
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
             metadata = getattr(run_manager, "metadata", None) or {}
+            if metadata.get("input_kind") == "venue_event":
+                import json
+
+                mode = str(metadata.get("venue_mode") or "day")
+                opener = "回来了，" if metadata.get("venue_has_history") else "欢迎，"
+                drink = "咖啡" if mode == "day" else "虚拟鸡尾酒"
+                reply = opener + f"想先选一杯{drink}，还是聊聊正在酝酿的创业想法？"
+                return ChatResult(generations=[ChatGeneration(message=AIMessage(content=json.dumps({"result_kind": "greeting", "reply": reply, "suggested_replies": []}, ensure_ascii=False)))])
             user_id = str(metadata.get("user_id") or "")
             group_id = str(metadata.get("group_id") or "")
             run_match_raw = str(metadata.get("run_match", "true")).strip().lower()

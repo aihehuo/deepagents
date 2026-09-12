@@ -22,6 +22,7 @@ _PERMANENT_CODES = frozenset(
         "callback_url_rejected",
         "mouth_ingress_rejected",
         "venue_event_executor_unavailable",
+        "greeting_schema_invalid",
     }
 )
 _POISON_CODES = frozenset(

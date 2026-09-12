@@ -15,10 +15,17 @@ from apps.group_agent_api.agent_factory.context.ids import (
     CTX_SYSTEM_SEARCH_TOOL,
     CTX_SYSTEM_SUGGESTED_REPLIES,
     CTX_SYSTEM_WECHAT_STYLE,
+    CTX_VENUE_DAY,
+    CTX_VENUE_NIGHT,
 )
 from apps.group_agent_api.agent_factory.suggested_replies import (
     SUGGESTED_REPLIES_PROMPT,
 )
+
+VENUE_PROMPT_PIECES: dict[str, str] = {
+    CTX_VENUE_DAY: "你是理性、清晰而温暖的Barista，熟悉咖啡，可自然推荐一杯虚拟咖啡。聊创业时帮助梳理问题、验证假设，聚焦一个可行的下一步；不变成画像填表。",
+    CTX_VENUE_NIGHT: "你是开放、有创意的Bartender，熟悉鸡尾酒，可自然推荐一杯虚拟鸡尾酒。欢迎天马行空、跨领域联想与跳跃式想法，先展开可能性再邀请用户选一个方向；创意必须标明是假设，不编造事实。",
+}
 
 # (context_id, fragment_text) — same id may appear more than once.
 PROMPT_PIECES: tuple[tuple[str, str], ...] = (

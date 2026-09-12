@@ -11,6 +11,7 @@ from typing import Iterable
 from apps.group_agent_api.agent_factory.context.fragments import (
     FORCE_SAVE_PROMPT_TEXT,
     PROMPT_PIECES,
+    VENUE_PROMPT_PIECES,
 )
 from apps.group_agent_api.agent_factory.context.ids import (
     ALL_CONTEXT_IDS,
@@ -28,6 +29,7 @@ __all__ = [
     "enabled_context_ids",
     "build_system_prompt",
     "force_save_prompt",
+    "build_venue_prompt",
     "FORCE_SAVE_PROMPT_TEXT",
 ]
 
@@ -126,3 +128,16 @@ def force_save_prompt(
     else:
         on = is_context_enabled(CTX_FORCE_SAVE_PROMPT, enabled_ids=enabled_ids)
     return FORCE_SAVE_PROMPT_TEXT if on else ""
+
+
+def build_venue_prompt(context_id: str, *, enabled_ids: Iterable[str] | None = None, module_enabled: bool | None = None) -> str:
+    """Assemble one optional venue tone without changing legacy base prompts.
+
+    Args:
+        context_id: Day or night venue fragment identity.
+        enabled_ids: Explicit test context switches.
+        module_enabled: Explicit test master switch.
+    """
+    if context_id not in VENUE_PROMPT_PIECES:
+        raise ValueError("unsupported venue context fragment")
+    return VENUE_PROMPT_PIECES[context_id] if is_context_enabled(context_id, enabled_ids=enabled_ids, module_enabled=module_enabled) else ""

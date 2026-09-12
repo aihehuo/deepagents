@@ -383,6 +383,7 @@ def create_agent(
     ckpt = checkpointer or DiskBackedInMemorySaver(file_path=ckpt_path)
     backend = FilesystemBackend(root_dir=str(runtime), virtual_mode=True)
     llm = model or create_model()
+    from apps.group_agent_api.agent_factory.context.venue import VenueHostMiddleware
 
     agent = create_deep_agent(
         model=llm,
@@ -390,6 +391,7 @@ def create_agent(
         system_prompt=member_system_prompt(),
         backend=backend,
         checkpointer=ckpt,
+        middleware=[VenueHostMiddleware()],
         # Slice 1: no subagents, no skills, no free-form memory middleware
     )
     admin_agent = create_deep_agent(

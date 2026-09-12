@@ -782,7 +782,7 @@ async def _execute_core_agent(
         from apps.group_agent_api.agent_factory.cafe_agent import create_cafe_agent
 
         if getattr(state, "cafe_agent", None) is None:
-            state.cafe_agent = create_cafe_agent(model=state.greeting_model, checkpointer=get_agent_checkpointer(state.agent))
+            state.cafe_agent = create_cafe_agent(model=state.greeting_model, checkpointer=get_agent_checkpointer(state.agent), quality_model=state.quality_model or state.polish_model)
         agent = state.cafe_agent
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
     reply = ""
@@ -885,7 +885,7 @@ async def _execute_core_agent(
                 try:
                     if cafe_host:
                         _gate("host_model")
-                    if streaming_enabled:
+                    if streaming_enabled and not cafe_host:
                         buffer = StreamChunkBuffer(emit_callback=emit_callback, min_interval_s=0.1)
                         tool_triggered_this_turn = False
                         async for chunk in agent.astream(
@@ -949,15 +949,15 @@ async def _execute_core_agent(
                     len(messages or []),
                     streaming_enabled,
                 )
-                reply = _extract_reply(messages, msg_count_before)
+                # Host middleware already produced the complete validated
+                # message. Legacy prefix-peeling would diverge from its saver.
+                reply = str(messages[-1].content) if cafe_host else _extract_reply(messages, msg_count_before)
 
                 # chk.action_claim (YAML): unauthorized group-send / @ / admin claims.
                 from apps.group_agent_api.agent_factory.checks.action_claim import (
                     apply_action_claim_guard,
                 )
-                guarded_dialogue_text, action_claim_blocked = apply_action_claim_guard(
-                    reply
-                )
+                guarded_dialogue_text, action_claim_blocked = (reply, False) if cafe_host else apply_action_claim_guard(reply)
                 if action_claim_blocked:
                     reply = guarded_dialogue_text
                     UC34Observer.warn(
@@ -1128,7 +1128,12 @@ async def _execute_core_agent(
             "我没有覆盖当前权威画像，也没有继续匹配或生成邀请。"
         )
 
-    reply, suggested_replies = extract_suggested_replies(reply)
+    if cafe_host:
+        latest = messages[-1].additional_kwargs
+        suggested_replies = latest.get("cafe_suggested_replies", [])
+        host_violations = latest.get("cafe_guard_violations", [])
+    else:
+        reply, suggested_replies = extract_suggested_replies(reply)
 
     revisit_hint = None
     if not cafe_host:
@@ -1165,14 +1170,18 @@ async def _execute_core_agent(
         match_reason = "model_did_not_search"
     _logger.info("Core match debug run_id=%s tier=%s profile_ok=%s match_status=%s candidates_count=%d", req.run_id, tier.value, profile_ok, match_status, len(candidates))
 
-    guarded = enforce_capability_guard(
+    from apps.group_agent_api.agent_factory.guard import GuardResult
+
+    # Café has no candidate/action surface. Its independent output middleware
+    # already enforces text safety before checkpoint, regardless of YAML tier.
+    guarded = GuardResult(ok=not host_violations, tier=tier, reply=reply, violations=host_violations, blocked=bool(host_violations)) if cafe_host else enforce_capability_guard(
         tier=tier,
         reply=reply,
         candidates=candidates,
         caller_group_id=group_id,
         user_id=user_id,
     )
-    if guarded.blocked and not unlocks_network(tier):
+    if not cafe_host and guarded.blocked and not unlocks_network(tier):
         match_status = "skipped"
         match_reason = f"capability_{tier.value}_guard_blocked"
     elif match_status == "matched" and not guarded.candidates:
@@ -1237,7 +1246,7 @@ async def _execute_core_agent(
 
     final_profile = load_profile(state.base_dir, user_id, group_id) if profile_ok else None
     saved_this_turn = False if cafe_host else _profile_save_succeeded_this_turn(messages, msg_count_before)
-    final_guarded = finalize_and_guard_user_visible_reply(
+    final_guarded = guarded if cafe_host else finalize_and_guard_user_visible_reply(
         tier=tier,
         caller_group_id=group_id,
         user_id=user_id,
@@ -1340,7 +1349,7 @@ async def _execute_core_agent(
             determined_reply_mode = ReplyMode.error
 
     visible_reply = final_guarded.reply
-    if reply_grounding_enabled_for_user(user_id) and determined_reply_mode != ReplyMode.error:
+    if not cafe_host and reply_grounding_enabled_for_user(user_id) and determined_reply_mode != ReplyMode.error:
         from apps.group_agent_api.agent_factory.checks.reply_grounding import (
             apply_reply_grounding_gate,
             default_repair_fn,
@@ -1535,11 +1544,24 @@ async def _execute_core_agent(
     )
 
     # BSD-01 P1/P2: bb.brain.repair — first final + at most one same-seq re-emit.
-    await emit_final_with_mouth_repair(
-        emit_callback=emit_callback,
-        final_payload=final_payload,
-        model=state.quality_model or state.polish_model,
-        run_id=req.run_id,
-        logger=_logger,
-    )
-    end_decision_trace(_trace_token)
+    try:
+        if cafe_host:
+            # Never route host dialogue through candidate-only mouth rewrite.
+            # A rejected final fails, not an unrelated no-match draft.
+            if streaming_enabled:
+                buffer = StreamChunkBuffer(emit_callback=emit_callback, min_interval_s=0.1)
+                await buffer.feed_token(visible_reply)
+                await buffer.flush()
+            final_ok = await emit_callback("final", final_payload)
+            if final_ok is False:
+                raise RuntimeError("final_callback_failed")
+        else:
+            await emit_final_with_mouth_repair(
+                emit_callback=emit_callback,
+                final_payload=final_payload,
+                model=state.quality_model or state.polish_model,
+                run_id=req.run_id,
+                logger=_logger,
+            )
+    finally:
+        end_decision_trace(_trace_token)

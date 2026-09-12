@@ -43,6 +43,11 @@ def validate_greeting_reply(payload: dict[str, Any], *, host: HostContext) -> di
         host: Authorized facts and previous-visit context.
     """
     parsed = _GreetingPayload.model_validate(payload).model_dump()
+    if host.is_cafe_host:
+        from apps.group_agent_api.agent_factory.cafe_output import extract_host_suggestions
+
+        options = extract_host_suggestions("<suggested_replies>" + json.dumps(parsed["suggested_replies"], ensure_ascii=False) + "</suggested_replies>").suggestions
+        parsed["suggested_replies"] = [{"label": item["label"], "reply": item["reply"]} for item in options]
     if not parsed["reply"].strip():
         raise ValueError("greeting_schema_invalid")
     facts = host.quoted_data(greeting=True)

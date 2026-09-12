@@ -10,6 +10,7 @@ from langchain_core.messages import SystemMessage
 from apps.group_agent_api.agent_factory.host_context import HostContext, current_host_context
 from apps.group_agent_api.agent_factory.context.ids import CTX_VENUE_DAY, CTX_VENUE_NIGHT
 from apps.group_agent_api.agent_factory.context.module import build_venue_prompt
+from apps.group_agent_api.agent_factory.context.host_prompts import HOST_CHAT_TASK, HOST_DAY, HOST_GREETING_TASK, HOST_IDENTITY, HOST_INTERACTION, HOST_NIGHT, HOST_OUTPUT, HOST_SAFETY
 
 VENUE_POLICY = """你在爱合伙的日咖夜酒创业小馆接待当前访客。你不是办公室主人的代理。
 安全/事实/隐私规则不可关闭：只使用当前访客在本空间已授权的资料和历史；不读取其他客人或主人的私聊。
@@ -29,6 +30,11 @@ def venue_system_content(host: HostContext, *, greeting: bool, existing_messages
         greeting: Whether this is the read-only visit task.
         existing_messages: Ordinary checkpoint messages used only for deduplication.
     """
+    if host.is_cafe_host:
+        parts = [HOST_SAFETY, HOST_IDENTITY, HOST_DAY if host.effective_mode == "day" else HOST_NIGHT, HOST_INTERACTION,
+                 "<venue_data>" + host.quoted_data(greeting=greeting, existing_messages=existing_messages) + "</venue_data>"]
+        parts.append(HOST_GREETING_TASK if greeting else HOST_CHAT_TASK)
+        return "\n".join([*parts, HOST_OUTPUT])
     cid = CTX_VENUE_DAY if host.effective_mode == "day" else CTX_VENUE_NIGHT
     tone = build_venue_prompt(cid)
     identity = "当前接待者是日间Barista。" if host.effective_mode == "day" else "当前接待者是夜间Bartender。"
@@ -47,6 +53,13 @@ class VenueHostMiddleware(AgentMiddleware):
         host = current_host_context()
         if host is None:
             return request
+        if host.is_cafe_host:
+            # All old system/tool instructions are excluded from this model
+            # input only. Durable history and shared agent objects are untouched.
+            # Execution/checkpoint tool isolation is separately owned by DA-002.
+            messages = [item for item in request.messages if getattr(item, "type", "") in {"human", "ai"} and not getattr(item, "tool_calls", None)]
+            content = venue_system_content(host, greeting=False, existing_messages=messages)
+            return request.override(system_message=SystemMessage(content=content, name="venue_host"), messages=messages)
         # Remove only old venue-labelled system fragments. The immutable base
         # and existing search/authorization system context remain unchanged.
         messages = [item for item in request.messages if not (getattr(item, "type", "") == "system" and getattr(item, "name", None) == "venue_host")]

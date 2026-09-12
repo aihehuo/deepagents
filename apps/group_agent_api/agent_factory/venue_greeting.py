@@ -70,7 +70,10 @@ async def execute_venue_greeting(*, host: HostContext, model: Any, emit_callback
         emit_callback: Existing lease-fenced callback adapter.
         side_effect_gate: Attempt-ownership gate before model/callback work.
     """
-    messages = [SystemMessage(content=venue_host_system_content(host, greeting=True) + "\n" + GREETING_TASK)]
+    content = venue_host_system_content(host, greeting=True)
+    if not host.is_cafe_host:
+        content += "\n" + GREETING_TASK
+    messages = [SystemMessage(content=content)]
     config = {"metadata": {"input_kind": "venue_event", "venue_mode": host.effective_mode, "venue_has_history": bool(host.snapshot["recent_messages"] or host.snapshot["previous_greeting"] or host.snapshot["previous_visit_at"])}}
     error = "greeting_schema_invalid"
     for attempt in range(2):

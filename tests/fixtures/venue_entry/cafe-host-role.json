@@ -1,0 +1,155 @@
+{
+  "fixture_version": "cafe-host-role-v1",
+  "synthetic_only": true,
+  "policy_vectors": [
+    {
+      "id": "old_greeting",
+      "base": "v2_first_visit",
+      "set": {},
+      "expected": "legacy_venue",
+      "expected_sha256": "70accc0c6f4649cfb174c1abc89501dc6bf30be1a1b829c2059d1ba23b230818"
+    },
+    {
+      "id": "old_text",
+      "base": "v2_space_text",
+      "set": {},
+      "expected": "legacy_venue",
+      "expected_sha256": "7e9d8219d8bcbfa37be732047d1ba26340a107a0c4e60c6bea8709cdf8aae8f9"
+    },
+    {
+      "id": "host_day_greeting",
+      "base": "v2_first_visit",
+      "set": {
+        "venue_context.host_config_version": 2,
+        "venue_context.context_policy_version": 2
+      },
+      "expected": "cafe_host",
+      "expected_sha256": "4838ee66320028cf1853b6b88d51c407ff921efd678939ac31ce842706f857ce"
+    },
+    {
+      "id": "host_night_greeting",
+      "base": "v2_revisit_night",
+      "set": {
+        "venue_context.host_config_version": 2,
+        "venue_context.context_policy_version": 2
+      },
+      "expected": "cafe_host",
+      "expected_sha256": "3887d7526a0b383fdd1ae594a0a48052f78051bb61ced52fb46971672c53f0b9"
+    },
+    {
+      "id": "host_text",
+      "base": "v2_space_text",
+      "set": {
+        "venue_context.host_config_version": 2,
+        "venue_context.context_policy_version": 2,
+        "run_match": false,
+        "run_invite": false,
+        "willing_to_at": false
+      },
+      "expected": "cafe_host",
+      "expected_sha256": "65f2ad3401651e446f9cea2cf97041abbcfac917ae4556b684af9ba4ad74b397"
+    },
+    {
+      "id": "mixed_versions",
+      "base": "v2_first_visit",
+      "set": {
+        "venue_context.host_config_version": 2
+      },
+      "expected": "schema_invalid"
+    },
+    {
+      "id": "unknown_policy",
+      "base": "v2_first_visit",
+      "set": {
+        "venue_context.host_config_version": 3,
+        "venue_context.context_policy_version": 3
+      },
+      "expected": "schema_invalid"
+    },
+    {
+      "id": "string_version",
+      "base": "v2_first_visit",
+      "set": {
+        "venue_context.host_config_version": "2",
+        "venue_context.context_policy_version": "2"
+      },
+      "expected": "schema_invalid"
+    },
+    {
+      "id": "matching_override",
+      "base": "v2_space_text",
+      "set": {
+        "venue_context.host_config_version": 2,
+        "venue_context.context_policy_version": 2,
+        "run_match": true,
+        "run_invite": false,
+        "willing_to_at": false
+      },
+      "expected": "schema_invalid"
+    },
+    {
+      "id": "inviting_override",
+      "base": "v2_first_visit",
+      "set": {
+        "venue_context.host_config_version": 2,
+        "venue_context.context_policy_version": 2,
+        "run_invite": true
+      },
+      "expected": "schema_invalid"
+    },
+    {
+      "id": "willing_override",
+      "base": "v2_first_visit",
+      "set": {
+        "venue_context.host_config_version": 2,
+        "venue_context.context_policy_version": 2,
+        "willing_to_at": true
+      },
+      "expected": "schema_invalid"
+    },
+    {
+      "id": "visitor_override",
+      "base": "v2_first_visit",
+      "set": {
+        "venue_context.host_config_version": 2,
+        "venue_context.context_policy_version": 2,
+        "venue_context.visitor_user_id": "202"
+      },
+      "expected": "binding_mismatch",
+      "expected_sha256": "26204cef59621308a4198a638dbb55e9e87713ec16a6d99a07dceaa4743d3b57"
+    },
+    {
+      "id": "admin_override",
+      "base": "v2_first_visit",
+      "set": {
+        "venue_context.host_config_version": 2,
+        "venue_context.context_policy_version": 2,
+        "metadata.admin_mode": true
+      },
+      "expected": "unsupported_bucket",
+      "expected_sha256": "f21c92e3b50622837e628934da0b3652da17b56af8d6d5c08e6a61fe45fdc4e0"
+    },
+    {
+      "id": "unknown_space",
+      "base": "v2_first_visit",
+      "set": {
+        "venue_context.host_config_version": 2,
+        "venue_context.context_policy_version": 2,
+        "venue_context.space_id": "office_101"
+      },
+      "expected": "space_not_available",
+      "expected_sha256": "aca4010155e4f9f0dea1dc002891c7286cad2ad93af395d035379e0838343df9"
+    },
+    {
+      "id": "untrusted_source_not_authority",
+      "base": "v2_first_visit",
+      "set": {
+        "venue_context.host_config_version": 2,
+        "venue_context.context_policy_version": 2,
+        "metadata.source": "group_agent_ui"
+      },
+      "expected": "cafe_host",
+      "expected_sha256": "799caf80ce7ea4e744526a100d24d92a49360b0ff3ad7329f7d863d61f9181e9"
+    }
+  ]
+}

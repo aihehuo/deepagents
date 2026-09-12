@@ -43,6 +43,13 @@ class HostContext:
     episode_id: str
     profile: dict[str, str]
     snapshot: dict[str, Any]
+    host_config_version: int = 1
+    context_policy_version: int = 1
+
+    @property
+    def is_cafe_host(self) -> bool:
+        """Select the new role only from the validated frozen version pair."""
+        return (self.host_config_version, self.context_policy_version) == (2, 2)
 
     @classmethod
     def from_request(cls, req: Any, *, principal: Any, base_dir: Path) -> HostContext:
@@ -75,7 +82,7 @@ class HostContext:
             message["text"] = safe_context_text(message["text"])
         if snapshot["previous_greeting"] is not None:
             snapshot["previous_greeting"]["text"] = safe_context_text(snapshot["previous_greeting"]["text"], limit=1000)
-        return cls(visitor_user_id=req.user_id, host_agent_id=venue["host_agent_id"], effective_mode=venue["effective_mode"], space_id=venue["space_id"], memory_scope_id=venue["memory_scope_id"], episode_id=req.episode_id, profile=values, snapshot=snapshot)
+        return cls(visitor_user_id=req.user_id, host_agent_id=venue["host_agent_id"], effective_mode=venue["effective_mode"], space_id=venue["space_id"], memory_scope_id=venue["memory_scope_id"], episode_id=req.episode_id, profile=values, snapshot=snapshot, host_config_version=venue["host_config_version"], context_policy_version=venue["context_policy_version"])
 
     def quoted_data(self, *, greeting: bool, existing_messages: list[Any] | None = None) -> str:
         """Render minimized evidence as JSON, never executable prompt fragments.

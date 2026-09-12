@@ -101,7 +101,13 @@ def validate_v2_request(value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("schema_invalid: empty user message")
         _equal(body["event"], None)
     venue = _object(body["venue_context"], set("space_id space_kind owner_user_id host_agent_id memory_scope_id host_config_version context_policy_version visitor_user_id timezone mode_override effective_mode".split()))
-    for key, expected in {"space_id": "community_cafe", "space_kind": "cafe_bar", "owner_user_id": None, "memory_scope_id": "community_cafe_host", "host_config_version": 1, "context_policy_version": 1, "visitor_user_id": body["user_id"]}.items():
+    versions = (venue["host_config_version"], venue["context_policy_version"])
+    if any(type(item) is not int for item in versions) or versions not in {(1, 1), (2, 2)}:
+        raise ValueError("schema_invalid: unsupported host policy versions")
+    if versions == (2, 2):
+        for key in ("run_match", "run_invite", "willing_to_at"):
+            _equal(body[key], False)
+    for key, expected in {"space_id": "community_cafe", "space_kind": "cafe_bar", "owner_user_id": None, "memory_scope_id": "community_cafe_host", "visitor_user_id": body["user_id"]}.items():
         _equal(venue[key], expected)
     _choice(venue["effective_mode"], {"day", "night"})
     _choice(venue["mode_override"], {"auto", "day", "night"})

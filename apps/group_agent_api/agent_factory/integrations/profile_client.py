@@ -104,6 +104,9 @@ def persist_group_profile(
     Raises:
         ProfileHttpError: If configuration, transport, or response validation fails.
     """
+    from apps.group_agent_api.agent_factory.host_policy import assert_host_action_allowed
+
+    assert_host_action_allowed("persist_group_profile")
     rid = (run_id or "").strip()
     if not rid:
         raise ProfileHttpError("missing_run_id")

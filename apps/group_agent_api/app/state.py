@@ -31,6 +31,7 @@ class AppState:
     durable_store: Any | None = None
     backpressure: Any | None = None
     greeting_model: Any | None = None  # bare, tool-free venue greeting model
+    cafe_agent: Any | None = None  # policy-2 graph, no legacy/business/builtin tools
 
     def try_start_agent_run(self, thread_id: str, owner: str) -> bool:
         """Atomically enforce global max active limit AND per-conversation lock."""

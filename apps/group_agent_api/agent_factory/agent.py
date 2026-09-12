@@ -34,7 +34,6 @@ from apps.group_agent_api.agent_factory.profile_schema import (
     DisclosureLevel,
     GroupProfile,
     ProfileField,
-    profile_from_flat,
 )
 from apps.group_agent_api.agent_factory.profile_store import save_profile
 from apps.group_agent_api.agent_factory.context import (
@@ -96,6 +95,9 @@ def save_group_profile(
             技术栈/长尾/「比如…」用 strength=soft（如 experience_tags）。
             例：field=city operator=in values=["上海"] strength=hard。
     """
+    from apps.group_agent_api.agent_factory.host_policy import assert_host_action_allowed
+
+    assert_host_action_allowed("save_group_profile")
     metadata = config.get("metadata") or {}
     user_id = str(metadata.get("user_id") or "").strip()
     group_id = str(metadata.get("group_id") or "").strip()
@@ -116,7 +118,6 @@ def save_group_profile(
             ClaimType,
             ConfidenceLevel,
             DisclosureLevelV2,
-            GroupProfileV2,
             MatchConstraintV1,
             ProfileClaimV2,
             ProfileEvidenceV2,

@@ -64,6 +64,9 @@ def run_match(
     HTTP mode POSTs ``pool`` to new_api (``all_reachable`` | ``agent_profiles``).
     Stub mode still ignores pool for local recall (no profile index in stub).
     """
+    from apps.group_agent_api.agent_factory.host_policy import assert_host_action_allowed
+
+    assert_host_action_allowed("run_match")
     if relax_level is not None or pool:
         _logger.info(
             "action=match_backend_relax relax_level=%s pool=%s query_len=%d",

@@ -124,6 +124,10 @@ def clear_active_fence(
 
 def assert_write_allowed(action: str) -> None:
     """Fail closed when durable worker requires a fence (FIX3)."""
+    from apps.group_agent_api.agent_factory.host_policy import assert_host_action_allowed
+
+    if action not in {"host_model", "host_checkpoint"}:
+        assert_host_action_allowed(action)
     fence = get_active_fence()
     if fence is None:
         if _REQUIRE.get():
@@ -134,6 +138,9 @@ def assert_write_allowed(action: str) -> None:
 
 def commit_profile_write_allowed(*, user_id: str, group_id: str) -> None:
     """Atomic profile fence commit — fail closed under durable require."""
+    from apps.group_agent_api.agent_factory.host_policy import assert_host_action_allowed
+
+    assert_host_action_allowed("profile_cas")
     fence = get_active_fence()
     if fence is None:
         if _REQUIRE.get():

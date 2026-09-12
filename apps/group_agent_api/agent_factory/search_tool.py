@@ -220,6 +220,9 @@ def search_candidates(
         constraints: 可选匹配约束（与 save_group_profile.match_constraints 同形）。
             字段值（如 city）必须为标准中文名称。省略时从本用户×群已落库画像自动加载。L1 会丢掉 soft、保留 hard。
     """
+    from apps.group_agent_api.agent_factory.host_policy import assert_host_action_allowed
+
+    assert_host_action_allowed("search_candidates")
     metadata = config.get("metadata") or {}
     user_id = str(metadata.get("user_id") or "").strip()
     group_id = str(metadata.get("group_id") or "").strip()

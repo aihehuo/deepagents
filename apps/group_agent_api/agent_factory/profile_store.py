@@ -65,6 +65,9 @@ def disk_profile_path(base_dir: Path, user_id: str, group_id: str) -> Path:
 
 def save_profile(base_dir: Path, profile: GroupProfile) -> Path:
     """Upsert structured profile JSON. Returns absolute disk path."""
+    from apps.group_agent_api.agent_factory.host_policy import assert_host_action_allowed
+
+    assert_host_action_allowed("save_profile")
     if not profile.is_complete():
         raise ProfileStoreError("profile incomplete: doing/need/offer required")
     # Ensure ids in payload match path keys

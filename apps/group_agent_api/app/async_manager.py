@@ -60,7 +60,6 @@ from apps.group_agent_api.agent_factory.debug_trace import (
     end_decision_trace,
     record_decision_point,
     start_decision_trace,
-    write_turn_trace,
 )
 from apps.group_agent_api.agent_factory.module_config import (
     reply_grounding_enabled_for_user,
@@ -771,11 +770,20 @@ async def _execute_core_agent(
     user_token = session.principal.user_token
     runtime_metadata = _execution_metadata(req)
     admin_debug = is_admin_debug_source(req.metadata or {})
+    from apps.group_agent_api.agent_factory.host_policy import is_readonly_host
+
+    cafe_host = is_readonly_host()
     agent = (
         state.admin_agent
         if admin_debug and getattr(state, "admin_agent", None) is not None
         else state.agent
     )
+    if cafe_host:
+        from apps.group_agent_api.agent_factory.cafe_agent import create_cafe_agent
+
+        if getattr(state, "cafe_agent", None) is None:
+            state.cafe_agent = create_cafe_agent(model=state.greeting_model, checkpointer=get_agent_checkpointer(state.agent))
+        agent = state.cafe_agent
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
     reply = ""
     profile_ok = False
@@ -788,7 +796,7 @@ async def _execute_core_agent(
     async with lock:
         try:
                 test_lvl = os.environ.get("GROUP_AGENT_TEST_LEVEL")
-                if test_lvl and load_profile(state.base_dir, user_id, group_id) is None:
+                if not cafe_host and test_lvl and load_profile(state.base_dir, user_id, group_id) is None:
                     try:
                         from apps.group_agent_api.fixtures.loader import load_fixture
                         from apps.group_agent_api.agent_factory.profile_schema import GroupProfile, ProfileField
@@ -823,8 +831,8 @@ async def _execute_core_agent(
                     run_id=req.run_id,
                     conversation_id=req.conversation_id,
                     run_match=req.run_match,
-                    group_token=session.group_token,
-                    user_token=user_token,
+                    group_token=None if cafe_host else session.group_token,
+                    user_token=None if cafe_host else user_token,
                 )
                 turn_messages: list[Any] = []
                 if admin_debug:
@@ -835,7 +843,7 @@ async def _execute_core_agent(
                     )
 
                     turn_messages.append(SystemMessage(content=ADMIN_TURN_REMINDER))
-                else:
+                elif not cafe_host:
                     known = None if req.request_schema_version == 2 else _known_profile_system_message(
                         base_dir=state.base_dir,
                         user_id=user_id,
@@ -875,6 +883,8 @@ async def _execute_core_agent(
                 )
                 _ainvoke_t0 = time.monotonic()
                 try:
+                    if cafe_host:
+                        _gate("host_model")
                     if streaming_enabled:
                         buffer = StreamChunkBuffer(emit_callback=emit_callback, min_interval_s=0.1)
                         tool_triggered_this_turn = False
@@ -957,6 +967,9 @@ async def _execute_core_agent(
                 if admin_debug:
                     profile_ok = False
                     profile_status = "admin_skip"
+                elif cafe_host:
+                    profile_ok = False
+                    profile_status = "host_read_only"
                 else:
                     assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
 
@@ -1084,16 +1097,22 @@ async def _execute_core_agent(
                         # Clarifying turn on a new episode: keep the first reply, skip match.
                         profile_status = "stale_episode"
 
+        except BaseException:
+            end_decision_trace(_trace_token)
+            raise
         finally:
             checkpointer = get_agent_checkpointer(agent)
             if checkpointer is not None and hasattr(checkpointer, "flush"):
                 checkpointer.flush()
 
     # Harvest this turn's search_candidates tool result (model-called; not orchestrator).
-    _gate("match")
+    if not cafe_host:
+        _gate("match")
     match_status = "skipped"
     candidates: list[dict[str, Any]] = []
-    if admin_debug:
+    if cafe_host:
+        match_reason = "host_read_only"
+    elif admin_debug:
         match_reason = "admin_ops_mode"
         profile_ok = False
     else:
@@ -1111,10 +1130,12 @@ async def _execute_core_agent(
 
     reply, suggested_replies = extract_suggested_replies(reply)
 
-    _, revisit_hint = parse_revisit_from_metadata(req.metadata or {})
-    from apps.group_agent_api.agent_factory.search_tool import extract_search_this_turn
+    revisit_hint = None
+    if not cafe_host:
+        _, revisit_hint = parse_revisit_from_metadata(req.metadata or {})
+    from apps.group_agent_api.agent_factory.search_tool import SearchTurnResult, extract_search_this_turn
 
-    search_turn = extract_search_this_turn(messages, msg_count_before)
+    search_turn = SearchTurnResult(reason="host_read_only") if cafe_host else extract_search_this_turn(messages, msg_count_before)
     quality_gaps: list[str] = []
     search_log: SearchLogEntry | None = None
     if search_turn.called:
@@ -1215,7 +1236,7 @@ async def _execute_core_agent(
         )
 
     final_profile = load_profile(state.base_dir, user_id, group_id) if profile_ok else None
-    saved_this_turn = _profile_save_succeeded_this_turn(messages, msg_count_before)
+    saved_this_turn = False if cafe_host else _profile_save_succeeded_this_turn(messages, msg_count_before)
     final_guarded = finalize_and_guard_user_visible_reply(
         tier=tier,
         caller_group_id=group_id,
@@ -1258,7 +1279,6 @@ async def _execute_core_agent(
     )
     from apps.group_agent_api.agent_factory.integrations.config import (
         grounded_final_enabled,
-        reply_grounding_enabled,
     )
     from apps.group_agent_api.agent_factory.integrations.profile_client import canonical_profile_digest
 
@@ -1476,7 +1496,7 @@ async def _execute_core_agent(
         final_payload["admin_ops_mode"] = True
 
 
-    ref_payload = _referral_payload_from_metadata(req.metadata)
+    ref_payload = None if cafe_host else _referral_payload_from_metadata(req.metadata)
     if ref_payload is not None:
         final_payload["referral"] = ref_payload
 

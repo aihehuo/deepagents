@@ -98,6 +98,9 @@ def generate_invite_with_optional_llm(
     _broken_first_draft: bool = False,
 ) -> InviteResult:
     """Facade: off → empty invite_text; on → existing scaffold (+ optional polish)."""
+    from apps.group_agent_api.agent_factory.host_policy import assert_host_action_allowed
+
+    assert_host_action_allowed("invite")
     if not invite_scaffold_enabled():
         return InviteResult(
             kind="undirected",

@@ -608,7 +608,7 @@ async def execute_async_run(
         env = CallbackEnvelope(
             version="GA-CALLBACK-V1",
             run_id=req.run_id,
-            **({"idempotency_key": req.idempotency_key} if req.request_schema_version != 2 else {}),
+            **({"idempotency_key": req.idempotency_key} if req.request_schema_version not in {2, 3} else {}),
             seq=seq,
             event=event_type,  # type: ignore[arg-type]
             occurred_at=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),

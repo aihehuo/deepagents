@@ -166,7 +166,7 @@ async def _run_attempt(
         env = CallbackEnvelope(
             version="GA-CALLBACK-V1",
             run_id=req.run_id,
-            **({"idempotency_key": req.idempotency_key} if req.request_schema_version != 2 else {}),
+            **({"idempotency_key": req.idempotency_key} if req.request_schema_version not in {2, 3} else {}),
             seq=fence.seq,
             event=event_type,  # type: ignore[arg-type]
             occurred_at=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
@@ -178,7 +178,7 @@ async def _run_attempt(
         )
         return await send_callback_event(
             callback_url=req.callback_url,
-            envelope_dict=env.model_dump(exclude={"idempotency_key"} if req.request_schema_version == 2 else ({"space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"} if req.request_schema_version == 3 else {"episode_id", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"})),
+            envelope_dict=env.model_dump(exclude={"idempotency_key"} if req.request_schema_version == 2 else ({"idempotency_key", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"} if req.request_schema_version == 3 else {"episode_id", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"})),
         )
 
     async def _emit(event_type: str, payload: dict[str, Any]) -> bool:

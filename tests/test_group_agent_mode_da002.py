@@ -137,6 +137,9 @@ def test_worker_output_binding_and_lease_fence(env_cfg: Any, tmp_path: Path, mon
     assert result["status"] == "succeeded"
     assert captured[0]["req"].model_dump() == req.model_dump()
     events = [call.kwargs["envelope_dict"] for call in callback.await_args_list]
+    allowed = {"version", "run_id", "user_id", "group_id", "conversation_id", "episode_id", "execution_binding", "seq", "event", "occurred_at", "payload"}
+    assert all(set(event) <= allowed for event in events)
+    assert all("idempotency_key" not in event for event in events)
     for event in events:
         assert event["execution_binding"] == execution_binding(req)
         assert event["episode_id"] == req.episode_id

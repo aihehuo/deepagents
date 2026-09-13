@@ -1,0 +1,261 @@
+{
+  "synthetic_only": true,
+  "test_key": "synthetic-mode-contract-test-key",
+  "timestamp": "1700000000",
+  "nonce": "synthetic-fixed-nonce-not-live",
+  "vectors": [
+    {
+      "name": "cafe_day",
+      "request": {
+        "request_schema_version": 3,
+        "queue_schema_version": 3,
+        "mode_contract_version": 1,
+        "execution_mode": "cafe_host",
+        "executor_policy_version": 1,
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "idempotency_key": "synthetic-mode-cafe_day",
+        "user_id": "101",
+        "unionid": "synthetic-union-101",
+        "group_id": "global",
+        "conversation_id": "ga_mode_cafe_101",
+        "episode_id": "ep_synthetic_cafe",
+        "profile_scope_id": "global",
+        "memory_scope_id": "community_cafe_mode_cafe",
+        "input_kind": "user_message",
+        "message": "最近想聊聊我的小项目。",
+        "event": null,
+        "venue_context": {
+          "space_id": "community_cafe",
+          "space_kind": "cafe_bar",
+          "owner_user_id": null,
+          "visitor_user_id": "101",
+          "host_agent_id": "community_barista",
+          "effective_mode": "day",
+          "timezone": "Asia/Shanghai",
+          "mode_override": "auto"
+        },
+        "context_snapshot": {
+          "episode_id": "ep_synthetic_cafe",
+          "user_turn_version": 0,
+          "recent_messages": [],
+          "previous_greeting": null,
+          "previous_visit_at": null
+        },
+        "metadata": {
+          "source": "ios_app",
+          "client_surface": "ios_app"
+        },
+        "rollout_context": {
+          "protocol_mode": "grounded_v2",
+          "rollout_version": "ga-v2-canary-v1"
+        },
+        "run_match": false,
+        "run_invite": false,
+        "willing_to_at": false,
+        "membership": "unknown",
+        "group_token": null,
+        "user_token": null,
+        "callback_url": "https://micro.synthetic.invalid/group_agent/callback",
+        "request_fingerprint": "ce1d53bed5d77a9ede17289692b3b9e6ea40d6e694b362b80f6978f7645549ef"
+      },
+      "expected": {
+        "fingerprint": "ce1d53bed5d77a9ede17289692b3b9e6ea40d6e694b362b80f6978f7645549ef",
+        "body_sha256": "f9f7d9352e9aa3f85305554daf98f21d00f1d8a6ab8e9271896c94dd0f4077fb",
+        "principal_hmac": "83a3af97a055f58e87c64cf010e9c62aaf7b50d2bc63f511e60b921ff4a8df91",
+        "body_hmac": "b0364a907c1369b74032221d9a919413d01c74675e8b61be566767c0783161a6",
+        "aad_sha256": "03a8bdc8cf22a5a774ab2a4bca0cfa9b15204df7299a39a2379b707ca7e39bcf"
+      }
+    },
+    {
+      "name": "cafe_night",
+      "request": {
+        "request_schema_version": 3,
+        "queue_schema_version": 3,
+        "mode_contract_version": 1,
+        "execution_mode": "cafe_host",
+        "executor_policy_version": 1,
+        "run_id": "00000000-0000-4000-8000-000000000002",
+        "idempotency_key": "synthetic-mode-cafe_night",
+        "user_id": "101",
+        "unionid": "synthetic-union-101",
+        "group_id": "global",
+        "conversation_id": "ga_mode_cafe_101",
+        "episode_id": "ep_synthetic_cafe",
+        "profile_scope_id": "global",
+        "memory_scope_id": "community_cafe_mode_cafe",
+        "input_kind": "user_message",
+        "message": "最近想聊聊我的小项目。",
+        "event": null,
+        "venue_context": {
+          "space_id": "community_cafe",
+          "space_kind": "cafe_bar",
+          "owner_user_id": null,
+          "visitor_user_id": "101",
+          "host_agent_id": "community_bartender",
+          "effective_mode": "night",
+          "timezone": "Asia/Shanghai",
+          "mode_override": "night"
+        },
+        "context_snapshot": {
+          "episode_id": "ep_synthetic_cafe",
+          "user_turn_version": 0,
+          "recent_messages": [],
+          "previous_greeting": null,
+          "previous_visit_at": null
+        },
+        "metadata": {
+          "source": "ios_app",
+          "client_surface": "ios_app"
+        },
+        "rollout_context": {
+          "protocol_mode": "grounded_v2",
+          "rollout_version": "ga-v2-canary-v1"
+        },
+        "run_match": false,
+        "run_invite": false,
+        "willing_to_at": false,
+        "membership": "unknown",
+        "group_token": null,
+        "user_token": null,
+        "callback_url": "https://micro.synthetic.invalid/group_agent/callback",
+        "request_fingerprint": "0aa0347a8c8eaf1e36fe39c8c1bd180af3e719e23b6939ec516bc228a655087e"
+      },
+      "expected": {
+        "fingerprint": "0aa0347a8c8eaf1e36fe39c8c1bd180af3e719e23b6939ec516bc228a655087e",
+        "body_sha256": "ab558ba1d32e5daf6cb5691395349e37b4a6cdba5a3be36d18128da799537706",
+        "principal_hmac": "83a3af97a055f58e87c64cf010e9c62aaf7b50d2bc63f511e60b921ff4a8df91",
+        "body_hmac": "e08dc611a2dd8dbd3fcee932e7abacae4eae262a6017eea18fd647a9163a24a5",
+        "aad_sha256": "253aa66ddd7ca7a94c010595ba720439ed04a425288ae5c7c9d72c08f69bbb62"
+      }
+    },
+    {
+      "name": "group_message",
+      "request": {
+        "request_schema_version": 3,
+        "queue_schema_version": 3,
+        "mode_contract_version": 1,
+        "execution_mode": "group_agent",
+        "executor_policy_version": 1,
+        "run_id": "00000000-0000-4000-8000-000000000003",
+        "idempotency_key": "synthetic-mode-group_message",
+        "user_id": "101",
+        "unionid": "synthetic-union-101",
+        "group_id": "global",
+        "conversation_id": "ga_mode_group_101",
+        "episode_id": "ep_synthetic_group",
+        "profile_scope_id": "global",
+        "memory_scope_id": "community_cafe_mode_group",
+        "input_kind": "user_message",
+        "message": "最近想聊聊我的小项目。",
+        "event": null,
+        "venue_context": {
+          "space_id": "community_cafe",
+          "space_kind": "cafe_bar",
+          "owner_user_id": null,
+          "visitor_user_id": "101",
+          "host_agent_id": "community_barista",
+          "effective_mode": "day",
+          "timezone": "Asia/Shanghai",
+          "mode_override": "auto"
+        },
+        "context_snapshot": {
+          "episode_id": "ep_synthetic_group",
+          "user_turn_version": 0,
+          "recent_messages": [],
+          "previous_greeting": null,
+          "previous_visit_at": null
+        },
+        "metadata": {
+          "source": "ios_app",
+          "client_surface": "ios_app"
+        },
+        "rollout_context": {
+          "protocol_mode": "grounded_v2",
+          "rollout_version": "ga-v2-canary-v1"
+        },
+        "run_match": true,
+        "run_invite": false,
+        "willing_to_at": false,
+        "membership": "unknown",
+        "group_token": null,
+        "user_token": null,
+        "callback_url": "https://micro.synthetic.invalid/group_agent/callback",
+        "request_fingerprint": "b129a1b10c0626d1723ec9271c7efc7324eecd64ce47092b184acebf8d2408f1"
+      },
+      "expected": {
+        "fingerprint": "b129a1b10c0626d1723ec9271c7efc7324eecd64ce47092b184acebf8d2408f1",
+        "body_sha256": "5b9f354c6f2f415149fe4ac8c01fab6046aa5d51bb7cec7f4249900605462975",
+        "principal_hmac": "83a3af97a055f58e87c64cf010e9c62aaf7b50d2bc63f511e60b921ff4a8df91",
+        "body_hmac": "6dd61ad9aa64a3401c6ac10835b4d1e61b19e4a6a89f00bc12f300a93083c3e0",
+        "aad_sha256": "d9c62e30aabe1c6d672971e56733880f91ee9655ff6116a46f5dd3bd49ec83a7"
+      }
+    },
+    {
+      "name": "cafe_entry",
+      "request": {
+        "request_schema_version": 3,
+        "queue_schema_version": 3,
+        "mode_contract_version": 1,
+        "execution_mode": "cafe_host",
+        "executor_policy_version": 1,
+        "run_id": "00000000-0000-4000-8000-000000000004",
+        "idempotency_key": "ga_mode_venue_4b535940f9b605b3dd939d06fd804fd03fbf664bebde749208a38fea93a51f5c",
+        "user_id": "101",
+        "unionid": "synthetic-union-101",
+        "group_id": "global",
+        "conversation_id": "ga_mode_cafe_101",
+        "episode_id": "ep_synthetic_cafe",
+        "profile_scope_id": "global",
+        "memory_scope_id": "community_cafe_mode_cafe",
+        "input_kind": "venue_event",
+        "message": "",
+        "event": {
+          "type": "venue_entered",
+          "visit_id": "00000000-0000-4000-8000-000000000099",
+          "occurred_at": "2023-11-14T22:13:20Z",
+          "expires_at": "2023-11-14T22:14:20Z"
+        },
+        "venue_context": {
+          "space_id": "community_cafe",
+          "space_kind": "cafe_bar",
+          "owner_user_id": null,
+          "visitor_user_id": "101",
+          "host_agent_id": "community_barista",
+          "effective_mode": "day",
+          "timezone": "Asia/Shanghai",
+          "mode_override": "auto"
+        },
+        "context_snapshot": {
+          "episode_id": "ep_synthetic_cafe",
+          "user_turn_version": 0,
+          "recent_messages": [],
+          "previous_greeting": null,
+          "previous_visit_at": null
+        },
+        "metadata": {
+          "source": "ios_app",
+          "client_surface": "ios_app"
+        },
+        "rollout_context": {
+          "protocol_mode": "grounded_v2",
+          "rollout_version": "ga-v2-canary-v1"
+        },
+        "run_match": false,
+        "run_invite": false,
+        "willing_to_at": false,
+        "membership": "unknown",
+        "group_token": null,
+        "user_token": null,
+        "callback_url": "https://micro.synthetic.invalid/group_agent/callback",
+        "request_fingerprint": "f970209caeb3d463cb1900d6885a96d303b8abd82faf516f24cbe4ea46cf9d30"
+      },
+      "expected": {
+        "fingerprint": "f970209caeb3d463cb1900d6885a96d303b8abd82faf516f24cbe4ea46cf9d30",
+        "body_sha256": "095673610a7f848cd56f91e51ca8c07787164330b26431ab428fd4c7a4d4167c",
+        "principal_hmac": "83a3af97a055f58e87c64cf010e9c62aaf7b50d2bc63f511e60b921ff4a8df91",
+        "body_hmac": "68916a08adac6325194d165628d2f198e06057f75dee7479f38aceb16117c2ab",
+        "aad_sha256": "cf19281aa77ebd46a51cb1aad0d9a9bcb04ccdb9eb0f8bda2b3161ba5f2f8b4c"
+      }
+    }
+  ]
+}

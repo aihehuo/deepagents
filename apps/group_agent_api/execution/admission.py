@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.venue_protocol import lease_scope, validate_v2_request
+from apps.group_agent_api.app.execution_modes import execution_binding, validate_v3_request
 from apps.group_agent_api.execution.backpressure import BackpressureController
 from apps.group_agent_api.execution.config import (
     DurableQueueConfig,
@@ -100,6 +101,11 @@ def validate_durable_request_fields(req: AsyncCallRequest) -> tuple[int, str]:
             validate_v2_request(req.model_dump())
         except ValueError:
             _error_response(400, "schema_invalid", "v2 request fingerprint or structure invalid")
+    if schema == 3:
+        try:
+            validate_v3_request(req.model_dump())
+        except ValueError:
+            _error_response(400, "schema_invalid", "invalid v3 frozen request")
     try:
         fp = validate_request_fingerprint(str(fingerprint))
     except ValueError:
@@ -123,7 +129,12 @@ def admit_durable_async_call(
     Idempotent hits are not blocked by admission quota.
     """
     schema, fingerprint = validate_durable_request_fields(req)
-    if schema == 2 and (req.user_id != session.principal.user_id or req.unionid != session.principal.unionid or req.group_id != session.group_id or (req.user_token or "").strip() != (session.principal.user_token or "").strip() or (req.group_token or "").strip() != (session.group_token or "").strip()):
+    if schema == 3:
+        from apps.group_agent_api.app.utils import thread_id as canonical_thread_id
+        expected_thread = canonical_thread_id(user_id=req.user_id, group_id=req.group_id, conversation_id=req.conversation_id, episode_id=req.episode_id, execution_mode=req.execution_mode)
+        if thread_id != expected_thread:
+            _error_response(400, "schema_invalid", "invalid frozen thread binding")
+    if schema in {2, 3} and (req.user_id != session.principal.user_id or req.unionid != session.principal.unionid or req.group_id != session.group_id or (req.user_token or "").strip() != (session.principal.user_token or "").strip() or (req.group_token or "").strip() != (session.group_token or "").strip()):
         _error_response(400, "binding_mismatch", "frozen request must match trusted session")
     provider = (os.environ.get("GROUP_AGENT_PROVIDER") or "default").strip() or "default"
 
@@ -135,6 +146,7 @@ def admit_durable_async_call(
             or existing.queue_schema_version != req.queue_schema_version
             or existing.request_fingerprint != fingerprint
             or existing.run_id != req.run_id
+            or (schema == 3 and (existing.mode_binding != {key: getattr(req, key) for key in ("user_id", "execution_mode", "conversation_id", "episode_id")} or existing.conversation_id != lease_scope(req)))
         ):
             _error_response(409, "idempotency_conflict", "idempotency or run binding conflict")
         if existing.status in {ExecutionStatus.ENQUEUE_FAILED, ExecutionStatus.ACCEPTED}:
@@ -185,6 +197,7 @@ def admit_durable_async_call(
             idempotency_key=req.idempotency_key,
             request_fingerprint=fingerprint,
             schema_version=schema,
+            mode_binding={key: getattr(req, key) for key in ("user_id", "execution_mode", "conversation_id", "episode_id")} if schema == 3 else None,
         )
         now = store.redis_time()
         record = ExecutionRecord(
@@ -202,6 +215,7 @@ def admit_durable_async_call(
             group_id_digest=digest_id(session.group_id),
             provider=provider,
             input_kind=req.input_kind,
+            mode_binding={key: getattr(req, key) for key in ("user_id", "execution_mode", "conversation_id", "episode_id")} if schema == 3 else None,
         )
         try:
             kind, loaded = store.create_or_get(record=record)
@@ -279,6 +293,7 @@ def _ack(req: AsyncCallRequest, thread_id: str, status: str) -> AsyncCallRespons
         idempotency_key=req.idempotency_key,
         execution_status=status,
         queue_schema_version=req.queue_schema_version,
+        execution_binding=execution_binding(req) if req.request_schema_version == 3 else None,
     )
 
 

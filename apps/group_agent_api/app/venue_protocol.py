@@ -200,6 +200,8 @@ def lease_scope(req: Any) -> str:
     Args:
         req: A validated async request.
     """
+    if req.request_schema_version == 3:
+        return f"ga_greeting::{req.run_id}" if req.input_kind == "venue_event" else f"ga::{req.user_id}::global::{req.execution_mode}::{req.conversation_id}::{req.episode_id}"
     return f"ga_greeting::{req.run_id}" if req.input_kind == "venue_event" else req.conversation_id
 
 
@@ -209,6 +211,9 @@ def callback_bindings(req: Any) -> dict[str, Any]:
     Args:
         req: A validated async request.
     """
+    if req.request_schema_version == 3:
+        from apps.group_agent_api.app.execution_modes import execution_binding
+        return {"episode_id": req.episode_id, "execution_binding": execution_binding(req)}
     if req.request_schema_version != 2:
         return {}
     venue = req.venue_context

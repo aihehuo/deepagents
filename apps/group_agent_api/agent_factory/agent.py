@@ -298,6 +298,7 @@ def save_group_profile(
                 run_id=run_id,
                 attempt_id=attempt_id or None,
                 fencing_token=fencing_token or None,
+                **({"execution_binding": metadata["execution_binding"]} if metadata.get("execution_binding") is not None else {}),
             )
         if remote_ack is None or remote_ack["status"] not in {"stale_ignored", "fence_rejected"}:
             if remote_ack is not None:

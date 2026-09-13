@@ -422,7 +422,7 @@ async def _attempt_deterministic_profile_save(
 
 def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession) -> str:
     """Construct complete canonical request fingerprint derived from TrustedSession & canonical callback URL."""
-    if req.request_schema_version == 2:
+    if req.request_schema_version in {2, 3}:
         if req.user_id != session.principal.user_id or req.unionid != session.principal.unionid or req.group_id != session.group_id or (req.user_token or "").strip() != (session.principal.user_token or "").strip() or (req.group_token or "").strip() != (session.group_token or "").strip():
             raise ValueError("binding_mismatch: request fingerprint requires trusted principal")
         return calculate_v2_fingerprint(req.model_dump())
@@ -731,7 +731,7 @@ async def execute_async_run_core(
 
     if req.input_kind == "venue_event" and state.greeting_model is None:
         raise VenueEventExecutorUnavailable("venue_event_executor_unavailable")
-    host = HostContext.from_request(req, principal=session.principal, base_dir=state.base_dir) if req.request_schema_version == 2 else None
+    host = HostContext.from_request(req, principal=session.principal, base_dir=state.base_dir) if req.request_schema_version == 2 or (req.request_schema_version == 3 and req.execution_mode == "cafe_host") else None
     with active_host_context(host):
         if req.input_kind == "venue_event":
             await execute_venue_greeting(host=host, model=state.greeting_model, emit_callback=emit_callback, side_effect_gate=side_effect_gate)
@@ -746,8 +746,11 @@ class VenueEventExecutorUnavailable(RuntimeError):
 def _execution_metadata(req: AsyncCallRequest) -> dict[str, Any]:
     """Derive trusted episode scope without changing the signed request body."""
     metadata = dict(req.metadata or {})
-    if req.request_schema_version == 2:
+    if req.request_schema_version in {2, 3}:
         metadata["episode_id"] = req.episode_id
+    if req.request_schema_version == 3:
+        from apps.group_agent_api.app.execution_modes import execution_binding
+        metadata["execution_binding"] = execution_binding(req)
     return metadata
 
 
@@ -769,7 +772,7 @@ async def _execute_core_agent(
     tier = session.membership.tier
     user_token = session.principal.user_token
     runtime_metadata = _execution_metadata(req)
-    admin_debug = is_admin_debug_source(req.metadata or {})
+    admin_debug = req.request_schema_version != 3 and is_admin_debug_source(req.metadata or {})
     from apps.group_agent_api.agent_factory.host_policy import is_readonly_host
 
     cafe_host = is_readonly_host()
@@ -1533,6 +1536,7 @@ async def _execute_core_agent(
             "prior_candidate_ids_count": len(meta.get("prior_candidate_ids") or []),
             "delivery_kind": delivery_kind,
             "invite_ok": invite_ok,
+            **({"execution_binding": runtime_metadata["execution_binding"], "execution_mode": req.execution_mode, "executor": "cafe_agent" if cafe_host else "member_agent"} if req.request_schema_version == 3 else {}),
         },
     )
     if trace_path:

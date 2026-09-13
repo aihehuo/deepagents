@@ -71,6 +71,11 @@ def _persist(host: HostContext, events: list[dict[str, Any]]) -> None:
                "run_id": fence.claim.run_id if fence else None,
                "attempt_id": fence.claim.attempt_id if fence else None,
                "events": events}
+    if host.execution_binding is not None:
+        payload["execution_binding"] = host.execution_binding
+        payload["execution_mode"] = host.execution_binding["execution_mode"]
+        payload["executor"] = "cafe_agent"
+        payload["run_id"] = host.execution_binding["run_id"]
     encoded = json.dumps(_redact(payload), ensure_ascii=False).encode("utf-8")
     if len(encoded) > 1024 * 1024:
         raise ValueError("audit exceeds size limit")

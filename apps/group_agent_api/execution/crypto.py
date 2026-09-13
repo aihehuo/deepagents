@@ -35,15 +35,33 @@ def build_aad(
     idempotency_key: str,
     request_fingerprint: str,
     schema_version: int,
+    mode_binding: Mapping[str, Any] | None = None,
 ) -> bytes:
-    """Authenticated additional data binding the ciphertext to Run identity."""
+    """Authenticated additional data binding the ciphertext to Run identity.
+
+    Args:
+        run_id: Immutable accepted run identifier.
+        idempotency_key: Original request's opaque deduplication key.
+        request_fingerprint: Original accepted body fingerprint.
+        schema_version: Frozen request version; old encodings stay unchanged.
+        mode_binding: Experimental v3-only identity/mode/conversation/episode.
+    """
     canon = {
         "run_id": run_id,
         "idempotency_key": idempotency_key,
         "request_fingerprint": request_fingerprint,
         "schema_version": int(schema_version),
     }
-    return json.dumps(canon, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if schema_version == 3:
+        fields = {"user_id", "execution_mode", "conversation_id", "episode_id"}
+        if mode_binding is None or set(mode_binding) != fields or any(type(mode_binding[name]) is not str or not mode_binding[name] for name in fields):
+            raise PayloadCryptoError("payload_binding_invalid")
+        if mode_binding["execution_mode"] not in {"cafe_host", "group_agent"}:
+            raise PayloadCryptoError("payload_binding_invalid")
+        canon.update(mode_binding)
+    elif mode_binding is not None:
+        raise PayloadCryptoError("payload_binding_invalid")
+    return json.dumps(canon, ensure_ascii=schema_version != 3, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def encrypt_envelope(
@@ -55,6 +73,7 @@ def encrypt_envelope(
     idempotency_key: str,
     request_fingerprint: str,
     schema_version: int,
+    mode_binding: Mapping[str, Any] | None = None,
 ) -> EncryptedPayload:
     """Encrypt a trusted request envelope with AES-256-GCM.
 
@@ -67,6 +86,7 @@ def encrypt_envelope(
         idempotency_key=idempotency_key,
         request_fingerprint=request_fingerprint,
         schema_version=schema_version,
+        mode_binding=mode_binding,
     )
     nonce = os.urandom(12)
     aesgcm = AESGCM(key)
@@ -92,6 +112,7 @@ def decrypt_envelope(
     idempotency_key: str,
     request_fingerprint: str,
     schema_version: int,
+    mode_binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Decrypt envelope; unknown version or auth failure → payload_decrypt_failed."""
     key = keys.get(payload.key_version)
@@ -110,6 +131,7 @@ def decrypt_envelope(
         idempotency_key=idempotency_key,
         request_fingerprint=request_fingerprint,
         schema_version=schema_version,
+        mode_binding=mode_binding,
     )
     aesgcm = AESGCM(key)
     try:
@@ -122,6 +144,10 @@ def decrypt_envelope(
         raise PayloadCryptoError("payload_decrypt_failed") from exc
     if not isinstance(data, dict):
         raise PayloadCryptoError("payload_decrypt_failed")
+    if schema_version == 3:
+        request = data.get("request")
+        if not isinstance(request, dict) or any(request.get(name) != value for name, value in {"run_id": run_id, "idempotency_key": idempotency_key, "request_fingerprint": request_fingerprint, "request_schema_version": schema_version, **dict(mode_binding or {})}.items()):
+            raise PayloadCryptoError("payload_decrypt_failed")
     return data
 
 

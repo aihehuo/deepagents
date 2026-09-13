@@ -86,6 +86,7 @@ def persist_group_profile(
     base_url: str | None = None,
     secret: str | None = None,
     timeout_s: float | None = None,
+    execution_binding: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist a profile through Micro's signed, run-bound upsert endpoint.
 
@@ -97,6 +98,7 @@ def persist_group_profile(
         base_url: Optional Micro origin override for tests.
         secret: Optional directional HMAC secret override for tests.
         timeout_s: Optional request timeout override.
+        execution_binding: Experimental v3-only frozen ordinary-member binding.
 
     Returns:
         Validated Micro acknowledgement.
@@ -130,6 +132,11 @@ def persist_group_profile(
         "group_id": profile.group_id,
         "profile": profile_dict,
     }
+    if execution_binding is not None:
+        fields = {"schema_version", "user_id", "execution_mode", "conversation_id", "episode_id", "run_id"}
+        if set(execution_binding) != fields or type(execution_binding.get("schema_version")) is not int or execution_binding["schema_version"] != 1 or execution_binding.get("execution_mode") != "group_agent" or execution_binding.get("run_id") != rid or execution_binding.get("user_id") != profile.user_id or profile.group_id != "global" or execution_binding.get("conversation_id") != f"ga_mode_group_{profile.user_id}" or type(execution_binding.get("episode_id")) is not str or not execution_binding["episode_id"]:
+            raise ProfileHttpError("execution_binding_mismatch")
+        payload["execution_binding"] = execution_binding
     if attempt_id:
         payload["attempt_id"] = str(attempt_id)
     if fencing_token is not None and int(fencing_token) > 0:

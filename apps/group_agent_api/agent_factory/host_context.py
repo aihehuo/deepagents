@@ -54,6 +54,7 @@ class HostContext:
     snapshot: dict[str, Any]
     host_config_version: int = 1
     context_policy_version: int = 1
+    execution_binding: dict[str, Any] | None = None
 
     @property
     def is_cafe_host(self) -> bool:
@@ -69,8 +70,16 @@ class HostContext:
             principal: Trusted OAuth principal, never model-selected.
             base_dir: Existing local visitor-profile root.
         """
-        validate_v2_request(req.model_dump())
-        venue = req.venue_context
+        if req.request_schema_version == 3:
+            from apps.group_agent_api.app.execution_modes import validate_v3_request
+
+            validate_v3_request(req.model_dump())
+            if req.execution_mode != "cafe_host":
+                raise ValueError("security_guard_failed: group execution is not host context")
+            venue = {**req.venue_context, "memory_scope_id": req.memory_scope_id, "host_config_version": 2, "context_policy_version": 2}
+        else:
+            validate_v2_request(req.model_dump())
+            venue = req.venue_context
         if req.user_id != principal.user_id or req.unionid != principal.unionid or venue["visitor_user_id"] != principal.user_id:
             raise ValueError("binding_mismatch: unauthorized host context")
         if str(req.metadata.get("source", "")).startswith("group_agent_admin") or req.metadata.get("admin_mode"):
@@ -89,9 +98,12 @@ class HostContext:
         snapshot = json.loads(json.dumps(req.context_snapshot, ensure_ascii=False))
         for message in snapshot["recent_messages"]:
             message["text"] = safe_context_text(message["text"])
-        if snapshot["previous_greeting"] is not None:
+        if req.request_schema_version == 3 and snapshot["previous_greeting"] is not None:
+            snapshot["previous_greeting"] = {"message_id": "v3_previous_greeting", "text": safe_context_text(snapshot["previous_greeting"], limit=1000), "created_at": snapshot["previous_visit_at"]}
+        elif snapshot["previous_greeting"] is not None:
             snapshot["previous_greeting"]["text"] = safe_context_text(snapshot["previous_greeting"]["text"], limit=1000)
-        return cls(visitor_user_id=req.user_id, host_agent_id=venue["host_agent_id"], effective_mode=venue["effective_mode"], space_id=venue["space_id"], memory_scope_id=venue["memory_scope_id"], episode_id=req.episode_id, profile=values, snapshot=snapshot, host_config_version=venue["host_config_version"], context_policy_version=venue["context_policy_version"])
+        from apps.group_agent_api.app.execution_modes import execution_binding
+        return cls(visitor_user_id=req.user_id, host_agent_id=venue["host_agent_id"], effective_mode=venue["effective_mode"], space_id=venue["space_id"], memory_scope_id=venue["memory_scope_id"], episode_id=req.episode_id, profile=values, snapshot=snapshot, host_config_version=venue["host_config_version"], context_policy_version=venue["context_policy_version"], execution_binding=execution_binding(req) if req.request_schema_version == 3 else None)
 
     def quoted_data(self, *, greeting: bool, existing_messages: list[Any] | None = None) -> str:
         """Render minimized evidence as JSON, never executable prompt fragments.

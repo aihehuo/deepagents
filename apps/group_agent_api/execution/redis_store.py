@@ -847,6 +847,11 @@ class ExecutionStore:
         del conversation_id
         if record is None:
             raise ExecutionStoreError("missing_record")
+        if record.request_schema_version == 3:
+            if not record.mode_binding or record.mode_binding.get("execution_mode") not in {"cafe_host", "group_agent"}:
+                raise ExecutionStoreError("binding_conflict")
+            if record.mode_binding["execution_mode"] == "cafe_host":
+                return self._cfg.key("greeting_epoch", record.run_id)
         if record.request_schema_version == 2:
             if record.input_kind == "venue_event":
                 # A read-only greeting must not supersede the ordinary run's

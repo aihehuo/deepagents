@@ -67,8 +67,8 @@ def _rebuild_session(envelope: dict[str, Any]) -> tuple[AsyncCallRequest, Truste
         group_id=str(sess["group_id"]),
         group_token=sess.get("group_token"),
     )
-    if req.request_schema_version == 2:
-        expected_tid = thread_id(user_id=req.user_id, group_id=req.group_id, conversation_id=req.conversation_id, episode_id=req.episode_id)
+    if req.request_schema_version in {2, 3}:
+        expected_tid = thread_id(user_id=req.user_id, group_id=req.group_id, conversation_id=req.conversation_id, episode_id=req.episode_id, execution_mode=req.execution_mode if req.request_schema_version == 3 else None)
         if req.user_id != principal.user_id or req.unionid != principal.unionid or req.group_id != session.group_id or (req.user_token or "").strip() != (principal.user_token or "").strip() or (req.group_token or "").strip() != (session.group_token or "").strip() or str(envelope["thread_id"]) != expected_tid:
             raise ValueError("binding_mismatch: invalid trusted envelope")
     return req, session, str(envelope["thread_id"])
@@ -178,20 +178,30 @@ async def _run_attempt(
         )
         return await send_callback_event(
             callback_url=req.callback_url,
-            envelope_dict=env.model_dump(exclude={"idempotency_key"} if req.request_schema_version == 2 else {"episode_id", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"}),
+            envelope_dict=env.model_dump(exclude={"idempotency_key"} if req.request_schema_version == 2 else ({"space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"} if req.request_schema_version == 3 else {"episode_id", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"})),
         )
 
     async def _emit(event_type: str, payload: dict[str, Any]) -> bool:
+        if event_type == "final":
+            _assert_event_live()
         return await fence.emit(event_type, payload, send=_deliver, include_attempt_metadata=req.input_kind != "venue_event")
+
+    def _assert_event_live() -> None:
+        if req.request_schema_version == 3 and req.input_kind == "venue_event":
+            expires = datetime.datetime.strptime(req.event["expires_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()
+            if store.redis_time() >= expires:
+                raise VenueGreetingError("venue_event_expired")
 
     def _side_effect_gate(action: str) -> None:
         fence.check_side_effect(action)
         if active.cancel_event.is_set():
             raise LeaseLostError("fence_cancelled")
+        _assert_event_live()
 
     error_code = ""
     outcome = "unknown"
     try:
+        _assert_event_live()
         await _emit("progress", {"phase": "preparing_greeting"} if req.input_kind == "venue_event" else {"phase": "started", "message": "processing_started"})
         await asyncio.wait_for(
             execute_async_run_core(
@@ -362,7 +372,7 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
     cfg = rt["config"]
     record = store.get(ref.run_id)
 
-    if type(ref.queue_schema_version) is not int or ref.queue_schema_version not in {1, 2}:
+    if type(ref.queue_schema_version) is not int or ref.queue_schema_version not in {1, 2, 3}:
         # FIX4: schema/binding mismatch isolates the delivery only — never mutate ledger.
         publish_unmappable_poison(
             cfg,
@@ -419,6 +429,7 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
             idempotency_key=record.idempotency_key,
             request_fingerprint=record.request_fingerprint,
             schema_version=record.request_schema_version,
+            mode_binding=record.mode_binding,
         )
     except PayloadCryptoError as exc:
         if record.status == ExecutionStatus.RUNNING:
@@ -434,7 +445,7 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
 
     try:
         req, session, tid = _rebuild_session(envelope)
-        if req.run_id != record.run_id or req.idempotency_key != record.idempotency_key or req.request_fingerprint != record.request_fingerprint or req.request_schema_version != record.request_schema_version or req.queue_schema_version != record.queue_schema_version or (req.request_schema_version == 2 and (req.input_kind != record.input_kind or lease_scope(req) != record.conversation_id)):
+        if req.run_id != record.run_id or req.idempotency_key != record.idempotency_key or req.request_fingerprint != record.request_fingerprint or req.request_schema_version != record.request_schema_version or req.queue_schema_version != record.queue_schema_version or (req.request_schema_version in {2, 3} and (req.input_kind != record.input_kind or lease_scope(req) != record.conversation_id)):
             raise ValueError("binding_mismatch: ledger and request differ")
     except (ValueError, KeyError, TypeError, HTTPException):
         return _poison_mapped_run(store=store, cfg=cfg, run_id=ref.run_id, conversation_id=record.conversation_id or ref.run_id, error_code="binding_conflict", expected_status=record.status.value)

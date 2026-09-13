@@ -22,6 +22,7 @@ _PERMANENT_CODES = frozenset(
         "callback_url_rejected",
         "mouth_ingress_rejected",
         "venue_event_executor_unavailable",
+        "venue_event_expired",
         "greeting_schema_invalid",
         "greeting_duplicate",
         "greeting_reply_empty",

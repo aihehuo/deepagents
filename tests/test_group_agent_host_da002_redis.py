@@ -22,7 +22,7 @@ from tests.test_group_agent_host_da001 import _request
 from tests.test_group_agent_host_da002 import ChatModel, _profile, _state
 from tests.test_group_agent_venue_da001 import _session
 
-pytest_plugins = ["tests.test_group_agent_req032_integration"]
+from tests.test_group_agent_req032_integration import env_cfg  # noqa: F401
 pytestmark = pytest.mark.skipif(urlparse(os.environ.get("GROUP_AGENT_TEST_REDIS_URL", "")).hostname not in {"127.0.0.1", "localhost"}, reason="requires explicitly selected isolated localhost Redis")
 
 

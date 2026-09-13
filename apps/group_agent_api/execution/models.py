@@ -30,7 +30,7 @@ TERMINAL_STATUSES = frozenset(
 
 QUEUE_SCHEMA_VERSION = 1
 REQUEST_SCHEMA_VERSION = 1
-SUPPORTED_SCHEMA_PAIRS = frozenset({(1, 1), (2, 2)})
+SUPPORTED_SCHEMA_PAIRS = frozenset({(1, 1), (2, 2), (3, 3)})
 
 
 class RetryClass(str, Enum):
@@ -97,6 +97,7 @@ class ExecutionRecord:
     terminal_fence: str | None = None
     fencing_token: int = 0
     replay_audit: list[dict[str, str]] = field(default_factory=list)
+    mode_binding: dict[str, str] | None = None
 
     def to_redis_mapping(self) -> dict[str, str]:
         """Serialize to Redis hash string fields (no secrets / plaintext)."""
@@ -147,6 +148,9 @@ class ExecutionRecord:
             import json
 
             mapping["replay_audit_json"] = json.dumps(self.replay_audit, separators=(",", ":"))
+        if self.mode_binding is not None:
+            import json
+            mapping["mode_binding_json"] = json.dumps(self.mode_binding, sort_keys=True, separators=(",", ":"))
         return mapping
 
     @classmethod
@@ -213,6 +217,7 @@ class ExecutionRecord:
             terminal_fence=(str(data["terminal_fence"]) if data.get("terminal_fence") else None),
             fencing_token=_i("fencing_token", 0),
             replay_audit=replay_audit,
+            mode_binding=json.loads(data["mode_binding_json"]) if data.get("mode_binding_json") else None,
         )
 
 

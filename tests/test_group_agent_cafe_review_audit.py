@@ -23,7 +23,7 @@ async def test_original_text_repair_reasons_and_final(tmp_path: Path, monkeypatc
     monkeypatch.setenv("GROUP_AGENT_RUNTIME_DIR", str(tmp_path))
     host = _host(tmp_path)
     model = MagicMock()
-    responses = [_review("fail", "聊音乐就好。", "删除虚构点单状态"), _review("fail", "慢慢聊。", "删除未获准客人故事")]
+    responses = [_review("fail", "聊音乐就好。", "删除虚构点单状态"), _review("fail", "慢慢聊。", "删除未获准客人故事"), _review("fail", "坐会儿就好。", "仍需修正")]
     model.invoke.side_effect = responses
     model.ainvoke = AsyncMock(side_effect=responses)
     kwargs = {"host": host, "messages": [HumanMessage(content="我只是  想聊聊。\n不想做计划。")], "model": model}
@@ -39,9 +39,9 @@ async def test_original_text_repair_reasons_and_final(tmp_path: Path, monkeypatc
     assert reviews[1]["input_reply"] == "聊音乐就好。"
     fallback = next(event for event in events if event["stage"] == "fallback")
     assert fallback["reason"] == "review_budget_exhausted"
-    assert fallback["discarded_reply"] == "慢慢聊。"
+    assert fallback["discarded_reply"] == "坐会儿就好。"
     assert events[-1]["reply"] == output.reply
-    assert events[-1]["violations"] == ["host_semantic_repair", "host_semantic_repair", "host_review_unavailable"]
+    assert events[-1]["violations"] == ["host_semantic_repair"] * 3 + ["host_review_unavailable"]
     assert files[0].stat().st_mode & 0o777 == 0o600
     assert files[0].parent.stat().st_mode & 0o777 == 0o700
 
@@ -105,7 +105,7 @@ async def test_concurrent_turns_do_not_mix_original_text(tmp_path: Path, monkeyp
     assert len(records) == 2
     for record in records:
         assert record["events"][0]["draft"] == record["events"][-1]["reply"]
-        assert len(record["events"]) == 5
+        assert len(record["events"]) == 6
 
 
 @pytest.mark.parametrize("failure", ["exception", "invalid"])

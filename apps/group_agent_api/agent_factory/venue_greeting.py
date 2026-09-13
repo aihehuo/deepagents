@@ -9,10 +9,9 @@ from typing import Any, Awaitable, Callable
 
 from langchain_core.messages import SystemMessage
 
-from apps.group_agent_api.agent_factory.contact_scrub import scrub_contact_text
 from apps.group_agent_api.agent_factory.content_quality import looks_like_invented_candidate_narrative, looks_like_unauthorized_action_claim
 from apps.group_agent_api.agent_factory.context.turns import venue_host_system_content
-from apps.group_agent_api.agent_factory.host_context import HostContext, safe_context_text
+from apps.group_agent_api.agent_factory.host_context import HostContext, contains_sensitive_context_text
 from apps.group_agent_api.agent_factory.brain_repair.reject import MouthIngressRejected
 from apps.group_agent_api.app.models import _GreetingPayload
 
@@ -56,7 +55,7 @@ def validate_greeting_reply(payload: dict[str, Any], *, host: HostContext) -> di
     for text in [parsed["reply"], *[item["label"] for item in parsed["suggested_replies"]], *[item["reply"] for item in parsed["suggested_replies"]]]:
         if looks_like_unauthorized_action_claim(text) or looks_like_invented_candidate_narrative(text) or _COMPLETED.search(text) or _INTERNAL.search(text):
             raise ValueError("security_guard_failed")
-        if safe_context_text(text, limit=len(text)) != text or scrub_contact_text(text) != text.strip(" ，,;；"):
+        if contains_sensitive_context_text(text):
             raise ValueError("security_guard_failed")
     if not has_previous and _FAMILIAR.search(parsed["reply"]):
         raise ValueError("security_guard_failed")

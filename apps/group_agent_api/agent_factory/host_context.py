@@ -12,11 +12,20 @@ from typing import Any, Iterator
 
 from apps.group_agent_api.app.venue_protocol import validate_v2_request
 from apps.group_agent_api.agent_factory.profile_store import load_profile
-from apps.group_agent_api.agent_factory.contact_scrub import scrub_contact_text
+from apps.group_agent_api.agent_factory.contact_scrub import contains_contact_text, scrub_contact_text
 
 _ACTIVE_HOST: ContextVar[HostContext | None] = ContextVar("group_agent_venue_host", default=None)
 _SECRET = re.compile(r"\b(?:sk-[A-Za-z0-9_-]{8,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b|(?:api[_ -]?key|authorization|bearer|jwt|token|secret|签名|密钥)\s*[:=：]?\s*[A-Za-z0-9_./+\-=]{8,}", re.IGNORECASE)
 _EMAIL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+
+
+def contains_sensitive_context_text(value: str) -> bool:
+    """Detect secrets/contacts, not harmless formatting normalization.
+
+    Args:
+        value: Untrusted text, checked with the same redaction patterns.
+    """
+    return bool("\x00" in value or _SECRET.search(value) or _EMAIL.search(value) or contains_contact_text(value))
 
 
 def safe_context_text(value: str, *, limit: int = 2000) -> str:

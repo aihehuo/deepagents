@@ -29,6 +29,15 @@ _HANDLE_ONLY_NAME = re.compile(
 )
 
 
+def contains_contact_text(text: str) -> bool:
+    """Detect existing banned contact patterns without normalizing prose.
+
+    Args:
+        text: Untrusted prose to check for contact handles.
+    """
+    return _CONTACT_PATTERN.search(text) is not None
+
+
 def scrub_contact_text(text: str | None) -> str:
     """Remove contact handles from prose; collapse leftover whitespace."""
     raw = (text or "").strip()

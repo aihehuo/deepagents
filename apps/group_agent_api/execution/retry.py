@@ -23,6 +23,8 @@ _PERMANENT_CODES = frozenset(
         "mouth_ingress_rejected",
         "venue_event_executor_unavailable",
         "greeting_schema_invalid",
+        "greeting_duplicate",
+        "greeting_reply_empty",
     }
 )
 _POISON_CODES = frozenset(

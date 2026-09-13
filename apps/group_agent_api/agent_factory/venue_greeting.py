@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import replace
 from typing import Any, Awaitable, Callable
 
 from langchain_core.messages import SystemMessage
@@ -49,7 +50,7 @@ def validate_greeting_reply(payload: dict[str, Any], *, host: HostContext) -> di
         options = extract_host_suggestions("<suggested_replies>" + json.dumps(parsed["suggested_replies"], ensure_ascii=False) + "</suggested_replies>").suggestions
         parsed["suggested_replies"] = [{"label": item["label"], "reply": item["reply"]} for item in options]
     if not parsed["reply"].strip():
-        raise ValueError("greeting_schema_invalid")
+        raise ValueError("greeting_reply_empty")
     facts = host.quoted_data(greeting=True)
     has_previous = bool(host.snapshot["recent_messages"] or host.snapshot["previous_greeting"] or host.snapshot["previous_visit_at"])
     for text in [parsed["reply"], *[item["label"] for item in parsed["suggested_replies"]], *[item["reply"] for item in parsed["suggested_replies"]]]:
@@ -62,7 +63,7 @@ def validate_greeting_reply(payload: dict[str, Any], *, host: HostContext) -> di
     if any(match.group(0) not in facts for match in _PROGRESS.finditer(parsed["reply"])):
         raise ValueError("security_guard_failed")
     if host.snapshot["previous_greeting"] and parsed["reply"] == host.snapshot["previous_greeting"]["text"]:
-        raise ValueError("greeting_schema_invalid")
+        raise ValueError("greeting_duplicate")
     return parsed
 
 
@@ -78,10 +79,11 @@ async def execute_venue_greeting(*, host: HostContext, model: Any, emit_callback
     content = venue_host_system_content(host, greeting=True)
     if not host.is_cafe_host:
         content += "\n" + GREETING_TASK
+    content += "\n历史中的问候只是相处背景，不是本次回答模板。本次是真实的新到店事件；可以接续话题，但必须写新的招呼，不为求不同编造新进展。"
     messages = [SystemMessage(content=content)]
     config = {"metadata": {"input_kind": "venue_event", "venue_mode": host.effective_mode, "venue_has_history": bool(host.snapshot["recent_messages"] or host.snapshot["previous_greeting"] or host.snapshot["previous_visit_at"])}}
     error = "greeting_schema_invalid"
-    for attempt in range(2):
+    for attempt in range(3):
         if side_effect_gate is not None:
             side_effect_gate("venue_greeting_generate")
         try:
@@ -97,9 +99,26 @@ async def execute_venue_greeting(*, host: HostContext, model: Any, emit_callback
                 raise ValueError("greeting_schema_invalid")
             payload = validate_greeting_reply(json.loads(output.content), host=host)
         except (ValueError, TypeError, AttributeError) as exc:
-            error = "security_guard_failed" if "security_guard_failed" in str(exc) else "greeting_schema_invalid"
+            code = str(exc)
+            error = code if code in {"security_guard_failed", "greeting_duplicate", "greeting_reply_empty"} else "greeting_schema_invalid"
             if attempt == 0:
-                messages = [*messages, SystemMessage(content="上一输出格式或安全校验不合格。重新遵守原任务生成JSON，不复述不合格内容，不补充任何未经授权的事实或行动。")]
+                feedback = {
+                    "greeting_duplicate": "刚才的问候与上次完全相同。请换一个自然的招呼，可以换切入点或简单欢迎。不要编造用户的新进展；继续遵守原JSON格式和安全规则。",
+                    "greeting_reply_empty": "刚才的问候正文为空。请生成非空的自然招呼，继续遵守原JSON格式和安全规则，不补充未经授权的事实。",
+                }.get(error, "上一输出格式或安全校验不合格。重新遵守原任务生成JSON，不复述不合格内容，不补充任何未经授权的事实或行动。")
+                messages = [*messages, SystemMessage(content=feedback)]
+                continue
+            if attempt == 1 and error == "greeting_duplicate":
+                # Drop greeting prose only from the final generation input.
+                # The original host still owns validation and frozen history.
+                snapshot = {**host.snapshot, "previous_greeting": None,
+                            "recent_messages": [item for item in host.snapshot["recent_messages"] if item["result_kind"] != "greeting"]}
+                reduced = replace(host, snapshot=snapshot)
+                content = venue_host_system_content(reduced, greeting=True)
+                if not host.is_cafe_host:
+                    content += "\n" + GREETING_TASK
+                content += "\n上一问候仍与上次完全相同。本次仍是重访；历史问候原文已从生成输入移除。请写一个新的简单招呼，不猜测新进展，严格输出原JSON对象。"
+                messages = [SystemMessage(content=content)]
                 continue
             raise VenueGreetingError(error) from None
         if side_effect_gate is not None:

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
+
 from apps.group_agent_api.agent_factory.capability import CapabilityTier
 from apps.group_agent_api.agent_factory.integrations.match_backend import run_match
 from apps.group_agent_api.agent_factory.integrations.match_client import (
@@ -356,11 +356,15 @@ def test_derive_topic_uses_candidate_doing_and_initiator_need() -> None:
 
 
 def test_llm_polish_falls_back_when_assert_fails() -> None:
-    cands = MatchStub().search(
-        query="智能宠物喂食器 联网 固件 工厂",
-        group_id="mock_g1",
-        excluded_ids=["mock_u1"],
-    ).candidates
+    cands = (
+        MatchStub()
+        .search(
+            query="智能宠物喂食器 联网 固件 工厂",
+            group_id="mock_g1",
+            excluded_ids=["mock_u1"],
+        )
+        .candidates
+    )
 
     class _BadModel:
         def invoke(self, _msgs):
@@ -388,9 +392,7 @@ def test_llm_polish_falls_back_when_assert_fails() -> None:
 
 
 @pytest.mark.parametrize("status", [400, 401, 403, 429, 500])
-def test_fetch_membership_non_2xx_fail_closed(
-    monkeypatch: pytest.MonkeyPatch, status: int
-) -> None:
+def test_fetch_membership_non_2xx_fail_closed(monkeypatch: pytest.MonkeyPatch, status: int) -> None:
     class _Resp:
         status_code = status
         content = b'{"tier":"in_group","event_id":1041}'
@@ -426,11 +428,15 @@ def test_fetch_membership_bad_json_fail_closed(monkeypatch: pytest.MonkeyPatch) 
 
 def test_llm_polish_rejects_at_uncertainty_only_and_falls_back() -> None:
     """Orchestrator repro: polished '@Name + uncertainty' must NOT pass five-element assert."""
-    cands = MatchStub().search(
-        query="智能宠物喂食器 联网 固件 工厂",
-        group_id="mock_g1",
-        excluded_ids=["mock_u1"],
-    ).candidates
+    cands = (
+        MatchStub()
+        .search(
+            query="智能宠物喂食器 联网 固件 工厂",
+            group_id="mock_g1",
+            excluded_ids=["mock_u1"],
+        )
+        .candidates
+    )
     assert cands
     name = cands[0].get("display_name") or cands[0].get("user_id")
 
@@ -459,8 +465,9 @@ def test_llm_polish_rejects_at_uncertainty_only_and_falls_back() -> None:
 def test_principal_http_rejects_body_user_id_injection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from starlette.requests import Request
     from fastapi import HTTPException
+    from starlette.requests import Request
+
     from apps.group_agent_api.agent_factory.integrations.principal import (
         clear_nonce_cache,
         resolve_session_principal,
@@ -496,8 +503,9 @@ def test_principal_http_rejects_body_user_id_injection(
 
 
 def test_principal_http_bind_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
-    from starlette.requests import Request
     from fastapi import HTTPException
+    from starlette.requests import Request
+
     from apps.group_agent_api.agent_factory.integrations.principal import (
         clear_nonce_cache,
         resolve_session_principal,
@@ -506,9 +514,7 @@ def test_principal_http_bind_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
     monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
-    monkeypatch.setenv(
-        "GROUP_AGENT_UNIONID_BIND_JSON", '{"wx_u1":"real_user"}'
-    )
+    monkeypatch.setenv("GROUP_AGENT_UNIONID_BIND_JSON", '{"wx_u1":"real_user"}')
     clear_nonce_cache()
     signed = sign_principal(
         user_id="other_user",
@@ -535,6 +541,7 @@ def test_principal_http_bind_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_group_bind_rejects_plaintext_mismatch() -> None:
     from fastapi import HTTPException
+
     from apps.group_agent_api.agent_factory.integrations.group_bind import (
         resolve_trusted_group_id,
     )
@@ -542,9 +549,7 @@ def test_group_bind_rejects_plaintext_mismatch() -> None:
         MembershipResult,
     )
 
-    membership = MembershipResult(
-        tier=CapabilityTier.in_group, event_id="1041", source="http"
-    )
+    membership = MembershipResult(tier=CapabilityTier.in_group, event_id="1041", source="http")
     with pytest.raises(HTTPException) as ei:
         resolve_trusted_group_id(
             plaintext_group_id="other_group",
@@ -564,9 +569,7 @@ def test_group_bind_accepts_global_session_despite_membership_event() -> None:
         MembershipResult,
     )
 
-    membership = MembershipResult(
-        tier=CapabilityTier.in_group, event_id="763", source="http"
-    )
+    membership = MembershipResult(tier=CapabilityTier.in_group, event_id="763", source="http")
     trusted = resolve_trusted_group_id(
         plaintext_group_id="global",
         membership=membership,
@@ -645,15 +648,14 @@ def test_align_match_drops_foreign_group() -> None:
 
 
 @pytest.mark.asyncio
-async def test_http_invite_forbids_caller_candidates(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from starlette.requests import Request
+async def test_http_invite_forbids_caller_candidates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from fastapi import HTTPException
+    from starlette.requests import Request
+
+    from apps.group_agent_api.agent_factory.profile_store import save_profile
     from apps.group_agent_api.app.endpoints.invite import invite
     from apps.group_agent_api.app.models import InviteRequest
     from apps.group_agent_api.app.state import AppState
-    from apps.group_agent_api.agent_factory.profile_store import save_profile
 
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
     monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
@@ -688,9 +690,7 @@ async def test_http_invite_forbids_caller_candidates(
     )
 
     clear_nonce_cache()
-    signed = sign_principal(
-        user_id="u1", unionid="wx", method="POST", path="/invite", secret="test-secret"
-    )
+    signed = sign_principal(user_id="u1", unionid="wx", method="POST", path="/invite", secret="test-secret")
     scope = {
         "type": "http",
         "method": "POST",
@@ -722,7 +722,9 @@ async def test_session_resolve_off_event_loop(monkeypatch: pytest.MonkeyPatch) -
     """Sync membership sleep must not block other awaitables (to_thread)."""
     import asyncio
     import time
+
     from starlette.requests import Request
+
     from apps.group_agent_api.app.session import resolve_trusted_session
 
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
@@ -747,9 +749,7 @@ async def test_session_resolve_off_event_loop(monkeypatch: pytest.MonkeyPatch) -
     )
 
     clear_nonce_cache()
-    signed = sign_principal(
-        user_id="u1", unionid="wx", method="POST", path="/match", secret="test-secret"
-    )
+    signed = sign_principal(user_id="u1", unionid="wx", method="POST", path="/match", secret="test-secret")
     scope = {
         "type": "http",
         "method": "POST",
@@ -782,6 +782,57 @@ async def test_session_resolve_off_event_loop(monkeypatch: pytest.MonkeyPatch) -
     elapsed = time.monotonic() - t0
     assert ticks >= 5, "event loop should keep ticking during membership sleep"
     assert elapsed >= 0.2
+
+
+@pytest.mark.asyncio
+async def test_resolve_trusted_session_hydrates_capabilities(monkeypatch: pytest.MonkeyPatch) -> None:
+    from starlette.requests import Request
+
+    from apps.group_agent_api.app.session import resolve_trusted_session
+
+    monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
+    monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
+
+    def _fake_membership(*_a: object, **_k: object) -> MembershipResult:
+        return MembershipResult(
+            tier=CapabilityTier.in_group,
+            event_id="g_cap",
+            source="test",
+        )
+
+    monkeypatch.setattr(
+        "apps.group_agent_api.app.session.resolve_session_capability",
+        _fake_membership,
+    )
+
+    from apps.group_agent_api.agent_factory.integrations.principal import (
+        clear_nonce_cache,
+        sign_principal,
+    )
+
+    clear_nonce_cache()
+    signed = sign_principal(user_id="u_cap", unionid="wx_cap", method="POST", path="/chat", secret="test-secret")  # noqa: S106  # Deliberately synthetic credentials for offline authentication tests.
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/chat",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in signed.items()],
+    }
+    req = Request(scope)
+
+    session = await resolve_trusted_session(
+        req,
+        body_user_id="u_cap",
+        body_group_id="g_cap",
+        body_membership="not_in_group",
+        body_unionid="wx_cap",
+        body_group_token="tok",  # noqa: S106  # Deliberately synthetic credentials for offline authentication tests.
+        body_user_token=None,
+    )
+
+    assert session.capabilities.tier is CapabilityTier.in_group
+    assert session.capabilities.can_search is True
+    assert session.capabilities.can_write_profile is True
 
 
 # ---------------------------------------------------------------------------
@@ -829,8 +880,9 @@ def _signed_scope(
 
 
 def test_forged_x_ga_headers_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    from starlette.requests import Request
     from fastapi import HTTPException
+    from starlette.requests import Request
+
     from apps.group_agent_api.agent_factory.integrations.principal import (
         clear_nonce_cache,
         resolve_session_principal,
@@ -850,16 +902,15 @@ def test_forged_x_ga_headers_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
         ],
     }
     with pytest.raises(HTTPException) as ei:
-        resolve_session_principal(
-            Request(scope), body_user_id="victim", force_mode="http"
-        )
+        resolve_session_principal(Request(scope), body_user_id="victim", force_mode="http")
     assert ei.value.status_code == 401
     assert ei.value.detail["error"] == "missing_signed_principal"
 
 
 def test_bad_hmac_signature_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    from starlette.requests import Request
     from fastapi import HTTPException
+    from starlette.requests import Request
+
     from apps.group_agent_api.agent_factory.integrations.principal import (
         clear_nonce_cache,
         resolve_session_principal,
@@ -868,13 +919,9 @@ def test_bad_hmac_signature_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
     monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
     clear_nonce_cache()
-    scope = _signed_scope(
-        user_id="victim", unionid="u", path="/chat", bad_sig=True
-    )
+    scope = _signed_scope(user_id="victim", unionid="u", path="/chat", bad_sig=True)
     with pytest.raises(HTTPException) as ei:
-        resolve_session_principal(
-            Request(scope), body_user_id="victim", force_mode="http"
-        )
+        resolve_session_principal(Request(scope), body_user_id="victim", force_mode="http")
     assert ei.value.detail["error"] == "principal_signature_invalid"
 
 
@@ -883,6 +930,7 @@ def test_hmac_valid_principal_accepted_without_static_bind(
 ) -> None:
     """Signed OAuth principal is the authoritative bind; empty JSON must not be required."""
     from starlette.requests import Request
+
     from apps.group_agent_api.agent_factory.integrations.principal import (
         clear_nonce_cache,
         resolve_session_principal,
@@ -893,17 +941,16 @@ def test_hmac_valid_principal_accepted_without_static_bind(
     monkeypatch.delenv("GROUP_AGENT_UNIONID_BIND_JSON", raising=False)
     clear_nonce_cache()
     scope = _signed_scope(user_id="u1", unionid="wx1", path="/chat")
-    principal = resolve_session_principal(
-        Request(scope), body_user_id="u1", force_mode="http"
-    )
+    principal = resolve_session_principal(Request(scope), body_user_id="u1", force_mode="http")
     assert principal.user_id == "u1"
     assert principal.unionid == "wx1"
     assert principal.source == "signed_oauth_principal"
 
 
 def test_nonce_replay_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    from starlette.requests import Request
     from fastapi import HTTPException
+    from starlette.requests import Request
+
     from apps.group_agent_api.agent_factory.integrations.principal import (
         clear_nonce_cache,
         resolve_session_principal,
@@ -912,14 +959,10 @@ def test_nonce_replay_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
     monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
     clear_nonce_cache()
-    scope = _signed_scope(
-        user_id="u1", unionid="wx", path="/chat", nonce="fixed-nonce-1"
-    )
+    scope = _signed_scope(user_id="u1", unionid="wx", path="/chat", nonce="fixed-nonce-1")
     resolve_session_principal(Request(scope), body_user_id="u1", force_mode="http")
     with pytest.raises(HTTPException) as ei:
-        resolve_session_principal(
-            Request(scope), body_user_id="u1", force_mode="http"
-        )
+        resolve_session_principal(Request(scope), body_user_id="u1", force_mode="http")
     assert ei.value.detail["error"] == "principal_nonce_replay"
 
 
@@ -951,17 +994,16 @@ def test_startup_fail_closed_prod_stub(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_http_profile_cross_user_forbidden(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from starlette.requests import Request
+async def test_http_profile_cross_user_forbidden(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from fastapi import HTTPException
-    from apps.group_agent_api.app.endpoints import profile as profile_ep
-    from apps.group_agent_api.app.state import AppState
-    from apps.group_agent_api.agent_factory.profile_store import save_profile
+    from starlette.requests import Request
+
     from apps.group_agent_api.agent_factory.integrations.principal import (
         clear_nonce_cache,
     )
+    from apps.group_agent_api.agent_factory.profile_store import save_profile
+    from apps.group_agent_api.app.endpoints import profile as profile_ep
+    from apps.group_agent_api.app.state import AppState
 
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
     monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
@@ -980,15 +1022,11 @@ async def test_http_profile_cross_user_forbidden(
     )
     save_profile(
         tmp_path,
-        profile_from_flat(
-            user_id="victim", group_id="1041", doing="秘", need="n", offer="o"
-        ),
+        profile_from_flat(user_id="victim", group_id="1041", doing="秘", need="n", offer="o"),
     )
     save_profile(
         tmp_path,
-        profile_from_flat(
-            user_id="attacker", group_id="1041", doing="a", need="n", offer="o"
-        ),
+        profile_from_flat(user_id="attacker", group_id="1041", doing="a", need="n", offer="o"),
     )
     st = AppState(agent=object(), base_dir=tmp_path, polish_model=None)
     # Attacker signs as self but asks for victim profile
@@ -1010,16 +1048,15 @@ async def test_http_profile_cross_user_forbidden(
 
 
 @pytest.mark.asyncio
-async def test_http_profile_self_ok(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_http_profile_self_ok(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from starlette.requests import Request
-    from apps.group_agent_api.app.endpoints import profile as profile_ep
-    from apps.group_agent_api.app.state import AppState
-    from apps.group_agent_api.agent_factory.profile_store import save_profile
+
     from apps.group_agent_api.agent_factory.integrations.principal import (
         clear_nonce_cache,
     )
+    from apps.group_agent_api.agent_factory.profile_store import save_profile
+    from apps.group_agent_api.app.endpoints import profile as profile_ep
+    from apps.group_agent_api.app.state import AppState
 
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
     monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
@@ -1038,9 +1075,7 @@ async def test_http_profile_self_ok(
     )
     save_profile(
         tmp_path,
-        profile_from_flat(
-            user_id="u1", group_id="1041", doing="固件", need="n", offer="o"
-        ),
+        profile_from_flat(user_id="u1", group_id="1041", doing="固件", need="n", offer="o"),
     )
     st = AppState(agent=object(), base_dir=tmp_path, polish_model=None)
     scope = _signed_scope(
@@ -1061,21 +1096,20 @@ async def test_http_profile_self_ok(
 
 
 @pytest.mark.asyncio
-async def test_http_reset_cross_user_keeps_file(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from starlette.requests import Request
+async def test_http_reset_cross_user_keeps_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from fastapi import HTTPException
-    from apps.group_agent_api.app.endpoints import reset as reset_ep
-    from apps.group_agent_api.app.models import ResetRequest
-    from apps.group_agent_api.app.state import AppState
+    from starlette.requests import Request
+
+    from apps.group_agent_api.agent_factory.integrations.principal import (
+        clear_nonce_cache,
+    )
     from apps.group_agent_api.agent_factory.profile_store import (
         disk_profile_path,
         save_profile,
     )
-    from apps.group_agent_api.agent_factory.integrations.principal import (
-        clear_nonce_cache,
-    )
+    from apps.group_agent_api.app.endpoints import reset as reset_ep
+    from apps.group_agent_api.app.models import ResetRequest
+    from apps.group_agent_api.app.state import AppState
 
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
     monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
@@ -1094,17 +1128,13 @@ async def test_http_reset_cross_user_keeps_file(
     )
     save_profile(
         tmp_path,
-        profile_from_flat(
-            user_id="victim", group_id="1041", doing="keep", need="n", offer="o"
-        ),
+        profile_from_flat(user_id="victim", group_id="1041", doing="keep", need="n", offer="o"),
     )
     victim_path = disk_profile_path(tmp_path, "victim", "1041")
     assert victim_path.exists()
 
     st = AppState(agent=object(), base_dir=tmp_path, polish_model=None)
-    scope = _signed_scope(
-        user_id="attacker", unionid="wx_a", path="/reset", method="POST"
-    )
+    scope = _signed_scope(user_id="attacker", unionid="wx_a", path="/reset", method="POST")
     with pytest.raises(HTTPException) as ei:
         await reset_ep.reset(
             ResetRequest(
@@ -1121,21 +1151,20 @@ async def test_http_reset_cross_user_keeps_file(
 
 
 @pytest.mark.asyncio
-async def test_http_reset_cross_group_keeps_file(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from starlette.requests import Request
+async def test_http_reset_cross_group_keeps_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from fastapi import HTTPException
-    from apps.group_agent_api.app.endpoints import reset as reset_ep
-    from apps.group_agent_api.app.models import ResetRequest
-    from apps.group_agent_api.app.state import AppState
+    from starlette.requests import Request
+
+    from apps.group_agent_api.agent_factory.integrations.principal import (
+        clear_nonce_cache,
+    )
     from apps.group_agent_api.agent_factory.profile_store import (
         disk_profile_path,
         save_profile,
     )
-    from apps.group_agent_api.agent_factory.integrations.principal import (
-        clear_nonce_cache,
-    )
+    from apps.group_agent_api.app.endpoints import reset as reset_ep
+    from apps.group_agent_api.app.models import ResetRequest
+    from apps.group_agent_api.app.state import AppState
 
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
     monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
@@ -1154,9 +1183,7 @@ async def test_http_reset_cross_group_keeps_file(
     )
     save_profile(
         tmp_path,
-        profile_from_flat(
-            user_id="u1", group_id="9999", doing="other", need="n", offer="o"
-        ),
+        profile_from_flat(user_id="u1", group_id="9999", doing="other", need="n", offer="o"),
     )
     other_path = disk_profile_path(tmp_path, "u1", "9999")
     assert other_path.exists()
@@ -1180,20 +1207,19 @@ async def test_http_reset_cross_group_keeps_file(
 
 
 @pytest.mark.asyncio
-async def test_http_reset_self_clears_profile(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_http_reset_self_clears_profile(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from starlette.requests import Request
-    from apps.group_agent_api.app.endpoints import reset as reset_ep
-    from apps.group_agent_api.app.models import ResetRequest
-    from apps.group_agent_api.app.state import AppState
+
+    from apps.group_agent_api.agent_factory.integrations.principal import (
+        clear_nonce_cache,
+    )
     from apps.group_agent_api.agent_factory.profile_store import (
         disk_profile_path,
         save_profile,
     )
-    from apps.group_agent_api.agent_factory.integrations.principal import (
-        clear_nonce_cache,
-    )
+    from apps.group_agent_api.app.endpoints import reset as reset_ep
+    from apps.group_agent_api.app.models import ResetRequest
+    from apps.group_agent_api.app.state import AppState
 
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
     monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
@@ -1212,9 +1238,7 @@ async def test_http_reset_self_clears_profile(
     )
     save_profile(
         tmp_path,
-        profile_from_flat(
-            user_id="u1", group_id="1041", doing="x", need="n", offer="o"
-        ),
+        profile_from_flat(user_id="u1", group_id="1041", doing="x", need="n", offer="o"),
     )
     path = disk_profile_path(tmp_path, "u1", "1041")
     assert path.exists()
@@ -1257,8 +1281,9 @@ def test_profile_openapi_has_no_token_query_params() -> None:
 def test_tampered_group_token_header_fails_hmac(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from starlette.requests import Request
     from fastapi import HTTPException
+    from starlette.requests import Request
+
     from apps.group_agent_api.agent_factory.integrations.principal import (
         clear_nonce_cache,
         resolve_session_principal,
@@ -1276,24 +1301,21 @@ def test_tampered_group_token_header_fails_hmac(
         mutate_group_token="tampered-tok",
     )
     with pytest.raises(HTTPException) as ei:
-        resolve_session_principal(
-            Request(scope), body_user_id="u1", force_mode="http"
-        )
+        resolve_session_principal(Request(scope), body_user_id="u1", force_mode="http")
     assert ei.value.detail["error"] == "principal_signature_invalid"
 
 
 @pytest.mark.asyncio
-async def test_profile_reads_group_token_from_header_only(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_profile_reads_group_token_from_header_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Access path uses header group token bound into HMAC — not URL query."""
     from starlette.requests import Request
-    from apps.group_agent_api.app.endpoints import profile as profile_ep
-    from apps.group_agent_api.app.state import AppState
-    from apps.group_agent_api.agent_factory.profile_store import save_profile
+
     from apps.group_agent_api.agent_factory.integrations.principal import (
         clear_nonce_cache,
     )
+    from apps.group_agent_api.agent_factory.profile_store import save_profile
+    from apps.group_agent_api.app.endpoints import profile as profile_ep
+    from apps.group_agent_api.app.state import AppState
 
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
     monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", "test-secret")
@@ -1303,9 +1325,7 @@ async def test_profile_reads_group_token_from_header_only(
 
     def _mem(*, unionid: str, group_token: str, **k):
         captured["group_token"] = group_token
-        return MembershipResult(
-            tier=CapabilityTier.in_group, event_id="1041", source="http"
-        )
+        return MembershipResult(tier=CapabilityTier.in_group, event_id="1041", source="http")
 
     monkeypatch.setattr(
         "apps.group_agent_api.agent_factory.integrations.membership_backend.fetch_membership",
@@ -1319,9 +1339,7 @@ async def test_profile_reads_group_token_from_header_only(
 
     save_profile(
         tmp_path,
-        profile_from_flat(
-            user_id="u1", group_id="1041", doing="固件", need="n", offer="o"
-        ),
+        profile_from_flat(user_id="u1", group_id="1041", doing="固件", need="n", offer="o"),
     )
     st = AppState(agent=object(), base_dir=tmp_path, polish_model=None)
     scope = _signed_scope(

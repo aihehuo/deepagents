@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
+import os
 import time
 import uuid
 from typing import Any
@@ -13,17 +15,28 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from apps.group_agent_api.agent_factory.agent import FORCE_SAVE_PROMPT, UC34Observer
 from apps.group_agent_api.agent_factory.capability import unlocks_network
+from apps.group_agent_api.agent_factory.content_quality import (
+    finalize_and_guard_user_visible_reply,
+)
+from apps.group_agent_api.agent_factory.debug_trace import (
+    debug_trace_enabled,
+    end_decision_trace,
+    record_decision_point,
+    start_decision_trace,
+    write_turn_trace,
+)
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
 from apps.group_agent_api.agent_factory.invite import (
     generate_invite_with_optional_llm,
     should_emit_invite_artifact,
 )
-from apps.group_agent_api.agent_factory.content_quality import (
-    finalize_and_guard_user_visible_reply,
+from apps.group_agent_api.agent_factory.module_config import (
+    reply_grounding_enabled_for_user,
+    search_relax_enabled,
+    search_relax_enabled_for_user,
 )
 from apps.group_agent_api.agent_factory.profile_quality import (
     looks_like_profile_bearing_message,
-    wants_force_match,
 )
 from apps.group_agent_api.agent_factory.profile_store import (
     alert_persist_failure,
@@ -33,24 +46,10 @@ from apps.group_agent_api.agent_factory.profile_store import (
 from apps.group_agent_api.agent_factory.revisit import (
     parse_revisit_from_metadata,
 )
-from apps.group_agent_api.agent_factory.debug_trace import (
-    debug_trace_enabled,
-    end_decision_trace,
-    record_decision_point,
-    start_decision_trace,
-    write_turn_trace,
-)
-from apps.group_agent_api.agent_factory.module_config import (
-    reply_grounding_enabled_for_user,
-    search_relax_enabled,
-    search_relax_enabled_for_user,
-)
 from apps.group_agent_api.agent_factory.search_relax import search_relax_system_addon
 from apps.group_agent_api.agent_factory.suggested_replies import (
     extract_suggested_replies,
 )
-import datetime
-
 from apps.group_agent_api.app.models import ChatRequest, ChatResponse, SearchLogEntry
 from apps.group_agent_api.app.session import resolve_trusted_session
 from apps.group_agent_api.app.state import AppState
@@ -87,25 +86,21 @@ def _profile_usable_this_turn(
 
     Prior-episode profiles must not be treated as「本轮已更新」after 开新一轮.
     """
-    from apps.group_agent_api.app.async_manager import _profile_save_succeeded_this_turn
     from apps.group_agent_api.agent_factory.profile_quality import (
         bind_profile_to_episode,
         profile_bound_to_episode,
     )
+    from apps.group_agent_api.app.async_manager import _profile_save_succeeded_this_turn
 
     assertion = assert_profile_persisted(base_dir, user_id, group_id)
     if not assertion.ok:
-        return False, assertion.path if assertion.path else None
+        return False, assertion.path or None
 
     saved = _profile_save_succeeded_this_turn(messages, msg_count_before)
     if saved:
-        bind_profile_to_episode(
-            base_dir, user_id, group_id, metadata=metadata
-        )
+        bind_profile_to_episode(base_dir, user_id, group_id, metadata=metadata)
         return True, assertion.path
-    if profile_bound_to_episode(
-        base_dir, user_id, group_id, metadata=metadata
-    ):
+    if profile_bound_to_episode(base_dir, user_id, group_id, metadata=metadata):
         return True, assertion.path
     return False, assertion.path
 
@@ -116,6 +111,7 @@ _RESERVED_META_KEYS = frozenset(
         "group_id",
         "base_dir",
         "membership",
+        "can_write_profile",
         "capability",
         "unionid",
         "group_token",
@@ -246,10 +242,10 @@ def _should_force_profile_save(
     if profile_ok or profile_status == "superseded":
         return False
     if persist_alert == "profile_stale_for_episode":
+        from apps.group_agent_api.agent_factory.profile_quality import wants_force_match
         from apps.group_agent_api.app.async_manager import (
             _profile_save_attempted_this_turn,
         )
-        from apps.group_agent_api.agent_factory.profile_quality import wants_force_match
 
         if not _profile_save_attempted_this_turn(messages, msg_count_before):
             text_user = (user_message or "").strip()
@@ -275,11 +271,10 @@ def _invoke_config(
     run_match: bool | None = None,
     group_token: str | None = None,
     user_token: str | None = None,
+    can_write_profile: bool = True,
 ) -> dict:
     turn_id = f"{tid}::{uuid.uuid4().hex}"
-    safe_meta = {
-        k: v for k, v in (metadata or {}).items() if k not in _RESERVED_META_KEYS
-    }
+    safe_meta = {k: v for k, v in (metadata or {}).items() if k not in _RESERVED_META_KEYS}
     fence_meta: dict[str, str] = {}
     try:
         from apps.group_agent_api.execution.active_fence import get_active_fence
@@ -303,6 +298,7 @@ def _invoke_config(
             **({"run_id": run_id} if run_id else {}),
             **({"conversation_id": conversation_id} if conversation_id else {}),
             **({"run_match": "true" if run_match else "false"} if run_match is not None else {}),
+            "can_write_profile": "true" if can_write_profile else "false",
             **({"group_token": group_token} if group_token else {}),
             **({"user_token": user_token} if user_token else {}),
             **fence_meta,
@@ -311,14 +307,10 @@ def _invoke_config(
 
 
 def _empty_request() -> Request:
-    return Request(
-        {"type": "http", "method": "POST", "path": "/chat", "headers": []}
-    )
+    return Request({"type": "http", "method": "POST", "path": "/chat", "headers": []})
 
 
-async def chat(
-    req: ChatRequest, state: AppState, request: Request | None = None
-) -> ChatResponse:
+async def chat(req: ChatRequest, state: AppState, request: Request | None = None) -> ChatResponse:
     start = time.time()
     session = await resolve_trusted_session(
         request or _empty_request(),
@@ -347,6 +339,11 @@ async def chat(
         f"message_len={len(req.message)}"
     )
 
+    agent = state.member_agent_for_capability(
+        can_search=session.capabilities.can_search,
+        can_write_profile=session.capabilities.can_write_profile,
+    )
+
     if not state.try_start_agent_run(tid, "chat"):
         raise HTTPException(
             status_code=409,
@@ -357,7 +354,6 @@ async def chat(
             },
         )
 
-    agent = state.agent
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
     reply = ""
     messages: list[Any] = []
@@ -373,14 +369,8 @@ async def chat(
     try:
         async with lock:
             try:
-                agent_state = await aget_agent_state(
-                    agent, {"configurable": {"thread_id": tid}}
-                )
-                msg_count_before = (
-                    len(agent_state.values.get("messages", []))
-                    if agent_state and agent_state.values
-                    else 0
-                )
+                agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
+                msg_count_before = len(agent_state.values.get("messages", [])) if agent_state and agent_state.values else 0
                 config = _invoke_config(
                     tid=tid,
                     user_id=user_id,
@@ -391,6 +381,10 @@ async def chat(
                     run_match=req.run_match,
                     group_token=session.group_token,
                     user_token=user_token,
+                    can_write_profile=session.capabilities.can_write_profile,
+                )
+                from apps.group_agent_api.agent_factory.context import (
+                    prior_recommendation_system_content,
                 )
                 from apps.group_agent_api.app.async_manager import (
                     _attempt_deterministic_profile_save,
@@ -399,24 +393,26 @@ async def chat(
                     determine_persistence_failure_reason,
                 )
 
-                from apps.group_agent_api.agent_factory.context import (
-                    prior_recommendation_system_content,
-                )
-
                 turn_messages: list[Any] = []
                 known = _known_profile_system_message(
                     base_dir=state.base_dir,
                     user_id=user_id,
                     group_id=group_id,
+                    can_write_profile=session.capabilities.can_write_profile,
                 )
                 if known is not None:
                     turn_messages.append(known)
                 _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
                 match_reminder = prior_recommendation_system_content(revisit_for_prompt)
-                if match_reminder:
+                if match_reminder and session.capabilities.can_search and os.environ.get("GROUP_AGENT_READ_MODE", "legacy") == "legacy":
                     turn_messages.append(SystemMessage(content=match_reminder))
 
-                if search_relax_enabled_for_user(user_id) and not search_relax_enabled():
+                if (
+                    session.capabilities.can_search
+                    and os.environ.get("GROUP_AGENT_READ_MODE", "legacy") == "legacy"
+                    and search_relax_enabled_for_user(user_id)
+                    and not search_relax_enabled()
+                ):
                     relax_addon = search_relax_system_addon(user_id=user_id)
                     if relax_addon:
                         turn_messages.append(SystemMessage(content=relax_addon))
@@ -433,16 +429,13 @@ async def chat(
                 from apps.group_agent_api.agent_factory.checks.action_claim import (
                     apply_action_claim_guard,
                 )
-                guarded_dialogue_text, action_claim_blocked = apply_action_claim_guard(
-                    reply
-                )
+
+                guarded_dialogue_text, action_claim_blocked = apply_action_claim_guard(reply)
                 if action_claim_blocked:
                     reply = guarded_dialogue_text
                     UC34Observer.warn("action=action_claim_blocked path=chat")
 
-                assertion = assert_profile_persisted(
-                    state.base_dir, user_id, group_id
-                )
+                assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
 
                 if _profile_was_superseded(messages, msg_count_before):
                     profile_status_val = "superseded"
@@ -466,7 +459,7 @@ async def chat(
                         profile_ok = False
                         if assertion.ok:
                             persist_alert = "profile_stale_for_episode"
-                if _should_force_profile_save(
+                if session.capabilities.can_write_profile and _should_force_profile_save(
                     profile_ok=profile_ok,
                     profile_status=profile_status_val,
                     persist_alert=persist_alert,
@@ -475,11 +468,11 @@ async def chat(
                     user_message=req.message,
                     reply=reply,
                 ):
-                    from apps.group_agent_api.agent_factory.checks.force_save_retry import (
-                        force_save_retry_enabled,
-                    )
                     from apps.group_agent_api.agent_factory.checks.deterministic_profile_save import (
                         deterministic_profile_save_enabled,
+                    )
+                    from apps.group_agent_api.agent_factory.checks.force_save_retry import (
+                        force_save_retry_enabled,
                     )
 
                     if force_save_retry_enabled():
@@ -508,11 +501,7 @@ async def chat(
                             if attempt >= MAX_PERSIST_ATTEMPTS:
                                 break
 
-                            reason = persist_alert or (
-                                assertion.reason
-                                if not assertion.ok
-                                else "profile_stale_for_episode"
-                            )
+                            reason = persist_alert or (assertion.reason if not assertion.ok else "profile_stale_for_episode")
                             alert_persist_failure(
                                 user_id=user_id,
                                 group_id=group_id,
@@ -520,11 +509,7 @@ async def chat(
                                 reason=reason,
                             )
                             persist_alert = reason
-                            UC34Observer.warn(
-                                f"action=profile_assert_failed user_id={user_id} "
-                                f"group_id={group_id} attempt={attempt} "
-                                f"reason={reason}"
-                            )
+                            UC34Observer.warn(f"action=profile_assert_failed user_id={user_id} group_id={group_id} attempt={attempt} reason={reason}")
 
                             before_retry = len(messages)
                             result = await agent.ainvoke(
@@ -580,16 +565,12 @@ async def chat(
                 elif not profile_ok and profile_status_val != "superseded":
                     profile_status_val = "stale_episode"
 
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 import traceback
 
-                _logger.error(
-                    "POST /chat failed thread_id=%s\n%s", tid, traceback.format_exc()
-                )
+                _logger.error("POST /chat failed thread_id=%s\n%s", tid, traceback.format_exc())
                 UC34Observer.error(
-                    f"action=chat_error user_id={user_id} group_id={group_id} "
-                    f"thread_id={tid} error_type={type(exc).__name__} "
-                    f"error_message={exc}"
+                    f"action=chat_error user_id={user_id} group_id={group_id} thread_id={tid} error_type={type(exc).__name__} error_message={exc}"
                 )
                 raise HTTPException(
                     status_code=502,
@@ -612,29 +593,27 @@ async def chat(
     from apps.group_agent_api.agent_factory.search_tool import extract_search_this_turn
 
     search_turn = extract_search_this_turn(messages, msg_count_before)
+    from apps.group_agent_api.agent_factory.public_evidence import extract_public_reads
+
+    public_reads = (
+        extract_public_reads(messages, msg_count_before)
+        if os.environ.get("GROUP_AGENT_READ_MODE", "legacy").strip().lower() == "public_skills"
+        else None
+    )
     quality_gaps: list[str] = []
     if search_turn.called:
-        match_status = (
-            search_turn.status
-            if search_turn.status
-            in {"matched", "weak", "empty", "skipped", "rejected", "error"}
-            else "skipped"
-        )
+        match_status = search_turn.status if search_turn.status in {"matched", "weak", "empty", "skipped", "rejected", "error"} else "skipped"
         candidates = search_turn.candidates
         match_reason = search_turn.reason or "search_candidates_tool"
         search_log = SearchLogEntry(
             search_id=f"search_{int(time.time() * 1000)}",
-            timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
             query=search_turn.query,
             rank_query=search_turn.rank_query,
             match_status=match_status,
             match_reason=match_reason,
             candidate_count=len(candidates),
-            candidate_names=[
-                str(c.get("name") or c.get("display_name") or "")
-                for c in candidates
-                if c.get("name") or c.get("display_name")
-            ],
+            candidate_names=[str(c.get("name") or c.get("display_name") or "") for c in candidates if c.get("name") or c.get("display_name")],
         )
     else:
         match_status, candidates, match_reason, search_log = (
@@ -732,17 +711,17 @@ async def chat(
         match_reason=match_reason,
         quality_gaps=quality_gaps,
         profile_saved_this_turn=saved_this_turn,
+        public_reads=public_reads,
     )
-    combined_guard_violations = list(
-        dict.fromkeys([*guarded.violations, *final_guarded.violations])
-    )
+    combined_guard_violations = list(dict.fromkeys([*guarded.violations, *final_guarded.violations]))
     combined_guard_blocked = guarded.blocked or final_guarded.blocked
 
-    out_candidates = invite_res.candidates if (req.run_invite and 'invite_res' in locals() and invite_res.candidates) else final_guarded.candidates
+    out_candidates = invite_res.candidates if (req.run_invite and "invite_res" in locals() and invite_res.candidates) else final_guarded.candidates
     if final_profile is not None and out_candidates:
         from apps.group_agent_api.agent_factory.invite import (
             enrich_candidates_with_single_copy,
         )
+
         out_candidates = enrich_candidates_with_single_copy(out_candidates, final_profile)
 
     if search_turn.called and out_candidates and match_status == "matched":
@@ -754,9 +733,7 @@ async def chat(
     else:
         reply_mode = "dialogue"
 
-    is_clarifying = looks_like_profile_bearing_message(req.message) is False and (
-        "？" in guarded.reply or "?" in guarded.reply
-    )
+    is_clarifying = looks_like_profile_bearing_message(req.message) is False and ("？" in guarded.reply or "?" in guarded.reply)
     if search_turn.called:
         intent_route = "search"
     elif saved_this_turn and profile_ok:
@@ -794,6 +771,7 @@ async def chat(
             candidates=out_candidates,
             profile=final_profile,
             candidate_count=len(out_candidates),
+            public_reads=public_reads,
             model=judge_model,
             repair_fn=default_repair_fn(judge_model),
             user_id=user_id,
@@ -840,7 +818,7 @@ async def chat(
         persist_alert=None if profile_ok else persist_alert,
         capability=tier.value,  # type: ignore[arg-type]
         capability_source=session.membership.source,
-        match_status=match_status if out_candidates or match_status in {"empty", "skipped", "weak", "rejected", "error"} else "empty",  # noqa: E501
+        match_status=match_status if out_candidates or match_status in {"empty", "skipped", "weak", "rejected", "error"} else "empty",
         candidates=out_candidates,
         match_reason=match_reason,
         search_log=search_log,

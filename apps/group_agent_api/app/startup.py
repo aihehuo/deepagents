@@ -6,12 +6,14 @@ import logging
 import os
 from pathlib import Path
 
-from apps.group_agent_api.agent_factory import create_agent
 from apps.group_agent_api.agent_factory.agent import APP_NAME, default_runtime_dir
 from apps.group_agent_api.agent_factory.integrations.config import (
     assert_startup_security,
     integration_mode,
 )
+from apps.group_agent_api.agent_factory.member_graphs import build_member_graphs
+from apps.group_agent_api.agent_factory.model_builder import create_model
+from apps.group_agent_api.app.anonymous_config import anonymous_enabled, anonymous_limits
 from apps.group_agent_api.app.state import AppState
 from deepagents.observability import UCObserver
 
@@ -39,7 +41,14 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
     runtime.mkdir(parents=True, exist_ok=True)
     UCObserver.set_log_dir(runtime / "logs")
 
-    agent, admin_agent, ckpt_path = create_agent(base_dir=runtime)
+    base_model = create_model()
+    graphs = build_member_graphs(runtime=runtime, model=base_model)
+    anonymous_agent = None
+    if anonymous_enabled():
+        from apps.group_agent_api.agent_factory.anonymous import create_anonymous_agent
+
+        anonymous_limits()
+        anonymous_agent = create_anonymous_agent(skills_dir=runtime / "skills" / "aihehuo", model=base_model)
     polish_model = None
     quality_model = None
     greeting_model = None
@@ -47,7 +56,6 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         from apps.group_agent_api.agent_factory.integrations.config import (
             llm_polish_enabled,
         )
-        from apps.group_agent_api.agent_factory.model_builder import create_model
 
         if llm_polish_enabled():
             polish_model = create_model(log_prefix="[GroupAgentPolish]")
@@ -74,7 +82,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         durable_store = ExecutionStore.from_config(durable_config)
         if not durable_store.ping():
             raise RuntimeError("durable Redis ping failed at startup")
-        backpressure = BackpressureController(durable_store._r, durable_config)  # noqa: SLF001
+        backpressure = BackpressureController(durable_store._r, durable_config)
         _logger.info(
             "durable_queue enabled prefix=%s queue=%s",
             durable_config.redis_prefix,
@@ -82,10 +90,9 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         )
 
     state_ref["state"] = AppState(
-        agent=agent,
-        admin_agent=admin_agent,
+        **graphs,
+        anonymous_agent=anonymous_agent,
         base_dir=runtime,
-        checkpoints_path=str(ckpt_path),
         polish_model=polish_model,
         quality_model=quality_model,
         durable_config=durable_config,

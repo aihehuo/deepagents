@@ -13,13 +13,14 @@ from celery import shared_task
 from celery.exceptions import Reject
 from fastapi import HTTPException
 
-from apps.group_agent_api.agent_factory.capability import CapabilityTier
+from apps.group_agent_api.agent_factory.capability import CapabilityTier, SessionCapabilities, resolve_session_capabilities
 from apps.group_agent_api.agent_factory.integrations.callback_client import send_callback_event
 from apps.group_agent_api.agent_factory.integrations.config import async_run_timeout_s
 from apps.group_agent_api.agent_factory.integrations.membership_client import MembershipResult
 from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
-from apps.group_agent_api.app.async_manager import VenueEventExecutorUnavailable, execute_async_run_core
 from apps.group_agent_api.agent_factory.venue_greeting import VenueGreetingError
+from apps.group_agent_api.agent_factory.write_skills import profile_write_mode
+from apps.group_agent_api.app.async_manager import VenueEventExecutorUnavailable, execute_async_run_core
 from apps.group_agent_api.app.models import AsyncCallRequest, CallbackEnvelope
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.utils import thread_id
@@ -51,7 +52,7 @@ def _rebuild_session(envelope: dict[str, Any]) -> tuple[AsyncCallRequest, Truste
     req = AsyncCallRequest.model_validate(envelope["request"])
     principal = SessionPrincipal(
         user_id=str(sess["user_id"]),
-        unionid=str(sess["unionid"]),
+        unionid=str(sess["unionid"]) if sess.get("unionid") is not None else None,
         user_token=sess.get("user_token"),
         group_token=sess.get("group_token"),
         source=str(sess.get("principal_source") or "durable_envelope"),
@@ -61,16 +62,50 @@ def _rebuild_session(envelope: dict[str, Any]) -> tuple[AsyncCallRequest, Truste
         tier=tier,
         source=str(sess.get("membership_source") or "durable_envelope"),
     )
+    permissions = sess.get("capabilities") or {}
+    if not isinstance(permissions, dict):
+        msg = "binding_mismatch: invalid trusted capabilities"
+        raise TypeError(msg)
+    capabilities = resolve_session_capabilities(
+        tier=tier,
+        can_write_profile=(
+            permissions.get("can_write_profile") is True
+            and bool(principal.user_id.strip() and (principal.unionid or "").strip())
+            and profile_write_mode() != "disabled"
+        ),
+    )
+    # Permissions come from the encrypted admission envelope, never request
+    # metadata. Older envelopes without this field remain read/write denied.
+    capabilities = SessionCapabilities(
+        tier=tier,
+        can_search=capabilities.can_search and permissions.get("can_search") is True,
+        can_write_profile=capabilities.can_write_profile,
+    )
     session = TrustedSession(
         principal=principal,
         membership=membership,
         group_id=str(sess["group_id"]),
         group_token=sess.get("group_token"),
+        capabilities=capabilities,
     )
     if req.request_schema_version in {2, 3}:
-        expected_tid = thread_id(user_id=req.user_id, group_id=req.group_id, conversation_id=req.conversation_id, episode_id=req.episode_id, execution_mode=req.execution_mode if req.request_schema_version == 3 else None)
-        if req.user_id != principal.user_id or req.unionid != principal.unionid or req.group_id != session.group_id or (req.user_token or "").strip() != (principal.user_token or "").strip() or (req.group_token or "").strip() != (session.group_token or "").strip() or str(envelope["thread_id"]) != expected_tid:
-            raise ValueError("binding_mismatch: invalid trusted envelope")
+        expected_tid = thread_id(
+            user_id=req.user_id,
+            group_id=req.group_id,
+            conversation_id=req.conversation_id,
+            episode_id=req.episode_id,
+            execution_mode=req.execution_mode if req.request_schema_version == 3 else None,
+        )
+        if (
+            req.user_id != principal.user_id
+            or req.unionid != principal.unionid
+            or req.group_id != session.group_id
+            or (req.user_token or "").strip() != (principal.user_token or "").strip()
+            or (req.group_token or "").strip() != (session.group_token or "").strip()
+            or str(envelope["thread_id"]) != expected_tid
+        ):
+            msg = "binding_mismatch: invalid trusted envelope"
+            raise ValueError(msg)
     return req, session, str(envelope["thread_id"])
 
 
@@ -169,7 +204,7 @@ async def _run_attempt(
             **({"idempotency_key": req.idempotency_key} if req.request_schema_version not in {2, 3} else {}),
             seq=fence.seq,
             event=event_type,  # type: ignore[arg-type]
-            occurred_at=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
+            occurred_at=datetime.datetime.now(datetime.UTC).isoformat(timespec="microseconds").replace("+00:00", "Z"),
             user_id=session.principal.user_id,
             group_id=session.group_id,
             conversation_id=req.conversation_id,
@@ -178,7 +213,15 @@ async def _run_attempt(
         )
         return await send_callback_event(
             callback_url=req.callback_url,
-            envelope_dict=env.model_dump(exclude={"idempotency_key"} if req.request_schema_version == 2 else ({"idempotency_key", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"} if req.request_schema_version == 3 else {"episode_id", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"})),
+            envelope_dict=env.model_dump(
+                exclude={"idempotency_key"}
+                if req.request_schema_version == 2
+                else (
+                    {"idempotency_key", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"}
+                    if req.request_schema_version == 3
+                    else {"episode_id", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"}
+                )
+            ),
         )
 
     async def _emit(event_type: str, payload: dict[str, Any]) -> bool:
@@ -188,7 +231,7 @@ async def _run_attempt(
 
     def _assert_event_live() -> None:
         if req.request_schema_version == 3 and req.input_kind == "venue_event":
-            expires = datetime.datetime.strptime(req.event["expires_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()
+            expires = datetime.datetime.strptime(req.event["expires_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.UTC).timestamp()
             if store.redis_time() >= expires:
                 raise VenueGreetingError("venue_event_expired")
 
@@ -202,7 +245,9 @@ async def _run_attempt(
     outcome = "unknown"
     try:
         _assert_event_live()
-        await _emit("progress", {"phase": "preparing_greeting"} if req.input_kind == "venue_event" else {"phase": "started", "message": "processing_started"})
+        await _emit(
+            "progress", {"phase": "preparing_greeting"} if req.input_kind == "venue_event" else {"phase": "started", "message": "processing_started"}
+        )
         await asyncio.wait_for(
             execute_async_run_core(
                 req=req,
@@ -231,13 +276,13 @@ async def _run_attempt(
             outcome = ExecutionStatus.SUCCEEDED.value
     except (LeaseLostError, FenceRejectedError):
         outcome = "lost_lease"
-    except asyncio.TimeoutError:
+    except TimeoutError:
         error_code = error_code or "provider_timeout"
     except VenueEventExecutorUnavailable:
         error_code = "venue_event_executor_unavailable"
     except VenueGreetingError as exc:
         error_code = exc.code
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         if not error_code:
             if "mouth_ingress_rejected" in str(exc):
                 error_code = "mouth_ingress_rejected"
@@ -292,11 +337,7 @@ async def _run_attempt(
             )
         except Exception:  # noqa: BLE001
             pass
-        status = (
-            ExecutionStatus.DEAD_LETTERED
-            if decision.dead_letter
-            else ExecutionStatus.FAILED
-        )
+        status = ExecutionStatus.DEAD_LETTERED if decision.dead_letter else ExecutionStatus.FAILED
         try:
             store.finish(
                 claim,
@@ -445,10 +486,24 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
 
     try:
         req, session, tid = _rebuild_session(envelope)
-        if req.run_id != record.run_id or req.idempotency_key != record.idempotency_key or req.request_fingerprint != record.request_fingerprint or req.request_schema_version != record.request_schema_version or req.queue_schema_version != record.queue_schema_version or (req.request_schema_version in {2, 3} and (req.input_kind != record.input_kind or lease_scope(req) != record.conversation_id)):
+        if (
+            req.run_id != record.run_id
+            or req.idempotency_key != record.idempotency_key
+            or req.request_fingerprint != record.request_fingerprint
+            or req.request_schema_version != record.request_schema_version
+            or req.queue_schema_version != record.queue_schema_version
+            or (req.request_schema_version in {2, 3} and (req.input_kind != record.input_kind or lease_scope(req) != record.conversation_id))
+        ):
             raise ValueError("binding_mismatch: ledger and request differ")
     except (ValueError, KeyError, TypeError, HTTPException):
-        return _poison_mapped_run(store=store, cfg=cfg, run_id=ref.run_id, conversation_id=record.conversation_id or ref.run_id, error_code="binding_conflict", expected_status=record.status.value)
+        return _poison_mapped_run(
+            store=store,
+            cfg=cfg,
+            run_id=ref.run_id,
+            conversation_id=record.conversation_id or ref.run_id,
+            error_code="binding_conflict",
+            expected_status=record.status.value,
+        )
     outcome = store.claim_lease(
         run_id=ref.run_id,
         conversation_id=lease_scope(req),

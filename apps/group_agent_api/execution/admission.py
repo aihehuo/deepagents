@@ -5,16 +5,17 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from apps.group_agent_api.app.execution_modes import execution_binding, validate_v3_request
 from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.venue_protocol import lease_scope, validate_v2_request
-from apps.group_agent_api.app.execution_modes import execution_binding, validate_v3_request
 from apps.group_agent_api.execution.backpressure import BackpressureController
 from apps.group_agent_api.execution.config import (
     DurableQueueConfig,
@@ -61,6 +62,10 @@ def build_trusted_envelope(
             "membership_tier": session.membership.tier.value,
             "membership_source": session.membership.source,
             "principal_source": session.principal.source,
+            "capabilities": {
+                "can_search": session.capabilities.can_search,
+                "can_write_profile": session.capabilities.can_write_profile,
+            },
         },
     }
 
@@ -131,10 +136,23 @@ def admit_durable_async_call(
     schema, fingerprint = validate_durable_request_fields(req)
     if schema == 3:
         from apps.group_agent_api.app.utils import thread_id as canonical_thread_id
-        expected_thread = canonical_thread_id(user_id=req.user_id, group_id=req.group_id, conversation_id=req.conversation_id, episode_id=req.episode_id, execution_mode=req.execution_mode)
+
+        expected_thread = canonical_thread_id(
+            user_id=req.user_id,
+            group_id=req.group_id,
+            conversation_id=req.conversation_id,
+            episode_id=req.episode_id,
+            execution_mode=req.execution_mode,
+        )
         if thread_id != expected_thread:
             _error_response(400, "schema_invalid", "invalid frozen thread binding")
-    if schema in {2, 3} and (req.user_id != session.principal.user_id or req.unionid != session.principal.unionid or req.group_id != session.group_id or (req.user_token or "").strip() != (session.principal.user_token or "").strip() or (req.group_token or "").strip() != (session.group_token or "").strip()):
+    if schema in {2, 3} and (
+        req.user_id != session.principal.user_id
+        or req.unionid != session.principal.unionid
+        or req.group_id != session.group_id
+        or (req.user_token or "").strip() != (session.principal.user_token or "").strip()
+        or (req.group_token or "").strip() != (session.group_token or "").strip()
+    ):
         _error_response(400, "binding_mismatch", "frozen request must match trusted session")
     provider = (os.environ.get("GROUP_AGENT_PROVIDER") or "default").strip() or "default"
 
@@ -146,7 +164,13 @@ def admit_durable_async_call(
             or existing.queue_schema_version != req.queue_schema_version
             or existing.request_fingerprint != fingerprint
             or existing.run_id != req.run_id
-            or (schema == 3 and (existing.mode_binding != {key: getattr(req, key) for key in ("user_id", "execution_mode", "conversation_id", "episode_id")} or existing.conversation_id != lease_scope(req)))
+            or (
+                schema == 3
+                and (
+                    existing.mode_binding != {key: getattr(req, key) for key in ("user_id", "execution_mode", "conversation_id", "episode_id")}
+                    or existing.conversation_id != lease_scope(req)
+                )
+            )
         ):
             _error_response(409, "idempotency_conflict", "idempotency or run binding conflict")
         if existing.status in {ExecutionStatus.ENQUEUE_FAILED, ExecutionStatus.ACCEPTED}:

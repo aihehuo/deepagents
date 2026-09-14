@@ -24,6 +24,7 @@ RUN pip install --no-cache-dir \
 
 COPY libs/deepagents /app/libs/deepagents
 COPY apps/group_agent_api /app/apps/group_agent_api
+COPY skillpacks /app/skillpacks
 COPY apps/group_agent_worker /app/apps/group_agent_worker
 
 COPY apps/group_agent_worker/docker-entrypoint.sh /docker-entrypoint.sh

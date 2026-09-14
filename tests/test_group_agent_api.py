@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
-from apps.group_agent_api.agent_factory.agent import FORCE_SAVE_PROMPT, create_agent
+from langchain_core.messages import AIMessage, HumanMessage
+
+from apps.group_agent_api.agent_factory.agent import (
+    FORCE_SAVE_PROMPT,
+    create_agent,
+    create_member_agent,
+)
 from apps.group_agent_api.agent_factory.profile_schema import (
     DisclosureLevel,
-    GroupProfile,
     ProfileField,
     profile_from_flat,
 )
@@ -23,12 +28,17 @@ from apps.group_agent_api.agent_factory.profile_store import (
     save_profile,
     virtual_profile_path,
 )
-from apps.group_agent_api.app.endpoints import chat as chat_ep
-from apps.group_agent_api.app.endpoints import profile as profile_ep
+from apps.group_agent_api.app.endpoints import chat as chat_ep, profile as profile_ep
 from apps.group_agent_api.app.models import ChatRequest
 from apps.group_agent_api.app.state import AppState
 from apps.group_agent_api.app.utils import thread_id
-from langchain_core.messages import AIMessage, HumanMessage
+
+
+class _MarkerAgent:
+    """Graph placeholder for member-agent variant assertions."""
+
+    def __init__(self, label: str) -> None:
+        self.label = label
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +132,6 @@ async def test_chat_detects_stale_profile_without_update(tmp_path: Path) -> None
     assert agent.invoke_count == 1
 
 
-
 # ---------------------------------------------------------------------------
 # Forced persist + assert
 # ---------------------------------------------------------------------------
@@ -166,9 +175,7 @@ def test_assert_rejects_empty_file(tmp_path: Path) -> None:
 
 def test_alert_persist_failure_logs_error(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.ERROR):
-        alert_persist_failure(
-            user_id="u1", group_id="g1", attempt=1, reason="missing_file"
-        )
+        alert_persist_failure(user_id="u1", group_id="g1", attempt=1, reason="missing_file")
     assert any("ALERT" in r.message and "profile_persist_failed" in r.message for r in caplog.records)
 
 
@@ -208,9 +215,7 @@ class _FakeAgent:
 
         return _S()
 
-    async def ainvoke(
-        self, payload: dict[str, Any], config: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def ainvoke(self, payload: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
         self.invoke_count += 1
         human = payload["messages"][0]
         self.messages.append(human)
@@ -235,6 +240,9 @@ class _FakeAgent:
 def _state(agent: Any, tmp_path: Path) -> AppState:
     return AppState(
         agent=agent,
+        search_only_agent=agent,
+        write_only_agent=agent,
+        no_tool_agent=agent,
         base_dir=tmp_path,
         checkpoints_path=str(tmp_path / "checkpoints.pkl"),
     )
@@ -258,15 +266,11 @@ async def test_chat_retries_when_profile_missing(tmp_path: Path) -> None:
     assert resp.assert_attempts == 2
     assert resp.profile_path == "/users/mock_u1/groups/mock_g1/profile.json"
     assert resp.persist_alert is None
-    assert resp.thread_id == thread_id(
-        user_id="mock_u1", group_id="mock_g1", conversation_id="default"
-    )
+    assert resp.thread_id == thread_id(user_id="mock_u1", group_id="mock_g1", conversation_id="default")
 
 
 @pytest.mark.asyncio
-async def test_chat_alerts_when_retry_still_fails(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+async def test_chat_alerts_when_retry_still_fails(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     agent = _FakeAgent(base_dir=tmp_path, save_on_attempt=99)  # never saves
     with caplog.at_level(logging.ERROR):
         resp = await chat_ep.chat(
@@ -311,9 +315,7 @@ async def test_get_profile_queryable(tmp_path: Path) -> None:
             offer="C",
         ),
     )
-    resp = await profile_ep.get_profile(
-        user_id="mock_u1", group_id="mock_g1", state=_state(object(), tmp_path)
-    )
+    resp = await profile_ep.get_profile(user_id="mock_u1", group_id="mock_g1", state=_state(object(), tmp_path))
     assert resp.exists is True
     assert resp.profile is not None
     assert resp.profile["doing"]["value"] == "A"
@@ -323,7 +325,7 @@ def test_create_agent_wires_save_tool(monkeypatch: pytest.MonkeyPatch, tmp_path:
     calls: list[dict[str, Any]] = []
 
     class _FakeModel:
-        profile: dict = {}
+        profile: ClassVar[dict[str, Any]] = {}
 
     def fake_create_deep_agent(**kwargs: Any) -> object:
         calls.append(kwargs)
@@ -343,6 +345,7 @@ def test_create_agent_wires_save_tool(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert ckpt == tmp_path / "checkpoints.pkl"
     member_tools = [getattr(t, "name", None) for t in calls[0].get("tools") or []]
     assert "save_group_profile" in member_tools
+    assert "search_candidates" in member_tools
     captured = calls[0]
     prompt = captured.get("system_prompt") or ""
     # Red lines in prompt
@@ -350,15 +353,86 @@ def test_create_agent_wires_save_tool(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert "@" in prompt or "邀请词" in prompt
 
 
+def test_create_member_agent_composes_tool_sets(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class _FakeModel:
+        profile: ClassVar[dict[str, Any]] = {}
+
+    def fake_create_deep_agent(**kwargs: Any) -> object:
+        calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.agent.create_deep_agent",
+        fake_create_deep_agent,
+    )
+
+    model = _FakeModel()
+    marker = object()
+    create_member_agent(
+        runtime=tmp_path,
+        model=model,
+        checkpointer=marker,
+        include_search=False,
+        include_save=False,
+    )
+    create_member_agent(
+        runtime=tmp_path,
+        model=model,
+        checkpointer=marker,
+        include_search=True,
+        include_save=False,
+    )
+    create_member_agent(
+        runtime=tmp_path,
+        model=model,
+        checkpointer=marker,
+        include_search=False,
+        include_save=True,
+    )
+    create_member_agent(
+        runtime=tmp_path,
+        model=model,
+        checkpointer=marker,
+        include_search=True,
+        include_save=True,
+    )
+
+    assert calls[0]["tools"] == []
+    assert [getattr(t, "name", None) for t in calls[1]["tools"] or []] == [
+        "search_candidates",
+    ]
+    assert [getattr(t, "name", None) for t in calls[2]["tools"] or []] == [
+        "save_group_profile",
+    ]
+    assert [getattr(t, "name", None) for t in calls[3]["tools"] or []] == [
+        "save_group_profile",
+        "search_candidates",
+    ]
+    assert all(call["checkpointer"] is marker for call in calls)
+    with pytest.raises(RuntimeError, match="checkpointer is required"):
+        create_member_agent(runtime=tmp_path, model=model)
+
+
+def test_state_agent_selection_by_capability(tmp_path: Path) -> None:
+    state = AppState(
+        agent=_MarkerAgent("write_search"),
+        search_only_agent=_MarkerAgent("search_only"),
+        write_only_agent=_MarkerAgent("write_only"),
+        no_tool_agent=_MarkerAgent("no_tool"),
+        base_dir=tmp_path,
+    )
+
+    assert state.member_agent_for_capability(can_search=True, can_write_profile=True).label == "write_search"
+    assert state.member_agent_for_capability(can_search=True, can_write_profile=False).label == "search_only"
+    assert state.member_agent_for_capability(can_search=False, can_write_profile=True).label == "write_only"
+    assert state.member_agent_for_capability(can_search=False, can_write_profile=False).label == "no_tool"
+
+
 def test_no_match_tools_in_agent_factory_source() -> None:
     """Static guard: slice 1 must not wire matching / member search."""
-    src = (
-        Path(__file__).resolve().parents[1]
-        / "apps"
-        / "group_agent_api"
-        / "agent_factory"
-        / "agent.py"
-    ).read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parents[1] / "apps" / "group_agent_api" / "agent_factory" / "agent.py").read_text(encoding="utf-8")
     banned = [
         "aihehuo_search_members",
         "partner_query",

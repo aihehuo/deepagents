@@ -16,20 +16,34 @@ import re
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 
+from apps.group_agent_api.agent_factory.admin_ops_tools import (
+    is_admin_debug_source,
+)
 from apps.group_agent_api.agent_factory.agent import (
     FORCE_SAVE_PROMPT,
     PROFILE_SUPERSEDED_RESULT_PREFIX,
     UC34Observer,
     save_group_profile,
 )
-from apps.group_agent_api.agent_factory.admin_ops_tools import (
-    is_admin_debug_source,
-)
 from apps.group_agent_api.agent_factory.capability import unlocks_network
+from apps.group_agent_api.agent_factory.content_quality import (
+    finalize_and_guard_user_visible_reply,
+)
+from apps.group_agent_api.agent_factory.context import (
+    known_profile_system_message as _known_profile_system_message,
+    prior_recommendation_system_content,
+    referral_context_system_message as _referral_context_system_message,
+)
+from apps.group_agent_api.agent_factory.debug_trace import (
+    end_decision_trace,
+    record_decision_point,
+    start_decision_trace,
+)
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
 from apps.group_agent_api.agent_factory.integrations.callback_client import (
     MouthIngressRejected,
@@ -41,37 +55,23 @@ from apps.group_agent_api.agent_factory.invite import (
     generate_invite_with_optional_llm,
     should_emit_invite_artifact,
 )
-from apps.group_agent_api.agent_factory.content_quality import (
-    finalize_and_guard_user_visible_reply,
+from apps.group_agent_api.agent_factory.module_config import (
+    reply_grounding_enabled_for_user,
+    search_relax_enabled,
+    search_relax_enabled_for_user,
 )
 from apps.group_agent_api.agent_factory.profile_quality import (
     looks_like_clarifying_reply,
 )
 from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted, load_profile
-from apps.group_agent_api.agent_factory.context import (
-    known_profile_system_message as _known_profile_system_message,
-    prior_recommendation_system_content,
-    referral_context_system_message as _referral_context_system_message,
-)
 from apps.group_agent_api.agent_factory.revisit import (
     parse_revisit_from_metadata,
-)
-from apps.group_agent_api.agent_factory.debug_trace import (
-    end_decision_trace,
-    record_decision_point,
-    start_decision_trace,
-)
-from apps.group_agent_api.agent_factory.module_config import (
-    reply_grounding_enabled_for_user,
-    search_relax_enabled,
-    search_relax_enabled_for_user,
 )
 from apps.group_agent_api.agent_factory.search_relax import search_relax_system_addon
 from apps.group_agent_api.agent_factory.stream_buffer import StreamChunkBuffer
 from apps.group_agent_api.agent_factory.suggested_replies import (
     extract_suggested_replies,
 )
-from langchain_core.messages import AIMessageChunk
 from apps.group_agent_api.app.endpoints.chat import (
     MAX_PERSIST_ATTEMPTS,
     _extract_reply,
@@ -82,9 +82,9 @@ from apps.group_agent_api.app.endpoints.chat import (
 )
 from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse, CallbackEnvelope, SearchLogEntry
 from apps.group_agent_api.app.session import TrustedSession
-from apps.group_agent_api.app.venue_protocol import callback_bindings, calculate_v2_fingerprint
 from apps.group_agent_api.app.state import AppState
 from apps.group_agent_api.app.utils import aget_agent_state, get_agent_checkpointer
+from apps.group_agent_api.app.venue_protocol import calculate_v2_fingerprint, callback_bindings
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -117,11 +117,7 @@ def _referral_payload_from_metadata(metadata: dict[str, Any] | None) -> dict[str
     if not isinstance(metadata, dict):
         return None
     ref_ctx = metadata.get("referral_context")
-    if (
-        not isinstance(ref_ctx, dict)
-        or not ref_ctx.get("referral_id")
-        or not ref_ctx.get("applicant_id")
-    ):
+    if not isinstance(ref_ctx, dict) or not ref_ctx.get("referral_id") or not ref_ctx.get("applicant_id"):
         return None
 
     return {
@@ -174,9 +170,7 @@ def _profile_save_succeeded_this_turn(messages: list[Any], start: int) -> bool:
             continue
         tool_name = getattr(message, "name", None)
         tool_call_id = str(getattr(message, "tool_call_id", "") or "")
-        is_save = tool_name == "save_group_profile" or (
-            bool(tool_call_id) and tool_call_id in save_tool_call_ids
-        )
+        is_save = tool_name == "save_group_profile" or (bool(tool_call_id) and tool_call_id in save_tool_call_ids)
         if not is_save:
             continue
         content = str(getattr(message, "content", "") or "").strip()
@@ -235,9 +229,7 @@ def determine_persistence_failure_reason(
                 name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
                 if name == "save_group_profile":
                     save_tool_called = True
-                    tool_call_id = (
-                        tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
-                    )
+                    tool_call_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
                     if tool_call_id:
                         save_tool_call_ids.add(str(tool_call_id))
 
@@ -246,10 +238,7 @@ def determine_persistence_failure_reason(
             continue
         tool_name = getattr(message, "name", None)
         tool_call_id = str(getattr(message, "tool_call_id", "") or "")
-        is_save_result = (
-            tool_name == "save_group_profile"
-            or (bool(tool_call_id) and tool_call_id in save_tool_call_ids)
-        )
+        is_save_result = tool_name == "save_group_profile" or (bool(tool_call_id) and tool_call_id in save_tool_call_ids)
         if is_save_result:
             save_tool_called = True
             content = str(getattr(message, "content", "") or "").strip()
@@ -298,15 +287,9 @@ _EXPLICIT_PATTERNS = [
     ),
 ]
 
-_NATURAL_DOING = re.compile(
-    r"(?:正在做|在做|做一个|最近在做|做的是)(?P<doing>.+?)(?=[。.!！]|，目前|，我|。目前)"
-)
-_NATURAL_NEED = re.compile(
-    r"(?:需要找|想找|找一个|找一位|缺一个)(?P<need>.+?)(?=[。.!！～~]|你这边|有合适|，最好)"
-)
-_NATURAL_OFFER = re.compile(
-    r"(?:目前我有|我有|能提供|可以提供|手上有)(?P<offer>.+?)(?=[。.!！]|我需要|需要找|想找)"
-)
+_NATURAL_DOING = re.compile(r"(?:正在做|在做|做一个|最近在做|做的是)(?P<doing>.+?)(?=[。.!！]|，目前|，我|。目前)")
+_NATURAL_NEED = re.compile(r"(?:需要找|想找|找一个|找一位|缺一个)(?P<need>.+?)(?=[。.!！～~]|你这边|有合适|，最好)")
+_NATURAL_OFFER = re.compile(r"(?:目前我有|我有|能提供|可以提供|手上有)(?P<offer>.+?)(?=[。.!！]|我需要|需要找|想找)")
 
 
 def _clip_dimension(value: str | None, limit: int = 200) -> str:
@@ -346,10 +329,7 @@ def extract_explicit_profile_dimensions(
         for pattern in _EXPLICIT_PATTERNS:
             matched = pattern.fullmatch(message) or pattern.search(message)
             if matched is not None:
-                dimensions = {
-                    field_name: matched.group(field_name).strip()
-                    for field_name in ("doing", "need", "offer")
-                }
+                dimensions = {field_name: matched.group(field_name).strip() for field_name in ("doing", "need", "offer")}
                 if all(bool(value) for value in dimensions.values()):
                     return dimensions
         natural = _dimensions_from_natural_chinese(message)
@@ -364,10 +344,7 @@ def extract_explicit_profile_dimensions(
             for pattern in _EXPLICIT_PATTERNS:
                 matched = pattern.search(text)
                 if matched is not None:
-                    dimensions = {
-                        field_name: matched.group(field_name).strip()
-                        for field_name in ("doing", "need", "offer")
-                    }
+                    dimensions = {field_name: matched.group(field_name).strip() for field_name in ("doing", "need", "offer")}
                     if all(bool(value) for value in dimensions.values()):
                         return dimensions
             natural = _dimensions_from_natural_chinese(text)
@@ -383,6 +360,24 @@ async def _attempt_deterministic_profile_save(
     messages: list[Any],
 ) -> bool:
     """Invoke the real profile tool once for an explicitly complete statement or historical profile."""
+    from apps.group_agent_api.agent_factory.agent import default_runtime_dir
+    from apps.group_agent_api.agent_factory.write_skills import member_write_configuration, profile_write_mode
+
+    metadata = config.get("metadata") or {}
+    try:
+        permission = metadata.get("can_write_profile", profile_write_mode() == "legacy")
+        allowed = permission is True if isinstance(permission, bool) else str(permission).strip().lower() in {"true", "1", "yes", "on", "enabled"}
+        if not allowed:
+            return False
+        writers, _, _ = member_write_configuration(
+            runtime=Path(str(metadata.get("base_dir") or default_runtime_dir())),
+            enabled=True,
+            writer=save_group_profile,
+        )
+    except (ValueError, OSError):
+        return False
+    if not writers:
+        return False
     dimensions = extract_explicit_profile_dimensions(message, messages)
     if dimensions is None:
         return False
@@ -406,7 +401,7 @@ async def _attempt_deterministic_profile_save(
         )
     )
     tool_result = await asyncio.to_thread(
-        save_group_profile.invoke,
+        writers[0].invoke,
         tool_args,
         config,
     )
@@ -423,7 +418,13 @@ async def _attempt_deterministic_profile_save(
 def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession) -> str:
     """Construct complete canonical request fingerprint derived from TrustedSession & canonical callback URL."""
     if req.request_schema_version in {2, 3}:
-        if req.user_id != session.principal.user_id or req.unionid != session.principal.unionid or req.group_id != session.group_id or (req.user_token or "").strip() != (session.principal.user_token or "").strip() or (req.group_token or "").strip() != (session.group_token or "").strip():
+        if (
+            req.user_id != session.principal.user_id
+            or req.unionid != session.principal.unionid
+            or req.group_id != session.group_id
+            or (req.user_token or "").strip() != (session.principal.user_token or "").strip()
+            or (req.group_token or "").strip() != (session.group_token or "").strip()
+        ):
             raise ValueError("binding_mismatch: request fingerprint requires trusted principal")
         return calculate_v2_fingerprint(req.model_dump())
     canonical_url = validate_and_normalize_callback_url(req.callback_url)
@@ -446,11 +447,7 @@ def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession
         "group_token_sha256": group_token_sha,
         "user_token_sha256": user_token_sha,
         "metadata": req.metadata or {},
-        "rollout_context": (
-            req.rollout_context.model_dump(mode="json")
-            if req.rollout_context is not None
-            else None
-        ),
+        "rollout_context": (req.rollout_context.model_dump(mode="json") if req.rollout_context is not None else None),
     }
     raw = json.dumps(canon, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -500,7 +497,11 @@ async def reserve_idempotency_slot(
                     old_slot = _idempotency_store.pop(completed_key_to_evict)
                     _run_id_store.pop(old_slot.run_id, None)
                 else:
-                    _logger.warning("Idempotency store cache full (%d) with all reserved slots; rejecting new slot key=%s", _MAX_IDEMPOTENCY_CACHE, req.idempotency_key)
+                    _logger.warning(
+                        "Idempotency store cache full (%d) with all reserved slots; rejecting new slot key=%s",
+                        _MAX_IDEMPOTENCY_CACHE,
+                        req.idempotency_key,
+                    )
                     return ("INITIALIZING", None, None)
 
             new_slot = IdempotencySlot(
@@ -518,7 +519,7 @@ async def reserve_idempotency_slot(
     if is_pending and pending_slot is not None:
         try:
             await asyncio.wait_for(pending_slot.decision_event.wait(), timeout=2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _logger.warning("Waiter timed out for idempotency_key=%s", req.idempotency_key)
             return ("INITIALIZING", None, None)
 
@@ -583,7 +584,7 @@ async def execute_async_run(
     if slot is not None:
         try:
             await asyncio.wait_for(slot.decision_event.wait(), timeout=5.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.CancelledError):
             _logger.warning("Task decision gate interrupted run_id=%s", req.run_id)
             state.finish_agent_run(tid, "call_async")
             return
@@ -611,7 +612,7 @@ async def execute_async_run(
             **({"idempotency_key": req.idempotency_key} if req.request_schema_version not in {2, 3} else {}),
             seq=seq,
             event=event_type,  # type: ignore[arg-type]
-            occurred_at=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
+            occurred_at=datetime.datetime.now(datetime.UTC).isoformat(timespec="microseconds").replace("+00:00", "Z"),
             user_id=user_id,
             group_id=group_id,
             conversation_id=req.conversation_id,
@@ -620,9 +621,7 @@ async def execute_async_run(
         )
 
         try:
-            delivered = await send_callback_event(
-                callback_url=req.callback_url, envelope_dict=env.model_dump(exclude_none=True)
-            )
+            delivered = await send_callback_event(callback_url=req.callback_url, envelope_dict=env.model_dump(exclude_none=True))
         except MouthIngressRejected:
             # Mouth did not commit seq — rewind for same-seq repair re-emit.
             seq = max(0, seq - 1)
@@ -665,7 +664,7 @@ async def execute_async_run(
             timeout=timeout,
         )
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _logger.error("Async run timed out run_id=%s error_type=TimeoutError", req.run_id)
         UC34Observer.error(f"action=async_run_timeout run_id={req.run_id} error_type=TimeoutError")
         if not terminal_created:
@@ -731,7 +730,11 @@ async def execute_async_run_core(
 
     if req.input_kind == "venue_event" and state.greeting_model is None:
         raise VenueEventExecutorUnavailable("venue_event_executor_unavailable")
-    host = HostContext.from_request(req, principal=session.principal, base_dir=state.base_dir) if req.request_schema_version == 2 or (req.request_schema_version == 3 and req.execution_mode == "cafe_host") else None
+    host = (
+        HostContext.from_request(req, principal=session.principal, base_dir=state.base_dir)
+        if req.request_schema_version == 2 or (req.request_schema_version == 3 and req.execution_mode == "cafe_host")
+        else None
+    )
     with active_host_context(host):
         if req.input_kind == "venue_event":
             await execute_venue_greeting(host=host, model=state.greeting_model, emit_callback=emit_callback, side_effect_gate=side_effect_gate)
@@ -750,6 +753,7 @@ def _execution_metadata(req: AsyncCallRequest) -> dict[str, Any]:
         metadata["episode_id"] = req.episode_id
     if req.request_schema_version == 3:
         from apps.group_agent_api.app.execution_modes import execution_binding
+
         metadata["execution_binding"] = execution_binding(req)
     return metadata
 
@@ -766,6 +770,7 @@ async def _execute_core_agent(
     def _gate(action: str) -> None:
         if side_effect_gate is not None:
             side_effect_gate(action)
+
     user_id = session.principal.user_id
     group_id = session.group_id
     run_protocol_mode, run_rollout_version = _trusted_rollout_context(req)
@@ -777,15 +782,24 @@ async def _execute_core_agent(
 
     cafe_host = is_readonly_host()
     agent = (
-        state.admin_agent
-        if admin_debug and getattr(state, "admin_agent", None) is not None
-        else state.agent
+        state.agent
+        if cafe_host
+        else (
+            state.admin_agent
+            if admin_debug and getattr(state, "admin_agent", None) is not None
+            else state.member_agent_for_capability(
+                can_search=session.capabilities.can_search,
+                can_write_profile=session.capabilities.can_write_profile,
+            )
+        )
     )
     if cafe_host:
         from apps.group_agent_api.agent_factory.cafe_agent import create_cafe_agent
 
         if getattr(state, "cafe_agent", None) is None:
-            state.cafe_agent = create_cafe_agent(model=state.greeting_model, checkpointer=get_agent_checkpointer(state.agent), quality_model=state.quality_model or state.polish_model)
+            state.cafe_agent = create_cafe_agent(
+                model=state.greeting_model, checkpointer=get_agent_checkpointer(state.agent), quality_model=state.quality_model or state.polish_model
+            )
         agent = state.cafe_agent
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
     reply = ""
@@ -798,233 +812,267 @@ async def _execute_core_agent(
     _trace_buf, _trace_token = start_decision_trace()
     async with lock:
         try:
-                test_lvl = os.environ.get("GROUP_AGENT_TEST_LEVEL")
-                if not cafe_host and test_lvl and load_profile(state.base_dir, user_id, group_id) is None:
-                    try:
-                        from apps.group_agent_api.fixtures.loader import load_fixture
-                        from apps.group_agent_api.agent_factory.profile_schema import GroupProfile, ProfileField
-                        from apps.group_agent_api.agent_factory.profile_store import save_profile
-                        ds = load_fixture(test_lvl)
-                        m_key = f"{group_id}:{user_id}"
-                        m = ds.members.get(m_key)
-                        if m and m.profile:
-                            p = GroupProfile(
-                                user_id=user_id,
-                                group_id=group_id,
-                                doing=ProfileField(value=m.profile.get("doing", "Building AI")),
-                                need=ProfileField(value=m.profile.get("need", "Co-founder")),
-                                offer=ProfileField(value=m.profile.get("offer", "Python")),
-                            )
-                            save_profile(state.base_dir, p)
-                    except Exception as exc:
-                        _logger.error("Fixture seed error: %s", exc)
-                agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
-                msg_count_before = (
-                    len(agent_state.values.get("messages", []))
-                    if agent_state and agent_state.values
-                    else 0
-                )
-                config = _invoke_config(
-                    tid=tid,
-                    user_id=user_id,
-                    group_id=group_id,
-                    base_dir=str(state.base_dir),
-                    membership=tier.value,
-                    metadata=runtime_metadata,
-                    run_id=req.run_id,
-                    conversation_id=req.conversation_id,
-                    run_match=req.run_match,
-                    group_token=None if cafe_host else session.group_token,
-                    user_token=None if cafe_host else user_token,
-                )
-                turn_messages: list[Any] = []
-                if admin_debug:
-                    # Keep ops tools fresh: history often contains stale 401 narratives
-                    # that otherwise cause the model to skip tool calls.
-                    from apps.group_agent_api.agent_factory.admin_ops_tools import (
-                        ADMIN_TURN_REMINDER,
-                    )
+            test_lvl = os.environ.get("GROUP_AGENT_TEST_LEVEL")
+            if not cafe_host and test_lvl and load_profile(state.base_dir, user_id, group_id) is None:
+                try:
+                    from apps.group_agent_api.agent_factory.profile_schema import GroupProfile, ProfileField
+                    from apps.group_agent_api.agent_factory.profile_store import save_profile
+                    from apps.group_agent_api.fixtures.loader import load_fixture
 
-                    turn_messages.append(SystemMessage(content=ADMIN_TURN_REMINDER))
-                elif not cafe_host:
-                    known = None if req.request_schema_version == 2 else _known_profile_system_message(
+                    ds = load_fixture(test_lvl)
+                    m_key = f"{group_id}:{user_id}"
+                    m = ds.members.get(m_key)
+                    if m and m.profile:
+                        p = GroupProfile(
+                            user_id=user_id,
+                            group_id=group_id,
+                            doing=ProfileField(value=m.profile.get("doing", "Building AI")),
+                            need=ProfileField(value=m.profile.get("need", "Co-founder")),
+                            offer=ProfileField(value=m.profile.get("offer", "Python")),
+                        )
+                        save_profile(state.base_dir, p)
+                except Exception as exc:
+                    _logger.error("Fixture seed error: %s", exc)
+            agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
+            msg_count_before = len(agent_state.values.get("messages", [])) if agent_state and agent_state.values else 0
+            config = _invoke_config(
+                tid=tid,
+                user_id=user_id,
+                group_id=group_id,
+                base_dir=str(state.base_dir),
+                membership=tier.value,
+                metadata=runtime_metadata,
+                run_id=req.run_id,
+                conversation_id=req.conversation_id,
+                run_match=req.run_match,
+                group_token=None if cafe_host else session.group_token,
+                user_token=None if cafe_host else user_token,
+                can_write_profile=session.capabilities.can_write_profile if not cafe_host else False,
+            )
+            turn_messages: list[Any] = []
+            if admin_debug:
+                # Keep ops tools fresh: history often contains stale 401 narratives
+                # that otherwise cause the model to skip tool calls.
+                from apps.group_agent_api.agent_factory.admin_ops_tools import (
+                    ADMIN_TURN_REMINDER,
+                )
+
+                turn_messages.append(SystemMessage(content=ADMIN_TURN_REMINDER))
+            elif not cafe_host:
+                known = (
+                    None
+                    if req.request_schema_version == 2
+                    else _known_profile_system_message(
                         base_dir=state.base_dir,
                         user_id=user_id,
                         group_id=group_id,
+                        can_write_profile=session.capabilities.can_write_profile,
                     )
-                    if known is not None:
-                        turn_messages.append(known)
-                    ref_msg = _referral_context_system_message(req.metadata or {})
-                    if ref_msg is not None:
-                        turn_messages.append(ref_msg)
-                    _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
-                    from apps.group_agent_api.agent_factory.revisit import parse_prior_recommendation
-                    prior_rec = parse_prior_recommendation((req.metadata or {}).get("prior_recommendation"))
-                    match_reminder = prior_recommendation_system_content(
-                        revisit_for_prompt, prior_rec=prior_rec
-                    )
-                    if match_reminder:
-                        turn_messages.append(SystemMessage(content=match_reminder))
-
-                    # If search_relax is enabled for this user via canary but off globally in YAML,
-                    # dynamically inject the search relaxation addon into turn context.
-                    if search_relax_enabled_for_user(user_id) and not search_relax_enabled():
-                        relax_addon = search_relax_system_addon(user_id=user_id)
-                        if relax_addon:
-                            turn_messages.append(SystemMessage(content=relax_addon))
-                turn_messages.append(HumanMessage(content=req.message))
-                _logger.info(
-                    "Core agent ainvoke start run_id=%s thread_id=%s msg_len=%d admin_debug=%s",
-                    req.run_id,
-                    tid,
-                    len(req.message or ""),
-                    admin_debug,
                 )
-                streaming_enabled = (
-                    os.environ.get("GROUP_AGENT_STREAMING_ENABLED", "0").lower() in {"1", "true", "yes"}
-                    and hasattr(agent, "astream")
-                )
-                _ainvoke_t0 = time.monotonic()
-                try:
-                    if cafe_host:
-                        _gate("host_model")
-                    if streaming_enabled and not cafe_host:
-                        buffer = StreamChunkBuffer(emit_callback=emit_callback, min_interval_s=0.1)
-                        tool_triggered_this_turn = False
-                        async for chunk in agent.astream(
-                            {"messages": turn_messages},
-                            config,
-                            stream_mode=["messages", "updates"],
-                        ):
-                            if isinstance(chunk, tuple) and len(chunk) == 3:
-                                subgraph_path, mode, data = chunk
-                            elif isinstance(chunk, tuple) and len(chunk) == 2:
-                                mode, data = chunk
-                                subgraph_path = ()
-                            else:
-                                continue
+                if known is not None:
+                    turn_messages.append(known)
+                ref_msg = _referral_context_system_message(req.metadata or {})
+                if ref_msg is not None:
+                    turn_messages.append(ref_msg)
+                _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
+                from apps.group_agent_api.agent_factory.revisit import parse_prior_recommendation
 
-                            if mode == "updates":
-                                if isinstance(data, dict):
-                                    for node_name in data:
-                                        if node_name == "tools":
-                                            tool_triggered_this_turn = True
-                                            await emit_callback(
-                                                "progress",
-                                                {"phase": "searching", "step": "正在匹配合适的人选..."},
-                                            )
-                            elif mode == "messages":
-                                msg_chunk = data[0] if isinstance(data, (tuple, list)) and data else data
-                                if isinstance(msg_chunk, AIMessageChunk):
-                                    if (
-                                        getattr(msg_chunk, "tool_calls", None)
-                                        or getattr(msg_chunk, "tool_call_chunks", None)
-                                    ):
+                prior_rec = parse_prior_recommendation((req.metadata or {}).get("prior_recommendation"))
+                match_reminder = prior_recommendation_system_content(revisit_for_prompt, prior_rec=prior_rec)
+                if match_reminder and session.capabilities.can_search and os.environ.get("GROUP_AGENT_READ_MODE", "legacy") == "legacy":
+                    turn_messages.append(SystemMessage(content=match_reminder))
+
+                # If search_relax is enabled for this user via canary but off globally in YAML,
+                # dynamically inject the search relaxation addon into turn context.
+                if (
+                    session.capabilities.can_search
+                    and os.environ.get("GROUP_AGENT_READ_MODE", "legacy") == "legacy"
+                    and search_relax_enabled_for_user(user_id)
+                    and not search_relax_enabled()
+                ):
+                    relax_addon = search_relax_system_addon(user_id=user_id)
+                    if relax_addon:
+                        turn_messages.append(SystemMessage(content=relax_addon))
+            turn_messages.append(HumanMessage(content=req.message))
+            _logger.info(
+                "Core agent ainvoke start run_id=%s thread_id=%s msg_len=%d admin_debug=%s",
+                req.run_id,
+                tid,
+                len(req.message or ""),
+                admin_debug,
+            )
+            streaming_enabled = os.environ.get("GROUP_AGENT_STREAMING_ENABLED", "0").lower() in {"1", "true", "yes"} and hasattr(agent, "astream")
+            _ainvoke_t0 = time.monotonic()
+            try:
+                if cafe_host:
+                    _gate("host_model")
+                if streaming_enabled and not cafe_host:
+                    buffer = StreamChunkBuffer(emit_callback=emit_callback, min_interval_s=0.1)
+                    tool_triggered_this_turn = False
+                    async for chunk in agent.astream(
+                        {"messages": turn_messages},
+                        config,
+                        stream_mode=["messages", "updates"],
+                    ):
+                        if isinstance(chunk, tuple) and len(chunk) == 3:
+                            subgraph_path, mode, data = chunk
+                        elif isinstance(chunk, tuple) and len(chunk) == 2:
+                            mode, data = chunk
+                            subgraph_path = ()
+                        else:
+                            continue
+
+                        if mode == "updates":
+                            if isinstance(data, dict):
+                                for node_name in data:
+                                    if node_name == "tools":
                                         tool_triggered_this_turn = True
-                                    elif msg_chunk.content and not tool_triggered_this_turn:
-                                        await buffer.feed_token(str(msg_chunk.content))
-                        await buffer.flush()
-                        agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
-                        messages = (
-                            agent_state.values.get("messages", [])
-                            if agent_state and agent_state.values
-                            else []
-                        )
-                    else:
-                        result = await agent.ainvoke(
-                            {"messages": turn_messages},
-                            config,
-                        )
-                        messages = result.get("messages", [])
-                except Exception:
-                    _logger.exception(
-                        "Core agent execution failed run_id=%s thread_id=%s elapsed_s=%.2f",
-                        req.run_id,
-                        tid,
-                        time.monotonic() - _ainvoke_t0,
+                                        await emit_callback(
+                                            "progress",
+                                            {"phase": "searching", "step": "正在匹配合适的人选..."},
+                                        )
+                        elif mode == "messages":
+                            msg_chunk = data[0] if isinstance(data, (tuple, list)) and data else data
+                            if isinstance(msg_chunk, AIMessageChunk):
+                                if getattr(msg_chunk, "tool_calls", None) or getattr(msg_chunk, "tool_call_chunks", None):
+                                    tool_triggered_this_turn = True
+                                elif msg_chunk.content and not tool_triggered_this_turn:
+                                    await buffer.feed_token(str(msg_chunk.content))
+                    await buffer.flush()
+                    agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
+                    messages = agent_state.values.get("messages", []) if agent_state and agent_state.values else []
+                else:
+                    result = await agent.ainvoke(
+                        {"messages": turn_messages},
+                        config,
                     )
-                    raise
-                _logger.info(
-                    "Core agent execution done run_id=%s thread_id=%s elapsed_s=%.2f n_msgs=%d streaming=%s",
+                    messages = result.get("messages", [])
+            except Exception:
+                _logger.exception(
+                    "Core agent execution failed run_id=%s thread_id=%s elapsed_s=%.2f",
                     req.run_id,
                     tid,
                     time.monotonic() - _ainvoke_t0,
-                    len(messages or []),
-                    streaming_enabled,
                 )
-                # Host middleware already produced the complete validated
-                # message. Legacy prefix-peeling would diverge from its saver.
-                reply = str(messages[-1].content) if cafe_host else _extract_reply(messages, msg_count_before)
+                raise
+            _logger.info(
+                "Core agent execution done run_id=%s thread_id=%s elapsed_s=%.2f n_msgs=%d streaming=%s",
+                req.run_id,
+                tid,
+                time.monotonic() - _ainvoke_t0,
+                len(messages or []),
+                streaming_enabled,
+            )
+            # Host middleware already produced the complete validated
+            # message. Legacy prefix-peeling would diverge from its saver.
+            reply = str(messages[-1].content) if cafe_host else _extract_reply(messages, msg_count_before)
 
-                # chk.action_claim (YAML): unauthorized group-send / @ / admin claims.
-                from apps.group_agent_api.agent_factory.checks.action_claim import (
-                    apply_action_claim_guard,
-                )
-                guarded_dialogue_text, action_claim_blocked = (reply, False) if cafe_host else apply_action_claim_guard(reply)
-                if action_claim_blocked:
-                    reply = guarded_dialogue_text
-                    UC34Observer.warn(
-                        f"action=action_claim_blocked run_id={req.run_id}"
-                    )
+            # chk.action_claim (YAML): unauthorized group-send / @ / admin claims.
+            from apps.group_agent_api.agent_factory.checks.action_claim import (
+                apply_action_claim_guard,
+            )
 
-                if admin_debug:
+            guarded_dialogue_text, action_claim_blocked = (reply, False) if cafe_host else apply_action_claim_guard(reply)
+            if action_claim_blocked:
+                reply = guarded_dialogue_text
+                UC34Observer.warn(f"action=action_claim_blocked run_id={req.run_id}")
+
+            if admin_debug:
+                profile_ok = False
+                profile_status = "admin_skip"
+            elif cafe_host:
+                profile_ok = False
+                profile_status = "host_read_only"
+            else:
+                assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
+
+                if _profile_was_superseded(messages, msg_count_before):
+                    profile_status = "superseded"
                     profile_ok = False
-                    profile_status = "admin_skip"
-                elif cafe_host:
-                    profile_ok = False
-                    profile_status = "host_read_only"
                 else:
-                    assertion = assert_profile_persisted(state.base_dir, user_id, group_id)
-
-                    if _profile_was_superseded(messages, msg_count_before):
-                        profile_status = "superseded"
-                        profile_ok = False
-                    else:
-                        usable, _path = _profile_usable_this_turn(
-                            base_dir=state.base_dir,
-                            user_id=user_id,
-                            group_id=group_id,
-                            messages=messages,
-                            msg_count_before=msg_count_before,
-                            metadata=runtime_metadata,
-                        )
-                        if usable:
-                            profile_ok = True
-                            profile_status = "persisted"
-                        else:
-                            profile_ok = False
-                            if assertion.ok:
-                                # Prior episode profile exists but is not bound to this episode.
-                                pass
-                    if _should_force_profile_save(
-                        profile_ok=profile_ok,
-                        profile_status=profile_status,
-                        persist_alert=(
-                            "profile_stale_for_episode"
-                            if (not profile_ok and assertion.ok and profile_status != "superseded")
-                            else None
-                        ),
+                    usable, _path = _profile_usable_this_turn(
+                        base_dir=state.base_dir,
+                        user_id=user_id,
+                        group_id=group_id,
                         messages=messages,
                         msg_count_before=msg_count_before,
-                        user_message=req.message,
-                        reply=reply,
-                    ):
-                        from apps.group_agent_api.agent_factory.checks.force_save_retry import (
-                            force_save_retry_enabled,
-                        )
-                        from apps.group_agent_api.agent_factory.checks.deterministic_profile_save import (
-                            deterministic_profile_save_enabled,
-                        )
+                        metadata=runtime_metadata,
+                    )
+                    if usable:
+                        profile_ok = True
+                        profile_status = "persisted"
+                    else:
+                        profile_ok = False
+                        if assertion.ok:
+                            # Prior episode profile exists but is not bound to this episode.
+                            pass
+                if session.capabilities.can_write_profile and _should_force_profile_save(
+                    profile_ok=profile_ok,
+                    profile_status=profile_status,
+                    persist_alert=("profile_stale_for_episode" if (not profile_ok and assertion.ok and profile_status != "superseded") else None),
+                    messages=messages,
+                    msg_count_before=msg_count_before,
+                    user_message=req.message,
+                    reply=reply,
+                ):
+                    from apps.group_agent_api.agent_factory.checks.deterministic_profile_save import (
+                        deterministic_profile_save_enabled,
+                    )
+                    from apps.group_agent_api.agent_factory.checks.force_save_retry import (
+                        force_save_retry_enabled,
+                    )
 
-                        _gate("profile_force_save")
-                        if force_save_retry_enabled():
-                            for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
-                                _gate("profile_force_save_iter")
-                                if _profile_was_superseded(messages, msg_count_before):
-                                    profile_status = "superseded"
-                                    profile_ok = False
-                                    break
+                    _gate("profile_force_save")
+                    if force_save_retry_enabled():
+                        for attempt in range(1, MAX_PERSIST_ATTEMPTS + 1):
+                            _gate("profile_force_save_iter")
+                            if _profile_was_superseded(messages, msg_count_before):
+                                profile_status = "superseded"
+                                profile_ok = False
+                                break
 
+                            usable, _path = _profile_usable_this_turn(
+                                base_dir=state.base_dir,
+                                user_id=user_id,
+                                group_id=group_id,
+                                messages=messages,
+                                msg_count_before=msg_count_before,
+                                metadata=runtime_metadata,
+                            )
+                            if usable:
+                                profile_ok = True
+                                profile_status = "persisted"
+                                break
+
+                            if attempt >= MAX_PERSIST_ATTEMPTS:
+                                break
+
+                            before_retry = len(messages)
+                            result = await agent.ainvoke(
+                                {"messages": [HumanMessage(content=FORCE_SAVE_PROMPT)]},
+                                config,
+                            )
+                            messages = result.get("messages", [])
+                            start_idx = before_retry if before_retry < len(messages) else 0
+                            retry_reply = _extract_reply(messages, start_idx)
+                            if retry_reply:
+                                reply = _merge_force_save_reply(reply, retry_reply)
+
+                    if not profile_ok and profile_status != "superseded":
+                        profile_status = "failed"
+                        fallback_attempted = False
+                        if deterministic_profile_save_enabled():
+                            _gate("profile_deterministic_save")
+                            fallback_attempted = await _attempt_deterministic_profile_save(
+                                message=req.message,
+                                config=config,
+                                messages=messages,
+                            )
+                        if fallback_attempted:
+                            if _profile_was_superseded(messages, msg_count_before):
+                                profile_status = "superseded"
+                                profile_ok = False
+                            else:
                                 usable, _path = _profile_usable_this_turn(
                                     base_dir=state.base_dir,
                                     user_id=user_id,
@@ -1036,69 +1084,23 @@ async def _execute_core_agent(
                                 if usable:
                                     profile_ok = True
                                     profile_status = "persisted"
-                                    break
 
-                                if attempt >= MAX_PERSIST_ATTEMPTS:
-                                    break
-
-                                before_retry = len(messages)
-                                result = await agent.ainvoke(
-                                    {"messages": [HumanMessage(content=FORCE_SAVE_PROMPT)]},
-                                    config,
-                                )
-                                messages = result.get("messages", [])
-                                start_idx = before_retry if before_retry < len(messages) else 0
-                                retry_reply = _extract_reply(messages, start_idx)
-                                if retry_reply:
-                                    reply = _merge_force_save_reply(reply, retry_reply)
-
-                        if not profile_ok and profile_status != "superseded":
-                            profile_status = "failed"
-                            fallback_attempted = False
-                            if deterministic_profile_save_enabled():
-                                _gate("profile_deterministic_save")
-                                fallback_attempted = await _attempt_deterministic_profile_save(
-                                    message=req.message,
-                                    config=config,
-                                    messages=messages,
-                                    )
-                            if fallback_attempted:
-                                if _profile_was_superseded(messages, msg_count_before):
-                                    profile_status = "superseded"
-                                    profile_ok = False
-                                else:
-                                    usable, _path = _profile_usable_this_turn(
-                                        base_dir=state.base_dir,
-                                        user_id=user_id,
-                                        group_id=group_id,
-                                        messages=messages,
-                                        msg_count_before=msg_count_before,
-                                        metadata=runtime_metadata,
-                                    )
-                                    if usable:
-                                        profile_ok = True
-                                        profile_status = "persisted"
-
-                        if not profile_ok and profile_status == "failed":
-                            last_reason = (
-                                assertion.reason
-                                if not assertion.ok
-                                else "profile_stale_for_episode"
-                            )
-                            persistence_failure_reason = determine_persistence_failure_reason(
-                                messages,
-                                msg_count_before,
-                                attempt=MAX_PERSIST_ATTEMPTS,
-                                last_assertion_reason=last_reason,
-                            )
-                            UC34Observer.warn(
-                                f"action=profile_persistence_failed user_id={user_id} "
-                                f"group_id={group_id} run_id={req.run_id} "
-                                f"reason={persistence_failure_reason}"
-                            )
-                    elif not profile_ok and profile_status != "superseded":
-                        # Clarifying turn on a new episode: keep the first reply, skip match.
-                        profile_status = "stale_episode"
+                    if not profile_ok and profile_status == "failed":
+                        last_reason = assertion.reason if not assertion.ok else "profile_stale_for_episode"
+                        persistence_failure_reason = determine_persistence_failure_reason(
+                            messages,
+                            msg_count_before,
+                            attempt=MAX_PERSIST_ATTEMPTS,
+                            last_assertion_reason=last_reason,
+                        )
+                        UC34Observer.warn(
+                            f"action=profile_persistence_failed user_id={user_id} "
+                            f"group_id={group_id} run_id={req.run_id} "
+                            f"reason={persistence_failure_reason}"
+                        )
+                elif not profile_ok and profile_status != "superseded":
+                    # Clarifying turn on a new episode: keep the first reply, skip match.
+                    profile_status = "stale_episode"
 
         except BaseException:
             end_decision_trace(_trace_token)
@@ -1119,17 +1121,10 @@ async def _execute_core_agent(
         match_reason = "admin_ops_mode"
         profile_ok = False
     else:
-        match_reason = (
-            "profile_superseded"
-            if profile_status == "superseded"
-            else ("profile_persistence_failed" if not profile_ok else None)
-        )
+        match_reason = "profile_superseded" if profile_status == "superseded" else ("profile_persistence_failed" if not profile_ok else None)
 
     if profile_status == "superseded":
-        reply = (
-            "这次画像更新已被较新的运行结果取代。"
-            "我没有覆盖当前权威画像，也没有继续匹配或生成邀请。"
-        )
+        reply = "这次画像更新已被较新的运行结果取代。我没有覆盖当前权威画像，也没有继续匹配或生成邀请。"
 
     if cafe_host:
         latest = messages[-1].additional_kwargs
@@ -1144,45 +1139,54 @@ async def _execute_core_agent(
     from apps.group_agent_api.agent_factory.search_tool import SearchTurnResult, extract_search_this_turn
 
     search_turn = SearchTurnResult(reason="host_read_only") if cafe_host else extract_search_this_turn(messages, msg_count_before)
+    from apps.group_agent_api.agent_factory.public_evidence import extract_public_reads
+
+    public_reads = (
+        extract_public_reads(messages, msg_count_before)
+        if not cafe_host and os.environ.get("GROUP_AGENT_READ_MODE", "legacy").strip().lower() == "public_skills"
+        else None
+    )
     quality_gaps: list[str] = []
     search_log: SearchLogEntry | None = None
     if search_turn.called:
-        match_status = (
-            search_turn.status
-            if search_turn.status
-            in {"matched", "weak", "empty", "skipped", "rejected", "error"}
-            else "skipped"
-        )
+        match_status = search_turn.status if search_turn.status in {"matched", "weak", "empty", "skipped", "rejected", "error"} else "skipped"
         candidates = search_turn.candidates
         match_reason = search_turn.reason or "search_candidates_tool"
         search_log = SearchLogEntry(
             search_id=f"search_{int(time.time() * 1000)}",
-            timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
             query=search_turn.query,
             rank_query=search_turn.rank_query,
             match_status=match_status,
             match_reason=match_reason,
             candidate_count=len(candidates),
-            candidate_names=[
-                str(c.get("name") or c.get("display_name") or "")
-                for c in candidates
-                if c.get("name") or c.get("display_name")
-            ],
+            candidate_names=[str(c.get("name") or c.get("display_name") or "") for c in candidates if c.get("name") or c.get("display_name")],
         )
     elif match_reason is None:
         match_reason = "model_did_not_search"
-    _logger.info("Core match debug run_id=%s tier=%s profile_ok=%s match_status=%s candidates_count=%d", req.run_id, tier.value, profile_ok, match_status, len(candidates))
+    _logger.info(
+        "Core match debug run_id=%s tier=%s profile_ok=%s match_status=%s candidates_count=%d",
+        req.run_id,
+        tier.value,
+        profile_ok,
+        match_status,
+        len(candidates),
+    )
 
     from apps.group_agent_api.agent_factory.guard import GuardResult
 
     # Café has no candidate/action surface. Its independent output middleware
     # already enforces text safety before checkpoint, regardless of YAML tier.
-    guarded = GuardResult(ok=not host_violations, tier=tier, reply=reply, violations=host_violations, blocked=bool(host_violations)) if cafe_host else enforce_capability_guard(
-        tier=tier,
-        reply=reply,
-        candidates=candidates,
-        caller_group_id=group_id,
-        user_id=user_id,
+    guarded = (
+        GuardResult(ok=not host_violations, tier=tier, reply=reply, violations=host_violations, blocked=bool(host_violations))
+        if cafe_host
+        else enforce_capability_guard(
+            tier=tier,
+            reply=reply,
+            candidates=candidates,
+            caller_group_id=group_id,
+            user_id=user_id,
+        )
     )
     if not cafe_host and guarded.blocked and not unlocks_network(tier):
         match_status = "skipped"
@@ -1235,13 +1239,15 @@ async def _execute_core_agent(
             topic = invite_res.topic
             mentioned_user_ids = invite_res.mentioned_user_ids
             invite_ok = invite_res.ok
-            _logger.info("Invite debug run_id=%s willing=%s kind=%s text_len=%d mentioned_count=%d", req.run_id, willing, delivery_kind, len(invite_text or ""), len(mentioned_user_ids))
-    elif (
-        req.run_invite
-        and profile_ok
-        and search_turn.called
-        and match_status == "empty"
-    ):
+            _logger.info(
+                "Invite debug run_id=%s willing=%s kind=%s text_len=%d mentioned_count=%d",
+                req.run_id,
+                willing,
+                delivery_kind,
+                len(invite_text or ""),
+                len(mentioned_user_ids),
+            )
+    elif req.run_invite and profile_ok and search_turn.called and match_status == "empty":
         _logger.info(
             "Invite skipped run_id=%s reason=empty_match_no_artifact",
             req.run_id,
@@ -1249,45 +1255,49 @@ async def _execute_core_agent(
 
     final_profile = load_profile(state.base_dir, user_id, group_id) if profile_ok else None
     saved_this_turn = False if cafe_host else _profile_save_succeeded_this_turn(messages, msg_count_before)
-    final_guarded = guarded if cafe_host else finalize_and_guard_user_visible_reply(
-        tier=tier,
-        caller_group_id=group_id,
-        user_id=user_id,
-        original_reply=guarded.reply,
-        profile=final_profile,
-        profile_persisted=profile_ok,
-        match_status=match_status,
-        candidates=guarded.candidates,
-        delivery_kind=delivery_kind,
-        invite_ok=invite_ok,
-        revisit_hint=revisit_hint,
-        match_reason=match_reason,
-        quality_gaps=quality_gaps,
-        profile_saved_this_turn=saved_this_turn,
+    final_guarded = (
+        guarded
+        if cafe_host
+        else finalize_and_guard_user_visible_reply(
+            tier=tier,
+            caller_group_id=group_id,
+            user_id=user_id,
+            original_reply=guarded.reply,
+            profile=final_profile,
+            profile_persisted=profile_ok,
+            match_status=match_status,
+            candidates=guarded.candidates,
+            delivery_kind=delivery_kind,
+            invite_ok=invite_ok,
+            revisit_hint=revisit_hint,
+            match_reason=match_reason,
+            quality_gaps=quality_gaps,
+            profile_saved_this_turn=saved_this_turn,
+            public_reads=public_reads,
+        )
     )
-    combined_guard_violations = list(
-        dict.fromkeys([*guarded.violations, *final_guarded.violations])
-    )
+    combined_guard_violations = list(dict.fromkeys([*guarded.violations, *final_guarded.violations]))
     combined_guard_blocked = guarded.blocked or final_guarded.blocked
 
-    out_candidates = invite_res.candidates if (req.run_invite and 'invite_res' in locals() and invite_res.candidates) else final_guarded.candidates
+    out_candidates = invite_res.candidates if (req.run_invite and "invite_res" in locals() and invite_res.candidates) else final_guarded.candidates
     if final_profile is not None and out_candidates:
         from apps.group_agent_api.agent_factory.invite import (
             enrich_candidates_with_single_copy,
         )
+
         out_candidates = enrich_candidates_with_single_copy(out_candidates, final_profile)
 
     # Determine reply_mode strictly in orchestrator code (TSD-13 §5.1)
     from apps.group_agent_api.agent_factory.grounding_protocol import (
-        ReplyMode,
-        GroundedFinalV1,
-        ProfileSummaryBlock,
-        MatchSummaryBlock,
-        InviteBlock,
-        GroundingBlock,
-        canonical_sha256,
         DialogueKind,
+        GroundedFinalV1,
+        GroundingBlock,
+        InviteBlock,
+        MatchSummaryBlock,
+        ProfileSummaryBlock,
+        ReplyMode,
         calculate_candidate_facts_digest,
+        canonical_sha256,
     )
     from apps.group_agent_api.agent_factory.integrations.config import (
         grounded_final_enabled,
@@ -1333,23 +1343,20 @@ async def _execute_core_agent(
         thread_id=tid,
     )
 
-    is_v2_run = (run_protocol_mode == "grounded_v2")
+    is_v2_run = run_protocol_mode == "grounded_v2"
 
     # A profile confirmation is a persisted-state assertion.  In grounded
     # mode it is only legal when the local cache carries the version returned
     # by Micro for that exact write.  Stub/legacy caches deliberately have no
     # version and must not manufacture one.
-    if is_v2_run:
-        if not grounded_final_enabled():
-            determined_reply_mode = ReplyMode.error
-        elif (
+    if is_v2_run and (
+        not grounded_final_enabled()
+        or (
             determined_reply_mode == ReplyMode.profile_confirmation
-            and (
-                final_profile is None
-                or getattr(final_profile, "profile_version", None) is None
-            )
-        ):
-            determined_reply_mode = ReplyMode.error
+            and (final_profile is None or getattr(final_profile, "profile_version", None) is None)
+        )
+    ):
+        determined_reply_mode = ReplyMode.error
 
     visible_reply = final_guarded.reply
     if not cafe_host and reply_grounding_enabled_for_user(user_id) and determined_reply_mode != ReplyMode.error:
@@ -1365,6 +1372,7 @@ async def _execute_core_agent(
             candidates=out_candidates,
             profile=final_profile,
             candidate_count=len(out_candidates),
+            public_reads=public_reads,
             model=judge_model,
             repair_fn=default_repair_fn(judge_model),
             user_id=user_id,
@@ -1413,7 +1421,9 @@ async def _execute_core_agent(
                 if hasattr(val, "value"):
                     return {
                         "value": str(val.value or "").strip(),
-                        "claim_type": getattr(val, "claim_type", "fact") if isinstance(getattr(val, "claim_type", "fact"), str) else getattr(val.claim_type, "value", "fact"),
+                        "claim_type": getattr(val, "claim_type", "fact")
+                        if isinstance(getattr(val, "claim_type", "fact"), str)
+                        else getattr(val.claim_type, "value", "fact"),
                     }
                 if isinstance(val, dict):
                     return {
@@ -1456,7 +1466,11 @@ async def _execute_core_agent(
             )
 
         cand_facts_digest = calculate_candidate_facts_digest(out_candidates) if out_candidates else ""
-        const_digest = canonical_sha256(final_profile.match_constraints) if final_profile and getattr(final_profile, "match_constraints", None) else "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        const_digest = (
+            canonical_sha256(final_profile.match_constraints)
+            if final_profile and getattr(final_profile, "match_constraints", None)
+            else "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        )
         grounding_block = GroundingBlock(
             candidate_facts_digest=cand_facts_digest,
             constraint_digest=const_digest,
@@ -1492,7 +1506,6 @@ async def _execute_core_agent(
         final_payload.update(typed_dict)
         final_payload["grounded_final"] = typed_dict
 
-
     # Admin ops-brain: never surface member match/search artifacts to the client.
     if admin_debug:
         final_payload["match_status"] = None
@@ -1506,7 +1519,6 @@ async def _execute_core_agent(
         final_payload["at_users"] = []
         final_payload["invite_ok"] = None
         final_payload["admin_ops_mode"] = True
-
 
     ref_payload = None if cafe_host else _referral_payload_from_metadata(req.metadata)
     if ref_payload is not None:
@@ -1536,7 +1548,15 @@ async def _execute_core_agent(
             "prior_candidate_ids_count": len(meta.get("prior_candidate_ids") or []),
             "delivery_kind": delivery_kind,
             "invite_ok": invite_ok,
-            **({"execution_binding": runtime_metadata["execution_binding"], "execution_mode": req.execution_mode, "executor": "cafe_agent" if cafe_host else "member_agent"} if req.request_schema_version == 3 else {}),
+            **(
+                {
+                    "execution_binding": runtime_metadata["execution_binding"],
+                    "execution_mode": req.execution_mode,
+                    "executor": "cafe_agent" if cafe_host else "member_agent",
+                }
+                if req.request_schema_version == 3
+                else {}
+            ),
         },
     )
     if trace_path:

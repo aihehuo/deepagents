@@ -9,7 +9,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from apps.group_agent_api.agent_factory.agent import SYSTEM_PROMPT, save_group_profile
-from apps.group_agent_api.agent_factory.capability import CapabilityTier
+from apps.group_agent_api.agent_factory.capability import CapabilityTier, resolve_session_capabilities
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
     finalize_user_visible_reply,
@@ -27,6 +27,10 @@ from apps.group_agent_api.app.endpoints import chat as chat_endpoint
 from apps.group_agent_api.app.models import AsyncCallRequest, ChatRequest
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
+
+
+def _state(*, agent: object, base_dir: Path) -> AppState:
+    return AppState(agent=agent, base_dir=base_dir, search_only_agent=agent, write_only_agent=agent, no_tool_agent=agent)
 
 
 def _profile(
@@ -88,9 +92,7 @@ class _PersistingAgent:
 
         return _State()
 
-    async def ainvoke(
-        self, payload: dict[str, Any], config: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def ainvoke(self, payload: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
         meta = config["metadata"]
         save_profile(
             self.base_dir,
@@ -249,9 +251,7 @@ def test_failed_persistence_does_not_claim_a_trusted_profile() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "tier", [CapabilityTier.not_in_group, CapabilityTier.unknown]
-)
+@pytest.mark.parametrize("tier", [CapabilityTier.not_in_group, CapabilityTier.unknown])
 def test_non_network_capability_never_promises_people_or_invites(
     tier: CapabilityTier,
 ) -> None:
@@ -275,8 +275,7 @@ def test_post_finalization_guard_fails_closed_on_future_network_regression(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "apps.group_agent_api.agent_factory.content_quality."
-        "finalize_user_visible_reply",
+        "apps.group_agent_api.agent_factory.content_quality.finalize_user_visible_reply",
         lambda **_kwargs: "我已在本群为你推荐候选人 @u101。",
     )
     guarded = finalize_and_guard_user_visible_reply(
@@ -467,7 +466,7 @@ async def test_sync_chat_returns_finalized_reply_not_raw_model_text(
 ) -> None:
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "stub")
     monkeypatch.setenv("GROUP_AGENT_ENV", "test")
-    state = AppState(agent=_PersistingAgent(tmp_path), base_dir=tmp_path)
+    state = _state(agent=_PersistingAgent(tmp_path), base_dir=tmp_path)
 
     response = await chat_endpoint.chat(
         ChatRequest(
@@ -493,7 +492,7 @@ async def test_sync_chat_returns_finalized_reply_not_raw_model_text(
 async def test_async_final_callback_returns_same_finalized_semantics(
     tmp_path: Path,
 ) -> None:
-    state = AppState(agent=_PersistingAgent(tmp_path), base_dir=tmp_path)
+    state = _state(agent=_PersistingAgent(tmp_path), base_dir=tmp_path)
     session = TrustedSession(
         principal=SessionPrincipal(
             user_id="u105",
@@ -504,6 +503,7 @@ async def test_async_final_callback_returns_same_finalized_semantics(
         group_id="group_l1_alpha",
         group_token=None,
         membership=MembershipResult(tier=CapabilityTier.not_in_group, source="stub"),
+        capabilities=resolve_session_capabilities(tier=CapabilityTier.not_in_group, can_write_profile=True),
     )
     req = AsyncCallRequest(
         run_id="req014_async_run",
@@ -548,7 +548,7 @@ async def test_sync_not_in_group_reply_has_no_network_surface(
 ) -> None:
     monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "stub")
     monkeypatch.setenv("GROUP_AGENT_ENV", "test")
-    state = AppState(agent=_PersistingAgent(tmp_path), base_dir=tmp_path)
+    state = _state(agent=_PersistingAgent(tmp_path), base_dir=tmp_path)
 
     response = await chat_endpoint.chat(
         ChatRequest(

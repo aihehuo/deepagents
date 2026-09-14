@@ -29,6 +29,7 @@ COPY libs/deepagents /app/libs/deepagents
 
 # Copy application code
 COPY apps/group_agent_api /app/apps/group_agent_api
+COPY skillpacks /app/skillpacks
 
 # REQ-032: API admission/broker imports apps.group_agent_worker.celery_app
 # (enqueue + /ready probe). Without this package, durable mode fails closed.

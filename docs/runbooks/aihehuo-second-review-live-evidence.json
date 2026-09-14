@@ -1,0 +1,427 @@
+{
+  "date": "2026-09-14",
+  "tests_passed": 15,
+  "real_model_executed": true,
+  "evidence": [
+    {
+      "resource": "users",
+      "url": "https://www.aihehuo.com/ai/users.json?per=2",
+      "count": 1,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 10000,
+        "total_count": 10000,
+        "per_page": 1,
+        "next_page": 2,
+        "page": 1,
+        "per": 1,
+        "total": 10000,
+        "has_more": true
+      },
+      "fields": [
+        "bio",
+        "city",
+        "created_at",
+        "description",
+        "id",
+        "industry",
+        "job_descriptions",
+        "last_accessed_at",
+        "name",
+        "number",
+        "province",
+        "status_role",
+        "summary",
+        "tags",
+        "title",
+        "url"
+      ],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "resource": "ideas",
+      "url": "https://www.aihehuo.com/ai/ideas.json?per=2",
+      "count": 1,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 10000,
+        "total_count": 10000,
+        "per_page": 1,
+        "next_page": 2,
+        "page": 1,
+        "per": 1,
+        "total": 10000,
+        "has_more": true
+      },
+      "fields": [
+        "city",
+        "cover",
+        "created_at",
+        "description",
+        "id",
+        "industry",
+        "investment",
+        "province",
+        "state",
+        "sub_vertical",
+        "summary",
+        "tags",
+        "team_members",
+        "title",
+        "updated_at",
+        "url",
+        "user",
+        "vertical"
+      ],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "resource": "projects",
+      "url": "https://www.aihehuo.com/ai/projects.json?per=2",
+      "count": 1,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 8,
+        "total_count": 8,
+        "per_page": 1,
+        "next_page": 2,
+        "page": 1,
+        "per": 1,
+        "total": 8,
+        "has_more": true
+      },
+      "fields": [
+        "banner",
+        "created_at",
+        "description",
+        "highlights",
+        "hq_city",
+        "id",
+        "my_role",
+        "partner_geo",
+        "partner_model",
+        "product",
+        "slogan",
+        "status",
+        "summary",
+        "tags",
+        "title",
+        "updated_at",
+        "url",
+        "user",
+        "vertical"
+      ],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "resource": "blog",
+      "url": "https://www.aihehuo.com/ai/blog.json?per=2",
+      "count": 1,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 700,
+        "total_count": 700,
+        "per_page": 1,
+        "next_page": 2,
+        "page": 1,
+        "per": 1,
+        "total": 700,
+        "has_more": true
+      },
+      "fields": [
+        "abstract",
+        "body_text",
+        "body_text_truncated",
+        "description",
+        "id",
+        "keywords",
+        "published_at",
+        "summary",
+        "tags",
+        "title",
+        "updated_at",
+        "url"
+      ],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "resource": "faqs",
+      "url": "https://www.aihehuo.com/ai/faqs.json?per=2",
+      "count": 1,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 85,
+        "total_count": 85,
+        "per_page": 1,
+        "next_page": 2,
+        "page": 1,
+        "per": 1,
+        "total": 85,
+        "has_more": true
+      },
+      "fields": [
+        "answer",
+        "category",
+        "question",
+        "source",
+        "tags",
+        "url"
+      ],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "resource": "groups",
+      "url": "https://www.aihehuo.com/ai/wechat_groups.json?per=2",
+      "count": 1,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 88,
+        "total_count": 88,
+        "per_page": 1,
+        "next_page": 2,
+        "page": 1,
+        "per": 1,
+        "total": 88,
+        "has_more": true
+      },
+      "fields": [
+        "description",
+        "group_title",
+        "id",
+        "industry",
+        "recommended_members",
+        "summary",
+        "tags",
+        "title",
+        "total_members",
+        "url",
+        "wechat_group_title"
+      ],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "resource": "group-members",
+      "url": "https://www.aihehuo.com/ai/wechat_groups/763.json?per=2",
+      "count": 1,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 867,
+        "total_count": 867,
+        "per_page": 1,
+        "next_page": 2,
+        "page": 1,
+        "per": 1,
+        "total": 867,
+        "has_more": true
+      },
+      "fields": [
+        "avatar",
+        "bio",
+        "city",
+        "goal",
+        "last_accessed_at",
+        "name",
+        "number",
+        "seeking",
+        "status_role",
+        "url"
+      ],
+      "data_shape": "group_with_members",
+      "requested_per": 2
+    },
+    {
+      "resource": "groups",
+      "url": "https://www.aihehuo.com/ai/wechat_groups.json?per=2&page=2",
+      "count": 2,
+      "meta": {
+        "current_page": 2,
+        "total_pages": 44,
+        "total_count": 88,
+        "per_page": 2,
+        "next_page": 3,
+        "page": 2,
+        "per": 2,
+        "total": 88,
+        "has_more": true
+      },
+      "fields": [
+        "description",
+        "group_title",
+        "id",
+        "industry",
+        "recommended_members",
+        "summary",
+        "tags",
+        "title",
+        "total_members",
+        "url",
+        "wechat_group_title"
+      ],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "resource": "groups",
+      "url": "https://www.aihehuo.com/ai/wechat_groups.json?per=2&page=1",
+      "count": 2,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 44,
+        "total_count": 88,
+        "per_page": 2,
+        "next_page": 2,
+        "page": 1,
+        "per": 2,
+        "total": 88,
+        "has_more": true
+      },
+      "fields": [
+        "description",
+        "group_title",
+        "id",
+        "industry",
+        "recommended_members",
+        "summary",
+        "tags",
+        "title",
+        "total_members",
+        "url",
+        "wechat_group_title"
+      ],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "resource": "weekly",
+      "url": "https://www.aihehuo.com/ai/blog/weekly_markdown",
+      "characters": 29536
+    },
+    {
+      "resource": "users",
+      "url": "https://www.aihehuo.com/ai/users.json?per=2&q=%E6%8A%80%E6%9C%AF%E5%90%88%E4%BC%99%E4%BA%BA",
+      "count": 1,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 10000,
+        "total_count": 10000,
+        "per_page": 1,
+        "next_page": 2,
+        "page": 1,
+        "per": 1,
+        "total": 10000,
+        "has_more": true
+      },
+      "fields": [
+        "bio",
+        "city",
+        "created_at",
+        "description",
+        "id",
+        "industry",
+        "job_descriptions",
+        "last_accessed_at",
+        "name",
+        "number",
+        "province",
+        "status_role",
+        "summary",
+        "tags",
+        "title",
+        "url"
+      ],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "resource": "ideas",
+      "url": "https://www.aihehuo.com/ai/ideas.json?per=2&q=%E6%8A%80%E6%9C%AF%E5%90%88%E4%BC%99%E4%BA%BA",
+      "count": 1,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 10000,
+        "total_count": 10000,
+        "per_page": 1,
+        "next_page": 2,
+        "page": 1,
+        "per": 1,
+        "total": 10000,
+        "has_more": true
+      },
+      "fields": [
+        "city",
+        "cover",
+        "created_at",
+        "description",
+        "id",
+        "industry",
+        "investment",
+        "province",
+        "state",
+        "sub_vertical",
+        "summary",
+        "tags",
+        "team_members",
+        "title",
+        "updated_at",
+        "url",
+        "user",
+        "vertical"
+      ],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "resource": "faqs",
+      "url": "https://www.aihehuo.com/ai/faqs.json?per=2&keyword=aihehuo_acceptance_no_match_7d952ef0",
+      "count": 0,
+      "meta": {
+        "current_page": 1,
+        "total_pages": 1,
+        "total_count": 0,
+        "per_page": 2,
+        "next_page": null,
+        "page": 1,
+        "per": 2,
+        "total": 0,
+        "has_more": false
+      },
+      "fields": [],
+      "data_shape": "list",
+      "requested_per": 2
+    },
+    {
+      "scenario": "member_graph_controlled_model",
+      "public_requests": [
+        "/ai/faqs.json?per=2"
+      ],
+      "legacy_match_calls": 0,
+      "profile_written": false
+    },
+    {
+      "scenario": "member_graph_real_model",
+      "public_requests": [
+        "/ai/faqs.json?page=1&per=2"
+      ],
+      "legacy_match_calls": 0,
+      "profile_written": false,
+      "rejected_tool_queries": []
+    },
+    {
+      "scenario": "anonymous_http_real_model",
+      "public_requests": [
+        "/ai/faqs.json?page=1&per=2"
+      ],
+      "http_status": 200,
+      "signed_identity_provided": false,
+      "profile_accessed": false,
+      "profile_written": false,
+      "legacy_match_calls": 0
+    }
+  ]
+}

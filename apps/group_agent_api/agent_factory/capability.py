@@ -6,6 +6,7 @@ PRC-01 §7.4 / §9.1 Q9：在群解锁人脉；不在群 / 判不出 → 仅通�
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -47,3 +48,33 @@ def resolve_capability(membership: str | bool | None) -> CapabilityTier:
 def unlocks_network(tier: CapabilityTier) -> bool:
     """人脉能力（候选人 / 匹配 / @）是否解锁。"""
     return tier is CapabilityTier.in_group
+
+
+@dataclass(frozen=True)
+class SessionCapabilities:
+    """Trusted session permissions for independently composed read/write tools."""
+
+    tier: CapabilityTier
+    can_search: bool
+    can_write_profile: bool
+
+
+def resolve_session_capabilities(
+    *,
+    tier: CapabilityTier,
+    can_write_profile: bool,
+) -> SessionCapabilities:
+    """Bind the trusted tier to independently granted profile-write permission.
+
+    Args:
+        tier: Trusted membership tier.
+        can_write_profile: Whether the trusted session grants writes.
+
+    Returns:
+        Session tool permissions.
+    """
+    return SessionCapabilities(
+        tier=tier,
+        can_search=unlocks_network(tier),
+        can_write_profile=bool(can_write_profile),
+    )

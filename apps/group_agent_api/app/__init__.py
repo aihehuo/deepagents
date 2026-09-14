@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 
-from apps.group_agent_api.app.endpoints import call_async, chat, health, invite, match, profile, reset
+from apps.group_agent_api.app.anonymous_models import AnonymousChatRequest, AnonymousChatResponse
+from apps.group_agent_api.app.endpoints import anonymous, call_async, chat, health, invite, match, profile, reset
 from apps.group_agent_api.app.models import (
     AsyncCallRequest,
     AsyncCallResponse,
@@ -44,8 +45,7 @@ def create_app() -> FastAPI:
         title="Group Agent API",
         version="0.4.1",
         description=(
-            "UC-34 group agent · HMAC-signed principal (REQ-007 FIX3) + "
-            "Micro WebSocket async callback integration (REQ-009 / RESP-009-FIX)"
+            "UC-34 group agent · HMAC-signed principal (REQ-007 FIX3) + Micro WebSocket async callback integration (REQ-009 / RESP-009-FIX)"
         ),
         lifespan=lifespan,
     )
@@ -69,6 +69,12 @@ def create_app() -> FastAPI:
     async def chat_endpoint(req: ChatRequest, request: Request) -> ChatResponse:
         assert _state is not None
         return await chat.chat(req, _state, request)
+
+    @app_inst.post("/chat/anonymous", response_model=AnonymousChatResponse)
+    async def anonymous_chat_endpoint(req: AnonymousChatRequest) -> AnonymousChatResponse:
+        if _state is None:
+            raise HTTPException(status_code=503, detail="application_state_unavailable")
+        return await anonymous.anonymous_chat(req, _state)
 
     @app_inst.post("/match", response_model=MatchResponse)
     async def match_endpoint(req: MatchRequest, request: Request) -> MatchResponse:
@@ -106,4 +112,4 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
-__all__ = ["app", "_state"]
+__all__ = ["_state", "app"]

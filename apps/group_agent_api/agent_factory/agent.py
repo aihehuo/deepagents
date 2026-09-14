@@ -7,6 +7,13 @@ No matching / candidates / @ invite words in this slice.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from langchain_core.language_models import BaseChatModel
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+    from langgraph.graph.state import CompiledStateGraph
+
 import logging
 from pathlib import Path
 from typing import Any
@@ -22,6 +29,11 @@ from apps.group_agent_api.agent_factory.content_quality import (
     is_need_shaped_doing,
     is_preference_shaped_offer,
 )
+from apps.group_agent_api.agent_factory.context import (
+    FORCE_SAVE_PROMPT_TEXT,
+    SYSTEM_FRAGMENT_IDS,
+    build_system_prompt,
+)
 from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
 from apps.group_agent_api.agent_factory.integrations.config import integration_mode
 from apps.group_agent_api.agent_factory.integrations.profile_client import (
@@ -29,21 +41,17 @@ from apps.group_agent_api.agent_factory.integrations.profile_client import (
     persist_group_profile,
 )
 from apps.group_agent_api.agent_factory.model_builder import create_model
-from apps.group_agent_api.agent_factory.search_tool import search_candidates
 from apps.group_agent_api.agent_factory.profile_schema import (
     DisclosureLevel,
     GroupProfile,
     ProfileField,
 )
 from apps.group_agent_api.agent_factory.profile_store import save_profile
-from apps.group_agent_api.agent_factory.context import (
-    FORCE_SAVE_PROMPT_TEXT,
-    SYSTEM_FRAGMENT_IDS,
-    build_system_prompt,
-)
+from apps.group_agent_api.agent_factory.read_skills import member_read_configuration
+from apps.group_agent_api.agent_factory.skill_backend import SkillReadOnlyBackend
+from apps.group_agent_api.agent_factory.write_skills import member_write_configuration, profile_write_mode
 from apps.group_agent_api.checkpointer import DiskBackedInMemorySaver
 from deepagents import create_deep_agent
-from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.observability import UCObserver
 
 _logger = logging.getLogger("uvicorn.error")
@@ -104,8 +112,29 @@ def save_group_profile(
     base_dir_raw = metadata.get("base_dir") or str(default_runtime_dir())
     base_dir = Path(str(base_dir_raw))
     run_id = str(metadata.get("run_id") or "").strip()
+    try:
+        write_mode = profile_write_mode()
+    except ValueError:
+        return "error: invalid_write_mode"
+    raw_write_capability = metadata.get("can_write_profile", write_mode == "legacy")
+    can_write_profile = (
+        raw_write_capability is True
+        if isinstance(raw_write_capability, bool)
+        else str(raw_write_capability).strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    )
     source_message_id_trusted = metadata.get("source_message_id")
     source_message_text_trusted = metadata.get("source_message_text")
+
+    if not can_write_profile or write_mode == "disabled":
+        return "error: write_capability_disabled"
+
+    if write_mode == "skillpack":
+        from skillpacks.aihehuo_write.adapter import validate_installation
+
+        try:
+            validate_installation(skills_dir=base_dir / "skills" / "aihehuo_write")
+        except (ValueError, OSError) as error:
+            return f"error: write_skill_unavailable:{type(error).__name__}"
 
     if str(metadata.get("source") or "").strip() == "group_agent_admin_debug":
         return "error: admin_mode_read_only; do not save member profiles"
@@ -154,10 +183,7 @@ def save_group_profile(
             semantic_errors.append("offer_describes_preference")
         if semantic_errors:
             reason = ",".join(semantic_errors)
-            UC34Observer.warn(
-                f"action=save_group_profile_rejected user_id={user_id} "
-                f"group_id={group_id} reason={reason} status=resubmit_required"
-            )
+            UC34Observer.warn(f"action=save_group_profile_rejected user_id={user_id} group_id={group_id} reason={reason} status=resubmit_required")
             return f"error: semantic_projection:{reason}; resubmit_required"
 
         # TSD-13 / REQ-DA-066: match constraints validation
@@ -179,16 +205,8 @@ def save_group_profile(
                         return f"error: invalid_match_constraint:{c_exc}"
 
         if parsed_constraints:
-            hard_constraints = [
-                c.model_dump(mode="json")
-                for c in parsed_constraints
-                if getattr(c, "strength", "") == "hard"
-            ]
-            soft_constraints = [
-                c.model_dump(mode="json")
-                for c in parsed_constraints
-                if getattr(c, "strength", "") != "hard"
-            ]
+            hard_constraints = [c.model_dump(mode="json") for c in parsed_constraints if getattr(c, "strength", "") == "hard"]
+            soft_constraints = [c.model_dump(mode="json") for c in parsed_constraints if getattr(c, "strength", "") != "hard"]
             record_decision_point(
                 phase="constraint_extraction",
                 detail={
@@ -213,10 +231,7 @@ def save_group_profile(
             assert_write_allowed("save_group_profile")
             commit_profile_write_allowed(user_id=user_id, group_id=group_id)
         except FenceRejectedError as exc:
-            UC34Observer.warn(
-                f"action=save_group_profile_fence_rejected user_id={user_id} "
-                f"group_id={group_id} reason={exc.code}"
-            )
+            UC34Observer.warn(f"action=save_group_profile_fence_rejected user_id={user_id} group_id={group_id} reason={exc.code}")
             return f"error: fence_rejected:{exc.code}"
 
         fence = get_active_fence()
@@ -277,9 +292,7 @@ def save_group_profile(
             for dim_name, cl in [("doing", doing_claim), ("need", need_claim), ("offer", offer_claim)]:
                 dim_violations = validate_profile_claim_grounding(cl, str(source_message_text_trusted))
                 if dim_violations:
-                    UC34Observer.warn(
-                        f"action=profile_claim_grounding_warning dim={dim_name} violations={dim_violations}"
-                    )
+                    UC34Observer.warn(f"action=profile_claim_grounding_warning dim={dim_name} violations={dim_violations}")
 
         profile = GroupProfile(
             user_id=user_id,
@@ -314,42 +327,30 @@ def save_group_profile(
         else:
             path = None
     except ProfileHttpError as exc:
-        UC34Observer.error(
-            f"action=save_group_profile_remote_error user_id={user_id} "
-            f"group_id={group_id} error={exc}"
-        )
+        UC34Observer.error(f"action=save_group_profile_remote_error user_id={user_id} group_id={group_id} error={exc}")
         return f"error: profile_database:{exc}"
     except Exception as exc:  # noqa: BLE001
-        UC34Observer.error(
-            f"action=save_group_profile_error user_id={user_id} "
-            f"group_id={group_id} error={exc}"
-        )
+        UC34Observer.error(f"action=save_group_profile_error user_id={user_id} group_id={group_id} error={exc}")
         return f"error: {exc}"
 
-    UC34Observer.info(
-        f"action=save_group_profile user_id={user_id} group_id={group_id} "
-        f"path={path} status=success"
-    )
+    if remote_ack is not None and remote_ack["status"] == "fence_rejected":
+        return "error: fence_rejected:remote_write_rejected"
+
+    UC34Observer.info(f"action=save_group_profile user_id={user_id} group_id={group_id} path={path} status=success")
     if remote_ack is not None:
         if remote_ack["status"] == "stale_ignored":
             return (
-                f"{PROFILE_SUPERSEDED_RESULT_PREFIX} database kept a newer profile "
-                f"(version={remote_ack['profile_version']}); local cache unchanged"
+                f"{PROFILE_SUPERSEDED_RESULT_PREFIX} database kept a newer profile (version={remote_ack['profile_version']}); local cache unchanged"
             )
         try:
             from apps.group_agent_api.agent_factory.profile_quality import (
                 bind_profile_to_episode,
             )
 
-            bind_profile_to_episode(
-                base_dir, user_id, group_id, metadata=metadata
-            )
+            bind_profile_to_episode(base_dir, user_id, group_id, metadata=metadata)
         except Exception:  # noqa: BLE001
             pass
-        return (
-            "ok: saved profile to database "
-            f"(version={remote_ack['profile_version']}) and local cache"
-        )
+        return f"ok: saved profile to database (version={remote_ack['profile_version']}) and local cache"
     try:
         from apps.group_agent_api.agent_factory.profile_quality import (
             bind_profile_to_episode,
@@ -370,6 +371,103 @@ def member_system_prompt() -> str:
     return build_system_prompt() + search_relax_system_addon()
 
 
+def _composed_member_prompt(*, can_search: bool, can_save: bool, public: bool) -> str:
+    if can_search and can_save and not public:
+        return member_system_prompt()
+    from apps.group_agent_api.agent_factory.context import (
+        CTX_SYSTEM_SUGGESTED_REPLIES,
+        CTX_SYSTEM_WECHAT_STYLE,
+        enabled_context_ids,
+    )
+
+    safe_ids = {CTX_SYSTEM_WECHAT_STYLE, CTX_SYSTEM_SUGGESTED_REPLIES}
+    prompt = "你是群智能体对话助手。先回应用户的问题，一次只追问一个必要细节，不编造事实。\n"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+    prompt += build_system_prompt(enabled_context_ids() & safe_ids)
+    if can_save:
+        prompt += "\n用户补充本人信息时，按用户原话用 save_group_profile 保存 doing/need/offer 和约束；只在工具确认成功后确认保存。"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+    if can_search and not public:
+        prompt += "\n用户要求找人时调用 search_candidates；只使用本轮工具返回的公开候选字段，不编造履历。"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+        from apps.group_agent_api.agent_factory.search_relax import search_relax_system_addon
+
+        prompt += search_relax_system_addon()
+    return prompt
+
+
+def create_member_agent(
+    *,
+    model: BaseChatModel | None = None,
+    checkpointer: BaseCheckpointSaver | None = None,
+    runtime: Path | None = None,
+    include_search: bool = True,
+    include_save: bool = False,
+) -> CompiledStateGraph:
+    """Create a member graph with a controllable read/write skill set.
+
+    Args:
+        model: Chat model for this graph.
+        checkpointer: Shared checkpoint instance.
+        runtime: Runtime directory for filesystem backend.
+        include_search: Expose reads selected by `GROUP_AGENT_READ_MODE`.
+        include_save: Expose writes selected by `GROUP_AGENT_WRITE_MODE`.
+
+    Returns:
+        Member graph with the requested business tools.
+
+    Raises:
+        RuntimeError: If no shared checkpointer is supplied.
+    """
+    runtime = runtime or default_runtime_dir()
+    runtime.mkdir(parents=True, exist_ok=True)
+    UCObserver.set_log_dir(runtime / "logs")
+    if checkpointer is None:
+        msg = "checkpointer is required for create_member_agent"
+        raise RuntimeError(msg)
+
+    backend = SkillReadOnlyBackend(root_dir=str(runtime), virtual_mode=True)
+    llm = model or create_model()
+    tools, write_skills, write_prompt = member_write_configuration(
+        runtime=runtime,
+        enabled=include_save,
+        writer=save_group_profile,
+    )
+    reads, skills, prompt = member_read_configuration(runtime=runtime, enabled=include_search)
+    can_save = bool(tools)
+    tools.extend(reads)
+    public = any(t.name == "query_aihehuo_public_data" for t in reads)
+
+    from apps.group_agent_api.agent_factory.context.venue import VenueHostMiddleware
+
+    return create_deep_agent(
+        model=llm,
+        tools=tools,
+        system_prompt=_composed_member_prompt(
+            can_search=bool(reads),
+            can_save=can_save,
+            public=public,
+        )
+        + prompt
+        + write_prompt,
+        skills=skills + write_skills,
+        backend=backend,
+        checkpointer=checkpointer,
+        middleware=[VenueHostMiddleware()],
+        # Keep public queries in the main graph, where this-turn tool messages
+        # are available to reply grounding. Helpers may plan but cannot hide
+        # public facts behind an ungrounded task summary.
+        subagents=[
+            {
+                "name": "general-purpose",
+                "description": "帮助拆解问题、提供查询思路；公开数据由主图查询。",  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+                "system_prompt": "只提供问题拆解和查询思路，不查询公开数据、不保存画像、不编造人物资料。",  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+                "tools": [],
+            }
+        ]
+        if public
+        else None,
+        # Public read skills are opt-in; writes remain independently composed.
+    )
+
+
 def create_agent(
     *,
     base_dir: Path | None = None,
@@ -383,19 +481,17 @@ def create_agent(
 
     ckpt_path = runtime / "checkpoints.pkl"
     ckpt = checkpointer or DiskBackedInMemorySaver(file_path=ckpt_path)
-    backend = FilesystemBackend(root_dir=str(runtime), virtual_mode=True)
     llm = model or create_model()
-    from apps.group_agent_api.agent_factory.context.venue import VenueHostMiddleware
 
-    agent = create_deep_agent(
+    agent = create_member_agent(
+        runtime=runtime,
         model=llm,
-        tools=[save_group_profile, search_candidates],
-        system_prompt=member_system_prompt(),
-        backend=backend,
         checkpointer=ckpt,
-        middleware=[VenueHostMiddleware()],
-        # Slice 1: no subagents, no skills, no free-form memory middleware
+        include_search=True,
+        include_save=True,
     )
+    # Create admin graph with same backend/checkpointer for shared execution state.
+    backend = SkillReadOnlyBackend(root_dir=str(runtime), virtual_mode=True)
     admin_agent = create_deep_agent(
         model=llm,
         tools=list(ADMIN_OPS_TOOLS),

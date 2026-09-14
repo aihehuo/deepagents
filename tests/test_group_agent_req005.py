@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from langchain_core.messages import AIMessage
+
 from apps.group_agent_api.agent_factory.capability import (
     CapabilityTier,
     resolve_capability,
@@ -20,18 +22,13 @@ from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
 from apps.group_agent_api.agent_factory.match_stub import (
     MatchStub,
     PoolMember,
-    build_query_from_profile,
-    get_match_stub,
     set_match_stub,
 )
 from apps.group_agent_api.agent_factory.profile_schema import profile_from_flat
 from apps.group_agent_api.agent_factory.profile_store import save_profile
-from apps.group_agent_api.app.endpoints import chat as chat_ep
-from apps.group_agent_api.app.endpoints import match as match_ep
+from apps.group_agent_api.app.endpoints import chat as chat_ep, match as match_ep
 from apps.group_agent_api.app.models import ChatRequest, MatchRequest
 from apps.group_agent_api.app.state import AppState
-from langchain_core.messages import AIMessage, HumanMessage
-
 
 # ---------------------------------------------------------------------------
 # Capability · 单一集中定义
@@ -57,9 +54,7 @@ def test_resolve_capability_three_tiers() -> None:
 
 
 @pytest.mark.parametrize("tier", [CapabilityTier.not_in_group, CapabilityTier.unknown])
-def test_guard_blocks_candidates_when_not_in_group(
-    tier: CapabilityTier, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_guard_blocks_candidates_when_not_in_group(tier: CapabilityTier, caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.ERROR):
         result = enforce_capability_guard(
             tier=tier,
@@ -253,9 +248,7 @@ class _FakeAgent:
 
         return _S()
 
-    async def ainvoke(
-        self, payload: dict[str, Any], config: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def ainvoke(self, payload: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
         self.invoke_count += 1
         self.messages.append(payload["messages"][0])
         self.messages.append(AIMessage(content="记下了"))
@@ -278,12 +271,16 @@ class _StubQualityModel:
     def invoke(self, *args: Any, **kwargs: Any) -> Any:
         class _Resp:
             content = '{"ready": true, "score": 85, "gaps": [], "reasons": []}'
+
         return _Resp()
 
 
 def _state(agent: Any, tmp_path: Path) -> AppState:
     return AppState(
         agent=agent,
+        search_only_agent=agent,
+        write_only_agent=agent,
+        no_tool_agent=agent,
         base_dir=tmp_path,
         checkpoints_path=str(tmp_path / "checkpoints.pkl"),
         quality_model=_StubQualityModel(),

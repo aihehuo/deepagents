@@ -29,6 +29,18 @@ _COUNT_CLAIM = re.compile(
     r"(\d+)\s*位值得"
 )
 
+_PUBLIC_GROUP_CLAIM = re.compile(r"(?:本群|当前群|群内).{0,12}(?:成员|人才|人选|匹配)|匹配到|@[^\s@，。,.！!？?]{1,32}")  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+_PUBLIC_GROUP_NEGATION = re.compile(r"(?:不证明|不代表|无法确认|并非|不是|不属于|没有|未完成|尚未|不能)[^。；，,但]{0,12}$")  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+
+
+def _public_group_span(reply: str) -> str:
+    for match in _PUBLIC_GROUP_CLAIM.finditer(reply):
+        prefix = re.split(r"[。；;\n]", reply[: match.start()])[-1][-24:]  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+        if _PUBLIC_GROUP_NEGATION.search(prefix):
+            continue
+        return match.group(0)[:80]
+    return ""
+
 
 def run_l0(payload: ReplyGroundingInput) -> ReplyGroundingOutput | None:
     """Return a fail output when L0 can decide without LLM; else None."""
@@ -46,21 +58,34 @@ def run_l0(payload: ReplyGroundingInput) -> ReplyGroundingOutput | None:
     count = int(payload.ground.candidate_count or 0)
     adopted = len(payload.ground.candidates or [])
     effective_count = min(count, adopted) if adopted else count
+    public_people = [record for item in payload.ground.public_reads if item.resource in {"users", "group-members"} for record in item.records]
+    supported_public_person = any(
+        isinstance(record.get("name"), str) and bool(record["name"]) and record["name"] in reply for record in public_people
+    ) and any(
+        item.source_url in reply
+        or any(isinstance(record.get("url"), str) and bool(record["url"]) and record["url"] in reply for record in item.records)
+        for item in payload.ground.public_reads
+    )
+    public_group_span = _public_group_span(reply)
+    if payload.ground.public_reads and not adopted and public_group_span:
+        return ReplyGroundingOutput(
+            verdict=Verdict.fail,
+            codes=["unsupported_claim"],
+            spans=[public_group_span],
+            repairable_by=RepairableBy.llm,
+            message="公网资料不证明属于当前群、可 @ 或已完成群内匹配。只引用公开事实及来源。",
+            layer="l0",
+        )
 
     # Invented people when this turn adopted nobody.
-    if effective_count <= 0 and (
-        looks_like_invented_candidate_narrative(reply) or _NAMED_PERSON_STYLE.search(reply)
-    ):
+    if effective_count <= 0 and not supported_public_person and (looks_like_invented_candidate_narrative(reply) or _NAMED_PERSON_STYLE.search(reply)):
         span = _first_span(reply, _NAMED_PERSON_STYLE) or "具体人选叙述"
         return ReplyGroundingOutput(
             verdict=Verdict.fail,
             codes=["invented_candidate"],
             spans=[span],
             repairable_by=RepairableBy.llm,
-            message=(
-                "本轮无采用候选人，reply 却出现具体人选或履历叙述。"
-                "删掉人选/履历，只保留澄清或空结果说明。"
-            ),
+            message=("本轮无采用候选人，reply 却出现具体人选或履历叙述。删掉人选/履历，只保留澄清或空结果说明。"),
             layer="l0",
         )
 
@@ -72,10 +97,7 @@ def run_l0(payload: ReplyGroundingInput) -> ReplyGroundingOutput | None:
             codes=["unsupported_claim"],
             spans=[f"声称{claimed}位但本轮采用{effective_count}位"],
             repairable_by=RepairableBy.llm,
-            message=(
-                f"reply 声称 {claimed} 位人选，但本轮 ground.candidate_count="
-                f"{effective_count}。改成与采用人数一致，或去掉人数断言。"
-            ),
+            message=(f"reply 声称 {claimed} 位人选，但本轮 ground.candidate_count={effective_count}。改成与采用人数一致，或去掉人数断言。"),
             layer="l0",
         )
 
@@ -86,10 +108,7 @@ def run_l0(payload: ReplyGroundingInput) -> ReplyGroundingOutput | None:
             codes=["unverified_action"],
             spans=[_first_span(reply, None) or "已发送/已通知类完成态"],
             repairable_by=RepairableBy.llm,
-            message=(
-                "reply 含完成态动作表述，但本轮 receipts 为空。"
-                "改为建议用户手动复制发送，勿声称已发群或已通知管理员。"
-            ),
+            message=("reply 含完成态动作表述，但本轮 receipts 为空。改为建议用户手动复制发送，勿声称已发群或已通知管理员。"),
             layer="l0",
         )
 

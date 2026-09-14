@@ -13,7 +13,7 @@ import requests
 from langchain_core.messages import AIMessage, ToolMessage
 
 from apps.group_agent_api.agent_factory.agent import save_group_profile
-from apps.group_agent_api.agent_factory.capability import CapabilityTier
+from apps.group_agent_api.agent_factory.capability import CapabilityTier, SessionCapabilities
 from apps.group_agent_api.agent_factory.integrations.membership_client import (
     MembershipResult,
 )
@@ -81,9 +81,7 @@ def _profile() -> GroupProfile:
 
 
 def test_canonical_profile_digest_matches_micro_fixed_order_json() -> None:
-    assert canonical_profile_digest(_profile()) == (
-        "3d2317e5c9507fa4fefc5b8661300e9afaf58110afed412f69c0a0e7f98c0c11"
-    )
+    assert canonical_profile_digest(_profile()) == ("3d2317e5c9507fa4fefc5b8661300e9afaf58110afed412f69c0a0e7f98c0c11")
 
 
 def test_persist_group_profile_signs_exact_body(
@@ -391,6 +389,11 @@ def _trusted_session() -> TrustedSession:
             tier=CapabilityTier.in_group,
             source="database_membership",
         ),
+        capabilities=SessionCapabilities(
+            tier=CapabilityTier.in_group,
+            can_search=True,
+            can_write_profile=True,
+        ),
     )
 
 
@@ -520,14 +523,35 @@ def test_http_tool_keeps_cache_unchanged_for_stale_ack(
 
     result = _invoke_save_tool(tmp_path)
 
-    assert result == (
-        "ok: profile_superseded; database kept a newer profile "
-        "(version=4); local cache unchanged"
-    )
+    assert result == ("ok: profile_superseded; database kept a newer profile (version=4); local cache unchanged")
     cached = load_profile(tmp_path, "u1", "g1")
     assert cached is not None
     assert cached.updated_at == existing.updated_at
     assert cached.doing.value == "权威缓存中的新项目"
+
+
+def test_save_tool_requires_write_capability(tmp_path: Path) -> None:
+    result = _invoke_save_tool(tmp_path)
+    assert str(result).startswith("ok:")
+    assert load_profile(tmp_path, "u1", "g1") is not None
+    no_write = save_group_profile.invoke(
+        {
+            "doing": "做 AI Agent",
+            "need": "找渠道",
+            "offer": "产品能力",
+            "need_disclosure": "match_only",
+        },
+        config={
+            "metadata": {
+                "user_id": "u1",
+                "group_id": "g1",
+                "base_dir": str(tmp_path),
+                "can_write_profile": "false",
+            }
+        },
+    )
+    assert str(no_write) == "error: write_capability_disabled"
+    assert load_profile(tmp_path, "u2", "g1") is None
 
 
 def test_stub_tool_never_calls_remote_and_keeps_local_behavior(
@@ -560,6 +584,7 @@ def test_invoke_config_uses_trusted_run_context_over_client_metadata() -> None:
         group_id="g1",
         base_dir="/tmp/runtime",
         membership="in_group",
+        can_write_profile=False,
         metadata={
             "run_id": "client-run",
             "conversation_id": "client-conversation",
@@ -576,6 +601,7 @@ def test_invoke_config_uses_trusted_run_context_over_client_metadata() -> None:
         "group_id": "g1",
         "base_dir": "/tmp/runtime",
         "membership": "in_group",
+        "can_write_profile": "false",
         "run_id": "trusted-run",
         "conversation_id": "trusted-conversation",
     }

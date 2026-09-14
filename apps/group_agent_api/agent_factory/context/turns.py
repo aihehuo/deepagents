@@ -20,8 +20,8 @@ from apps.group_agent_api.agent_factory.context.module import is_context_enabled
 
 __all__ = [
     "known_profile_system_message",
-    "referral_context_system_message",
     "prior_recommendation_system_content",
+    "referral_context_system_message",
     "venue_host_system_content",
 ]
 
@@ -32,11 +32,21 @@ def known_profile_system_message(
     user_id: str,
     group_id: str,
     enabled: bool | None = None,
+    can_write_profile: bool = True,
 ) -> SystemMessage | None:
-    """Remind the dialogue model of the persisted user×group profile each turn."""
-    if enabled is False or (
-        enabled is None and not is_context_enabled(CTX_TURN_KNOWN_PROFILE)
-    ):
+    """Remind the model of known facts without granting writes.
+
+    Args:
+        base_dir: Host-owned profile store root.
+        user_id: Trusted current user.
+        group_id: Trusted current group.
+        enabled: Optional context switch override.
+        can_write_profile: Whether this graph exposes the trusted profile writer.
+
+    Returns:
+        Known profile facts and applicable instructions, if a profile exists.
+    """
+    if enabled is False or (enabled is None and not is_context_enabled(CTX_TURN_KNOWN_PROFILE)):
         return None
 
     from apps.group_agent_api.agent_factory.profile_store import load_profile
@@ -52,6 +62,11 @@ def known_profile_system_message(
     doing, need, offer = _v("doing"), _v("need"), _v("offer")
     if not (doing or need or offer):
         return None
+    correction_rule = (
+        "2. 用户更正方向/产品时，立刻 save_group_profile 覆盖 doing（及必要的 need/offer）。\n"
+        if can_write_profile
+        else "2. 本会话只读；用户更正时按新说法继续对话，不能保存或声称已更新画像。\n"
+    )
     return SystemMessage(
         content=(
             "【系统已掌握的本用户×本群画像——来自已落库 profile，可能需用户更正】\n"
@@ -59,9 +74,7 @@ def known_profile_system_message(
             f"- need: {need or '（空）'}\n"
             f"- offer: {offer or '（空）'}\n"
             "规则：\n"
-            "1. 用户问「你知道我在做什么吗」等，必须基于上述 doing 回答，禁止说不知道。\n"
-            "2. 用户更正方向/产品时，立刻 save_group_profile 覆盖 doing（及必要的 need/offer）。\n"
-            "3. 不要假装没有画像；缺的维度再追问。"
+            "1. 用户问「你知道我在做什么吗」等，必须基于上述 doing 回答，禁止说不知道。\n" + correction_rule + "3. 不要假装没有画像；缺的维度再追问。"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
         )
     )
 
@@ -85,19 +98,13 @@ def referral_context_system_message(
     enabled: bool | None = None,
 ) -> SystemMessage | None:
     """Build a one-turn intermediary instruction from bounded, quoted referral data."""
-    if enabled is False or (
-        enabled is None and not is_context_enabled(CTX_TURN_REFERRAL)
-    ):
+    if enabled is False or (enabled is None and not is_context_enabled(CTX_TURN_REFERRAL)):
         return None
 
     if not isinstance(metadata, dict):
         return None
     ref_ctx = metadata.get("referral_context")
-    if (
-        not isinstance(ref_ctx, dict)
-        or not ref_ctx.get("applicant_id")
-        or ref_ctx.get("intro_once") is not True
-    ):
+    if not isinstance(ref_ctx, dict) or not ref_ctx.get("applicant_id") or ref_ctx.get("intro_once") is not True:
         return None
 
     def _bounded(value: Any, limit: int) -> str:
@@ -105,16 +112,11 @@ def referral_context_system_message(
         return text[:limit]
 
     data = {
-        "applicant_name": _bounded(ref_ctx.get("applicant_name"), 64)
-        or "一位爱合伙成员",
+        "applicant_name": _bounded(ref_ctx.get("applicant_name"), 64) or "一位爱合伙成员",
         "doing": _bounded(ref_ctx.get("applicant_doing"), 600),
         "need": _bounded(ref_ctx.get("applicant_need"), 600),
         "offer": _bounded(ref_ctx.get("applicant_offer"), 600),
-        "match_highlights": [
-            _bounded(item, 160)
-            for item in (ref_ctx.get("match_highlights") or [])[:5]
-            if _bounded(item, 160)
-        ],
+        "match_highlights": [_bounded(item, 160) for item in (ref_ctx.get("match_highlights") or [])[:5] if _bounded(item, 160)],
         "status": _bounded(ref_ctx.get("status"), 16),
     }
     status_rule = (
@@ -141,9 +143,7 @@ def prior_recommendation_system_content(
     enabled: bool | None = None,
 ) -> str | None:
     """Dialogue reminder for prior match cards / invite (ctx.turn.prior_recommendation)."""
-    if enabled is False or (
-        enabled is None and not is_context_enabled(CTX_TURN_PRIOR_RECOMMENDATION)
-    ):
+    if enabled is False or (enabled is None and not is_context_enabled(CTX_TURN_PRIOR_RECOMMENDATION)):
         return None
 
     from apps.group_agent_api.agent_factory.revisit import known_match_system_content

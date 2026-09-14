@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from apps.group_agent_api.agent_factory import create_agent
 from apps.group_agent_api.agent_factory.agent import default_runtime_dir
+from apps.group_agent_api.agent_factory.member_graphs import build_member_graphs
 from apps.group_agent_api.app.state import AppState
 from apps.group_agent_api.execution.backpressure import BackpressureController
 from apps.group_agent_api.execution.config import DurableQueueConfig, load_durable_queue_config
@@ -32,7 +32,7 @@ def get_worker_runtime() -> dict[str, Any]:
 
     runtime = Path(os.environ.get("GROUP_AGENT_RUNTIME_DIR", str(default_runtime_dir())))
     runtime.mkdir(parents=True, exist_ok=True)
-    agent, admin_agent, ckpt_path = create_agent(base_dir=runtime)
+    graphs = build_member_graphs(runtime=runtime)
 
     polish_model = None
     quality_model = None
@@ -49,15 +49,13 @@ def get_worker_runtime() -> dict[str, Any]:
         _logger.warning("worker polish/quality model unavailable error_type=%s", type(exc).__name__)
 
     state = AppState(
-        agent=agent,
-        admin_agent=admin_agent,
+        **graphs,
         base_dir=runtime,
-        checkpoints_path=str(ckpt_path),
         polish_model=polish_model,
         quality_model=quality_model,
         durable_config=cfg,
         durable_store=store,
-        backpressure=BackpressureController(store._r, cfg),  # noqa: SLF001
+        backpressure=BackpressureController(store._r, cfg),
         greeting_model=greeting_model,
     )
     _RUNTIME.update(

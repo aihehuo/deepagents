@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fastapi import HTTPException, Request
 
+from apps.group_agent_api.agent_factory.capability import (
+    CapabilityTier,
+    SessionCapabilities,
+    resolve_session_capabilities,
+)
 from apps.group_agent_api.agent_factory.integrations.config import integration_mode
 from apps.group_agent_api.agent_factory.integrations.group_bind import (
     resolve_trusted_group_id,
@@ -25,6 +30,7 @@ from apps.group_agent_api.agent_factory.profile_store import (
     ProfileStoreError,
     validate_id,
 )
+from apps.group_agent_api.agent_factory.write_skills import profile_write_mode
 
 
 @dataclass(frozen=True)
@@ -33,6 +39,14 @@ class TrustedSession:
     membership: MembershipResult
     group_id: str
     group_token: str | None
+    capabilities: SessionCapabilities = field(
+        kw_only=True,
+        default_factory=lambda: SessionCapabilities(
+            tier=CapabilityTier.unknown,
+            can_search=False,
+            can_write_profile=False,
+        ),
+    )
 
 
 async def resolve_trusted_session(
@@ -90,9 +104,7 @@ async def resolve_trusted_session(
         else:
             group_token = body_group_token
         try:
-            plain_gid = validate_id(body_group_id or "", field="group_id") if (
-                body_group_id or ""
-            ).strip() else ""
+            plain_gid = validate_id(body_group_id or "", field="group_id") if (body_group_id or "").strip() else ""
         except ProfileStoreError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -103,6 +115,11 @@ async def resolve_trusted_session(
             group_id=plain_gid,
             user_id=user_id,
         )
+
+        can_write_profile = bool(principal.user_id and principal.user_id.strip())
+        if principal.source == "signed_oauth_principal":
+            can_write_profile = bool((principal.unionid or "").strip())
+        can_write_profile = can_write_profile and profile_write_mode() != "disabled"
 
         if mode != "http":
             if not plain_gid:
@@ -123,6 +140,10 @@ async def resolve_trusted_session(
             membership=membership,
             group_id=group_id,
             group_token=group_token,
+            capabilities=resolve_session_capabilities(
+                tier=membership.tier,
+                can_write_profile=can_write_profile,
+            ),
         )
 
     return await asyncio.to_thread(_sync)

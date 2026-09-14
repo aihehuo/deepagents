@@ -1,0 +1,48 @@
+{
+  "get-ai-cofounders": {
+    "title": "创业合伙人搜索",
+    "description": "根据城市、行业、能力和合作诉求检索爱合伙公开人才资料，寻找技术、运营、销售等创业合伙人。",
+    "resources": [
+      "users"
+    ]
+  },
+  "get-ai-opportunities": {
+    "title": "创业机会发现",
+    "description": "依据用户兴趣、所在地和可投入资源，发现爱合伙公开创业想法及早期合作机会。",
+    "resources": [
+      "ideas",
+      "projects"
+    ]
+  },
+  "get-ai-project-partnerships": {
+    "title": "项目合作机会筛选",
+    "description": "从爱合伙公开项目和想法中筛选需要渠道、技术、运营或其他合作资源的机会。",
+    "resources": [
+      "projects",
+      "ideas"
+    ]
+  },
+  "get-ai-communities": {
+    "title": "创业社群导航",
+    "description": "寻找爱合伙公开的地域或行业创业社群，并按需求浏览指定社群的公开成员资料。",
+    "resources": [
+      "groups",
+      "group-members"
+    ]
+  },
+  "get-ai-startup-digest": {
+    "title": "创业内容周报",
+    "description": "整理爱合伙近期公开博客与项目报道，生成带来源的创业内容周报或主题摘要。",
+    "resources": [
+      "weekly",
+      "blog"
+    ]
+  },
+  "get-ai-platform-help": {
+    "title": "平台使用问答",
+    "description": "根据爱合伙公开FAQ解答平台注册、找合伙人、使用社群及其他平台操作问题。",
+    "resources": [
+      "faqs"
+    ]
+  }
+}

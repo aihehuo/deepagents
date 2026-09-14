@@ -7,14 +7,13 @@ pipelines proceed even if the model does not call save_group_profile in this tur
 from __future__ import annotations
 
 import asyncio
-
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
-from apps.group_agent_api.agent_factory.capability import CapabilityTier
+from apps.group_agent_api.agent_factory.capability import CapabilityTier, resolve_session_capabilities
 from apps.group_agent_api.agent_factory.integrations.membership_client import (
     MembershipResult,
 )
@@ -30,6 +29,10 @@ from apps.group_agent_api.app.state import AppState
 from tests.support.search_turn import search_tool_messages_from_match
 
 
+def _state(*, agent: object, base_dir: Path) -> AppState:
+    return AppState(agent=agent, base_dir=base_dir, search_only_agent=agent, write_only_agent=agent, no_tool_agent=agent)
+
+
 def _session(*, user_id: str, group_id: str) -> TrustedSession:
     return TrustedSession(
         principal=SessionPrincipal(
@@ -40,6 +43,7 @@ def _session(*, user_id: str, group_id: str) -> TrustedSession:
         ),
         group_id=group_id,
         group_token="test-group-token",
+        capabilities=resolve_session_capabilities(tier=CapabilityTier.in_group, can_write_profile=True),
         membership=MembershipResult(
             tier=CapabilityTier.in_group,
             source="token",
@@ -66,7 +70,7 @@ def _seed_profile(base_dir: Path, user_id: str, group_id: str) -> None:
     path = disk_profile_path(base_dir, user_id, group_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        f'{{\n'
+        f"{{\n"
         f'  "user_id": "{user_id}",\n'
         f'  "group_id": "{group_id}",\n'
         f'  "doing": {{"value": "推进 AI 项目", "disclosure": "confirmed_public"}},\n'
@@ -74,7 +78,7 @@ def _seed_profile(base_dir: Path, user_id: str, group_id: str) -> None:
         f'  "offer": {{"value": "提供后端架构", "disclosure": "confirmed_public"}},\n'
         f'  "updated_at": "2026-07-27T12:00:00.000000Z",\n'
         f'  "schema_version": 1\n'
-        f'}}\n',
+        f"}}\n",
         encoding="utf-8",
     )
 
@@ -111,12 +115,10 @@ def test_hot_path_existing_profile_allows_match_without_save_call(
                 ]
             }
         )
-        state = AppState(agent=agent, base_dir=tmp_path)
+        state = _state(agent=agent, base_dir=tmp_path)
         envelopes: list[dict[str, Any]] = []
 
-        async def capture_callback(
-            *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
-        ) -> bool:
+        async def capture_callback(*, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any) -> bool:
             envelopes.append(envelope_dict)
             return True
 
@@ -166,21 +168,22 @@ def test_orchestrator_does_not_search_when_model_skips_tool(
                 ]
             }
         )
-        state = AppState(agent=agent, base_dir=tmp_path)
+        state = _state(agent=agent, base_dir=tmp_path)
         envelopes: list[dict[str, Any]] = []
 
-        async def capture_callback(
-            *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
-        ) -> bool:
+        async def capture_callback(*, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any) -> bool:
             envelopes.append(envelope_dict)
             return True
 
-        with patch(
-            "apps.group_agent_api.app.async_manager.send_callback_event",
-            side_effect=capture_callback,
-        ), patch(
-            "apps.group_agent_api.agent_factory.search_tool.match_backend.run_match",
-            side_effect=AssertionError("orchestrator must not search"),
+        with (
+            patch(
+                "apps.group_agent_api.app.async_manager.send_callback_event",
+                side_effect=capture_callback,
+            ),
+            patch(
+                "apps.group_agent_api.agent_factory.search_tool.match_backend.run_match",
+                side_effect=AssertionError("orchestrator must not search"),
+            ),
         ):
             await async_manager.execute_async_run(
                 req=_async_request(
@@ -219,12 +222,10 @@ def test_cold_start_no_profile_fails_and_skips_match(
                 ]
             }
         )
-        state = AppState(agent=agent, base_dir=tmp_path)
+        state = _state(agent=agent, base_dir=tmp_path)
         envelopes: list[dict[str, Any]] = []
 
-        async def capture_callback(
-            *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
-        ) -> bool:
+        async def capture_callback(*, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any) -> bool:
             envelopes.append(envelope_dict)
             return True
 
@@ -269,7 +270,7 @@ def test_hot_path_incremental_save_success(
             # Simulate tool saving updated profile
             path = disk_profile_path(tmp_path, "u-inc-1", "g-inc-1")
             path.write_text(
-                '{\n'
+                "{\n"
                 '  "user_id": "u-inc-1",\n'
                 '  "group_id": "g-inc-1",\n'
                 '  "doing": {"value": "更新做 AI Agent", "disclosure": "confirmed_public"},\n'
@@ -277,7 +278,7 @@ def test_hot_path_incremental_save_success(
                 '  "offer": {"value": "提供全栈技术", "disclosure": "confirmed_public"},\n'
                 '  "updated_at": "2026-07-28T00:00:00.000000Z",\n'
                 '  "schema_version": 1\n'
-                '}\n',
+                "}\n",
                 encoding="utf-8",
             )
             return {
@@ -297,12 +298,10 @@ def test_hot_path_incremental_save_success(
         )
 
         agent.ainvoke = AsyncMock(side_effect=invoke_with_save)
-        state = AppState(agent=agent, base_dir=tmp_path)
+        state = _state(agent=agent, base_dir=tmp_path)
         envelopes: list[dict[str, Any]] = []
 
-        async def capture_callback(
-            *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
-        ) -> bool:
+        async def capture_callback(*, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any) -> bool:
             envelopes.append(envelope_dict)
             return True
 
@@ -357,7 +356,7 @@ def test_sync_chat_hot_path_allows_match_without_save(
                 ]
             }
         )
-        state = AppState(agent=agent, base_dir=tmp_path)
+        state = _state(agent=agent, base_dir=tmp_path)
         req = ChatRequest(
             user_id="u-sync-1",
             unionid="union-u-sync-1",
@@ -409,12 +408,10 @@ def test_hot_path_save_tool_error_still_allows_match_using_existing_healthy_prof
             }
 
         agent.ainvoke = AsyncMock(side_effect=invoke_with_tool_error)
-        state = AppState(agent=agent, base_dir=tmp_path)
+        state = _state(agent=agent, base_dir=tmp_path)
         envelopes: list[dict[str, Any]] = []
 
-        async def capture_callback(
-            *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
-        ) -> bool:
+        async def capture_callback(*, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any) -> bool:
             envelopes.append(envelope_dict)
             return True
 

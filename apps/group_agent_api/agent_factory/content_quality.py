@@ -9,12 +9,15 @@ call.  It never receives or narrates candidate profile fields.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from apps.group_agent_api.agent_factory.capability import CapabilityTier, unlocks_network
 from apps.group_agent_api.agent_factory.guard import GuardResult, enforce_capability_guard
 from apps.group_agent_api.agent_factory.profile_schema import GroupProfile
 from apps.group_agent_api.agent_factory.revisit import RevisitHint, build_revisit_opener
+
+if TYPE_CHECKING:
+    from apps.group_agent_api.agent_factory.checks.reply_grounding.protocol import PublicReadGround
 
 _NEED_SHAPED_DOING = re.compile(
     r"^\s*(?:找|寻找|寻求|需要|缺少|想找|希望找)"
@@ -56,8 +59,7 @@ _ACTION_COMPLETION_CLAIM = re.compile(
 )
 
 _CAPABILITY_BOUNDARY_REPLY = (
-    "我无法直接向群内发送消息或通知管理员。推荐卡片生成后，"
-    "你可以复制文案手动发到群里并@对方，或点击卡片上的对接按钮申请联系。"
+    "我无法直接向群内发送消息或通知管理员。推荐卡片生成后，你可以复制文案手动发到群里并@对方，或点击卡片上的对接按钮申请联系。"
 )
 
 
@@ -141,17 +143,9 @@ def profile_confirmation_parts(profile: GroupProfile) -> tuple[str, str, str]:
     need = _value(profile, "need")
     offer = _value(profile, "offer")
 
-    doing_part = (
-        "正在推进的具体项目还需要补充"
-        if not doing or is_need_shaped_doing(doing)
-        else f"正在推进「{doing}」"
-    )
+    doing_part = "正在推进的具体项目还需要补充" if not doing or is_need_shaped_doing(doing) else f"正在推进「{doing}」"
     need_part = f"目前需要「{need}」" if need else "具体需求还需要补充"
-    offer_part = (
-        "能提供的具体资源或能力还需要补充"
-        if not offer or is_preference_shaped_offer(offer)
-        else f"能提供「{offer}」"
-    )
+    offer_part = "能提供的具体资源或能力还需要补充" if not offer or is_preference_shaped_offer(offer) else f"能提供「{offer}」"
     return doing_part, need_part, offer_part
 
 
@@ -207,9 +201,7 @@ def finalize_user_visible_reply(
 
     if not profile_persisted or profile is None:
         original = scrub_invented_candidate_if_enabled(original_reply)
-        if looks_like_invented_candidate_narrative(original) or (
-            (original_reply or "").strip() and not original
-        ):
+        if looks_like_invented_candidate_narrative(original) or ((original_reply or "").strip() and not original):
             original = ""
         if opener and original:
             return f"{opener}\n\n{original}"
@@ -243,128 +235,62 @@ def finalize_user_visible_reply(
         else:
             next_step = f"我还想再确认一下再帮你找人：{ask}"
     elif network_unlocked and match_reason == "profile_quality_unavailable":
-        next_step = (
-            "我先把需求再对齐一下："
-            f"{gap or '再具体一点你在做的事和最卡的点？'}"
-        )
+        next_step = f"我先把需求再对齐一下：{gap or '再具体一点你在做的事和最卡的点？'}"
     elif network_unlocked and match_reason == "profile_thin_degraded":
         thin_note = "你补充的信息还比较粗，结果仅供参考——"
         if not network_unlocked:
             next_step = thin_note
-        elif (
-            match_status == "matched"
-            and candidate_count > 0
-            and delivery_kind == "directed"
-            and invite_ok is True
-        ):
+        elif match_status == "matched" and candidate_count > 0 and delivery_kind == "directed" and invite_ok is True:
             next_step = (
-                f"{thin_note}我已按现有条件在本群找到 {candidate_count} 位值得进一步聊的人选，"
-                "并生成了定向邀请。是否真正匹配还需要你们聊过后确认。"
+                f"{thin_note}我已按现有条件在本群找到 {candidate_count} 位值得进一步聊的人选，并生成了定向邀请。是否真正匹配还需要你们聊过后确认。"
             )
         elif match_status == "matched" and candidate_count > 0:
-            next_step = (
-                f"{thin_note}本群已有 {candidate_count} 位公开信息与需求有交集的人选；"
-                "是否匹配仍需沟通确认。"
-            )
+            next_step = f"{thin_note}本群已有 {candidate_count} 位公开信息与需求有交集的人选；是否匹配仍需沟通确认。"
         elif match_status in {"empty", "weak"}:
-            next_step = (
-                f"{thin_note}这次暂未找到足够明确的本群人选，可以继续补充后再查找。"
-            )
+            next_step = f"{thin_note}这次暂未找到足够明确的本群人选，可以继续补充后再查找。"
         else:
             next_step = f"{thin_note}可以继续补充后再查找，或再说「先匹配」。"
     elif not network_unlocked:
-        next_step = (
-            "下一步：你可以继续补充项目目标、具体约束或希望如何合作，"
-            "我会帮你把信息整理得更清楚。"
-        )
-    elif (
-        match_status == "matched"
-        and candidate_count > 0
-        and delivery_kind == "directed"
-        and invite_ok is True
-    ):
-        next_step = (
-            f"下一步：我已按这些条件在本群找到 {candidate_count} 位值得进一步聊的人选，"
-            "并生成了定向邀请。是否真正匹配还需要你们聊过后确认。"
-        )
-    elif (
-        match_status == "matched"
-        and candidate_count > 0
-        and delivery_kind == "directed"
-    ):
+        next_step = "下一步：你可以继续补充项目目标、具体约束或希望如何合作，我会帮你把信息整理得更清楚。"
+    elif match_status == "matched" and candidate_count > 0 and delivery_kind == "directed" and invite_ok is True:
+        next_step = f"下一步：我已按这些条件在本群找到 {candidate_count} 位值得进一步聊的人选，并生成了定向邀请。是否真正匹配还需要你们聊过后确认。"
+    elif match_status == "matched" and candidate_count > 0 and delivery_kind == "directed":
         next_step = (
             f"下一步：本群已有 {candidate_count} 位公开信息与需求有交集的人选，"
             "但定向邀请尚未准备完成，因此还没有发出；可以稍后重试，"
             "是否匹配仍需沟通确认。"
         )
-    elif (
-        match_status == "matched"
-        and candidate_count > 0
-        and delivery_kind == "undirected"
-    ):
+    elif match_status == "matched" and candidate_count > 0 and delivery_kind == "undirected":
         next_step = (
-            f"下一步：本群已有 {candidate_count} 位公开信息与需求有交集的人选；"
-            "按你的选择先不点名，可以先用群话题了解彼此，是否匹配仍需沟通确认。"
+            f"下一步：本群已有 {candidate_count} 位公开信息与需求有交集的人选；按你的选择先不点名，可以先用群话题了解彼此，是否匹配仍需沟通确认。"
         )
     elif match_status == "matched" and candidate_count > 0:
         next_step = (
-            f"下一步：本群已有 {candidate_count} 位公开信息与需求有交集的人选；"
-            "当前没有生成邀请，如需联系，可以再选择是否点名，"
-            "是否匹配仍需沟通确认。"
+            f"下一步：本群已有 {candidate_count} 位公开信息与需求有交集的人选；当前没有生成邀请，如需联系，可以再选择是否点名，是否匹配仍需沟通确认。"
         )
-    elif (
-        match_status in {"empty", "weak"}
-        and delivery_kind == "undirected"
-        and invite_ok is True
-    ):
-        next_step = (
-            "下一步：这次暂未找到足够明确的本群人选，我已准备不点名的话题方向；"
-            "也可以继续补充筛选条件后再查找。"
-        )
+    elif match_status in {"empty", "weak"} and delivery_kind == "undirected" and invite_ok is True:
+        next_step = "下一步：这次暂未找到足够明确的本群人选，我已准备不点名的话题方向；也可以继续补充筛选条件后再查找。"
     elif match_status in {"empty", "weak"} and delivery_kind == "undirected":
-        next_step = (
-            "下一步：这次暂未找到足够明确的本群人选，不点名话题也尚未准备完成；"
-            "可以稍后重试，或继续补充筛选条件。"
-        )
+        next_step = "下一步：这次暂未找到足够明确的本群人选，不点名话题也尚未准备完成；可以稍后重试，或继续补充筛选条件。"
     elif match_status in {"empty", "weak"}:
-        next_step = (
-            "下一步：这次暂未找到足够明确的本群人选，当前没有生成群话题；"
-            "如果需要，可以继续补充筛选条件后再查找。"
-        )
+        next_step = "下一步：这次暂未找到足够明确的本群人选，当前没有生成群话题；如果需要，可以继续补充筛选条件后再查找。"
     else:
-        next_step = (
-            "画像已经可以用于下一步；如果需要，我可以按这些条件继续在本群查找"
-            "可交流的人选，并按你的意愿决定是否点名邀请。"
-        )
+        next_step = "画像已经可以用于下一步；如果需要，我可以按这些条件继续在本群查找可交流的人选，并按你的意愿决定是否点名邀请。"
 
-    unreachable_cands = [
-        c for c in (candidates or [])
-        if isinstance(c, dict) and c.get("is_reachable") is False
-    ]
+    unreachable_cands = [c for c in (candidates or []) if isinstance(c, dict) and c.get("is_reachable") is False]
     if unreachable_cands:
         unreachable_lines = []
         for c in unreachable_cands:
-            name = str(
-                c.get("display_name") or c.get("name") or c.get("user_id") or "候选人"
-            ).strip()
+            name = str(c.get("display_name") or c.get("name") or c.get("user_id") or "候选人").strip()
             gi = c.get("group_info")
             gname = ""
             if isinstance(gi, dict):
-                gname = str(
-                    gi.get("name")
-                    or gi.get("group_name")
-                    or gi.get("title")
-                    or gi.get("id")
-                    or gi.get("group_id")
-                    or ""
-                ).strip()
+                gname = str(gi.get("name") or gi.get("group_name") or gi.get("title") or gi.get("id") or gi.get("group_id") or "").strip()
             elif isinstance(gi, str):
                 gname = gi.strip()
             if not gname:
                 gname = str(c.get("source_group_id") or c.get("group_id") or "对应群").strip()
-            unreachable_lines.append(
-                f"候选人【{name}】在【{gname}】，你目前不在该群，可以申请加入【{gname}】"
-            )
+            unreachable_lines.append(f"候选人【{name}】在【{gname}】，你目前不在该群，可以申请加入【{gname}】")
         unreachable_text = "\n".join(unreachable_lines)
         if unreachable_text not in next_step:
             next_step = f"{next_step}\n\n{unreachable_text}" if next_step else unreachable_text
@@ -398,17 +324,31 @@ def finalize_user_visible_reply(
     _already_has_confirmation = any(
         marker in _original_lower
         for marker in (
-            "已落库", "已更新", "已确认", "三维齐备", "画像已更新",
-            "已保存", "profile saved", "updated",
-            "已按这些条件", "已按你的",
+            "已落库",
+            "已更新",
+            "已确认",
+            "三维齐备",
+            "画像已更新",
+            "已保存",
+            "profile saved",
+            "updated",
+            "已按这些条件",
+            "已按你的",
         )
     )
     _already_has_next_step = any(
         marker in _original_lower
         for marker in (
-            "下一步", "接下来", "启动匹配", "帮你匹配", "找到",
-            "next step", "i can help",
-            "位值得", "位人选", "位候选",
+            "下一步",
+            "接下来",
+            "启动匹配",
+            "帮你匹配",
+            "找到",
+            "next step",
+            "i can help",
+            "位值得",
+            "位人选",
+            "位候选",
         )
     )
 
@@ -460,6 +400,7 @@ def finalize_and_guard_user_visible_reply(
     match_reason: str | None = None,
     quality_gaps: list[str] | None = None,
     profile_saved_this_turn: bool = True,
+    public_reads: list[PublicReadGround] | None = None,
 ) -> GuardResult:
     """Finalize from authoritative state, then apply the capability guard.
 
@@ -467,7 +408,39 @@ def finalize_and_guard_user_visible_reply(
     matching, while this deterministic reply is created afterwards.  If a
     future finalizer accidentally introduces a network promise for a caller
     without network capability, fail closed to a generic non-network reply.
+
+    Args:
+        tier: Trusted capability tier.
+        caller_group_id: Trusted current group.
+        user_id: Trusted current user.
+        original_reply: Model draft after the first capability guard.
+        profile: Current initiator profile.
+        profile_persisted: Whether the profile is confirmed persisted.
+        match_status: Verified match status.
+        candidates: Adopted verified match candidates.
+        delivery_kind: Invite delivery result.
+        invite_ok: Whether the invite was prepared.
+        revisit_hint: Optional prior conversation context.
+        match_reason: Verified match reason.
+        quality_gaps: Profile quality gaps.
+        profile_saved_this_turn: Whether this turn confirmed a profile save.
+        public_reads: Public mode evidence; an empty list still selects public
+            finalization. `None` preserves legacy finalization. Public replies
+            are subsequently checked by the independent reply grounding gate.
+
+    Returns:
+        Capability-guarded text and verified match candidates.
     """
+    if public_reads is not None:
+        # Public mode has its own facts and does not run the legacy candidate
+        # narrative scrub/profile-driven matching template.
+        return enforce_capability_guard(
+            tier=tier,
+            reply=original_reply,
+            candidates=candidates,
+            caller_group_id=caller_group_id,
+            user_id=user_id,
+        )
     reply = finalize_user_visible_reply(
         original_reply=original_reply,
         profile=profile,
@@ -491,10 +464,7 @@ def finalize_and_guard_user_visible_reply(
         user_id=user_id,
     )
     if guarded.blocked and not unlocks_network(tier):
-        safe_reply = (
-            "我可以继续帮你梳理当前目标、具体需求和可提供的资源，"
-            "让这些信息更清楚。"
-        )
+        safe_reply = "我可以继续帮你梳理当前目标、具体需求和可提供的资源，让这些信息更清楚。"
         assertion = enforce_capability_guard(
             tier=tier,
             reply=safe_reply,

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
-from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
 from apps.group_agent_api.agent_factory.checks.reply_grounding.deny import (
     format_check_deny,
 )
@@ -19,10 +19,12 @@ from apps.group_agent_api.agent_factory.checks.reply_grounding.module import (
 )
 from apps.group_agent_api.agent_factory.checks.reply_grounding.protocol import (
     GroundBlock,
+    PublicReadGround,
     ReplyGroundingInput,
     ReplyGroundingOutput,
     Verdict,
 )
+from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
 from apps.group_agent_api.agent_factory.profile_schema import GroupProfile
 
 _logger = logging.getLogger("uvicorn.error")
@@ -58,11 +60,32 @@ def apply_reply_grounding_gate(
     user_id: int | str | None = None,
     run_id: str | None = None,
     thread_id: str | None = None,
+    public_reads: list[PublicReadGround] | None = None,
 ) -> ReplyGroundingGateResult:
     """When enabled, do not let a failing reply reach the user.
 
     Flow: check → (fail + llm repair) × (max_attempts-1) → abandon draft → recheck.
     When disabled, returns the original reply unchanged.
+
+    Args:
+        reply: User-visible draft.
+        reply_mode: Orchestrator-selected reply mode.
+        candidates: Adopted verified match candidates.
+        profile: Current initiator profile.
+        receipts: Confirmed action receipts.
+        candidate_count: Optional adopted count override.
+        model: Semantic judge model.
+        repair_fn: Optional draft rewrite callback.
+        max_attempts: Optional attempt limit.
+        locale: Reply locale.
+        enabled: Optional feature switch override.
+        user_id: Trusted user for feature selection.
+        run_id: Trace run identifier.
+        thread_id: Trace conversation identifier.
+        public_reads: Independent current-turn public facts and official sources.
+
+    Returns:
+        Validated reply or a safe fallback.
     """
     from apps.group_agent_api.agent_factory.module_config import (
         reply_grounding_enabled_for_user,
@@ -103,6 +126,7 @@ def apply_reply_grounding_gate(
         profile=profile,
         receipts=receipts,
         candidate_count=candidate_count,
+        public_reads=public_reads,
     )
     attempts_limit = max(
         1,
@@ -136,10 +160,7 @@ def apply_reply_grounding_gate(
                     "attempts": attempt,
                     "rewrite_attempts": max(0, attempt - 1),
                     "violated_codes": result.codes,
-                    "violated_spans": [
-                        s.model_dump(mode="json") if hasattr(s, "model_dump") else s
-                        for s in (getattr(result, "spans", []) or [])
-                    ],
+                    "violated_spans": [s.model_dump(mode="json") if hasattr(s, "model_dump") else s for s in (getattr(result, "spans", []) or [])],
                     "abandoned": False,
                     "final_text": current,
                 },
@@ -172,9 +193,7 @@ def apply_reply_grounding_gate(
             try:
                 rewritten = (repair_fn(last_deny, current, ground) or "").strip()
             except Exception as exc:  # noqa: BLE001
-                _logger.warning(
-                    "action=reply_grounding_repair_failed error=%s", exc
-                )
+                _logger.warning("action=reply_grounding_repair_failed error=%s", exc)
                 rewritten = ""
             if rewritten:
                 current = rewritten
@@ -194,9 +213,7 @@ def apply_reply_grounding_gate(
         locale=locale,
     )
     # Orchestrator-authored safe draft: L0 only (no dependency on a bad judge).
-    abandon_result = check_reply_grounding(
-        abandon_payload, model=model, l0_only=True
-    )
+    abandon_result = check_reply_grounding(abandon_payload, model=model, l0_only=True)
     results.append(abandon_result)
 
     if abandon_result.verdict != Verdict.pass_:
@@ -213,11 +230,7 @@ def apply_reply_grounding_gate(
         )
         results.append(abandon_result)
 
-    final_abandon_text = (
-        abandoned if abandon_result.verdict == Verdict.pass_ else _hard_safe_reply(
-            ground.candidate_count
-        )
-    )
+    final_abandon_text = abandoned if abandon_result.verdict == Verdict.pass_ else _hard_safe_reply(ground.candidate_count)
     record_decision_point(
         phase="reply_grounding",
         detail={
@@ -230,10 +243,9 @@ def apply_reply_grounding_gate(
             "attempts": len(results),
             "rewrite_attempts": max(0, len(results) - 1),
             "violated_codes": results[0].codes if results else [],
-            "violated_spans": [
-                s.model_dump(mode="json") if hasattr(s, "model_dump") else s
-                for s in (getattr(results[0], "spans", []) or [])
-            ] if results else [],
+            "violated_spans": [s.model_dump(mode="json") if hasattr(s, "model_dump") else s for s in (getattr(results[0], "spans", []) or [])]
+            if results
+            else [],
             "abandoned": True,
             "final_text": final_abandon_text,
         },
@@ -257,19 +269,10 @@ def build_abandon_reply(*, reply_mode: str, candidate_count: int) -> str:
     count = max(0, int(candidate_count or 0))
     mode = (reply_mode or "").strip().lower()
     if count > 0 and mode in {"recommendation", "dialogue", "profile_confirmation"}:
-        return (
-            f"本群已有 {count} 位公开信息与需求有交集的人选；"
-            "具体经历以对方公开资料为准，是否匹配仍需沟通确认。"
-        )
+        return f"本群已有 {count} 位公开信息与需求有交集的人选；具体经历以对方公开资料为准，是否匹配仍需沟通确认。"
     if mode == "no_match" or count <= 0:
-        return (
-            "这次暂未展开具体人选履历。"
-            "你可以继续补充需求，或再说「先匹配」。"
-        )
-    return (
-        "我先不展开具体人选细节。"
-        "你可以继续补充，或再说「先匹配」。"
-    )
+        return "这次暂未展开具体人选履历。你可以继续补充需求，或再说「先匹配」。"
+    return "我先不展开具体人选细节。你可以继续补充，或再说「先匹配」。"
 
 
 def _hard_safe_reply(candidate_count: int) -> str:
@@ -285,9 +288,9 @@ def default_repair_fn(model: Any | None) -> RepairFn | None:
         return None
 
     def _repair(deny_block: str, previous_reply: str, ground: GroundBlock) -> str:
-        from langchain_core.messages import HumanMessage, SystemMessage
-
         import json
+
+        from langchain_core.messages import HumanMessage, SystemMessage
 
         system = (
             "你是群智能体主对话模型的改口步骤。上一份 reply 未通过事实对照，"
@@ -304,9 +307,7 @@ def default_repair_fn(model: Any | None) -> RepairFn | None:
             f"previous_reply:\n{previous_reply}\n\n"
             "请只输出改口后的完整正文。"
         )
-        msg = model.invoke(
-            [SystemMessage(content=system), HumanMessage(content=human)]
-        )
+        msg = model.invoke([SystemMessage(content=system), HumanMessage(content=human)])
         content = getattr(msg, "content", None)
         if content is None:
             return ""

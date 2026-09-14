@@ -62,11 +62,29 @@ class CandidateGround(BaseModel):
     match_evidence: list[MatchEvidenceItem] = Field(default_factory=list, max_length=16)
 
 
+class PublicReadGround(BaseModel):
+    """Public query facts; never represent verified group matches or receipts."""
+
+    resource: str = Field(max_length=32)
+    source_url: str
+    document: dict[str, Any] = Field(default_factory=dict)
+    text: str = ""
+
+    @property
+    def records(self) -> list[dict[str, Any]]:
+        """Return all returned records without altering the judge document."""
+        data = self.document.get("data")
+        if self.resource == "group-members" and isinstance(data, dict):
+            data = data.get("members")
+        return [record for record in data if isinstance(record, dict)] if isinstance(data, list) else []
+
+
 class GroundBlock(BaseModel):
     candidates: list[CandidateGround] = Field(default_factory=list, max_length=20)
     initiator_profile: dict[str, str] = Field(default_factory=dict)
     receipts: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     candidate_count: int = Field(default=0, ge=0, le=100)
+    public_reads: list[PublicReadGround] = Field(default_factory=list)
 
     @field_validator("initiator_profile", mode="before")
     @classmethod

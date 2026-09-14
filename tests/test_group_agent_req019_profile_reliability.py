@@ -17,22 +17,27 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from apps.group_agent_api.agent_factory.agent import FORCE_SAVE_PROMPT
-from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted
-from apps.group_agent_api.app.async_manager import (
-    determine_persistence_failure_reason,
-    execute_async_run,
-)
-from apps.group_agent_api.app.models import AsyncCallRequest
+from apps.group_agent_api.agent_factory.capability import resolve_session_capabilities
 from apps.group_agent_api.agent_factory.integrations.membership_client import (
     MembershipResult,
 )
 from apps.group_agent_api.agent_factory.integrations.principal import (
     SessionPrincipal,
 )
+from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted
+from apps.group_agent_api.app.async_manager import (
+    determine_persistence_failure_reason,
+    execute_async_run,
+)
+from apps.group_agent_api.app.models import AsyncCallRequest
 from apps.group_agent_api.app.session import (
     TrustedSession,
 )
 from apps.group_agent_api.app.state import AppState
+
+
+def _state(*, agent: object, base_dir: Path) -> AppState:
+    return AppState(agent=agent, base_dir=base_dir, search_only_agent=agent, write_only_agent=agent, no_tool_agent=agent)
 
 
 def _dummy_session(
@@ -47,6 +52,7 @@ def _dummy_session(
         group_id=group_id,
         group_token="gtok_19",
         membership=MembershipResult(tier=CapabilityTier(tier), source="token"),
+        capabilities=resolve_session_capabilities(tier=CapabilityTier(tier), can_write_profile=True),
     )
 
 
@@ -69,10 +75,7 @@ def test_determine_persistence_failure_reason_tool_not_called():
         HumanMessage(content=FORCE_SAVE_PROMPT),
         AIMessage(content="I still didn't call the tool."),
     ]
-    assert (
-        determine_persistence_failure_reason(messages_round2, 0, attempt=2)
-        == "force_save_failed:tool_not_called"
-    )
+    assert determine_persistence_failure_reason(messages_round2, 0, attempt=2) == "force_save_failed:tool_not_called"
 
 
 def test_determine_persistence_failure_reason_validation_error():
@@ -153,10 +156,7 @@ def test_determine_persistence_failure_reason_ignores_unrelated_tool_error():
         ),
     ]
 
-    assert (
-        determine_persistence_failure_reason(messages, 0, attempt=2)
-        == "force_save_failed"
-    )
+    assert determine_persistence_failure_reason(messages, 0, attempt=2) == "force_save_failed"
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ def test_determine_persistence_failure_reason_ignores_unrelated_tool_error():
 async def test_first_round_missing_tool_call_rescued_by_force_save(tmp_path: Path):
     """The harness invokes the real tool; the mock model never writes the profile."""
     mock_agent = MagicMock(spec=["ainvoke"])
-    state = AppState(agent=mock_agent, base_dir=tmp_path)
+    state = _state(agent=mock_agent, base_dir=tmp_path)
     session = _dummy_session(tier="in_group", user_id="u_rescue", group_id="g_rescue")
 
     call_count = 0
@@ -189,9 +189,7 @@ async def test_first_round_missing_tool_call_rescued_by_force_save(tmp_path: Pat
 
     emitted_events: list[dict[str, Any]] = []
 
-    async def capture_callback(
-        *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
-    ) -> bool:
+    async def capture_callback(*, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any) -> bool:
         emitted_events.append(envelope_dict)
         return True
 
@@ -203,10 +201,7 @@ async def test_first_round_missing_tool_call_rescued_by_force_save(tmp_path: Pat
         run_id="run_rescue",
         callback_url="http://micro-web.example.invalid:3000/group_agent_callbacks",
         idempotency_key="idempotency_rescue",
-        message=(
-            "正在推进爱合伙群智能体产品，希望连接熟悉社群运营与 AI "
-            "智能体落地的伙伴，可以提供产品设计和技术协作"
-        ),
+        message=("正在推进爱合伙群智能体产品，希望连接熟悉社群运营与 AI 智能体落地的伙伴，可以提供产品设计和技术协作"),
         run_match=False,
         run_invite=False,
     )
@@ -247,7 +242,7 @@ async def test_both_rounds_failed_persistence_returns_actionable_reason_and_fail
     """Verify when both rounds fail persistence, final callback has profile_status=failed, actionable persistence_failure_reason, and match/invite skipped."""
     mock_agent = MagicMock(spec=["ainvoke"])
     session = _dummy_session(tier="in_group", user_id="u_fail", group_id="g_fail")
-    state = AppState(agent=mock_agent, base_dir=tmp_path)
+    state = _state(agent=mock_agent, base_dir=tmp_path)
 
     async def mock_ainvoke(input_dict: dict[str, Any], config: Any) -> dict[str, Any]:
         msgs = input_dict.get("messages", [])
@@ -258,9 +253,7 @@ async def test_both_rounds_failed_persistence_returns_actionable_reason_and_fail
 
     emitted_events: list[dict[str, Any]] = []
 
-    async def capture_callback(
-        *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
-    ) -> bool:
+    async def capture_callback(*, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any) -> bool:
         emitted_events.append(envelope_dict)
         return True
 
@@ -277,21 +270,23 @@ async def test_both_rounds_failed_persistence_returns_actionable_reason_and_fail
         run_invite=True,
     )
 
-    with patch(
-        "apps.group_agent_api.app.async_manager.send_callback_event",
-        side_effect=capture_callback,
-    ):
-        with patch(
+    with (
+        patch(
+            "apps.group_agent_api.app.async_manager.send_callback_event",
+            side_effect=capture_callback,
+        ),
+        patch(
             "apps.group_agent_api.agent_factory.search_tool.match_backend.run_match",
             side_effect=AssertionError("search tool should NOT run when profile fails!"),
-        ):
-            await execute_async_run(
-                req=req,
-                session=session,
-                state=state,
-                tid="t_fail",
-                slot=None,
-            )
+        ),
+    ):
+        await execute_async_run(
+            req=req,
+            session=session,
+            state=state,
+            tid="t_fail",
+            slot=None,
+        )
 
     final_event = [event for event in emitted_events if event["event"] == "final"]
     assert len(final_event) == 1
@@ -359,7 +354,7 @@ async def test_first_round_missing_tool_call_rescued_by_model_tool_call(tmp_path
     from apps.group_agent_api.agent_factory.agent import save_group_profile
 
     mock_agent = MagicMock(spec=["ainvoke"])
-    state = AppState(agent=mock_agent, base_dir=tmp_path)
+    state = _state(agent=mock_agent, base_dir=tmp_path)
     session = _dummy_session(tier="in_group", user_id="u_tool_rescue", group_id="g_tool_rescue")
 
     call_count = 0
@@ -397,9 +392,7 @@ async def test_first_round_missing_tool_call_rescued_by_model_tool_call(tmp_path
 
     emitted_events: list[dict[str, Any]] = []
 
-    async def capture_callback(
-        *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
-    ) -> bool:
+    async def capture_callback(*, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any) -> bool:
         emitted_events.append(envelope_dict)
         return True
 
@@ -443,7 +436,7 @@ async def test_first_round_missing_tool_call_rescued_by_model_tool_call(tmp_path
 async def test_retry_reply_merged_on_force_save_retry(tmp_path: Path):
     """Verify reply from second round FORCE_SAVE_PROMPT is merged into reply when profile fails persistence."""
     mock_agent = MagicMock(spec=["ainvoke"])
-    state = AppState(agent=mock_agent, base_dir=tmp_path)
+    state = _state(agent=mock_agent, base_dir=tmp_path)
     session = _dummy_session(tier="in_group", user_id="u_merge", group_id="g_merge")
 
     call_count = 0
@@ -467,9 +460,7 @@ async def test_retry_reply_merged_on_force_save_retry(tmp_path: Path):
 
     emitted_events: list[dict[str, Any]] = []
 
-    async def capture_callback(
-        *, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any
-    ) -> bool:
+    async def capture_callback(*, callback_url: str, envelope_dict: dict[str, Any], **kwargs: Any) -> bool:
         emitted_events.append(envelope_dict)
         return True
 

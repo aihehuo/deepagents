@@ -9,6 +9,7 @@ from apps.group_agent_api.agent_factory.checks.reply_grounding.protocol import (
     FactItem,
     GroundBlock,
     MatchEvidenceItem,
+    PublicReadGround,
 )
 from apps.group_agent_api.agent_factory.profile_schema import GroupProfile
 
@@ -19,11 +20,22 @@ def build_ground_from_turn(
     profile: GroupProfile | None = None,
     receipts: list[dict[str, Any]] | None = None,
     candidate_count: int | None = None,
+    public_reads: list[PublicReadGround] | None = None,
 ) -> GroundBlock:
     """Map orchestrator turn state into the module ground block.
 
     Only confirmed-public / already-visible candidate fields are copied.
     Does not read Micro / new_api.
+
+    Args:
+        candidates: Adopted, verified match candidates.
+        profile: Current initiator profile.
+        receipts: Confirmed action receipts.
+        candidate_count: Optional adopted candidate count override.
+        public_reads: Separate facts from successful current-turn public queries.
+
+    Returns:
+        Facts for reply validation without converting public reads into matches.
     """
     raw_candidates = [c for c in (candidates or []) if isinstance(c, dict)]
     mapped: list[CandidateGround] = []
@@ -58,13 +70,7 @@ def build_ground_from_turn(
     for item in receipts or []:
         if isinstance(item, dict):
             # Keep only compact receipt ids / kinds — no PII blobs.
-            safe_receipts.append(
-                {
-                    k: item.get(k)
-                    for k in ("id", "kind", "status", "action")
-                    if k in item
-                }
-            )
+            safe_receipts.append({k: item.get(k) for k in ("id", "kind", "status", "action") if k in item})
         if len(safe_receipts) >= 20:
             break
 
@@ -73,6 +79,7 @@ def build_ground_from_turn(
         initiator_profile=initiator,
         receipts=safe_receipts,
         candidate_count=count,
+        public_reads=public_reads or [],
     )
 
 

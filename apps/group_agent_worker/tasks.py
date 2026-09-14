@@ -9,6 +9,7 @@ import os
 import threading
 from typing import Any
 
+from billiard.exceptions import SoftTimeLimitExceeded
 from celery import shared_task
 from celery.exceptions import Reject
 from fastapi import HTTPException
@@ -245,6 +246,11 @@ async def _run_attempt(
     outcome = "unknown"
     try:
         _assert_event_live()
+        record = store.get(req.run_id)
+        if record is not None and record.attempt_count > cfg.max_attempts:
+            # Lease-expiry recovery also consumes the persisted attempt budget.
+            error_code = "max_attempts_exceeded"
+            raise RuntimeError(error_code)
         await _emit(
             "progress", {"phase": "preparing_greeting"} if req.input_kind == "venue_event" else {"phase": "started", "message": "processing_started"}
         )
@@ -276,7 +282,7 @@ async def _run_attempt(
             outcome = ExecutionStatus.SUCCEEDED.value
     except (LeaseLostError, FenceRejectedError):
         outcome = "lost_lease"
-    except TimeoutError:
+    except (TimeoutError, SoftTimeLimitExceeded):
         error_code = error_code or "provider_timeout"
     except VenueEventExecutorUnavailable:
         error_code = "venue_event_executor_unavailable"

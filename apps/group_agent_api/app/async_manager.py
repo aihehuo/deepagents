@@ -269,25 +269,79 @@ def determine_persistence_failure_reason(
     return "tool_execution_error"
 
 
-_EXPLICIT_PATTERNS = [
-    re.compile(
-        r"^\s*(?:正在推进|在做|做|项目|业务)[：:]?\s*(?P<doing>.+?)[，,；;\n]\s*"
-        r"(?:希望|需要|需求|寻找|求|缺)[：:]?\s*(?P<need>.+?)[，,；;\n]\s*"
-        r"(?:可以提供|可提供|提供|资源|技能)[：:]?\s*(?P<offer>.+?)[。.!！]?\s*$"
-    ),
-    re.compile(
-        r".*?(?:doing|在做|做|项目)[：:]\s*(?P<doing>[^\n,；;]+).*?"
-        r"(?:need|需求|需要|缺)[：:]\s*(?P<need>[^\n,；;]+).*?"
-        r"(?:offer|提供|资源)[：:]\s*(?P<offer>[^\n,；;.!！]+).*",
-        re.DOTALL | re.IGNORECASE,
-    ),
-    re.compile(
-        r".*?doing[：:]\s*(?P<doing>[^\n]+).*?"
-        r"need[：:]\s*(?P<need>[^\n]+).*?"
-        r"offer[：:]\s*(?P<offer>[^\n]+).*",
-        re.DOTALL | re.IGNORECASE,
-    ),
-]
+_PROFILE_LABEL = re.compile(
+    r"(?:^|[\s,，;；])(?:[-*]\s*)?(doing|need|offer|正在推进|在做|做|项目|业务|希望|需要|需求|寻找|求|缺|可以提供|可提供|提供|资源|技能)[：:]\s*",
+    re.IGNORECASE,
+)
+_PROFILE_FIELDS = {
+    **dict.fromkeys(("doing", "正在推进", "在做", "做", "项目", "业务"), "doing"),
+    **dict.fromkeys(("need", "希望", "需要", "需求", "寻找", "求", "缺"), "need"),
+    **dict.fromkeys(("offer", "可以提供", "可提供", "提供", "资源", "技能"), "offer"),
+}
+
+
+def _profile_write_declined(message: str) -> bool:
+    """Honor explicit read-only requests before any fallback or history scan."""
+    normalized = message.lower()
+    return any(
+        term in normalized
+        for term in (
+            "只查询",
+            "只搜索",
+            "不更新画像",
+            "不要更新画像",
+            "不保存画像",
+            "不要保存画像",
+            "不记录画像",
+            "不要记录画像",
+            "read only",
+            "read-only",
+            "do not save",
+            "don't save",
+            "do not update",
+            "don't update",
+        )
+    )
+
+
+def _profile_save_requested(message: str) -> bool:
+    return any(
+        term in message.lower()
+        for term in ("保存画像", "保存本人画像", "更新画像", "记录画像", "保存我的画像", "更新我的画像", "save my profile", "update my profile")
+    )
+
+
+def _explicit_dimensions(text: str) -> dict[str, str] | None:
+    """Slice between bounded labels instead of backtracking across whole documents."""
+    labels = list(_PROFILE_LABEL.finditer(text))
+    dimensions: dict[str, str] = {}
+    for index, label in enumerate(labels):
+        end = labels[index + 1].start() if index + 1 < len(labels) else len(text)
+        value = re.split(r"[\n,，;；。.!！]", text[label.end() : end], maxsplit=1)[0].strip()
+        if value:
+            dimensions[_PROFILE_FIELDS[label.group(1).lower()]] = value
+    if set(dimensions) == {"doing", "need", "offer"}:
+        return dimensions
+    # Retain the old three-clause Chinese form without cross-document wildcards.
+    clauses = re.split(r"[，,；;\n]", text.strip(), maxsplit=3)
+    if len(clauses) == 3:
+        dimensions = {}
+        for field, clause, prefix in zip(
+            ("doing", "need", "offer"),
+            clauses,
+            (r"(?:正在推进|在做|做|项目|业务)", r"(?:希望|需要|需求|寻找|求|缺)", r"(?:可以提供|可提供|提供|资源|技能)"),
+            strict=True,
+        ):
+            label = re.match(prefix + r"[：:]?\s*", clause.strip())
+            if label is None:
+                return None
+            value = clause.strip()[label.end() :].strip(" 。.!！")
+            if not value:
+                return None
+            dimensions[field] = value
+        return dimensions
+    return None
+
 
 _NATURAL_DOING = re.compile(r"(?:正在做|在做|做一个|最近在做|做的是)(?P<doing>.+?)(?=[。.!！]|，目前|，我|。目前)")
 _NATURAL_NEED = re.compile(r"(?:需要找|想找|找一个|找一位|缺一个)(?P<need>.+?)(?=[。.!！～~]|你这边|有合适|，最好)")
@@ -318,37 +372,33 @@ def _dimensions_from_natural_chinese(text: str) -> dict[str, str] | None:
     return dimensions
 
 
-def extract_explicit_profile_dimensions(
-    message: str,
-    messages: list[Any] | None = None,
-) -> dict[str, str] | None:
+def extract_explicit_profile_dimensions(message: str, messages: list[Any] | None = None) -> dict[str, str] | None:
     """Extract a complete profile from explicit user statement or recent conversation history.
 
     This provides a deterministic last-resort fallback path if LLM omitted save_group_profile
     tool call even when doing/need/offer were explicitly stated or listed in conversation.
     """
+    if _profile_write_declined(message):
+        return None
     if message and len(message) <= 2_000:
-        for pattern in _EXPLICIT_PATTERNS:
-            matched = pattern.fullmatch(message) or pattern.search(message)
-            if matched is not None:
-                dimensions = {field_name: matched.group(field_name).strip() for field_name in ("doing", "need", "offer")}
-                if all(bool(value) for value in dimensions.values()):
-                    return dimensions
+        dimensions = _explicit_dimensions(message)
+        if dimensions is not None:
+            return dimensions
         natural = _dimensions_from_natural_chinese(message)
         if natural is not None:
             return natural
 
-    if messages:
-        for msg in reversed(messages):
-            text = str(getattr(msg, "content", "") or "").strip()
+    if messages and _profile_save_requested(message):
+        recent = [msg for msg in messages[-24:] if isinstance(msg, HumanMessage)][-6:]
+        for msg in reversed(recent):
+            text = msg.content.strip() if isinstance(msg.content, str) else ""
+            if _profile_write_declined(text):
+                break
             if not text or len(text) > 3_000:
                 continue
-            for pattern in _EXPLICIT_PATTERNS:
-                matched = pattern.search(text)
-                if matched is not None:
-                    dimensions = {field_name: matched.group(field_name).strip() for field_name in ("doing", "need", "offer")}
-                    if all(bool(value) for value in dimensions.values()):
-                        return dimensions
+            dimensions = _explicit_dimensions(text)
+            if dimensions is not None:
+                return dimensions
             natural = _dimensions_from_natural_chinese(text)
             if natural is not None:
                 return natural
@@ -380,7 +430,11 @@ async def _attempt_deterministic_profile_save(
         return False
     if not writers:
         return False
-    dimensions = extract_explicit_profile_dimensions(message, messages)
+    try:
+        dimensions = extract_explicit_profile_dimensions(message, messages)
+    except Exception:  # Optional extraction must not discard an otherwise valid reply.
+        _logger.exception("profile_fallback_extraction_failed")
+        return False
     if dimensions is None:
         return False
 
@@ -1010,14 +1064,19 @@ async def _execute_core_agent(
                         if assertion.ok:
                             # Prior episode profile exists but is not bound to this episode.
                             pass
-                if can_write_profile and _should_force_profile_save(
-                    profile_ok=profile_ok,
-                    profile_status=profile_status,
-                    persist_alert=("profile_stale_for_episode" if (not profile_ok and assertion.ok and profile_status != "superseded") else None),
-                    messages=messages,
-                    msg_count_before=msg_count_before,
-                    user_message=req.message,
-                    reply=reply,
+                if (
+                    can_write_profile
+                    and not _profile_write_declined(req.message)
+                    and (_profile_save_requested(req.message) or extract_explicit_profile_dimensions(req.message) is not None)
+                    and _should_force_profile_save(
+                        profile_ok=profile_ok,
+                        profile_status=profile_status,
+                        persist_alert=("profile_stale_for_episode" if (not profile_ok and assertion.ok and profile_status != "superseded") else None),
+                        messages=messages,
+                        msg_count_before=msg_count_before,
+                        user_message=req.message,
+                        reply=reply,
+                    )
                 ):
                     from apps.group_agent_api.agent_factory.checks.deterministic_profile_save import (
                         deterministic_profile_save_enabled,

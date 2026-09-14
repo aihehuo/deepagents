@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
 from apps.group_agent_api.agent_factory.checks.reply_grounding.protocol import PublicReadGround
+from skillpacks.aihehuo.evidence import current_results
 
 PUBLIC_TOOL = "query_aihehuo_public_data"
 
@@ -34,6 +35,12 @@ def extract_public_reads(messages: list[BaseMessage], start: int) -> list[Public
             continue
         item = _parse_response(resource, message.content)
         if item is not None:
+            evidence.append(item)
+    # Graph history can be compacted or replaced by a later save invocation.
+    # Tool receipts belong to the whole request, not to one graph invocation.
+    for resource, content in current_results():
+        item = _parse_response(resource, content)
+        if item is not None and item not in evidence:
             evidence.append(item)
     return evidence
 

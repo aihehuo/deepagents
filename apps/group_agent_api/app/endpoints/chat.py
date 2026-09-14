@@ -18,7 +18,6 @@ from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
-from apps.group_agent_api.agent_factory.integrations.config import read_mode
 from apps.group_agent_api.agent_factory.debug_trace import (
     debug_trace_enabled,
     end_decision_trace,
@@ -27,6 +26,7 @@ from apps.group_agent_api.agent_factory.debug_trace import (
     write_turn_trace,
 )
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
+from apps.group_agent_api.agent_factory.integrations.config import read_mode
 from apps.group_agent_api.agent_factory.invite import (
     generate_invite_with_optional_llm,
     should_emit_invite_artifact,
@@ -51,6 +51,7 @@ from apps.group_agent_api.agent_factory.search_relax import search_relax_system_
 from apps.group_agent_api.agent_factory.suggested_replies import (
     extract_suggested_replies,
 )
+from apps.group_agent_api.agent_factory.write_skills import profile_write_allowed_for_turn
 from apps.group_agent_api.app.models import ChatRequest, ChatResponse, SearchLogEntry
 from apps.group_agent_api.app.session import resolve_trusted_session
 from apps.group_agent_api.app.state import AppState
@@ -59,6 +60,7 @@ from apps.group_agent_api.app.utils import (
     get_agent_checkpointer,
     thread_id,
 )
+from skillpacks.aihehuo.evidence import collect_public_evidence
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -240,6 +242,8 @@ def _should_force_profile_save(
     or the user message itself looks like doing/need/offer content (direction
     switch or a complete first statement).
     """
+    if not profile_write_allowed_for_turn(user_message):
+        return False
     if profile_ok or profile_status == "superseded":
         return False
     if persist_alert == "profile_stale_for_episode":
@@ -311,6 +315,7 @@ def _empty_request() -> Request:
     return Request({"type": "http", "method": "POST", "path": "/chat", "headers": []})
 
 
+@collect_public_evidence
 async def chat(req: ChatRequest, state: AppState, request: Request | None = None) -> ChatResponse:
     start = time.time()
     session = await resolve_trusted_session(
@@ -326,6 +331,7 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
     group_id = session.group_id
     tier = session.membership.tier
     user_token = session.principal.user_token
+    can_write_profile = session.capabilities.can_write_profile and profile_write_allowed_for_turn(req.message)
 
     tid = thread_id(
         user_id=user_id,
@@ -342,7 +348,7 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
 
     agent = state.member_agent_for_capability(
         can_search=session.capabilities.can_search,
-        can_write_profile=session.capabilities.can_write_profile,
+        can_write_profile=can_write_profile,
     )
 
     if not state.try_start_agent_run(tid, "chat"):
@@ -382,7 +388,7 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                     run_match=req.run_match,
                     group_token=session.group_token,
                     user_token=user_token,
-                    can_write_profile=session.capabilities.can_write_profile,
+                    can_write_profile=can_write_profile,
                 )
                 from apps.group_agent_api.agent_factory.context import (
                     prior_recommendation_system_content,
@@ -399,7 +405,7 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                     base_dir=state.base_dir,
                     user_id=user_id,
                     group_id=group_id,
-                    can_write_profile=session.capabilities.can_write_profile,
+                    can_write_profile=can_write_profile,
                 )
                 if known is not None:
                     turn_messages.append(known)
@@ -460,7 +466,7 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                         profile_ok = False
                         if assertion.ok:
                             persist_alert = "profile_stale_for_episode"
-                if session.capabilities.can_write_profile and _should_force_profile_save(
+                if can_write_profile and _should_force_profile_save(
                     profile_ok=profile_ok,
                     profile_status=profile_status_val,
                     persist_alert=persist_alert,

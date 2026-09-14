@@ -202,9 +202,13 @@ def apply_reply_grounding_gate(
         # No usable repair → fall through to abandon after loop.
         break
 
-    abandoned = build_abandon_reply(
-        reply_mode=reply_mode,
-        candidate_count=ground.candidate_count,
+    abandoned = (
+        "本次回复未能通过公开资料核验，请调整查询条件后重试。"  # noqa: RUF001  # Chinese user-facing fallback.
+        if ground.public_reads and not ground.candidates
+        else build_abandon_reply(
+            reply_mode=reply_mode,
+            candidate_count=ground.candidate_count,
+        )
     )
     abandon_payload = ReplyGroundingInput(
         reply=abandoned,

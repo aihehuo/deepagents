@@ -7,6 +7,7 @@ from pathlib import Path
 from langchain_core.tools import BaseTool, StructuredTool
 
 from skillpacks.aihehuo.client import HOST, build_path, fetch
+from skillpacks.aihehuo.evidence import record_result
 from skillpacks.aihehuo.manage import _catalog
 
 
@@ -68,11 +69,13 @@ def create_aihehuo_tool(*, skills_dir: Path) -> BaseTool:
                 document = json.loads(response)
                 if isinstance(document, dict):
                     document["_source_url"] = source_url
-                return json.dumps(document, ensure_ascii=False)
-            result = f"Source API: {source_url}\n\n{response}"
+                result = json.dumps(document, ensure_ascii=False)
+            else:
+                result = f"Source API: {source_url}\n\n{response}"
         except (ValueError, RuntimeError, OSError, http.client.HTTPException) as error:
             return f"AIHEHUO query failed: {error}"
         else:
+            record_result(resource, result)
             return result
 
     return StructuredTool.from_function(

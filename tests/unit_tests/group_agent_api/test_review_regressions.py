@@ -476,11 +476,15 @@ async def test_api_and_worker_initialize_identical_permission_graphs(
 
 
 @pytest.mark.parametrize("async_entry", [False, True])
+@pytest.mark.parametrize("compacted", [False, True])
+@pytest.mark.parametrize("write_refusal", [False, True])
 async def test_public_person_reply_survives_actual_endpoint_finalization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
     async_entry: bool,
+    compacted: bool,
+    write_refusal: bool,
 ) -> None:
     monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
     monkeypatch.setenv("GROUP_AGENT_WRITE_MODE", "disabled")
@@ -491,14 +495,23 @@ async def test_public_person_reply_survives_actual_endpoint_finalization(
     )
     model = ToolModel(calls=[{"name": "query_aihehuo_public_data", "id": "public", "args": {"resource": "users", "page": 1, "per": 2}}], reply=REPLY)
     graph = factory.create_member_agent(runtime=tmp_path, model=model, checkpointer=InMemorySaver(), include_save=False)
+    if compacted:
+        original_invoke = graph.ainvoke
+
+        async def invoke_without_history(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            await original_invoke(*args, **kwargs)
+            return {"messages": [AIMessage(content=REPLY)]}
+
+        monkeypatch.setattr(graph, "ainvoke", invoke_without_history)
     state = AppState(agent=object(), base_dir=tmp_path, search_only_agent=graph)
     session = TrustedSession(
         principal=SessionPrincipal("owner", None, None, "body_stub"),
         membership=MembershipResult(tier=CapabilityTier.in_group, source="stub"),
         group_id="g1",
         group_token=None,
-        capabilities=SessionCapabilities(tier=CapabilityTier.in_group, can_search=True, can_write_profile=False),
+        capabilities=SessionCapabilities(tier=CapabilityTier.in_group, can_search=True, can_write_profile=write_refusal),
     )
+    message = "找公开的技术人才，不保存我的画像" if write_refusal else "找公开的技术人才"
     captured: list[dict[str, Any]] = []
     actual_gate = apply_reply_grounding_gate
 
@@ -524,7 +537,7 @@ async def test_public_person_reply_survives_actual_endpoint_finalization(
             user_id="owner",
             group_id="g1",
             conversation_id="c1",
-            message="找公开的技术人才",
+            message=message,
             callback_url="http://example.invalid/group_agent_callbacks",
             run_invite=False,
         )
@@ -537,7 +550,7 @@ async def test_public_person_reply_survives_actual_endpoint_finalization(
             return session
 
         monkeypatch.setattr(chat_ep, "resolve_trusted_session", resolve)
-        result = (await chat_ep.chat(ChatRequest(user_id="owner", group_id="g1", message="找公开的技术人才"), state)).model_dump()
+        result = (await chat_ep.chat(ChatRequest(user_id="owner", group_id="g1", message=message), state)).model_dump()
     assert result["reply"] == REPLY
     assert result["candidates"] == []
     if async_entry:

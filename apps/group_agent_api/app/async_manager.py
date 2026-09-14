@@ -34,7 +34,6 @@ from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
-from apps.group_agent_api.agent_factory.integrations.config import read_mode
 from apps.group_agent_api.agent_factory.context import (
     known_profile_system_message as _known_profile_system_message,
     prior_recommendation_system_content,
@@ -51,7 +50,7 @@ from apps.group_agent_api.agent_factory.integrations.callback_client import (
     send_callback_event,
     validate_and_normalize_callback_url,
 )
-from apps.group_agent_api.agent_factory.integrations.config import async_run_timeout_s
+from apps.group_agent_api.agent_factory.integrations.config import async_run_timeout_s, read_mode
 from apps.group_agent_api.agent_factory.invite import (
     generate_invite_with_optional_llm,
     should_emit_invite_artifact,
@@ -73,6 +72,7 @@ from apps.group_agent_api.agent_factory.stream_buffer import StreamChunkBuffer
 from apps.group_agent_api.agent_factory.suggested_replies import (
     extract_suggested_replies,
 )
+from apps.group_agent_api.agent_factory.write_skills import profile_write_allowed_for_turn
 from apps.group_agent_api.app.endpoints.chat import (
     MAX_PERSIST_ATTEMPTS,
     _extract_reply,
@@ -86,6 +86,7 @@ from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
 from apps.group_agent_api.app.utils import aget_agent_state, get_agent_checkpointer
 from apps.group_agent_api.app.venue_protocol import calculate_v2_fingerprint, callback_bindings
+from skillpacks.aihehuo.evidence import collect_public_evidence
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -759,6 +760,7 @@ def _execution_metadata(req: AsyncCallRequest) -> dict[str, Any]:
     return metadata
 
 
+@collect_public_evidence
 async def _execute_core_agent(
     *,
     req: AsyncCallRequest,
@@ -777,6 +779,7 @@ async def _execute_core_agent(
     run_protocol_mode, run_rollout_version = _trusted_rollout_context(req)
     tier = session.membership.tier
     user_token = session.principal.user_token
+    can_write_profile = session.capabilities.can_write_profile and profile_write_allowed_for_turn(req.message)
     runtime_metadata = _execution_metadata(req)
     admin_debug = req.request_schema_version != 3 and is_admin_debug_source(req.metadata or {})
     from apps.group_agent_api.agent_factory.host_policy import is_readonly_host
@@ -790,7 +793,7 @@ async def _execute_core_agent(
             if admin_debug and getattr(state, "admin_agent", None) is not None
             else state.member_agent_for_capability(
                 can_search=session.capabilities.can_search,
-                can_write_profile=session.capabilities.can_write_profile,
+                can_write_profile=can_write_profile,
             )
         )
     )
@@ -848,7 +851,7 @@ async def _execute_core_agent(
                 run_match=req.run_match,
                 group_token=None if cafe_host else session.group_token,
                 user_token=None if cafe_host else user_token,
-                can_write_profile=session.capabilities.can_write_profile if not cafe_host else False,
+                can_write_profile=can_write_profile if not cafe_host else False,
             )
             turn_messages: list[Any] = []
             if admin_debug:
@@ -867,7 +870,7 @@ async def _execute_core_agent(
                         base_dir=state.base_dir,
                         user_id=user_id,
                         group_id=group_id,
-                        can_write_profile=session.capabilities.can_write_profile,
+                        can_write_profile=can_write_profile,
                     )
                 )
                 if known is not None:
@@ -1007,7 +1010,7 @@ async def _execute_core_agent(
                         if assertion.ok:
                             # Prior episode profile exists but is not bound to this episode.
                             pass
-                if session.capabilities.can_write_profile and _should_force_profile_save(
+                if can_write_profile and _should_force_profile_save(
                     profile_ok=profile_ok,
                     profile_status=profile_status,
                     persist_alert=("profile_stale_for_episode" if (not profile_ok and assertion.ok and profile_status != "superseded") else None),

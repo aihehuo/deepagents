@@ -10,11 +10,33 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
 import os
+import re
+
+_NO_PROFILE_WRITE = re.compile(
+    r"(?:不要|不用|不|别|禁止|无需|暂不|先不)(?:再|自动|尝试)?(?:保存|写入|更新|记录)(?:我的|用户的|个人)?(?:画像|profile)"
+    r"|(?:只|仅)(?:查询|搜索|查找|读取)(?:公开)?(?:资料|数据)?[，,；;。 ]*(?:不要|不)(?:保存|写入)"  # noqa: RUF001  # Match actual Chinese punctuation in user requests.
+    r"|(?:do not|don't|never)\s+(?:save|write|update)\s+(?:my\s+)?profile",
+    re.IGNORECASE,
+)
+
+
+def profile_write_allowed_for_turn(message: str | None) -> bool:
+    """Honor an explicit refusal to persist a profile in this turn.
+
+    Args:
+        message: Original user message, never a generated save retry.
+
+    Returns:
+        Whether the user has not explicitly forbidden profile writes.
+    """
+    return _NO_PROFILE_WRITE.search(message or "") is None
+
 
 READ_ONLY_PROMPT = "\n本会话没有画像写入工具或写权限。不要尝试保存画像，也不要声称已保存或更新。\n"  # noqa: RUF001
 WRITE_PROMPT = (
     "\n画像写入使用已安装的 save-ai-user-profile 技能。只保存当前可信会话用户的本人画像；"  # noqa: RUF001  # Chinese punctuation in the user-facing prompt.
     "工具返回 error 或 profile_superseded 时不能声称本次更新成功。\n"
+    "查询公开人才、项目或文章不要求保存画像；用户明确要求只查询或不要保存时，禁止调用保存工具。\n"  # noqa: RUF001  # Chinese punctuation in the user-facing prompt.
 )
 
 

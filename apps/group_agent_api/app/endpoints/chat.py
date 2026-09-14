@@ -18,6 +18,7 @@ from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
+from apps.group_agent_api.agent_factory.integrations.config import read_mode
 from apps.group_agent_api.agent_factory.debug_trace import (
     debug_trace_enabled,
     end_decision_trace,
@@ -404,12 +405,12 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                     turn_messages.append(known)
                 _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
                 match_reminder = prior_recommendation_system_content(revisit_for_prompt)
-                if match_reminder and session.capabilities.can_search and os.environ.get("GROUP_AGENT_READ_MODE", "legacy") == "legacy":
+                if match_reminder and session.capabilities.can_search and read_mode() == "legacy":
                     turn_messages.append(SystemMessage(content=match_reminder))
 
                 if (
                     session.capabilities.can_search
-                    and os.environ.get("GROUP_AGENT_READ_MODE", "legacy") == "legacy"
+                    and read_mode() == "legacy"
                     and search_relax_enabled_for_user(user_id)
                     and not search_relax_enabled()
                 ):
@@ -597,7 +598,7 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
 
     public_reads = (
         extract_public_reads(messages, msg_count_before)
-        if os.environ.get("GROUP_AGENT_READ_MODE", "legacy").strip().lower() == "public_skills"
+        if read_mode() == "public_skills"
         else None
     )
     quality_gaps: list[str] = []

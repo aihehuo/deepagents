@@ -68,6 +68,21 @@ def async_run_timeout_s() -> float:
     return float(os.environ.get("GROUP_AGENT_ASYNC_RUN_TIMEOUT_S", "120"))
 
 
+def read_mode() -> str:
+    """Resolve read mode with explicit supported values.
+
+    Returns:
+        ``legacy`` or ``public_skills``.
+
+    Raises:
+        ValueError: read mode is unknown.
+    """
+    mode = (os.environ.get("GROUP_AGENT_READ_MODE") or "public_skills").strip().lower()
+    if mode not in {"legacy", "public_skills"}:
+        raise ValueError(f"Invalid GROUP_AGENT_READ_MODE='{mode}'. Must be legacy or public_skills")
+    return mode
+
+
 def assert_startup_security() -> None:
     """Fail closed: prod/http must have principal secret, callback secret, allowlist, and directional isolation."""
     mode = integration_mode()
@@ -109,6 +124,10 @@ def assert_startup_security() -> None:
 
     # REQ-010 Fail closed: http/prod mode forbids mock/fixture configurations and stub model mode
     if mode == "http" or locked:
+        if read_mode() != "public_skills":
+            raise RuntimeError(
+                "production/http mode requires GROUP_AGENT_READ_MODE=public_skills to avoid legacy matching mode"
+            )
         if (os.environ.get("GROUP_AGENT_MODEL_MODE") or "").strip().lower() == "stub":
             raise RuntimeError(
                 "http/production mode forbids GROUP_AGENT_MODEL_MODE=stub"

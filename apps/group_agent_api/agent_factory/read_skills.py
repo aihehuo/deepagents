@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
     from langchain_core.tools import BaseTool
 
-import os
+from apps.group_agent_api.agent_factory.integrations.config import read_mode
 
 from apps.group_agent_api.agent_factory.search_tool import search_candidates
 
@@ -38,10 +38,7 @@ def member_read_configuration(*, runtime: Path, enabled: bool) -> tuple[list[Bas
         ValueError: Mode is invalid or public packages are missing or invalid.
         OSError: Installed package metadata cannot be read.
     """
-    mode = os.environ.get("GROUP_AGENT_READ_MODE", "legacy").strip().lower()
-    if mode not in {"legacy", "public_skills"}:
-        msg = "GROUP_AGENT_READ_MODE must be legacy or public_skills"
-        raise ValueError(msg)
+    mode = read_mode()
     if not enabled:
         return [], [], ""
     if mode == "legacy":

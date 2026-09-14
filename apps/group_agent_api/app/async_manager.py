@@ -34,6 +34,7 @@ from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
+from apps.group_agent_api.agent_factory.integrations.config import read_mode
 from apps.group_agent_api.agent_factory.context import (
     known_profile_system_message as _known_profile_system_message,
     prior_recommendation_system_content,
@@ -879,14 +880,14 @@ async def _execute_core_agent(
 
                 prior_rec = parse_prior_recommendation((req.metadata or {}).get("prior_recommendation"))
                 match_reminder = prior_recommendation_system_content(revisit_for_prompt, prior_rec=prior_rec)
-                if match_reminder and session.capabilities.can_search and os.environ.get("GROUP_AGENT_READ_MODE", "legacy") == "legacy":
+                if match_reminder and session.capabilities.can_search and read_mode() == "legacy":
                     turn_messages.append(SystemMessage(content=match_reminder))
 
                 # If search_relax is enabled for this user via canary but off globally in YAML,
                 # dynamically inject the search relaxation addon into turn context.
                 if (
                     session.capabilities.can_search
-                    and os.environ.get("GROUP_AGENT_READ_MODE", "legacy") == "legacy"
+                    and read_mode() == "legacy"
                     and search_relax_enabled_for_user(user_id)
                     and not search_relax_enabled()
                 ):
@@ -1143,7 +1144,7 @@ async def _execute_core_agent(
 
     public_reads = (
         extract_public_reads(messages, msg_count_before)
-        if not cafe_host and os.environ.get("GROUP_AGENT_READ_MODE", "legacy").strip().lower() == "public_skills"
+        if not cafe_host and read_mode() == "public_skills"
         else None
     )
     quality_gaps: list[str] = []

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from .schema import IntentConstraintsV1, IntentKind
+from .canonical import canonical_hash
+from .schema import IntentConstraintsV1, IntentDecisionV1, IntentKind
 from .signals import normalize_text
 
 _RESOURCE_INTENT: dict[str, IntentKind] = {
@@ -22,6 +24,16 @@ _RESOURCE_INTENT: dict[str, IntentKind] = {
     "faqs": "platform_help",
 }
 _ELLIPTICAL = ("的呢", "换成", "方向", "不要", "改成", "那", "合适")
+_SERVER_CONTEXT_KEY = "group_agent_completed_intent_context_v1"
+_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
+_INTENT_PLAN = {
+    "people_search": "people-search-v1",
+    "opportunity_search": "opportunity-search-v1",
+    "project_partnership_search": "project-partnership-search-v1",
+    "community_search": "community-search-v1",
+    "startup_digest": "startup-digest-v1",
+    "platform_help": "platform-help-v1",
+}
 
 
 @dataclass(frozen=True)
@@ -52,6 +64,38 @@ class TrustedIntentContext:
     constraints: IntentConstraintsV1
     scope: IntentContextScope
     tool_call_id: str
+
+
+def completed_intent_context_message(
+    *,
+    decision: IntentDecisionV1,
+    scope: IntentContextScope,
+    routing_snapshot_hash: str,
+    plan_id: str,
+    receipt_ids: list[str],
+    user_message: str,
+) -> SystemMessage:
+    """Create a server-role marker after QueryPlan success and before composition."""
+    if decision.action != "execute" or not receipt_ids:
+        raise ValueError("completed intent context requires successful receipts")
+    body = {
+        "version": 1,
+        "intent": decision.primary_intent,
+        "constraints": decision.constraints.model_dump(mode="json"),
+        "thread_id": scope.thread_id,
+        "user_id": scope.user_id,
+        "execution_mode": scope.execution_mode,
+        "episode_id": scope.episode_id,
+        "routing_snapshot_hash": routing_snapshot_hash,
+        "plan_id": plan_id,
+        "receipt_ids": receipt_ids[:20],
+        "user_message_hash": canonical_hash({"message": user_message}),
+    }
+    marker = {**body, "context_hash": canonical_hash(body)}
+    return SystemMessage(
+        content="[SERVER-COMPLETED-INTENT-CONTEXT]",
+        additional_kwargs={_SERVER_CONTEXT_KEY: marker},
+    )
 
 
 def is_elliptical_followup(message: str) -> bool:
@@ -124,6 +168,104 @@ def _constraints_from_args(args: dict[str, Any]) -> IntentConstraintsV1:
     )
 
 
+def _completed_server_context(
+    messages: list[Any], *, scope: IntentContextScope
+) -> TrustedIntentContext | None:
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if not isinstance(message, SystemMessage):
+            continue
+        marker = message.additional_kwargs.get(_SERVER_CONTEXT_KEY)
+        if not isinstance(marker, dict):
+            continue
+        expected_keys = {
+            "version",
+            "intent",
+            "constraints",
+            "thread_id",
+            "user_id",
+            "execution_mode",
+            "episode_id",
+            "routing_snapshot_hash",
+            "plan_id",
+            "receipt_ids",
+            "user_message_hash",
+            "context_hash",
+        }
+        if set(marker) != expected_keys or marker.get("version") != 1:
+            continue
+        body = {key: value for key, value in marker.items() if key != "context_hash"}
+        try:
+            valid_hash = marker.get("context_hash") == canonical_hash(body)
+        except Exception:  # noqa: BLE001 - malformed checkpoint marker is ignored.
+            valid_hash = False
+        if not valid_hash:
+            continue
+        human_seen = False
+        completed_same_turn = False
+        for following in messages[index + 1 :]:
+            if (
+                isinstance(following, SystemMessage)
+                and _SERVER_CONTEXT_KEY in following.additional_kwargs
+            ):
+                break
+            if isinstance(following, HumanMessage):
+                if human_seen:
+                    break
+                human_seen = True
+                if marker.get("user_message_hash") != canonical_hash(
+                    {"message": str(following.content or "")}
+                ):
+                    break
+                continue
+            if (
+                human_seen
+                and isinstance(following, AIMessage)
+                and bool(str(following.content or "").strip())
+                and not (getattr(following, "tool_calls", None) or [])
+            ):
+                completed_same_turn = True
+                break
+        if not completed_same_turn:
+            continue
+        if (
+            marker.get("thread_id") != scope.thread_id
+            or marker.get("user_id") != scope.user_id
+            or marker.get("execution_mode") != scope.execution_mode
+            or marker.get("episode_id") != scope.episode_id
+        ):
+            continue
+        intent = marker.get("intent")
+        receipt_ids = marker.get("receipt_ids")
+        if intent not in set(_RESOURCE_INTENT.values()) or not isinstance(
+            receipt_ids, list
+        ) or not receipt_ids:
+            continue
+        if (
+            marker.get("plan_id") != _INTENT_PLAN.get(intent)
+            or not isinstance(marker.get("routing_snapshot_hash"), str)
+            or _HASH.fullmatch(marker["routing_snapshot_hash"]) is None
+            or len(receipt_ids) > 20
+            or any(
+                not isinstance(receipt_id, str)
+                or _HASH.fullmatch(receipt_id) is None
+                for receipt_id in receipt_ids
+            )
+        ):
+            continue
+        try:
+            constraints = IntentConstraintsV1.model_validate(marker.get("constraints"))
+        except Exception:  # noqa: BLE001 - malformed checkpoint marker is ignored.
+            continue
+        return TrustedIntentContext(
+            intent=intent,
+            constraints=constraints,
+            scope=scope,
+            tool_call_id=f"server:{marker['context_hash']}",
+        )
+    return None
+
+
 def extract_completed_context(
     messages: list[Any],
     *,
@@ -140,6 +282,9 @@ def extract_completed_context(
     """
     if scope.run_status != "completed":
         return None
+    server_context = _completed_server_context(messages, scope=scope)
+    if server_context is not None:
+        return server_context
     successful = _successful_tool_ids(messages)
     if not successful:
         return None

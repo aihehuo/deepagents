@@ -51,7 +51,10 @@ from apps.group_agent_api.agent_factory.integrations.callback_client import (
     validate_and_normalize_callback_url,
 )
 from apps.group_agent_api.agent_factory.integrations.config import async_run_timeout_s, read_mode
-from apps.group_agent_api.agent_factory.intent_routing.context import IntentContextScope
+from apps.group_agent_api.agent_factory.intent_routing.context import (
+    IntentContextScope,
+    completed_intent_context_message,
+)
 from apps.group_agent_api.agent_factory.intent_routing.execution import (
     IntentExecution,
     QueryPlanError,
@@ -1083,6 +1086,32 @@ async def _execute_core_agent(
                         )
                     )
                 )
+                if intent_execution.decision.action == "execute":
+                    episode_id = (
+                        req.episode_id
+                        if req.request_schema_version == 3
+                        else runtime_metadata.get("episode_id")
+                    )
+                    turn_messages.append(
+                        completed_intent_context_message(
+                            decision=intent_execution.decision,
+                            scope=IntentContextScope(
+                                thread_id=tid,
+                                user_id=user_id,
+                                execution_mode="group_agent",
+                                episode_id=str(episode_id) if episode_id else None,
+                            ),
+                            routing_snapshot_hash=(
+                                intent_execution.snapshot.canonical_content_hash
+                            ),
+                            plan_id=intent_execution.plan.plan_id,
+                            receipt_ids=[
+                                receipt.receipt_id
+                                for receipt in intent_execution.receipts
+                            ],
+                            user_message=req.message,
+                        )
+                    )
             turn_messages.append(HumanMessage(content=req.message))
             _logger.info(
                 "Core agent ainvoke start run_id=%s thread_id=%s msg_len=%d admin_debug=%s",

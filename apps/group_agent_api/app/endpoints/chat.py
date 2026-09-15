@@ -26,7 +26,10 @@ from apps.group_agent_api.agent_factory.debug_trace import (
 )
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
 from apps.group_agent_api.agent_factory.integrations.config import read_mode
-from apps.group_agent_api.agent_factory.intent_routing.context import IntentContextScope
+from apps.group_agent_api.agent_factory.intent_routing.context import (
+    IntentContextScope,
+    completed_intent_context_message,
+)
 from apps.group_agent_api.agent_factory.intent_routing.execution import (
     IntentExecution,
     QueryPlanError,
@@ -482,6 +485,27 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                             )
                         )
                     )
+                    if intent_execution.decision.action == "execute":
+                        turn_messages.append(
+                            completed_intent_context_message(
+                                decision=intent_execution.decision,
+                                scope=IntentContextScope(
+                                    thread_id=tid,
+                                    user_id=user_id,
+                                    execution_mode="group_agent",
+                                    episode_id=_episode_id_from_metadata(req.metadata),
+                                ),
+                                routing_snapshot_hash=(
+                                    intent_execution.snapshot.canonical_content_hash
+                                ),
+                                plan_id=intent_execution.plan.plan_id,
+                                receipt_ids=[
+                                    receipt.receipt_id
+                                    for receipt in intent_execution.receipts
+                                ],
+                                user_message=req.message,
+                            )
+                        )
                 _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
                 match_reminder = prior_recommendation_system_content(revisit_for_prompt)
                 if match_reminder and session.capabilities.can_search and read_mode() == "legacy":

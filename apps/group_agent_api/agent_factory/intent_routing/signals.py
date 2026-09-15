@@ -97,6 +97,9 @@ _ROLES = (
     "创始人",
     "运营",
 )
+_PRIORITY_CAPABILITY = re.compile(
+    r"优先(?:有|具备)?\s*([^,，。！？;；]{1,32}?(?:经验|能力|资源))"
+)
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,9 @@ def _constraints(text: str) -> IntentConstraintsV1:
     locations = _matches(text, _LOCATIONS)
     industries = _matches(text, _INDUSTRIES)
     roles = _matches(text, _ROLES)
+    capabilities = tuple(
+        dict.fromkeys(match.strip() for match in _PRIORITY_CAPABILITY.findall(text))
+    )[:10]
     time_range = next(
         (value for value in ("本周", "近期", "最近", "本月") if value in text), None
     )
@@ -133,7 +139,7 @@ def _constraints(text: str) -> IntentConstraintsV1:
         location=locations,
         industry=industries,
         role=roles,
-        capability=(),
+        capability=capabilities,
         time_range=time_range,
     )
 

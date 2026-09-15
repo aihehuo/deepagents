@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi import HTTPException
@@ -803,6 +804,20 @@ class _RetryAgent:
         return {"messages": [AIMessage(content="公开查询处理完成。")]}
 
 
+class _PersistentAgent:
+    def __init__(self, history: list[Any]) -> None:
+        self.history = history
+
+    async def aget_state(self, _: Any) -> Any:
+        return SimpleNamespace(values={"messages": list(self.history)})
+
+    async def ainvoke(self, invocation: Any, __: Any) -> dict[str, Any]:
+        assert current_intent_execution() is not None
+        self.history.extend(invocation["messages"])
+        self.history.append(AIMessage(content="已根据公开结果完成查询。"))
+        return {"messages": list(self.history)}
+
+
 def _session() -> TrustedSession:
     return TrustedSession(
         principal=SessionPrincipal("user-1", None, None, "body_stub"),
@@ -975,6 +990,75 @@ async def test_async_enforce_executes_required_tool_before_composing(
     )
     assert events[-1][0] == "final"
     assert "查询范围：本次查询覆盖 1 页" in events[-1][1]["reply"]
+
+
+async def test_async_consecutive_turns_restore_server_query_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from apps.group_agent_api.app import async_manager
+    from skillpacks.aihehuo import integration
+
+    history: list[Any] = []
+    search_agent = _PersistentAgent(history)
+    compose_agent = _PersistentAgent(history)
+    state = AppState(
+        agent=search_agent,
+        base_dir=tmp_path,
+        search_only_agent=search_agent,
+        write_only_agent=compose_agent,
+        no_tool_agent=compose_agent,
+    )
+    _install_route_skill(tmp_path)
+    paths: list[str] = []
+
+    def fetch(path: str, **_kwargs: object) -> str:
+        paths.append(path)
+        return '{"data":[],"meta":{"has_more":false}}'
+
+    async def emit(_event: str, _payload: dict[str, Any]) -> bool:
+        return True
+
+    monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "enforce")
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    monkeypatch.setenv(
+        "GROUP_AGENT_CALLBACK_ALLOWED_BASE_URLS",
+        "http://example.invalid/callbacks",
+    )
+    monkeypatch.setattr(integration, "fetch", fetch)
+
+    async def execute(run_id: str, message: str) -> None:
+        await async_manager._execute_core_agent(
+            req=AsyncCallRequest(
+                run_id=run_id,
+                idempotency_key=f"{run_id}-key",
+                user_id="user-1",
+                group_id="group-1",
+                conversation_id="conversation-1",
+                message=message,
+                callback_url=f"http://example.invalid/callbacks/{run_id}",
+                run_match=False,
+                run_invite=False,
+            ),
+            session=_session(),
+            state=state,
+            tid="shared-intent-thread",
+            emit_callback=emit,
+        )
+
+    await execute("context-run-1", "找上海餐饮创业者，优先有供应链经验")
+    await execute("context-run-2", "北京的呢")
+    await execute("context-run-3", "不要北京，改成上海的")
+
+    assert len(paths) == 3
+    queries = [parse_qs(urlparse(path).query)["q"][0] for path in paths]
+    assert all("/ai/users.json" in path for path in paths)
+    assert "北京" in queries[1]
+    assert "餐饮" in queries[1]
+    assert "供应链经验" in queries[1]
+    assert "上海" in queries[2]
+    assert "餐饮" in queries[2]
+    assert "供应链经验" in queries[2]
+    assert "北京" not in queries[2]
 
 
 async def test_server_executor_validates_skill_before_public_fetch(

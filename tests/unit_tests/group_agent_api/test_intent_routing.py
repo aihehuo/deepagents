@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from pydantic import ValidationError
 
 from apps.group_agent_api.agent_factory.intent_routing.classifier import (
@@ -15,6 +15,7 @@ from apps.group_agent_api.agent_factory.intent_routing.classifier import (
 )
 from apps.group_agent_api.agent_factory.intent_routing.context import (
     IntentContextScope,
+    completed_intent_context_message,
     extract_completed_context,
 )
 from apps.group_agent_api.agent_factory.intent_routing.resolver import (
@@ -157,6 +158,77 @@ def test_context_inherits_only_completed_tool_arguments() -> None:
         run_status="failed",
     )
     assert extract_completed_context(messages, scope=failed_scope) is None
+
+
+def test_server_context_requires_completion_hash_and_exact_scope() -> None:
+    decision = resolve_intent(
+        "找上海餐饮创业者，优先有供应链经验",
+        execution_mode="group_agent",
+        can_search=True,
+    ).decision
+    marker = completed_intent_context_message(
+        decision=decision,
+        scope=_scope(),
+        routing_snapshot_hash="sha256:" + "1" * 64,
+        plan_id="people-search-v1",
+        receipt_ids=["sha256:" + "2" * 64],
+        user_message="找上海餐饮创业者，优先有供应链经验",
+    )
+    completed = [
+        marker,
+        HumanMessage(content="找上海餐饮创业者，优先有供应链经验"),
+        AIMessage(content="查询完成。"),
+    ]
+
+    context = extract_completed_context(completed, scope=_scope())
+    assert context is not None
+    assert context.intent == "people_search"
+    assert context.constraints.capability == ("供应链经验",)
+    assert extract_completed_context([marker], scope=_scope()) is None
+    assert extract_completed_context(
+        completed,
+        scope=IntentContextScope(
+            thread_id="other-thread",
+            user_id="u",
+            execution_mode="group_agent",
+            episode_id="episode-1",
+        ),
+    ) is None
+
+    marker.additional_kwargs["group_agent_completed_intent_context_v1"][
+        "plan_id"
+    ] = "platform-help-v1"
+    assert extract_completed_context(completed, scope=_scope()) is None
+
+
+def test_failed_server_marker_cannot_be_completed_by_later_chat() -> None:
+    decision = resolve_intent(
+        "找上海技术合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+    ).decision
+    marker = completed_intent_context_message(
+        decision=decision,
+        scope=_scope(),
+        routing_snapshot_hash="sha256:" + "1" * 64,
+        plan_id="people-search-v1",
+        receipt_ids=["sha256:" + "2" * 64],
+        user_message="找上海技术合伙人",
+    )
+    failed_then_chat = [
+        marker,
+        HumanMessage(content="找上海技术合伙人"),
+        HumanMessage(content="今天天气怎么样"),
+        AIMessage(content="今天天气不错。"),
+    ]
+    mismatched_same_turn = [
+        marker,
+        HumanMessage(content="今天天气怎么样"),
+        AIMessage(content="今天天气不错。"),
+    ]
+
+    assert extract_completed_context(failed_then_chat, scope=_scope()) is None
+    assert extract_completed_context(mismatched_same_turn, scope=_scope()) is None
 
 
 def test_context_negation_removes_one_constraint_without_cancelling_search() -> None:

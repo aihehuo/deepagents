@@ -162,6 +162,49 @@ def test_empty_receipt_cannot_be_described_as_found(
     assert "没有返回符合条件" in result.reply
 
 
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "好的，我们来查北京的餐饮供应链创业者。",
+        "明白，已切回上海。",
+    ],
+)
+def test_completed_people_query_must_not_end_with_ack_only(
+    monkeypatch: pytest.MonkeyPatch, reply: str
+) -> None:
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    execution = _execution()
+    _commit(
+        execution,
+        [{"id": "101", "name": "张三", "bio": "餐饮供应链经验"}],
+    )
+    result = apply_intent_final_guard(
+        reply=reply,
+        execution=execution,
+        enabled=True,
+    )
+    assert result.blocked
+    assert "execution_result_omitted" in result.violations
+    assert "张三" in result.reply
+    assert "公开查询已完成" in result.reply
+
+
+def test_empty_query_must_explicitly_report_no_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    execution = _execution()
+    _commit(execution, [])
+    result = apply_intent_final_guard(
+        reply="好的，条件已更新。",
+        execution=execution,
+        enabled=True,
+    )
+    assert result.blocked
+    assert "execution_result_omitted" in result.violations
+    assert "没有返回符合条件" in result.reply
+
+
 def test_cross_run_receipt_and_missing_adoption_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

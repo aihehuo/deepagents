@@ -203,8 +203,8 @@ def apply_reply_grounding_gate(
         break
 
     abandoned = (
-        "本次回复未能通过公开资料核验，请调整查询条件后重试。"  # noqa: RUF001  # Chinese user-facing fallback.
-        if ground.public_reads and not ground.candidates
+        "本次公开查询已完成，但未能生成通过核验的候选摘要。你可以调整查询条件后重试。"  # noqa: RUF001
+        if ground.public_reads
         else build_abandon_reply(
             reply_mode=reply_mode,
             candidate_count=ground.candidate_count,

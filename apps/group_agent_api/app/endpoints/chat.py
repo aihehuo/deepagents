@@ -711,8 +711,32 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
         if read_mode() == "public_skills"
         else None
     )
+    from apps.group_agent_api.agent_factory.intent_routing import project_intent_search
+
+    intent_search = project_intent_search(intent_execution)
+    search_completed = search_turn.called
     quality_gaps: list[str] = []
-    if search_turn.called:
+    if intent_search.completed:
+        search_completed = True
+        public_reads = intent_search.public_reads
+        candidates = intent_search.candidates
+        match_status = "matched" if candidates else "empty"
+        match_reason = "intent_query_plan"
+        search_log = SearchLogEntry(
+            search_id=f"search_{int(time.time() * 1000)}",
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
+            query=intent_execution.original_message if intent_execution else "",
+            rank_query=intent_execution.original_message if intent_execution else "",
+            match_status=match_status,
+            match_reason=match_reason,
+            candidate_count=len(candidates),
+            candidate_names=[
+                str(c.get("name") or c.get("display_name") or "")
+                for c in candidates
+                if c.get("name") or c.get("display_name")
+            ],
+        )
+    elif search_turn.called:
         match_status = search_turn.status if search_turn.status in {"matched", "weak", "empty", "skipped", "rejected", "error"} else "skipped"
         candidates = search_turn.candidates
         match_reason = search_turn.reason or "search_candidates_tool"
@@ -761,7 +785,7 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
         req.run_invite
         and profile_ok
         and unlocks_network(tier)
-        and search_turn.called
+        and search_completed
         and should_emit_invite_artifact(
             match_status=match_status,
             match_reason=match_reason,
@@ -835,9 +859,9 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
 
         out_candidates = enrich_candidates_with_single_copy(out_candidates, final_profile)
 
-    if search_turn.called and out_candidates and match_status == "matched":
+    if search_completed and out_candidates and match_status == "matched":
         reply_mode = "recommendation"
-    elif search_turn.called and match_status in {"empty", "weak"}:
+    elif search_completed:
         reply_mode = "no_match"
     elif saved_this_turn and profile_ok:
         reply_mode = "profile_confirmation"
@@ -845,7 +869,7 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
         reply_mode = "dialogue"
 
     is_clarifying = looks_like_profile_bearing_message(req.message) is False and ("？" in guarded.reply or "?" in guarded.reply)
-    if search_turn.called:
+    if search_completed:
         intent_route = "search"
     elif saved_this_turn and profile_ok:
         intent_route = "profile_save"
@@ -859,7 +883,8 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
         detail={
             "route": intent_route,
             "reply_mode": reply_mode,
-            "search_called": search_turn.called,
+            "search_called": search_completed,
+            "server_query_plan_completed": intent_search.completed,
             "profile_saved_this_turn": saved_this_turn,
             "profile_persisted": profile_ok,
             "is_clarification": is_clarifying,

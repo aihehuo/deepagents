@@ -115,6 +115,7 @@ async def test_unreturned_person_is_still_blocked(monkeypatch: pytest.MonkeyPatc
         assert result.results[0].codes == ["invented_candidate"]
         assert "虚构人才" not in result.reply
         assert "先匹配" not in result.reply
-        assert "公开资料核验" in result.reply
+        assert "公开查询已完成" in result.reply
+        assert "未能生成通过核验的候选摘要" in result.reply
 
     await request()

@@ -34,6 +34,7 @@ _FUTURE_QUERY = re.compile(
     r"后台.{0,16}(?:查询|搜索|匹配|筛选)|"
     r"(?:查询|搜索|匹配)结果.{0,10}(?:稍后|马上|随后)|"
     r"正在(?:保存|更新)(?:画像|资料)?|稍后.{0,8}(?:保存|更新)(?:画像|资料)?"
+    r"|(?:我们|我)?(?:来|再来)(?:查|查询|搜索|筛选|匹配)"
 )
 _SEARCH_DONE = re.compile(
     r"(?:已经|已)(?:完成)?(?:查询|搜索|查找|检索|筛选|匹配|查过|查完)|"
@@ -63,6 +64,15 @@ _EXPLICIT_ENTITY = (
 )
 _SCOPE = re.compile(r"(?:查询范围|本次查询覆盖|查询了)\D{0,8}\d+\s*页")
 _URL = re.compile(r"https://[^\s)）\]】>，。；;]+")
+_NO_FULL_MATCH = re.compile(
+    r"(?:没有|未找到|未发现|暂无|暂未).{0,18}(?:完全|同时|全部|精确)?(?:符合|匹配|记录|人选|候选人)|"
+    r"(?:证据|公开资料).{0,18}(?:不足|无法确认)|"
+    r"未能生成.{0,12}通过核验.{0,12}候选摘要"
+)
+_ACK_ONLY = re.compile(
+    r"^(?:好的|明白|收到|可以)[，,。！!\s]*(?:我们|我)?"
+    r"(?:来|已|现在|再)?(?:查|查询|搜索|筛选|匹配|切回|改成).{0,40}$"
+)
 
 
 @dataclass(frozen=True)
@@ -157,6 +167,19 @@ def apply_intent_final_guard(
         allowed_urls.update(url for receipt in receipts for url in receipt.source_urls)
         if any(url not in allowed_urls for url in _URL.findall(claim_text)):
             violations.append("unsupported_source")
+        no_full_match = bool(_NO_FULL_MATCH.search(claim_text))
+        mentioned_supported = any(
+            len(name) >= 2 and name in claim_text for name in supported_names
+        )
+        if _ACK_ONLY.fullmatch(raw) or (
+            result_count <= 0 and not no_full_match
+        ) or (
+            result_count > 0
+            and supported_names
+            and not mentioned_supported
+            and not no_full_match
+        ):
+            violations.append("execution_result_omitted")
 
     violations = list(dict.fromkeys(violations))
     if violations:
@@ -165,6 +188,7 @@ def apply_intent_final_guard(
             execute=execute,
             receipts=receipts,
             result_count=result_count,
+            evidence=evidence,
         )
         _log(violations, blocked=True)
         return IntentFinalGuardResult(
@@ -382,7 +406,12 @@ def _append_scope(reply: str, receipts: list[Any], item_count: int) -> str:
 
 
 def _safe_reply(
-    *, violations: list[str], execute: bool, receipts: list[Any], result_count: int
+    *,
+    violations: list[str],
+    execute: bool,
+    receipts: list[Any],
+    result_count: int,
+    evidence: list[Any],
 ) -> str:
     if "unverified_external_action" in violations:
         return "我无法确认消息、通知或联系已经完成；本次没有可验证的外部操作凭证。"
@@ -394,6 +423,15 @@ def _safe_reply(
     if execute and receipts:
         if result_count <= 0 or "empty_result_misrepresented" in violations:
             lead = "本次公开查询已完成，但没有返回符合条件的公开记录。"
+        elif "execution_result_omitted" in violations:
+            names = sorted(_evidence_names(evidence))[:3]
+            if names:
+                lead = (
+                    "本次公开查询已完成。返回的公开记录包括："
+                    f"{'、'.join(names)}。这些记录是查询候选，是否符合全部条件仍需依公开资料逐项核对。"
+                )
+            else:
+                lead = "本次公开查询已完成，但当前回复未展示经核验的结果摘要。"
         else:
             lead = "本次公开查询已完成；具体结果仅以已返回的公开记录为准。"
         return f"{lead}\n\n{_scope(receipts, result_count)}"

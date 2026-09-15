@@ -1382,9 +1382,41 @@ async def _execute_core_agent(
         if not cafe_host and read_mode() == "public_skills"
         else None
     )
+    from apps.group_agent_api.agent_factory.intent_routing import project_intent_search
+
+    intent_search = project_intent_search(intent_execution)
+    search_completed = search_turn.called
+    if intent_search.completed:
+        search_completed = True
+        public_reads = intent_search.public_reads
+        # ga-grounding-v1 currently accepts only authoritative profile-backed
+        # candidate facts. Public QueryPlan records remain valid reply ground,
+        # but must not be mislabeled as profile candidates in grounded_v2.
+        candidates = (
+            []
+            if run_protocol_mode == "grounded_v2"
+            else intent_search.candidates
+        )
+        match_status = "matched" if candidates else "empty"
+        match_reason = "intent_query_plan"
     quality_gaps: list[str] = []
     search_log: SearchLogEntry | None = None
-    if search_turn.called:
+    if intent_search.completed:
+        search_log = SearchLogEntry(
+            search_id=f"search_{int(time.time() * 1000)}",
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
+            query=intent_execution.original_message if intent_execution else "",
+            rank_query=intent_execution.original_message if intent_execution else "",
+            match_status=match_status,
+            match_reason=match_reason,
+            candidate_count=len(candidates),
+            candidate_names=[
+                str(c.get("name") or c.get("display_name") or "")
+                for c in candidates
+                if c.get("name") or c.get("display_name")
+            ],
+        )
+    elif search_turn.called:
         match_status = search_turn.status if search_turn.status in {"matched", "weak", "empty", "skipped", "rejected", "error"} else "skipped"
         candidates = search_turn.candidates
         match_reason = search_turn.reason or "search_candidates_tool"
@@ -1441,7 +1473,7 @@ async def _execute_core_agent(
         req.run_invite
         and profile_ok
         and unlocks_network(tier)
-        and search_turn.called
+        and search_completed
         and should_emit_invite_artifact(
             match_status=match_status,
             match_reason=match_reason,
@@ -1483,7 +1515,7 @@ async def _execute_core_agent(
                 len(invite_text or ""),
                 len(mentioned_user_ids),
             )
-    elif req.run_invite and profile_ok and search_turn.called and match_status == "empty":
+    elif req.run_invite and profile_ok and search_completed and match_status == "empty":
         _logger.info(
             "Invite skipped run_id=%s reason=empty_match_no_artifact",
             req.run_id,
@@ -1544,9 +1576,9 @@ async def _execute_core_agent(
         determined_reply_mode = ReplyMode.dialogue
     elif persistence_failure_reason or match_reason == "grounding_validation_failed":
         determined_reply_mode = ReplyMode.error
-    elif search_turn.called and out_candidates and match_status == "matched":
+    elif search_completed and out_candidates and match_status == "matched":
         determined_reply_mode = ReplyMode.recommendation
-    elif search_turn.called and match_status in {"empty", "weak"}:
+    elif search_completed:
         determined_reply_mode = ReplyMode.no_match
     elif saved_this_turn and profile_ok:
         determined_reply_mode = ReplyMode.profile_confirmation
@@ -1554,7 +1586,7 @@ async def _execute_core_agent(
         determined_reply_mode = ReplyMode.dialogue
 
     is_clarifying = looks_like_clarifying_reply(guarded.reply)
-    if search_turn.called:
+    if search_completed:
         intent_route = "search"
     elif saved_this_turn and profile_ok:
         intent_route = "profile_save"
@@ -1568,7 +1600,8 @@ async def _execute_core_agent(
         detail={
             "route": intent_route,
             "reply_mode": determined_reply_mode.value,
-            "search_called": search_turn.called,
+            "search_called": search_completed,
+            "server_query_plan_completed": intent_search.completed,
             "profile_saved_this_turn": saved_this_turn,
             "profile_persisted": profile_ok,
             "is_clarification": is_clarifying,

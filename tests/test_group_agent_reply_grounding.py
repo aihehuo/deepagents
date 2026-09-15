@@ -26,6 +26,7 @@ from apps.group_agent_api.agent_factory.checks.reply_grounding.protocol import (
     FactItem,
     GroundBlock,
     MatchEvidenceItem,
+    PublicReadGround,
 )
 from apps.group_agent_api.agent_factory.module_config import (
     load_modules_config,
@@ -323,6 +324,48 @@ def test_gate_abandon_when_repair_exhausted() -> None:
     assert gated.abandoned is True
     assert "全国性课标" not in gated.reply
     assert "1 位" in gated.reply or "1位" in gated.reply.replace(" ", "")
+
+
+def test_public_query_abandon_never_claims_candidates_are_in_current_group() -> None:
+    class _AlwaysFail:
+        def invoke(self, _messages: list[Any]) -> Any:
+            class _Msg:
+                content = (
+                    '{"verdict":"fail","codes":["unsupported_claim"],'
+                    '"spans":["虚构公司"],"repairable_by":"llm","message":"无来源"}'
+                )
+
+            return _Msg()
+
+    gated = apply_reply_grounding_gate(
+        reply="张三是某公司法人。",
+        reply_mode="recommendation",
+        candidates=[
+            {
+                "user_id": "101",
+                "display_name": "张三",
+                "doing": {
+                    "value": "餐饮供应链",
+                    "disclosure": "confirmed_public",
+                },
+            }
+        ],
+        public_reads=[
+            PublicReadGround(
+                resource="users",
+                source_url="https://www.aihehuo.com/ai/users.json?page=1",
+                document={"data": [{"id": 101, "name": "张三"}]},
+            )
+        ],
+        model=_AlwaysFail(),
+        repair_fn=lambda *_args: "张三仍是某公司法人。",
+        max_attempts=2,
+        enabled=True,
+    )
+    assert gated.abandoned
+    assert "公开查询已完成" in gated.reply
+    assert "未能生成通过核验的候选摘要" in gated.reply
+    assert "本群已有" not in gated.reply
 
 
 def test_build_ground_from_turn_maps_public_fields() -> None:

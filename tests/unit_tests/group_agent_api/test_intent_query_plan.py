@@ -174,6 +174,45 @@ def _install_route_skill(base_dir: Path) -> None:
     )
 
 
+def test_completed_execution_projects_public_reads_and_safe_candidate_cards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.projection import (
+        project_intent_search,
+    )
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    execution = _execution()
+    reservation = execution.reserve(
+        resource="users", parameters={"page": 1}, tool_call_id="projection"
+    )
+    execution.commit_result(
+        reservation,
+        _result(
+            [
+                {
+                    "id": 101,
+                    "name": "张三",
+                    "city": "上海",
+                    "industry": "餐饮",
+                    "title": "创业合伙人",
+                    "bio": "餐饮供应链经验",
+                    "phone": "13800000000",
+                }
+            ]
+        ),
+    )
+
+    projected = project_intent_search(execution)
+    assert projected.completed
+    assert projected.result_count == 1
+    assert projected.public_reads[0].records[0]["name"] == "张三"
+    assert projected.candidates[0]["user_id"] == "101"
+    assert projected.candidates[0]["display_name"] == "张三"
+    assert projected.candidates[0]["doing"]["value"] == "餐饮供应链经验"
+    assert "phone" not in projected.candidates[0]
+
+
 def test_ephemeral_required_receipt_empty_and_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -858,7 +897,7 @@ async def test_chat_enforce_executes_required_tool_before_composing(
     monkeypatch.setattr(
         integration,
         "fetch",
-        lambda _path, **_kwargs: '{"data":[{"id":"u-1"}],"meta":{"has_more":false}}',
+        lambda _path, **_kwargs: '{"data":[{"id":101,"name":"张三","bio":"技术合伙人"}],"meta":{"has_more":false}}',
     )
     monkeypatch.setattr(chat_endpoint, "resolve_trusted_session", resolve)
     response = await chat_endpoint.chat(
@@ -872,6 +911,9 @@ async def test_chat_enforce_executes_required_tool_before_composing(
         state,
     )
     assert "查询范围：本次查询覆盖 1 页" in response.reply
+    assert response.match_reason == "intent_query_plan"
+    assert response.match_status == "matched"
+    assert response.candidates[0]["user_id"] == "101"
     assert search_agent.calls == 0
     assert compose_agent.calls == 1
     prompt = "\n".join(
@@ -880,7 +922,8 @@ async def test_chat_enforce_executes_required_tool_before_composing(
         if hasattr(message, "content")
     )
     assert "[SERVER-VERIFIED-EVIDENCE]" in prompt
-    assert '\"id\":\"u-1\"' in prompt
+    assert '\"id\":101' in prompt
+    assert '\"name\":\"张三\"' in prompt
 
 
 async def test_chat_enforce_stops_before_model_when_public_query_fails(
@@ -955,7 +998,7 @@ async def test_async_enforce_executes_required_tool_before_composing(
     monkeypatch.setattr(
         integration,
         "fetch",
-        lambda _path, **_kwargs: '{"data":[{"id":"u-1"}],"meta":{"has_more":false}}',
+        lambda _path, **_kwargs: '{"data":[{"id":101,"name":"张三","bio":"技术合伙人"}],"meta":{"has_more":false}}',
     )
     monkeypatch.setenv(
         "GROUP_AGENT_CALLBACK_ALLOWED_BASE_URLS",
@@ -990,6 +1033,9 @@ async def test_async_enforce_executes_required_tool_before_composing(
     )
     assert events[-1][0] == "final"
     assert "查询范围：本次查询覆盖 1 页" in events[-1][1]["reply"]
+    assert events[-1][1]["reply_mode"] == "recommendation"
+    assert events[-1][1]["match_reason"] == "intent_query_plan"
+    assert events[-1][1]["candidates"][0]["user_id"] == "101"
 
 
 async def test_async_consecutive_turns_restore_server_query_context(

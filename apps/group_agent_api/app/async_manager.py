@@ -58,6 +58,9 @@ from apps.group_agent_api.agent_factory.intent_routing.execution import (
     active_intent_execution,
     prepare_intent_execution,
 )
+from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
+    execute_query_plan,
+)
 from apps.group_agent_api.agent_factory.intent_routing.resolver import (
     IntentResolution,
     aresolve_intent,
@@ -997,6 +1000,15 @@ async def _execute_core_agent(
                         routing_hash=intent_execution.snapshot.canonical_content_hash,
                         display_code="intent_ready",
                     )
+                    if intent_execution.decision.action == "execute":
+                        await execute_query_plan(
+                            intent_execution,
+                            skills_dir=state.base_dir / "skills" / "aihehuo",
+                        )
+                        agent = state.member_agent_for_capability(
+                            can_search=False,
+                            can_write_profile=can_write_profile,
+                        )
                     if (
                         not cafe_host
                         and intent_execution.decision.action != "execute"
@@ -1136,23 +1148,7 @@ async def _execute_core_agent(
                     and intent_execution.decision.action == "execute"
                     and not intent_execution.required_steps_satisfied()
                 ):
-                    with active_intent_execution(intent_execution):
-                        result = await agent.ainvoke(
-                            {
-                                "messages": [
-                                    SystemMessage(
-                                        content=(
-                                            "[INTENT-POLICY RETRY] required QueryPlan step "
-                                            "尚未产生 durable receipt；现在必须调用计划工具一次。"
-                                        )
-                                    )
-                                ]
-                            },
-                            config,
-                        )
-                    messages = result.get("messages", [])
-                    if not intent_execution.required_steps_satisfied():
-                        raise QueryPlanError("required_tool_not_called")
+                    raise QueryPlanError("required_tool_not_called")
             except Exception:
                 _logger.exception(
                     "Core agent execution failed run_id=%s thread_id=%s elapsed_s=%.2f",

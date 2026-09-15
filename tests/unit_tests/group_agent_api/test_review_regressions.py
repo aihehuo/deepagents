@@ -24,12 +24,16 @@ from apps.group_agent_api.agent_factory.checks.reply_grounding.protocol import R
 from apps.group_agent_api.agent_factory.integrations.membership_client import MembershipResult
 from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
 from apps.group_agent_api.agent_factory.public_evidence import extract_public_reads
-from apps.group_agent_api.agent_factory.skill_backend import SkillReadOnlyBackend
+from apps.group_agent_api.agent_factory.skill_backend import (
+    SkillReadOnlyBackend,
+    create_group_agent_backend,
+)
 from apps.group_agent_api.app import async_manager
 from apps.group_agent_api.app.endpoints import chat as chat_ep
 from apps.group_agent_api.app.models import AsyncCallRequest, ChatRequest
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
+from deepagents.backends.state import StateBackend
 from skillpacks.aihehuo import integration
 from skillpacks.aihehuo.manage import install
 
@@ -174,6 +178,23 @@ async def test_backend_blocks_uploads_private_reads_and_symlink_escape(tmp_path:
     assert (await backend.awrite("/skills/new.md", "evil")).error
     assert (await backend.aedit("/users/owner/profile.json", "private", "evil")).error
     assert private.read_text() == "private"
+
+
+def test_group_agent_history_offload_routes_to_checkpoint_state(
+    tmp_path: Path,
+) -> None:
+    backend = create_group_agent_backend(tmp_path)
+
+    history = backend.routes["/conversation_history/"]
+    large_result = backend.routes["/large_tool_results/"]
+
+    assert isinstance(history, StateBackend)
+    assert isinstance(large_result, StateBackend)
+    assert history is large_result
+    assert isinstance(backend.default, SkillReadOnlyBackend)
+    assert backend.write("/untrusted.txt", "no").error.startswith(
+        "permission_denied"
+    )
 
 
 @pytest.mark.parametrize(("search", "save"), [(True, False), (False, True), (False, False)])

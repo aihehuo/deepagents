@@ -2,8 +2,10 @@
 
 from pathlib import Path
 
+from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.backends.protocol import EditResult, FileUploadResponse, GlobResult, WriteResult
+from deepagents.backends.state import StateBackend
 
 
 class SkillReadOnlyBackend(FilesystemBackend):
@@ -83,3 +85,15 @@ class SkillReadOnlyBackend(FilesystemBackend):
             A permission error for each requested upload.
         """
         return [FileUploadResponse(path=path, error="permission_denied") for path, _ in files]
+
+
+def create_group_agent_backend(runtime: Path) -> CompositeBackend:
+    """Keep skills host-read-only while allowing framework artifacts in state."""
+    artifacts = StateBackend()
+    return CompositeBackend(
+        default=SkillReadOnlyBackend(root_dir=str(runtime), virtual_mode=True),
+        routes={
+            "/conversation_history/": artifacts,
+            "/large_tool_results/": artifacts,
+        },
+    )

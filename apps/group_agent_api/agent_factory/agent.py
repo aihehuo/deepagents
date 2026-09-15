@@ -48,7 +48,7 @@ from apps.group_agent_api.agent_factory.profile_schema import (
 )
 from apps.group_agent_api.agent_factory.profile_store import save_profile
 from apps.group_agent_api.agent_factory.read_skills import member_read_configuration
-from apps.group_agent_api.agent_factory.skill_backend import SkillReadOnlyBackend
+from apps.group_agent_api.agent_factory.skill_backend import create_group_agent_backend
 from apps.group_agent_api.agent_factory.write_skills import member_write_configuration, profile_write_mode
 from apps.group_agent_api.checkpointer import DiskBackedInMemorySaver
 from deepagents import create_deep_agent
@@ -423,7 +423,7 @@ def create_member_agent(
         msg = "checkpointer is required for create_member_agent"
         raise RuntimeError(msg)
 
-    backend = SkillReadOnlyBackend(root_dir=str(runtime), virtual_mode=True)
+    backend = create_group_agent_backend(runtime)
     llm = model or create_model()
     tools, write_skills, write_prompt = member_write_configuration(
         runtime=runtime,
@@ -491,7 +491,7 @@ def create_agent(
         include_save=True,
     )
     # Create admin graph with same backend/checkpointer for shared execution state.
-    backend = SkillReadOnlyBackend(root_dir=str(runtime), virtual_mode=True)
+    backend = create_group_agent_backend(runtime)
     admin_agent = create_deep_agent(
         model=llm,
         tools=list(ADMIN_OPS_TOOLS),

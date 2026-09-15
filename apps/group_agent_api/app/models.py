@@ -489,7 +489,8 @@ CallbackEventType = Literal["progress", "chunk", "final", "error", "heartbeat"]
 
 class CallbackEnvelope(BaseModel):
     execution_binding: dict[str, Any] | None = None
-    version: str = "GA-CALLBACK-V1"
+    version: str | None = "GA-CALLBACK-V1"
+    callback_version: int | None = None
     run_id: str
     idempotency_key: str | None = None
     seq: int
@@ -505,12 +506,26 @@ class CallbackEnvelope(BaseModel):
     input_kind: Literal["user_message", "venue_event"] | None = None
     event_name: Literal["venue_entered"] | None = None
     visit_id: str | None = None
+    deep_attempt_id: str | None = None
+    deep_attempt_number: int | None = None
+    routing_snapshot_hash: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
     def validate_callback_protocol(cls, value: Any) -> Any:
         """Preserve old callbacks while rejecting v2 coercion/unknown fields."""
+        if isinstance(value, dict) and value.get("callback_version") is not None:
+            if (
+                value.get("callback_version") != 1
+                or value.get("version") is not None
+                or type(value.get("deep_attempt_id")) is not str
+                or not value.get("deep_attempt_id")
+                or type(value.get("deep_attempt_number")) is not int
+                or value.get("deep_attempt_number", 0) < 1
+                or value.get("input_kind") == "venue_event"
+            ):
+                raise ValueError("schema_invalid: strict callback envelope")
         if isinstance(value, dict) and value.get("execution_binding") is not None:
             binding = value["execution_binding"]
             fields = {"schema_version", "user_id", "execution_mode", "conversation_id", "episode_id", "run_id"}
@@ -534,6 +549,8 @@ class CallbackEnvelope(BaseModel):
         result = handler(self)
         if self.execution_binding is None:
             result.pop("execution_binding", None)
+        if self.version is None:
+            result.pop("version", None)
         return result
 
     @model_validator(mode="after")

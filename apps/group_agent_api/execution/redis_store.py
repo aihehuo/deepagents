@@ -19,6 +19,7 @@ from apps.group_agent_api.execution.models import (
     ExecutionRecord,
     ExecutionStatus,
     LeaseClaim,
+    PendingCallback,
     TERMINAL_STATUSES,
 )
 
@@ -562,6 +563,441 @@ end
 return {'ok', 'retry_wait'}
 """
 
+_LUA_CREATE_ROUTING_SNAPSHOT = """
+local run_key = KEYS[1]
+local ttl = tonumber(ARGV[1])
+local owner = ARGV[2]
+local token_digest = ARGV[3]
+local attempt_id = ARGV[4]
+local version = ARGV[5]
+local snapshot_hash = ARGV[6]
+local created_at = ARGV[7]
+local key_version = ARGV[8]
+local nonce_b64 = ARGV[9]
+local ciphertext_b64 = ARGV[10]
+local tag_b64 = ARGV[11]
+local ledger_json = ARGV[12]
+if redis.call('HGET', run_key, 'status') ~= 'running' then
+  return {'rejected', 'fence_not_running'}
+end
+if redis.call('HGET', run_key, 'lease_owner') ~= owner
+   or redis.call('HGET', run_key, 'lease_token_digest') ~= token_digest
+   or redis.call('HGET', run_key, 'current_attempt_id') ~= attempt_id then
+  return {'rejected', 'fence_attempt_mismatch'}
+end
+local existing = redis.call('HGET', run_key, 'routing_snapshot_hash')
+if existing then
+  if existing == snapshot_hash
+     and redis.call('HGET', run_key, 'routing_snapshot_version') == version
+     and redis.call('HGET', run_key, 'routing_snapshot_key_version') == key_version then
+    return {'hit', existing}
+  end
+  return {'conflict', existing}
+end
+redis.call('HSET', run_key,
+  'routing_snapshot_version', version,
+  'routing_snapshot_hash', snapshot_hash,
+  'routing_snapshot_created_at', created_at,
+  'routing_snapshot_key_version', key_version,
+  'routing_snapshot_nonce_b64', nonce_b64,
+  'routing_snapshot_ciphertext_b64', ciphertext_b64,
+  'routing_snapshot_tag_b64', tag_b64,
+  'receipt_ledger_json', ledger_json)
+redis.call('EXPIRE', run_key, ttl)
+return {'created', snapshot_hash}
+"""
+
+_LUA_RESERVE_QUERY = """
+local function encode_ledger(value)
+  local marker = '__intent_empty_array_6d84c925__'
+  if next(value.receipt_refs) == nil then value.receipt_refs = {marker} end
+  if next(value.audit_refs) == nil then value.audit_refs = {marker} end
+  if next(value.adoption_refs) == nil then value.adoption_refs = {marker} end
+  local encoded = cjson.encode(value)
+  local normalized = string.gsub(encoded, '%["' .. marker .. '"%]', '[]')
+  return normalized
+end
+local run_key = KEYS[1]
+local reservation_prefix = KEYS[2]
+local signature_key = KEYS[3]
+local ttl = tonumber(ARGV[1])
+local owner = ARGV[2]
+local token_digest = ARGV[3]
+local attempt_id = ARGV[4]
+local snapshot_hash = ARGV[5]
+local step_id = ARGV[6]
+local max_requests = tonumber(ARGV[7])
+local max_pages = tonumber(ARGV[8])
+local max_items = tonumber(ARGV[9])
+local max_elapsed = tonumber(ARGV[10])
+local hard_timeout = tonumber(ARGV[11])
+if redis.call('HGET', run_key, 'status') ~= 'running'
+   or redis.call('HGET', run_key, 'lease_owner') ~= owner
+   or redis.call('HGET', run_key, 'lease_token_digest') ~= token_digest
+   or redis.call('HGET', run_key, 'current_attempt_id') ~= attempt_id then
+  return {'rejected', 'fence_attempt_mismatch'}
+end
+if redis.call('HGET', run_key, 'routing_snapshot_hash') ~= snapshot_hash then
+  return {'rejected', 'routing_snapshot_invalid'}
+end
+if redis.call('EXISTS', signature_key) == 1 then
+  return {'duplicate'}
+end
+local raw = redis.call('HGET', run_key, 'receipt_ledger_json')
+local ok, ledger = pcall(cjson.decode, raw or '')
+if not ok or ledger.routing_snapshot_hash ~= snapshot_hash then
+  return {'rejected', 'receipt_invalid'}
+end
+if type(ledger.receipt_refs) ~= 'table'
+   or type(ledger.audit_refs) ~= 'table'
+   or type(ledger.adoption_refs) ~= 'table'
+   or type(ledger.budget) ~= 'table' then
+  return {'rejected', 'receipt_invalid'}
+end
+local budget = ledger.budget
+if budget.requests_reserved + 1 > max_requests
+   or budget.pages_reserved + 1 > max_pages
+   or budget.items_committed >= max_items
+   or budget.tool_elapsed_committed_ms + budget.tool_elapsed_reserved_ms + hard_timeout > max_elapsed then
+  return {'exhausted'}
+end
+local idx = tonumber(budget.next_request_index_by_step[step_id] or 1)
+budget.next_request_index_by_step[step_id] = idx + 1
+budget.requests_reserved = budget.requests_reserved + 1
+budget.pages_reserved = budget.pages_reserved + 1
+budget.tool_elapsed_reserved_ms = budget.tool_elapsed_reserved_ms + hard_timeout
+redis.call('HSET', run_key, 'receipt_ledger_json', encode_ledger(ledger))
+local reservation_key = reservation_prefix .. ':' .. tostring(idx)
+redis.call('HSET', reservation_key,
+  'run_id', ledger.run_id, 'routing_snapshot_hash', snapshot_hash,
+  'plan_step_id', step_id, 'request_index', tostring(idx),
+  'hard_timeout_ms', tostring(hard_timeout), 'attempt_id', attempt_id)
+redis.call('EXPIRE', reservation_key, ttl)
+redis.call('SET', signature_key, tostring(idx), 'EX', ttl)
+redis.call('EXPIRE', run_key, ttl)
+return {'reserved', tostring(idx)}
+"""
+
+_LUA_COMMIT_RECEIPT = """
+local function encode_ledger(value)
+  local marker = '__intent_empty_array_6d84c925__'
+  if next(value.receipt_refs) == nil then value.receipt_refs = {marker} end
+  if next(value.audit_refs) == nil then value.audit_refs = {marker} end
+  if next(value.adoption_refs) == nil then value.adoption_refs = {marker} end
+  local encoded = cjson.encode(value)
+  local normalized = string.gsub(encoded, '%["' .. marker .. '"%]', '[]')
+  return normalized
+end
+local run_key = KEYS[1]
+local reservation_key = KEYS[2]
+local receipt_key = KEYS[3]
+local ttl = tonumber(ARGV[1])
+local owner = ARGV[2]
+local token_digest = ARGV[3]
+local attempt_id = ARGV[4]
+local snapshot_hash = ARGV[5]
+local step_id = ARGV[6]
+local request_index = ARGV[7]
+local budget_item_count = tonumber(ARGV[8])
+local elapsed_ms = tonumber(ARGV[9])
+local receipt_id = ARGV[10]
+local receipt_fields = cjson.decode(ARGV[11])
+local max_items = tonumber(ARGV[12])
+if redis.call('HGET', run_key, 'status') ~= 'running'
+   or redis.call('HGET', run_key, 'lease_owner') ~= owner
+   or redis.call('HGET', run_key, 'lease_token_digest') ~= token_digest
+   or redis.call('HGET', run_key, 'current_attempt_id') ~= attempt_id then
+  return {'rejected', 'fence_attempt_mismatch'}
+end
+if redis.call('HGET', run_key, 'routing_snapshot_hash') ~= snapshot_hash then
+  return {'rejected', 'routing_snapshot_invalid'}
+end
+local existing = redis.call('HGET', receipt_key, 'receipt_id')
+if existing then
+  if existing == receipt_id then return {'hit', receipt_id} end
+  return {'rejected', 'receipt_invalid'}
+end
+if redis.call('HGET', reservation_key, 'attempt_id') ~= attempt_id
+   or redis.call('HGET', reservation_key, 'routing_snapshot_hash') ~= snapshot_hash then
+  return {'rejected', 'receipt_invalid'}
+end
+local hard_timeout = tonumber(redis.call('HGET', reservation_key, 'hard_timeout_ms') or '0')
+local raw = redis.call('HGET', run_key, 'receipt_ledger_json')
+local ok, ledger = pcall(cjson.decode, raw or '')
+if not ok then return {'rejected', 'receipt_invalid'} end
+if type(ledger.receipt_refs) ~= 'table'
+   or type(ledger.audit_refs) ~= 'table'
+   or type(ledger.adoption_refs) ~= 'table'
+   or type(ledger.budget) ~= 'table' then
+  return {'rejected', 'receipt_invalid'}
+end
+if ledger.budget.items_committed + budget_item_count > max_items then
+  return {'exhausted'}
+end
+ledger.budget.tool_elapsed_reserved_ms = math.max(0, ledger.budget.tool_elapsed_reserved_ms - hard_timeout)
+ledger.budget.tool_elapsed_committed_ms = ledger.budget.tool_elapsed_committed_ms + elapsed_ms
+ledger.budget.items_committed = ledger.budget.items_committed + budget_item_count
+ledger.receipt_refs[#ledger.receipt_refs+1] = {
+  plan_step_id = step_id, request_index = tonumber(request_index), receipt_id = receipt_id
+}
+for k, v in pairs(receipt_fields) do redis.call('HSET', receipt_key, k, v) end
+redis.call('HSET', receipt_key, 'receipt_id', receipt_id)
+redis.call('EXPIRE', receipt_key, ttl)
+redis.call('DEL', reservation_key)
+redis.call('HSET', run_key, 'receipt_ledger_json', encode_ledger(ledger))
+redis.call('EXPIRE', run_key, ttl)
+return {'created', receipt_id}
+"""
+
+_LUA_COMMIT_AUDIT = """
+local function encode_ledger(value)
+  local marker = '__intent_empty_array_6d84c925__'
+  if next(value.receipt_refs) == nil then value.receipt_refs = {marker} end
+  if next(value.audit_refs) == nil then value.audit_refs = {marker} end
+  if next(value.adoption_refs) == nil then value.adoption_refs = {marker} end
+  local encoded = cjson.encode(value)
+  local normalized = string.gsub(encoded, '%["' .. marker .. '"%]', '[]')
+  return normalized
+end
+local run_key = KEYS[1]
+local reservation_key = KEYS[2]
+local audit_key = KEYS[3]
+local ttl = tonumber(ARGV[1])
+local owner = ARGV[2]
+local token_digest = ARGV[3]
+local attempt_id = ARGV[4]
+local snapshot_hash = ARGV[5]
+local step_id = ARGV[6]
+local request_index = ARGV[7]
+local status = ARGV[8]
+local elapsed_ms = tonumber(ARGV[9])
+local audit_json = ARGV[10]
+if redis.call('HGET', run_key, 'status') ~= 'running'
+   or redis.call('HGET', run_key, 'lease_owner') ~= owner
+   or redis.call('HGET', run_key, 'lease_token_digest') ~= token_digest
+   or redis.call('HGET', run_key, 'current_attempt_id') ~= attempt_id then
+  return {'rejected', 'fence_attempt_mismatch'}
+end
+if redis.call('EXISTS', audit_key) == 1 then return {'hit'} end
+if redis.call('HGET', run_key, 'routing_snapshot_hash') ~= snapshot_hash then
+  return {'rejected', 'routing_snapshot_invalid'}
+end
+if redis.call('HGET', reservation_key, 'attempt_id') ~= attempt_id
+   or redis.call('HGET', reservation_key, 'routing_snapshot_hash') ~= snapshot_hash then
+  return {'rejected', 'receipt_invalid'}
+end
+local hard_timeout = tonumber(redis.call('HGET', reservation_key, 'hard_timeout_ms') or '0')
+local raw = redis.call('HGET', run_key, 'receipt_ledger_json')
+local ok, ledger = pcall(cjson.decode, raw or '')
+if not ok then return {'rejected', 'receipt_invalid'} end
+if type(ledger.receipt_refs) ~= 'table'
+   or type(ledger.audit_refs) ~= 'table'
+   or type(ledger.adoption_refs) ~= 'table'
+   or type(ledger.budget) ~= 'table' then
+  return {'rejected', 'receipt_invalid'}
+end
+ledger.budget.tool_elapsed_reserved_ms = math.max(0, ledger.budget.tool_elapsed_reserved_ms - hard_timeout)
+ledger.budget.tool_elapsed_committed_ms = ledger.budget.tool_elapsed_committed_ms + elapsed_ms
+ledger.audit_refs[#ledger.audit_refs+1] = {
+  plan_step_id = step_id, request_index = tonumber(request_index), status = status
+}
+redis.call('SET', audit_key, audit_json, 'EX', ttl)
+redis.call('DEL', reservation_key)
+redis.call('HSET', run_key, 'receipt_ledger_json', encode_ledger(ledger))
+redis.call('EXPIRE', run_key, ttl)
+return {'created'}
+"""
+
+_LUA_ADOPT_RECEIPT = """
+local function encode_ledger(value)
+  local marker = '__intent_empty_array_6d84c925__'
+  if next(value.receipt_refs) == nil then value.receipt_refs = {marker} end
+  if next(value.audit_refs) == nil then value.audit_refs = {marker} end
+  if next(value.adoption_refs) == nil then value.adoption_refs = {marker} end
+  local encoded = cjson.encode(value)
+  local normalized = string.gsub(encoded, '%["' .. marker .. '"%]', '[]')
+  return normalized
+end
+local run_key = KEYS[1]
+local adoption_key = KEYS[2]
+local ttl = tonumber(ARGV[1])
+local owner = ARGV[2]
+local token_digest = ARGV[3]
+local attempt_id = ARGV[4]
+local snapshot_hash = ARGV[5]
+local receipt_id = ARGV[6]
+local attempt_number = tonumber(ARGV[7])
+local adoption_json = ARGV[8]
+if redis.call('HGET', run_key, 'status') ~= 'running'
+   or redis.call('HGET', run_key, 'lease_owner') ~= owner
+   or redis.call('HGET', run_key, 'lease_token_digest') ~= token_digest
+   or redis.call('HGET', run_key, 'current_attempt_id') ~= attempt_id then
+  return {'rejected', 'fence_attempt_mismatch'}
+end
+if redis.call('EXISTS', adoption_key) == 1 then return {'hit'} end
+local raw = redis.call('HGET', run_key, 'receipt_ledger_json')
+local ok, ledger = pcall(cjson.decode, raw or '')
+if not ok or ledger.routing_snapshot_hash ~= snapshot_hash then
+  return {'rejected', 'receipt_invalid'}
+end
+if type(ledger.receipt_refs) ~= 'table'
+   or type(ledger.audit_refs) ~= 'table'
+   or type(ledger.adoption_refs) ~= 'table' then
+  return {'rejected', 'receipt_invalid'}
+end
+local receipt_found = false
+for _, ref in ipairs(ledger.receipt_refs) do
+  if ref.receipt_id == receipt_id then receipt_found = true end
+end
+if not receipt_found then return {'rejected', 'receipt_invalid'} end
+ledger.adoption_refs[#ledger.adoption_refs+1] = {
+  receipt_id = receipt_id, adopted_by_attempt_number = attempt_number
+}
+redis.call('SET', adoption_key, adoption_json, 'EX', ttl)
+redis.call('HSET', run_key, 'receipt_ledger_json', encode_ledger(ledger))
+redis.call('EXPIRE', run_key, ttl)
+return {'created'}
+"""
+
+_PENDING_CALLBACK_FIELDS = (
+    "pending_callback_version",
+    "pending_callback_seq",
+    "pending_callback_body_sha256",
+    "pending_callback_producer_attempt_id",
+    "pending_callback_producer_attempt_number",
+    "pending_callback_adopted_by_attempt_id",
+    "pending_callback_adopted_by_attempt_number",
+    "pending_callback_routing_snapshot_hash",
+    "pending_callback_created_at",
+    "pending_callback_key_version",
+    "pending_callback_nonce_b64",
+    "pending_callback_ciphertext_b64",
+    "pending_callback_tag_b64",
+)
+
+_LUA_CREATE_PENDING_CALLBACK = """
+local run_key = KEYS[1]
+local ttl = tonumber(ARGV[1])
+local owner = ARGV[2]
+local token_digest = ARGV[3]
+local attempt_id = ARGV[4]
+local attempt_number = tonumber(ARGV[5])
+local seq = tonumber(ARGV[6])
+local digest = ARGV[7]
+if redis.call('HGET', run_key, 'status') ~= 'running'
+   or redis.call('HGET', run_key, 'lease_owner') ~= owner
+   or redis.call('HGET', run_key, 'lease_token_digest') ~= token_digest
+   or redis.call('HGET', run_key, 'current_attempt_id') ~= attempt_id
+   or tonumber(redis.call('HGET', run_key, 'attempt_count') or '0') ~= attempt_number then
+  return {'rejected', 'fence_attempt_mismatch'}
+end
+local pending_seq = redis.call('HGET', run_key, 'pending_callback_seq')
+if pending_seq then
+  if tonumber(pending_seq) == seq
+     and redis.call('HGET', run_key, 'pending_callback_body_sha256') == digest then
+    return {'hit'}
+  end
+  return {'rejected', 'callback_seq_diverged'}
+end
+local last_seq = tonumber(redis.call('HGET', run_key, 'last_callback_seq') or '0')
+if seq ~= last_seq + 1 then return {'rejected', 'callback_seq_diverged'} end
+redis.call('HSET', run_key,
+  'pending_callback_version', '1',
+  'pending_callback_seq', tostring(seq),
+  'pending_callback_body_sha256', digest,
+  'pending_callback_producer_attempt_id', attempt_id,
+  'pending_callback_producer_attempt_number', tostring(attempt_number),
+  'pending_callback_routing_snapshot_hash', ARGV[8],
+  'pending_callback_created_at', ARGV[9],
+  'pending_callback_key_version', ARGV[10],
+  'pending_callback_nonce_b64', ARGV[11],
+  'pending_callback_ciphertext_b64', ARGV[12],
+  'pending_callback_tag_b64', ARGV[13])
+redis.call('HDEL', run_key,
+  'pending_callback_adopted_by_attempt_id',
+  'pending_callback_adopted_by_attempt_number')
+redis.call('EXPIRE', run_key, ttl)
+return {'created'}
+"""
+
+_LUA_ADOPT_PENDING_CALLBACK = """
+local run_key = KEYS[1]
+local ttl = tonumber(ARGV[1])
+local owner = ARGV[2]
+local token_digest = ARGV[3]
+local attempt_id = ARGV[4]
+local attempt_number = tonumber(ARGV[5])
+if redis.call('HGET', run_key, 'status') ~= 'running'
+   or redis.call('HGET', run_key, 'lease_owner') ~= owner
+   or redis.call('HGET', run_key, 'lease_token_digest') ~= token_digest
+   or redis.call('HGET', run_key, 'current_attempt_id') ~= attempt_id
+   or tonumber(redis.call('HGET', run_key, 'attempt_count') or '0') ~= attempt_number then
+  return {'rejected', 'fence_attempt_mismatch'}
+end
+local pending_seq = tonumber(redis.call('HGET', run_key, 'pending_callback_seq') or '0')
+local last_seq = tonumber(redis.call('HGET', run_key, 'last_callback_seq') or '0')
+if pending_seq == 0 then return {'none'} end
+if pending_seq ~= last_seq + 1 then return {'rejected', 'callback_seq_diverged'} end
+local producer_number = tonumber(redis.call('HGET', run_key, 'pending_callback_producer_attempt_number') or '0')
+if producer_number <= 0 or producer_number > attempt_number then
+  return {'rejected', 'pending_callback_invalid'}
+end
+redis.call('HSET', run_key,
+  'pending_callback_adopted_by_attempt_id', attempt_id,
+  'pending_callback_adopted_by_attempt_number', tostring(attempt_number))
+redis.call('EXPIRE', run_key, ttl)
+return {'adopted'}
+"""
+
+_LUA_COMMIT_CALLBACK_ACK = """
+local run_key = KEYS[1]
+local ttl = tonumber(ARGV[1])
+local owner = ARGV[2]
+local token_digest = ARGV[3]
+local attempt_id = ARGV[4]
+local seq = tonumber(ARGV[5])
+local digest = ARGV[6]
+if redis.call('HGET', run_key, 'status') ~= 'running'
+   or redis.call('HGET', run_key, 'lease_owner') ~= owner
+   or redis.call('HGET', run_key, 'lease_token_digest') ~= token_digest
+   or redis.call('HGET', run_key, 'current_attempt_id') ~= attempt_id then
+  return {'rejected', 'fence_attempt_mismatch'}
+end
+if tonumber(redis.call('HGET', run_key, 'pending_callback_seq') or '0') ~= seq
+   or redis.call('HGET', run_key, 'pending_callback_body_sha256') ~= digest then
+  return {'rejected', 'pending_callback_invalid'}
+end
+local last_seq = tonumber(redis.call('HGET', run_key, 'last_callback_seq') or '0')
+if seq ~= last_seq + 1 then return {'rejected', 'callback_seq_diverged'} end
+redis.call('HSET', run_key, 'last_callback_seq', tostring(seq))
+redis.call('HDEL', run_key, unpack(cjson.decode(ARGV[7])))
+redis.call('EXPIRE', run_key, ttl)
+return {'committed', tostring(seq)}
+"""
+
+_LUA_DISCARD_PENDING_CALLBACK = """
+local run_key = KEYS[1]
+local ttl = tonumber(ARGV[1])
+local owner = ARGV[2]
+local token_digest = ARGV[3]
+local attempt_id = ARGV[4]
+local seq = tonumber(ARGV[5])
+local digest = ARGV[6]
+if redis.call('HGET', run_key, 'status') ~= 'running'
+   or redis.call('HGET', run_key, 'lease_owner') ~= owner
+   or redis.call('HGET', run_key, 'lease_token_digest') ~= token_digest
+   or redis.call('HGET', run_key, 'current_attempt_id') ~= attempt_id then
+  return {'rejected', 'fence_attempt_mismatch'}
+end
+if tonumber(redis.call('HGET', run_key, 'pending_callback_seq') or '0') ~= seq
+   or redis.call('HGET', run_key, 'pending_callback_body_sha256') ~= digest then
+  return {'rejected', 'pending_callback_invalid'}
+end
+redis.call('HDEL', run_key, unpack(cjson.decode(ARGV[7])))
+redis.call('EXPIRE', run_key, ttl)
+return {'discarded'}
+"""
+
 
 class ExecutionStoreError(Exception):
     """Ledger / Redis failure with stable code."""
@@ -585,6 +1021,10 @@ class ExecutionStore:
 
     def ping(self) -> bool:
         return bool(self._r.ping())
+
+    def routing_crypto_material(self) -> tuple[dict[str, bytes], str]:
+        """Return configured keyring and current key version for routing state."""
+        return dict(self._cfg.payload_keys), self._cfg.payload_current_version
 
     def redis_time(self) -> float:
         """Authoritative Redis server time (seconds)."""
@@ -1013,6 +1453,372 @@ class ExecutionStore:
         if str(result[0]) != "ok":
             raise ExecutionStoreError("lease_renew_failed", str(result[0]))
         return float(result[1])
+
+    def create_pending_callback(
+        self,
+        claim: LeaseClaim,
+        *,
+        attempt_number: int,
+        pending: PendingCallback,
+    ) -> str:
+        """Persist the one callback slot before its first network send."""
+        try:
+            result = self._r.eval(
+                _LUA_CREATE_PENDING_CALLBACK,
+                1,
+                self.run_key(claim.run_id),
+                str(self._cfg.record_ttl_s),
+                claim.lease_owner,
+                digest_token(claim.lease_token),
+                claim.attempt_id,
+                str(attempt_number),
+                str(pending.seq),
+                pending.body_sha256,
+                pending.routing_snapshot_hash or "",
+                pending.created_at,
+                pending.ciphertext.key_version,
+                pending.ciphertext.nonce_b64,
+                pending.ciphertext.ciphertext_b64,
+                pending.ciphertext.tag_b64,
+            )
+        except RedisError as exc:
+            raise ExecutionStoreError("queue_unavailable") from exc
+        kind = str(result[0])
+        if kind not in {"created", "hit"}:
+            raise ExecutionStoreError(
+                str(result[1]) if len(result) > 1 else "pending_callback_invalid"
+            )
+        return kind
+
+    def adopt_pending_callback(
+        self, claim: LeaseClaim, *, attempt_number: int
+    ) -> PendingCallback | None:
+        """Claim an older attempt's pending bytes before any new callback."""
+        try:
+            result = self._r.eval(
+                _LUA_ADOPT_PENDING_CALLBACK,
+                1,
+                self.run_key(claim.run_id),
+                str(self._cfg.record_ttl_s),
+                claim.lease_owner,
+                digest_token(claim.lease_token),
+                claim.attempt_id,
+                str(attempt_number),
+            )
+        except RedisError as exc:
+            raise ExecutionStoreError("queue_unavailable") from exc
+        kind = str(result[0])
+        if kind == "none":
+            return None
+        if kind != "adopted":
+            raise ExecutionStoreError(
+                str(result[1]) if len(result) > 1 else "pending_callback_invalid"
+            )
+        record = self.get(claim.run_id)
+        if record is None or record.pending_callback is None:
+            raise ExecutionStoreError("pending_callback_invalid")
+        return record.pending_callback
+
+    def commit_callback_ack(
+        self,
+        claim: LeaseClaim,
+        *,
+        seq: int,
+        body_sha256: str,
+    ) -> int:
+        """Atomically advance run-global seq and clear the matching pending slot."""
+        try:
+            result = self._r.eval(
+                _LUA_COMMIT_CALLBACK_ACK,
+                1,
+                self.run_key(claim.run_id),
+                str(self._cfg.record_ttl_s),
+                claim.lease_owner,
+                digest_token(claim.lease_token),
+                claim.attempt_id,
+                str(seq),
+                body_sha256,
+                json.dumps(_PENDING_CALLBACK_FIELDS),
+            )
+        except RedisError as exc:
+            raise ExecutionStoreError("queue_unavailable") from exc
+        if str(result[0]) != "committed":
+            raise ExecutionStoreError(
+                str(result[1]) if len(result) > 1 else "pending_callback_invalid"
+            )
+        return int(result[1])
+
+    def discard_pending_callback(
+        self,
+        claim: LeaseClaim,
+        *,
+        seq: int,
+        body_sha256: str,
+    ) -> None:
+        """Clear a definitively uncommitted mouth-rejected callback."""
+        try:
+            result = self._r.eval(
+                _LUA_DISCARD_PENDING_CALLBACK,
+                1,
+                self.run_key(claim.run_id),
+                str(self._cfg.record_ttl_s),
+                claim.lease_owner,
+                digest_token(claim.lease_token),
+                claim.attempt_id,
+                str(seq),
+                body_sha256,
+                json.dumps(_PENDING_CALLBACK_FIELDS),
+            )
+        except RedisError as exc:
+            raise ExecutionStoreError("queue_unavailable") from exc
+        if str(result[0]) != "discarded":
+            raise ExecutionStoreError(
+                str(result[1]) if len(result) > 1 else "pending_callback_invalid"
+            )
+
+    def create_routing_snapshot(
+        self,
+        claim: LeaseClaim,
+        *,
+        snapshot_version: int,
+        snapshot_hash: str,
+        created_at: str,
+        envelope: EncryptedPayload,
+        ledger: dict[str, Any],
+    ) -> str:
+        """Create the encrypted routing snapshot exactly once under lease CAS."""
+        try:
+            result = self._r.eval(
+                _LUA_CREATE_ROUTING_SNAPSHOT,
+                1,
+                self.run_key(claim.run_id),
+                str(self._cfg.record_ttl_s),
+                claim.lease_owner,
+                digest_token(claim.lease_token),
+                claim.attempt_id,
+                str(snapshot_version),
+                snapshot_hash,
+                created_at,
+                envelope.key_version,
+                envelope.nonce_b64,
+                envelope.ciphertext_b64,
+                envelope.tag_b64,
+                json.dumps(ledger, sort_keys=True, separators=(",", ":")),
+            )
+        except RedisError as exc:
+            raise ExecutionStoreError("queue_unavailable") from exc
+        kind = str(result[0])
+        if kind not in {"created", "hit"}:
+            raise ExecutionStoreError("routing_snapshot_invalid", str(result))
+        return kind
+
+    def _reservation_key(
+        self, run_id: str, snapshot_hash: str, step_id: str, request_index: int | None = None
+    ) -> str:
+        parts = ["query_reservation", run_id, snapshot_hash, step_id]
+        if request_index is not None:
+            parts.append(str(request_index))
+        return self._cfg.key(*parts)
+
+    def _receipt_key(
+        self, run_id: str, snapshot_hash: str, step_id: str, request_index: int
+    ) -> str:
+        return self._cfg.key("query_receipt", run_id, snapshot_hash, step_id, str(request_index))
+
+    def _query_signature_key(
+        self, run_id: str, snapshot_hash: str, step_id: str, parameters_digest: str
+    ) -> str:
+        return self._cfg.key(
+            "query_signature", run_id, snapshot_hash, step_id, parameters_digest
+        )
+
+    def reserve_query_request(
+        self,
+        claim: LeaseClaim,
+        *,
+        snapshot_hash: str,
+        step_id: str,
+        max_requests: int,
+        max_pages: int,
+        max_items: int,
+        max_elapsed_ms: int,
+        hard_timeout_ms: int,
+        parameters_digest: str,
+    ) -> int:
+        """Atomically reserve the run-global budget and next step request index."""
+        try:
+            result = self._r.eval(
+                _LUA_RESERVE_QUERY,
+                3,
+                self.run_key(claim.run_id),
+                self._reservation_key(claim.run_id, snapshot_hash, step_id),
+                self._query_signature_key(
+                    claim.run_id, snapshot_hash, step_id, parameters_digest
+                ),
+                str(self._cfg.record_ttl_s),
+                claim.lease_owner,
+                digest_token(claim.lease_token),
+                claim.attempt_id,
+                snapshot_hash,
+                step_id,
+                str(max_requests),
+                str(max_pages),
+                str(max_items),
+                str(max_elapsed_ms),
+                str(hard_timeout_ms),
+            )
+        except RedisError as exc:
+            raise ExecutionStoreError("queue_unavailable") from exc
+        kind = str(result[0])
+        if kind in {"duplicate", "exhausted"}:
+            raise ExecutionStoreError("query_budget_exhausted")
+        if kind != "reserved":
+            raise ExecutionStoreError(str(result[1]) if len(result) > 1 else "receipt_invalid")
+        return int(result[1])
+
+    def commit_query_receipt(
+        self,
+        claim: LeaseClaim,
+        *,
+        snapshot_hash: str,
+        step_id: str,
+        request_index: int,
+        budget_item_count: int,
+        elapsed_ms: int,
+        receipt_id: str,
+        fields: dict[str, str],
+        max_items: int,
+    ) -> str:
+        """Atomically create an immutable encrypted receipt and advance its budget."""
+        try:
+            result = self._r.eval(
+                _LUA_COMMIT_RECEIPT,
+                3,
+                self.run_key(claim.run_id),
+                self._reservation_key(
+                    claim.run_id, snapshot_hash, step_id, request_index
+                ),
+                self._receipt_key(claim.run_id, snapshot_hash, step_id, request_index),
+                str(self._cfg.record_ttl_s),
+                claim.lease_owner,
+                digest_token(claim.lease_token),
+                claim.attempt_id,
+                snapshot_hash,
+                step_id,
+                str(request_index),
+                str(budget_item_count),
+                str(elapsed_ms),
+                receipt_id,
+                json.dumps(fields, sort_keys=True, separators=(",", ":")),
+                str(max_items),
+            )
+        except RedisError as exc:
+            raise ExecutionStoreError("queue_unavailable") from exc
+        kind = str(result[0])
+        if kind == "exhausted":
+            raise ExecutionStoreError("query_budget_exhausted")
+        if kind not in {"created", "hit"}:
+            raise ExecutionStoreError(str(result[1]) if len(result) > 1 else "receipt_invalid")
+        return kind
+
+    def commit_query_audit(
+        self,
+        claim: LeaseClaim,
+        *,
+        snapshot_hash: str,
+        step_id: str,
+        request_index: int,
+        status: str,
+        elapsed_ms: int,
+        audit: dict[str, Any],
+    ) -> str:
+        """Commit a failed/timed-out audit; it can never satisfy the plan."""
+        audit_key = self._cfg.key(
+            "query_audit", claim.run_id, snapshot_hash, step_id, str(request_index)
+        )
+        try:
+            result = self._r.eval(
+                _LUA_COMMIT_AUDIT,
+                3,
+                self.run_key(claim.run_id),
+                self._reservation_key(
+                    claim.run_id, snapshot_hash, step_id, request_index
+                ),
+                audit_key,
+                str(self._cfg.record_ttl_s),
+                claim.lease_owner,
+                digest_token(claim.lease_token),
+                claim.attempt_id,
+                snapshot_hash,
+                step_id,
+                str(request_index),
+                status,
+                str(elapsed_ms),
+                json.dumps(audit, sort_keys=True, separators=(",", ":")),
+            )
+        except RedisError as exc:
+            raise ExecutionStoreError("queue_unavailable") from exc
+        kind = str(result[0])
+        if kind not in {"created", "hit"}:
+            raise ExecutionStoreError(str(result[1]) if len(result) > 1 else "receipt_invalid")
+        return kind
+
+    def get_receipt_ledger(self, run_id: str) -> dict[str, Any]:
+        """Load the closed receipt ledger or fail closed on corruption."""
+        raw = self._r.hget(self.run_key(run_id), "receipt_ledger_json")
+        try:
+            value = json.loads(str(raw))
+        except Exception as exc:  # noqa: BLE001
+            raise ExecutionStoreError("receipt_invalid") from exc
+        if not isinstance(value, dict):
+            raise ExecutionStoreError("receipt_invalid")
+        return value
+
+    def get_query_receipt_fields(
+        self, run_id: str, snapshot_hash: str, step_id: str, request_index: int
+    ) -> dict[str, str]:
+        """Load one encrypted receipt record referenced by the ledger."""
+        value = self._r.hgetall(
+            self._receipt_key(run_id, snapshot_hash, step_id, request_index)
+        )
+        if not value:
+            raise ExecutionStoreError("receipt_invalid")
+        return {str(key): str(item) for key, item in value.items()}
+
+    def adopt_query_receipt(
+        self,
+        claim: LeaseClaim,
+        *,
+        snapshot_hash: str,
+        receipt_id: str,
+        attempt_number: int,
+        adoption: dict[str, Any],
+    ) -> str:
+        """Write one idempotent adoption row under the current lease."""
+        key = self._cfg.key(
+            "query_adoption", claim.run_id, snapshot_hash, receipt_id, str(attempt_number)
+        )
+        try:
+            result = self._r.eval(
+                _LUA_ADOPT_RECEIPT,
+                2,
+                self.run_key(claim.run_id),
+                key,
+                str(self._cfg.record_ttl_s),
+                claim.lease_owner,
+                digest_token(claim.lease_token),
+                claim.attempt_id,
+                snapshot_hash,
+                receipt_id,
+                str(attempt_number),
+                json.dumps(adoption, sort_keys=True, separators=(",", ":")),
+            )
+        except RedisError as exc:
+            raise ExecutionStoreError("queue_unavailable") from exc
+        kind = str(result[0])
+        if kind not in {"created", "hit"}:
+            raise ExecutionStoreError(str(result[1]) if len(result) > 1 else "receipt_invalid")
+        return kind
 
     def finish(
         self,

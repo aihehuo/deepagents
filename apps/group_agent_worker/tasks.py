@@ -15,7 +15,11 @@ from celery.exceptions import Reject
 from fastapi import HTTPException
 
 from apps.group_agent_api.agent_factory.capability import CapabilityTier, SessionCapabilities, resolve_session_capabilities
-from apps.group_agent_api.agent_factory.integrations.callback_client import send_callback_event
+from apps.group_agent_api.agent_factory.integrations.callback_client import (
+    CallbackProtocolError,
+    CallbackRunTerminal,
+    send_callback_event,
+)
 from apps.group_agent_api.agent_factory.integrations.config import async_run_timeout_s
 from apps.group_agent_api.agent_factory.integrations.membership_client import MembershipResult
 from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
@@ -35,6 +39,7 @@ from apps.group_agent_api.execution.active_fence import (
 from apps.group_agent_api.execution.crypto import PayloadCryptoError, decrypt_envelope
 from apps.group_agent_api.execution.dlq import push_dlq_index
 from apps.group_agent_api.execution.fence import LeaseLostError, SideEffectFence
+from apps.group_agent_api.agent_factory.intent_routing.execution import QueryPlanError
 from apps.group_agent_api.execution.models import (
     SUPPORTED_SCHEMA_PAIRS,
     BrokerDeliveryRef,
@@ -46,6 +51,81 @@ from apps.group_agent_api.execution.retry import decide_retry
 from apps.group_agent_worker.runtime import get_worker_runtime
 
 _logger = logging.getLogger(__name__)
+
+
+def _strict_callback_enabled(req: AsyncCallRequest) -> bool:
+    return (
+        req.input_kind != "venue_event"
+        and os.environ.get("GROUP_AGENT_CALLBACK_ACK_SCHEMA_VERSION", "0").strip()
+        == "1"
+        and os.environ.get("GROUP_AGENT_INTENT_ROUTING_MODE", "off").strip().lower()
+        == "enforce"
+    )
+
+
+def _progress_payload(
+    phase: str,
+    *,
+    intent: str | None = None,
+    routing_snapshot_hash: str | None = None,
+    display_code: str | None = None,
+    plan_id: str | None = None,
+    plan_step_id: str | None = None,
+    request_index: int | None = None,
+    elapsed_ms: int = 0,
+    step_result_count: int | None = None,
+    aggregate_result_count: int | None = None,
+) -> dict[str, Any]:
+    codes = {
+        "started": "starting",
+        "intent_resolving": "resolving_intent",
+        "intent_resolved": "intent_ready",
+        "tool_completed": "search_step_complete",
+        "composing": "composing_reply",
+    }
+    return {
+        "progress_schema_version": 1,
+        "phase": phase,
+        "intent": intent,
+        "display_code": display_code or codes.get(phase, "starting"),
+        "routing_snapshot_hash": routing_snapshot_hash,
+        "plan_id": plan_id,
+        "plan_step_id": plan_step_id,
+        "request_index": request_index,
+        "elapsed_ms": max(0, min(int(elapsed_ms), 600_000)),
+        "step_result_count": step_result_count,
+        "aggregate_result_count": aggregate_result_count,
+    }
+
+
+_CALLBACK_ERROR_CODES = frozenset(
+    {
+        "required_tool_not_called",
+        "query_plan_invalid",
+        "query_budget_exhausted",
+        "tool_failed",
+        "tool_timed_out",
+        "routing_snapshot_invalid",
+        "receipt_invalid",
+        "callback_ack_invalid",
+        "callback_seq_diverged",
+        "callback_auth_rejected",
+        "permission_denied",
+        "intent_classifier_timeout",
+        "intent_classifier_invalid",
+        "cancelled",
+        "agent_error",
+    }
+)
+
+
+def _terminal_error_payload(error_code: str, *, timed_out: bool) -> dict[str, Any]:
+    code = error_code if error_code in _CALLBACK_ERROR_CODES else "agent_error"
+    return {
+        "terminal_reason": "timed_out" if timed_out else "failed",
+        "error_code": code,
+        "message": "智能体处理超时，请稍后重试" if timed_out else "智能体处理遇到异常，请稍后重试",
+    }
 
 
 def _rebuild_session(envelope: dict[str, Any]) -> tuple[AsyncCallRequest, TrustedSession, str]:
@@ -198,36 +278,75 @@ async def _run_attempt(
     )
     hb_thread.start()
 
-    async def _deliver(event_type: str, payload: dict[str, Any]) -> bool:
+    strict_callbacks = _strict_callback_enabled(req)
+
+    def _build_envelope(
+        seq: int, event_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        record = store.get(req.run_id)
+        routing_hash = (
+            payload.get("routing_snapshot_hash")
+            if event_type == "progress"
+            else (record.routing_snapshot_hash if record else None)
+        )
         env = CallbackEnvelope(
-            version="GA-CALLBACK-V1",
+            version=None if strict_callbacks else "GA-CALLBACK-V1",
+            callback_version=1 if strict_callbacks else None,
             run_id=req.run_id,
             **({"idempotency_key": req.idempotency_key} if req.request_schema_version not in {2, 3} else {}),
-            seq=fence.seq,
+            seq=seq,
             event=event_type,  # type: ignore[arg-type]
             occurred_at=datetime.datetime.now(datetime.UTC).isoformat(timespec="microseconds").replace("+00:00", "Z"),
             user_id=session.principal.user_id,
             group_id=session.group_id,
             conversation_id=req.conversation_id,
+            deep_attempt_id=claim.attempt_id if strict_callbacks else None,
+            deep_attempt_number=(record.attempt_count if strict_callbacks and record else None),
+            routing_snapshot_hash=routing_hash if strict_callbacks else None,
             payload=payload,
             **callback_bindings(req),
         )
+        excluded = (
+            {"idempotency_key"}
+            if req.request_schema_version == 2
+            else (
+                {"idempotency_key", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"}
+                if req.request_schema_version == 3
+                else {"episode_id", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"}
+            )
+        )
+        return env.model_dump(exclude=excluded, exclude_none=True)
+
+    async def _send_body(envelope: dict[str, Any], body_bytes: bytes) -> bool:
         return await send_callback_event(
             callback_url=req.callback_url,
-            envelope_dict=env.model_dump(
-                exclude={"idempotency_key"}
-                if req.request_schema_version == 2
-                else (
-                    {"idempotency_key", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"}
-                    if req.request_schema_version == 3
-                    else {"episode_id", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"}
-                )
-            ),
+            envelope_dict=envelope,
+            body_bytes=body_bytes,
+            require_ack=True,
+        )
+
+    async def _deliver(event_type: str, payload: dict[str, Any]) -> bool:
+        envelope = _build_envelope(fence.seq, event_type, payload)
+        return await send_callback_event(
+            callback_url=req.callback_url,
+            envelope_dict=envelope,
         )
 
     async def _emit(event_type: str, payload: dict[str, Any]) -> bool:
         if event_type == "final":
             _assert_event_live()
+        if strict_callbacks:
+            if event_type == "progress" and payload.get("progress_schema_version") != 1:
+                if payload.get("phase") != "started":
+                    # Legacy streaming/tool hints are not part of ProgressEventV1.
+                    return True
+                payload = _progress_payload("started")
+            return await fence.emit_durable(
+                event_type,
+                payload,
+                build_envelope=_build_envelope,
+                send_body=_send_body,
+            )
         return await fence.emit(event_type, payload, send=_deliver, include_attempt_metadata=req.input_kind != "venue_event")
 
     def _assert_event_live() -> None:
@@ -251,6 +370,27 @@ async def _run_attempt(
             # Lease-expiry recovery also consumes the persisted attempt budget.
             error_code = "max_attempts_exceeded"
             raise RuntimeError(error_code)
+        if strict_callbacks:
+            had_pending = bool(record and record.pending_callback)
+            recovered = await fence.recover_pending(send_body=_send_body)
+            if had_pending and not recovered:
+                error_code = "callback_uncertain"
+                raise RuntimeError("pending_callback_delivery_uncertain")
+            if fence.terminal_delivered:
+                store.finish(
+                    claim,
+                    conversation_id=operational_scope,
+                    status=ExecutionStatus.SUCCEEDED,
+                )
+                outcome = ExecutionStatus.SUCCEEDED.value
+                bp.on_finish(
+                    user_id=session.principal.user_id,
+                    group_id=session.group_id,
+                    conversation_id=operational_scope,
+                    provider=provider,
+                    was_queued=True,
+                )
+                return outcome
         await _emit(
             "progress", {"phase": "preparing_greeting"} if req.input_kind == "venue_event" else {"phase": "started", "message": "processing_started"}
         )
@@ -282,11 +422,28 @@ async def _run_attempt(
             outcome = ExecutionStatus.SUCCEEDED.value
     except (LeaseLostError, FenceRejectedError):
         outcome = "lost_lease"
+    except CallbackRunTerminal as exc:
+        terminal_status = (
+            ExecutionStatus.SUCCEEDED
+            if exc.run_status == "completed"
+            else ExecutionStatus.FAILED
+        )
+        store.finish(
+            claim,
+            conversation_id=operational_scope,
+            status=terminal_status,
+            error_code="" if terminal_status == ExecutionStatus.SUCCEEDED else "run_terminal",
+        )
+        outcome = terminal_status.value
+    except CallbackProtocolError as exc:
+        error_code = exc.code
     except (TimeoutError, SoftTimeLimitExceeded):
         error_code = error_code or "provider_timeout"
     except VenueEventExecutorUnavailable:
         error_code = "venue_event_executor_unavailable"
     except VenueGreetingError as exc:
+        error_code = exc.code
+    except QueryPlanError as exc:
         error_code = exc.code
     except Exception as exc:
         if not error_code:
@@ -308,7 +465,7 @@ async def _run_attempt(
         hb_thread.join(timeout=2.0)
         clear_active_fence(fence_tokens)
 
-    if outcome == ExecutionStatus.SUCCEEDED.value:
+    if outcome in {ExecutionStatus.SUCCEEDED.value, ExecutionStatus.FAILED.value}:
         bp.on_finish(
             user_id=session.principal.user_id,
             group_id=session.group_id,
@@ -334,13 +491,18 @@ async def _run_attempt(
 
     if decision.dead_letter or not decision.should_retry:
         try:
-            await _emit(
-                "error",
-                {
+            payload = (
+                _terminal_error_payload(
+                    error_code,
+                    timed_out=error_code in {"provider_timeout", "tool_timed_out"},
+                )
+                if strict_callbacks
+                else {
                     "error_code": error_code or "AsyncRunFailed",
                     "message": "智能体处理遇到异常或超时，请稍后重试",
-                },
+                }
             )
+            await _emit("error", payload)
         except Exception:  # noqa: BLE001
             pass
         status = ExecutionStatus.DEAD_LETTERED if decision.dead_letter else ExecutionStatus.FAILED

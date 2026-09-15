@@ -66,6 +66,21 @@ class EncryptedPayload:
 
 
 @dataclass
+class PendingCallback:
+    """Single encrypted callback slot persisted before the first HTTP send."""
+
+    seq: int
+    body_sha256: str
+    producer_attempt_id: str
+    producer_attempt_number: int
+    routing_snapshot_hash: str | None
+    created_at: str
+    ciphertext: EncryptedPayload
+    adopted_by_attempt_id: str | None = None
+    adopted_by_attempt_number: int | None = None
+
+
+@dataclass
 class ExecutionRecord:
     """Single Run execution mirror held by Deep Agents Redis ledger."""
 
@@ -98,6 +113,13 @@ class ExecutionRecord:
     fencing_token: int = 0
     replay_audit: list[dict[str, str]] = field(default_factory=list)
     mode_binding: dict[str, str] | None = None
+    routing_snapshot_version: int | None = None
+    routing_snapshot_hash: str | None = None
+    routing_snapshot_created_at: str | None = None
+    routing_snapshot_key_version: str | None = None
+    routing_snapshot_ciphertext: EncryptedPayload | None = None
+    last_callback_seq: int = 0
+    pending_callback: PendingCallback | None = None
 
     def to_redis_mapping(self) -> dict[str, str]:
         """Serialize to Redis hash string fields (no secrets / plaintext)."""
@@ -111,6 +133,7 @@ class ExecutionRecord:
             "attempt_count": str(self.attempt_count),
             "created_at": str(self.created_at),
             "fencing_token": str(self.fencing_token),
+            "last_callback_seq": str(self.last_callback_seq),
         }
         optional_str = {
             "current_attempt_id": self.current_attempt_id,
@@ -124,6 +147,9 @@ class ExecutionRecord:
             "provider": self.provider,
             "input_kind": self.input_kind,
             "terminal_fence": self.terminal_fence,
+            "routing_snapshot_hash": self.routing_snapshot_hash,
+            "routing_snapshot_created_at": self.routing_snapshot_created_at,
+            "routing_snapshot_key_version": self.routing_snapshot_key_version,
         }
         for key, value in optional_str.items():
             if value is not None:
@@ -144,6 +170,43 @@ class ExecutionRecord:
             mapping["payload_ciphertext_b64"] = self.payload_ciphertext.ciphertext_b64
             mapping["payload_tag_b64"] = self.payload_ciphertext.tag_b64
             mapping["payload_key_version"] = self.payload_ciphertext.key_version
+        if self.routing_snapshot_version is not None:
+            mapping["routing_snapshot_version"] = str(self.routing_snapshot_version)
+        if self.routing_snapshot_ciphertext is not None:
+            mapping["routing_snapshot_nonce_b64"] = self.routing_snapshot_ciphertext.nonce_b64
+            mapping["routing_snapshot_ciphertext_b64"] = self.routing_snapshot_ciphertext.ciphertext_b64
+            mapping["routing_snapshot_tag_b64"] = self.routing_snapshot_ciphertext.tag_b64
+            mapping["routing_snapshot_key_version"] = self.routing_snapshot_ciphertext.key_version
+        if self.pending_callback is not None:
+            pending = self.pending_callback
+            mapping.update(
+                {
+                    "pending_callback_version": "1",
+                    "pending_callback_seq": str(pending.seq),
+                    "pending_callback_body_sha256": pending.body_sha256,
+                    "pending_callback_producer_attempt_id": pending.producer_attempt_id,
+                    "pending_callback_producer_attempt_number": str(
+                        pending.producer_attempt_number
+                    ),
+                    "pending_callback_created_at": pending.created_at,
+                    "pending_callback_key_version": pending.ciphertext.key_version,
+                    "pending_callback_nonce_b64": pending.ciphertext.nonce_b64,
+                    "pending_callback_ciphertext_b64": pending.ciphertext.ciphertext_b64,
+                    "pending_callback_tag_b64": pending.ciphertext.tag_b64,
+                }
+            )
+            if pending.routing_snapshot_hash is not None:
+                mapping["pending_callback_routing_snapshot_hash"] = (
+                    pending.routing_snapshot_hash
+                )
+            if pending.adopted_by_attempt_id is not None:
+                mapping["pending_callback_adopted_by_attempt_id"] = (
+                    pending.adopted_by_attempt_id
+                )
+            if pending.adopted_by_attempt_number is not None:
+                mapping["pending_callback_adopted_by_attempt_number"] = str(
+                    pending.adopted_by_attempt_number
+                )
         if self.replay_audit:
             import json
 
@@ -180,6 +243,50 @@ class ExecutionRecord:
                 nonce_b64=str(data.get("payload_nonce_b64") or ""),
                 ciphertext_b64=str(data["payload_ciphertext_b64"]),
                 tag_b64=str(data.get("payload_tag_b64") or ""),
+            )
+        routing_ciphertext = None
+        if data.get("routing_snapshot_ciphertext_b64"):
+            routing_ciphertext = EncryptedPayload(
+                key_version=str(data.get("routing_snapshot_key_version") or ""),
+                nonce_b64=str(data.get("routing_snapshot_nonce_b64") or ""),
+                ciphertext_b64=str(data["routing_snapshot_ciphertext_b64"]),
+                tag_b64=str(data.get("routing_snapshot_tag_b64") or ""),
+            )
+        pending_callback = None
+        if data.get("pending_callback_seq"):
+            pending_callback = PendingCallback(
+                seq=_i("pending_callback_seq"),
+                body_sha256=str(data.get("pending_callback_body_sha256") or ""),
+                producer_attempt_id=str(
+                    data.get("pending_callback_producer_attempt_id") or ""
+                ),
+                producer_attempt_number=_i(
+                    "pending_callback_producer_attempt_number"
+                ),
+                routing_snapshot_hash=(
+                    str(data["pending_callback_routing_snapshot_hash"])
+                    if data.get("pending_callback_routing_snapshot_hash")
+                    else None
+                ),
+                created_at=str(data.get("pending_callback_created_at") or ""),
+                ciphertext=EncryptedPayload(
+                    key_version=str(data.get("pending_callback_key_version") or ""),
+                    nonce_b64=str(data.get("pending_callback_nonce_b64") or ""),
+                    ciphertext_b64=str(
+                        data.get("pending_callback_ciphertext_b64") or ""
+                    ),
+                    tag_b64=str(data.get("pending_callback_tag_b64") or ""),
+                ),
+                adopted_by_attempt_id=(
+                    str(data["pending_callback_adopted_by_attempt_id"])
+                    if data.get("pending_callback_adopted_by_attempt_id")
+                    else None
+                ),
+                adopted_by_attempt_number=(
+                    _i("pending_callback_adopted_by_attempt_number")
+                    if data.get("pending_callback_adopted_by_attempt_number")
+                    else None
+                ),
             )
         replay_audit: list[dict[str, str]] = []
         raw_audit = data.get("replay_audit_json")
@@ -218,6 +325,27 @@ class ExecutionRecord:
             fencing_token=_i("fencing_token", 0),
             replay_audit=replay_audit,
             mode_binding=json.loads(data["mode_binding_json"]) if data.get("mode_binding_json") else None,
+            routing_snapshot_version=(
+                _i("routing_snapshot_version") if data.get("routing_snapshot_version") else None
+            ),
+            routing_snapshot_hash=(
+                str(data["routing_snapshot_hash"])
+                if data.get("routing_snapshot_hash")
+                else None
+            ),
+            routing_snapshot_created_at=(
+                str(data["routing_snapshot_created_at"])
+                if data.get("routing_snapshot_created_at")
+                else None
+            ),
+            routing_snapshot_key_version=(
+                str(data["routing_snapshot_key_version"])
+                if data.get("routing_snapshot_key_version")
+                else None
+            ),
+            routing_snapshot_ciphertext=routing_ciphertext,
+            last_callback_seq=_i("last_callback_seq", 0),
+            pending_callback=pending_callback,
         )
 
 

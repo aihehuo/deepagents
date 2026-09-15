@@ -46,6 +46,21 @@ def member_read_configuration(*, runtime: Path, enabled: bool) -> tuple[list[Bas
 
     from skillpacks.aihehuo.integration import create_aihehuo_tool
 
+    from apps.group_agent_api.agent_factory.intent_routing.registry import (
+        READ_REGISTRY,
+        validate_registry,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.resolver import (
+        intent_routing_mode,
+    )
+
     source = runtime / "skills" / "aihehuo"
+    if intent_routing_mode() == "enforce":
+        installed = {
+            entry.skill
+            for entry in READ_REGISTRY.values()
+            if (source / entry.skill / "SKILL.md").is_file()
+        }
+        validate_registry(installed_skills=installed)
     query = create_aihehuo_tool(skills_dir=source)
     return [query], ["/skills/aihehuo/"], PUBLIC_PROMPT

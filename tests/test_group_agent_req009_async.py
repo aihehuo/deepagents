@@ -780,7 +780,7 @@ async def test_app_state_shutdown_cancellation_and_task_cleanup():
 
 @pytest.mark.asyncio
 async def test_callback_retry_identity_and_status_codes():
-    """Verify callback retry behavior for 500, 429, non-429 4xx, and network errors, asserting identical payload & headers."""
+    """Retry exact body bytes with fresh per-transport callback authentication."""
     posted_headers: list[dict[str, str]] = []
     posted_bodies: list[bytes] = []
 
@@ -812,16 +812,13 @@ async def test_callback_retry_identity_and_status_codes():
             assert count_500 == 4  # 1 try + 3 retries
 
             # Assert retry headers and payload body are strictly preserved across all 4 attempts
-            sig0 = posted_headers[0][HEADER_CALLBACK_SIGNATURE]
-            nonce0 = posted_headers[0][HEADER_CALLBACK_NONCE]
-            ts0 = posted_headers[0][HEADER_CALLBACK_TS]
             body0 = posted_bodies[0]
 
             for i in range(1, 4):
-                assert posted_headers[i][HEADER_CALLBACK_SIGNATURE] == sig0
-                assert posted_headers[i][HEADER_CALLBACK_NONCE] == nonce0
-                assert posted_headers[i][HEADER_CALLBACK_TS] == ts0
                 assert posted_bodies[i] == body0
+            assert len({row[HEADER_CALLBACK_NONCE] for row in posted_headers}) == 4
+            assert len({row[HEADER_CALLBACK_SIGNATURE] for row in posted_headers}) == 4
+            assert all(row[HEADER_CALLBACK_TS].isdigit() for row in posted_headers)
 
         # Test 429 Too Many Requests: retries max_retries times
         count_429 = 0

@@ -151,6 +151,91 @@ def decrypt_envelope(
     return data
 
 
+def pending_callback_aad(
+    *,
+    key_version: str,
+    run_id: str,
+    request_fingerprint: str,
+    seq: int,
+    body_sha256: str,
+) -> bytes:
+    """Frozen PendingCallbackV1 AES-GCM AAD."""
+    value = {
+        "purpose": "group-agent-pending-callback",
+        "key_version": key_version,
+        "run_id": run_id,
+        "request_fingerprint": request_fingerprint,
+        "seq": seq,
+        "body_sha256": body_sha256,
+    }
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def encrypt_callback_body(
+    body_bytes: bytes,
+    *,
+    key: bytes,
+    key_version: str,
+    run_id: str,
+    request_fingerprint: str,
+    seq: int,
+    body_sha256: str,
+) -> EncryptedPayload:
+    """Encrypt exact callback bytes before their first transport attempt."""
+    if len(key) != 32 or not isinstance(body_bytes, bytes):
+        raise PayloadCryptoError("pending_callback_invalid")
+    nonce = os.urandom(12)
+    aad = pending_callback_aad(
+        key_version=key_version,
+        run_id=run_id,
+        request_fingerprint=request_fingerprint,
+        seq=seq,
+        body_sha256=body_sha256,
+    )
+    sealed = AESGCM(key).encrypt(nonce, body_bytes, aad)
+    return EncryptedPayload(
+        key_version=key_version,
+        nonce_b64=_b64e(nonce),
+        ciphertext_b64=_b64e(sealed[:-16]),
+        tag_b64=_b64e(sealed[-16:]),
+    )
+
+
+def decrypt_callback_body(
+    payload: EncryptedPayload,
+    *,
+    keys: Mapping[str, bytes],
+    run_id: str,
+    request_fingerprint: str,
+    seq: int,
+    body_sha256: str,
+) -> bytes:
+    """Decrypt exact pending callback bytes and verify their stored digest."""
+    key = keys.get(payload.key_version)
+    if key is None or len(key) != 32:
+        raise PayloadCryptoError("pending_callback_invalid")
+    try:
+        nonce = _b64d(payload.nonce_b64)
+        ciphertext = _b64d(payload.ciphertext_b64)
+        tag = _b64d(payload.tag_b64)
+        raw = AESGCM(key).decrypt(
+            nonce,
+            ciphertext + tag,
+            pending_callback_aad(
+                key_version=payload.key_version,
+                run_id=run_id,
+                request_fingerprint=request_fingerprint,
+                seq=seq,
+                body_sha256=body_sha256,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise PayloadCryptoError("pending_callback_invalid") from exc
+    if "sha256:" + hashlib.sha256(raw).hexdigest() != body_sha256:
+        raise PayloadCryptoError("pending_callback_invalid")
+    return raw
+
+
 def digest_id(value: str) -> str:
     """Stable non-reversible digest for quota / metrics keys (never log raw ids)."""
     return hashlib.sha256((value or "").encode("utf-8")).hexdigest()[:16]

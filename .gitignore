@@ -131,8 +131,12 @@ ipython_config.py
 __pypackages__/
 
 # Celery stuff
-celerybeat-schedule
+celerybeat-schedule*
 celerybeat.pid
+
+# Root-level local diagnostics
+/failed_log.txt
+/log.txt
 
 # SageMath parsed files
 *.sage.py

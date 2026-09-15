@@ -226,14 +226,25 @@ def validate_v2_callback(value: dict[str, Any]) -> dict[str, Any]:
     Args:
         value: Frozen-identity callback JSON dictionary.
     """
+    strict = value.get("callback_version") == 1
     fields = set("version input_kind event_name visit_id run_id conversation_id episode_id space_id host_agent_id memory_scope_id user_id group_id seq event occurred_at payload".split())
+    if strict:
+        fields.update(
+            {"callback_version", "deep_attempt_id", "deep_attempt_number", "routing_snapshot_hash"}
+        )
     _object(value, fields)
-    _equal(value["version"], "GA-CALLBACK-V1")
+    _equal(value["version"], None if strict else "GA-CALLBACK-V1")
     for key in ("run_id", "conversation_id", "episode_id"):
         _text(value[key])
     _text(value["user_id"], pattern=r"[1-9][0-9]*")
     _equal(value["group_id"], "global")
     _integer(value["seq"], minimum=1)
+    if strict:
+        _text(value["deep_attempt_id"])
+        _integer(value["deep_attempt_number"], minimum=1)
+        routing_hash = value["routing_snapshot_hash"]
+        if routing_hash is not None:
+            _text(routing_hash, pattern=r"sha256:[0-9a-f]{64}")
     _time(value["occurred_at"])
     _choice(value["input_kind"], {"venue_event", "user_message"})
     if type(value["payload"]) is not dict:

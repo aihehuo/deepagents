@@ -67,7 +67,9 @@ def build_path(endpoint: str, *, params: dict[str, str | int], output_format: st
     return f"{path}?{query}" if query else path
 
 
-def fetch(path: str, *, output_format: str = "json") -> str:
+def fetch(
+    path: str, *, output_format: str = "json", timeout: float = TIMEOUT
+) -> str:
     """Read a bounded response from the official HTTPS host.
 
     Args:
@@ -85,7 +87,9 @@ def fetch(path: str, *, output_format: str = "json") -> str:
     if not path.startswith("/ai/") or output_format not in {"json", "md"}:
         msg = "Only official public API paths and json/md formats are supported"
         raise ValueError(msg)
-    connection = http.client.HTTPSConnection(HOST, timeout=TIMEOUT)
+    if timeout <= 0 or timeout > TIMEOUT:
+        raise ValueError("Invalid public query timeout")
+    connection = http.client.HTTPSConnection(HOST, timeout=timeout)
     try:
         connection.request("GET", path, headers={"Accept": "application/json" if output_format == "json" else "text/markdown"})
         response = connection.getresponse()

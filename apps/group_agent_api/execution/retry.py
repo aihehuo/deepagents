@@ -26,6 +26,17 @@ _PERMANENT_CODES = frozenset(
         "greeting_schema_invalid",
         "greeting_duplicate",
         "greeting_reply_empty",
+        "required_tool_not_called",
+        "query_plan_invalid",
+        "query_budget_exhausted",
+        "routing_snapshot_invalid",
+        "receipt_invalid",
+        "permission_denied",
+        "callback_ack_invalid",
+        "callback_seq_diverged",
+        "callback_auth_rejected",
+        "pending_callback_invalid",
+        "stale_deep_attempt",
     }
 )
 _POISON_CODES = frozenset(

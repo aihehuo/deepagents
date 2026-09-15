@@ -107,6 +107,10 @@ class ModulesConfig:
             value = 2
         return max(1, min(5, value))
 
+    def intent_final_guard_enabled(self) -> bool:
+        """Hard final guard is on when absent and independently switchable."""
+        return bool(self.checks.get("chk.intent_final_guard", True))
+
     def search_relax_enabled(self) -> bool:
         return self.is_module_enabled("mod.brain.search_relax")
 
@@ -212,6 +216,10 @@ def reply_grounding_enabled_for_user(user_id: int | str | None = None) -> bool:
 
 def reply_grounding_max_attempts() -> int:
     return load_modules_config().reply_grounding_max_attempts()
+
+
+def intent_final_guard_enabled() -> bool:
+    return load_modules_config().intent_final_guard_enabled()
 
 
 def search_relax_enabled() -> bool:

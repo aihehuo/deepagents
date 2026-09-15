@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
-import os
 import time
 import uuid
 from typing import Any
@@ -27,6 +26,20 @@ from apps.group_agent_api.agent_factory.debug_trace import (
 )
 from apps.group_agent_api.agent_factory.guard import enforce_capability_guard
 from apps.group_agent_api.agent_factory.integrations.config import read_mode
+from apps.group_agent_api.agent_factory.intent_routing.context import IntentContextScope
+from apps.group_agent_api.agent_factory.intent_routing.execution import (
+    IntentExecution,
+    QueryPlanError,
+    active_intent_execution,
+    prepare_intent_execution,
+)
+from apps.group_agent_api.agent_factory.intent_routing.resolver import (
+    IntentResolution,
+    aresolve_intent,
+    intent_routing_mode,
+    record_intent_outcome,
+    record_intent_prediction,
+)
 from apps.group_agent_api.agent_factory.invite import (
     generate_invite_with_optional_llm,
     should_emit_invite_artifact,
@@ -371,13 +384,53 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
     profile_ok = False
     profile_status_val = "failed"
     persistence_failure_reason: str | None = None
+    intent_resolution: IntentResolution | None = None
+    intent_execution: IntentExecution | None = None
 
     _trace_buf, _trace_token = start_decision_trace()
     try:
         async with lock:
             try:
                 agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
-                msg_count_before = len(agent_state.values.get("messages", [])) if agent_state and agent_state.values else 0
+                prior_messages = (
+                    list(agent_state.values.get("messages", []))
+                    if agent_state and agent_state.values
+                    else []
+                )
+                msg_count_before = len(prior_messages)
+                routing_mode = intent_routing_mode()
+                if routing_mode in {"observe", "enforce"}:
+                    intent_resolution = await aresolve_intent(
+                        req.message,
+                        execution_mode="group_agent",
+                        can_search=session.capabilities.can_search,
+                        prior_messages=prior_messages,
+                        scope=IntentContextScope(
+                            thread_id=tid,
+                            user_id=user_id,
+                            execution_mode="group_agent",
+                            episode_id=_episode_id_from_metadata(req.metadata),
+                        ),
+                        classifier_model=state.quality_model or state.polish_model,
+                    )
+                    record_intent_prediction(
+                        intent_resolution,
+                        run_id=None,
+                        thread_id=tid,
+                    )
+                    if routing_mode == "enforce":
+                        intent_execution = prepare_intent_execution(
+                            intent_resolution,
+                            original_message=req.message,
+                            run_id=None,
+                            request_fingerprint=None,
+                        )
+                        intent_execution.restore_adopted_evidence()
+                        if intent_execution.decision.action != "execute":
+                            agent = state.member_agent_for_capability(
+                                can_search=False,
+                                can_write_profile=can_write_profile,
+                            )
                 config = _invoke_config(
                     tid=tid,
                     user_id=user_id,
@@ -409,6 +462,14 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                 )
                 if known is not None:
                     turn_messages.append(known)
+                if intent_execution is not None:
+                    turn_messages.append(
+                        SystemMessage(
+                            content=intent_execution.route_prompt(
+                                skills_dir=state.base_dir / "skills" / "aihehuo"
+                            )
+                        )
+                    )
                 _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
                 match_reminder = prior_recommendation_system_content(revisit_for_prompt)
                 if match_reminder and session.capabilities.can_search and read_mode() == "legacy":
@@ -425,11 +486,36 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                         turn_messages.append(SystemMessage(content=relax_addon))
 
                 turn_messages.append(HumanMessage(content=req.message))
-                result = await agent.ainvoke(
-                    {"messages": turn_messages},
-                    config,
-                )
+                with active_intent_execution(intent_execution):
+                    result = await agent.ainvoke(
+                        {"messages": turn_messages},
+                        config,
+                    )
                 messages = result.get("messages", [])
+                if (
+                    intent_execution is not None
+                    and intent_execution.decision.action == "execute"
+                    and not intent_execution.required_steps_satisfied()
+                ):
+                    retry_start = len(messages)
+                    with active_intent_execution(intent_execution):
+                        result = await agent.ainvoke(
+                            {
+                                "messages": [
+                                    SystemMessage(
+                                        content=(
+                                            "[INTENT-POLICY RETRY] required QueryPlan step "
+                                            "尚未产生 durable receipt；现在必须调用计划工具一次。"
+                                        )
+                                    )
+                                ]
+                            },
+                            config,
+                        )
+                    messages = result.get("messages", [])
+                    if not intent_execution.required_steps_satisfied():
+                        raise QueryPlanError("required_tool_not_called")
+                    msg_count_before = min(msg_count_before, retry_start)
                 reply = _extract_reply(messages, msg_count_before)
 
                 # chk.action_claim (YAML): parity with async_manager.
@@ -759,10 +845,17 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
             "profile_saved_this_turn": saved_this_turn,
             "profile_persisted": profile_ok,
             "is_clarification": is_clarifying,
-            "user_message": req.message[:100],
+            "message_len": len(req.message),
         },
         thread_id=tid,
     )
+    if intent_resolution is not None:
+        record_intent_outcome(
+            intent_resolution,
+            observed_route=intent_route,
+            run_id=None,
+            thread_id=tid,
+        )
 
     visible_reply = final_guarded.reply
     if reply_grounding_enabled_for_user(user_id):
@@ -785,6 +878,30 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
             thread_id=tid,
         )
         visible_reply = gated.reply
+
+    from apps.group_agent_api.agent_factory.checks.intent_final_guard import (
+        apply_intent_final_guard,
+    )
+
+    intent_guarded = apply_intent_final_guard(
+        reply=visible_reply,
+        execution=intent_execution,
+        public_reads=public_reads,
+        profile_saved_this_turn=saved_this_turn,
+        profile_persisted=profile_ok,
+        legacy_search_completed=(
+            search_turn.called and match_status in {"matched", "weak", "empty"}
+        ),
+        legacy_result_count=len(out_candidates),
+    )
+    visible_reply = intent_guarded.reply
+    if intent_guarded.blocked:
+        combined_guard_blocked = True
+        combined_guard_violations = list(
+            dict.fromkeys(
+                [*combined_guard_violations, *intent_guarded.violations]
+            )
+        )
 
     if debug_trace_enabled():
         write_turn_trace(

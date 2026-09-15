@@ -29,6 +29,8 @@ checks:
   chk.action_claim: true
   chk.invented_candidate: true
   chk.reply_fact_grounding_llm: true
+  # Hard current-run receipt/action guard. Independent of intent routing and LLM judge.
+  chk.intent_final_guard: true
   # Off = skip enforce_capability_guard (debug only — network leaks unintercepted).
   chk.capability_guard: true
   chk.finalize_templates: true

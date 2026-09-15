@@ -51,6 +51,20 @@ from apps.group_agent_api.agent_factory.integrations.callback_client import (
     validate_and_normalize_callback_url,
 )
 from apps.group_agent_api.agent_factory.integrations.config import async_run_timeout_s, read_mode
+from apps.group_agent_api.agent_factory.intent_routing.context import IntentContextScope
+from apps.group_agent_api.agent_factory.intent_routing.execution import (
+    IntentExecution,
+    QueryPlanError,
+    active_intent_execution,
+    prepare_intent_execution,
+)
+from apps.group_agent_api.agent_factory.intent_routing.resolver import (
+    IntentResolution,
+    aresolve_intent,
+    intent_routing_mode,
+    record_intent_outcome,
+    record_intent_prediction,
+)
 from apps.group_agent_api.agent_factory.invite import (
     generate_invite_with_optional_llm,
     should_emit_invite_artifact,
@@ -824,9 +838,44 @@ async def _execute_core_agent(
     emit_callback: Any,
     side_effect_gate: Any | None = None,
 ) -> None:
+    progress_started = time.monotonic()
+
     def _gate(action: str) -> None:
         if side_effect_gate is not None:
             side_effect_gate(action)
+
+    async def _intent_progress(
+        phase: str,
+        *,
+        intent: str | None = None,
+        routing_hash: str | None = None,
+        display_code: str,
+        plan_id: str | None = None,
+        plan_step_id: str | None = None,
+        request_index: int | None = None,
+        step_result_count: int | None = None,
+        aggregate_result_count: int | None = None,
+    ) -> None:
+        if side_effect_gate is None:
+            return
+        await emit_callback(
+            "progress",
+            {
+                "progress_schema_version": 1,
+                "phase": phase,
+                "intent": intent,
+                "display_code": display_code,
+                "routing_snapshot_hash": routing_hash,
+                "plan_id": plan_id,
+                "plan_step_id": plan_step_id,
+                "request_index": request_index,
+                "elapsed_ms": max(
+                    0, min(int((time.monotonic() - progress_started) * 1000), 600_000)
+                ),
+                "step_result_count": step_result_count,
+                "aggregate_result_count": aggregate_result_count,
+            },
+        )
 
     user_id = session.principal.user_id
     group_id = session.group_id
@@ -866,6 +915,8 @@ async def _execute_core_agent(
     persistence_failure_reason: str | None = None
     messages: list[Any] = []
     msg_count_before = 0
+    intent_resolution: IntentResolution | None = None
+    intent_execution: IntentExecution | None = None
 
     _trace_buf, _trace_token = start_decision_trace()
     async with lock:
@@ -892,7 +943,68 @@ async def _execute_core_agent(
                 except Exception as exc:
                     _logger.error("Fixture seed error: %s", exc)
             agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
-            msg_count_before = len(agent_state.values.get("messages", [])) if agent_state and agent_state.values else 0
+            prior_messages = (
+                list(agent_state.values.get("messages", []))
+                if agent_state and agent_state.values
+                else []
+            )
+            msg_count_before = len(prior_messages)
+            routing_mode = intent_routing_mode()
+            if not admin_debug and routing_mode in {"observe", "enforce"}:
+                await _intent_progress(
+                    "intent_resolving",
+                    display_code="resolving_intent",
+                )
+                execution_mode = "cafe_host" if cafe_host else "group_agent"
+                episode_id = (
+                    req.episode_id
+                    if req.request_schema_version == 3
+                    else runtime_metadata.get("episode_id")
+                )
+                intent_resolution = await aresolve_intent(
+                    req.message,
+                    execution_mode=execution_mode,
+                    can_search=session.capabilities.can_search and not cafe_host,
+                    prior_messages=prior_messages,
+                    scope=IntentContextScope(
+                        thread_id=tid,
+                        user_id=user_id,
+                        execution_mode=execution_mode,
+                        episode_id=str(episode_id) if episode_id else None,
+                    ),
+                    classifier_model=state.quality_model or state.polish_model,
+                )
+                record_intent_prediction(
+                    intent_resolution,
+                    run_id=req.run_id,
+                    thread_id=tid,
+                )
+                if routing_mode == "enforce":
+                    intent_execution = prepare_intent_execution(
+                        intent_resolution,
+                        original_message=req.message,
+                        run_id=req.run_id,
+                        request_fingerprint=calculate_request_fingerprint(req, session),
+                    )
+                    intent_execution.bind_progress_emitter(
+                        emit_callback,
+                        started_monotonic=progress_started,
+                    )
+                    intent_execution.restore_adopted_evidence()
+                    await _intent_progress(
+                        "intent_resolved",
+                        intent=intent_execution.decision.primary_intent,
+                        routing_hash=intent_execution.snapshot.canonical_content_hash,
+                        display_code="intent_ready",
+                    )
+                    if (
+                        not cafe_host
+                        and intent_execution.decision.action != "execute"
+                    ):
+                        agent = state.member_agent_for_capability(
+                            can_search=False,
+                            can_write_profile=can_write_profile,
+                        )
             config = _invoke_config(
                 tid=tid,
                 user_id=user_id,
@@ -951,6 +1063,14 @@ async def _execute_core_agent(
                     relax_addon = search_relax_system_addon(user_id=user_id)
                     if relax_addon:
                         turn_messages.append(SystemMessage(content=relax_addon))
+            if intent_execution is not None:
+                turn_messages.append(
+                    SystemMessage(
+                        content=intent_execution.route_prompt(
+                            skills_dir=state.base_dir / "skills" / "aihehuo"
+                        )
+                    )
+                )
             turn_messages.append(HumanMessage(content=req.message))
             _logger.info(
                 "Core agent ainvoke start run_id=%s thread_id=%s msg_len=%d admin_debug=%s",
@@ -959,7 +1079,12 @@ async def _execute_core_agent(
                 len(req.message or ""),
                 admin_debug,
             )
-            streaming_enabled = os.environ.get("GROUP_AGENT_STREAMING_ENABLED", "0").lower() in {"1", "true", "yes"} and hasattr(agent, "astream")
+            streaming_enabled = (
+                intent_execution is None
+                and os.environ.get("GROUP_AGENT_STREAMING_ENABLED", "0").lower()
+                in {"1", "true", "yes"}
+                and hasattr(agent, "astream")
+            )
             _ainvoke_t0 = time.monotonic()
             try:
                 if cafe_host:
@@ -1000,11 +1125,34 @@ async def _execute_core_agent(
                     agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
                     messages = agent_state.values.get("messages", []) if agent_state and agent_state.values else []
                 else:
-                    result = await agent.ainvoke(
-                        {"messages": turn_messages},
-                        config,
-                    )
+                    with active_intent_execution(intent_execution):
+                        result = await agent.ainvoke(
+                            {"messages": turn_messages},
+                            config,
+                        )
                     messages = result.get("messages", [])
+                if (
+                    intent_execution is not None
+                    and intent_execution.decision.action == "execute"
+                    and not intent_execution.required_steps_satisfied()
+                ):
+                    with active_intent_execution(intent_execution):
+                        result = await agent.ainvoke(
+                            {
+                                "messages": [
+                                    SystemMessage(
+                                        content=(
+                                            "[INTENT-POLICY RETRY] required QueryPlan step "
+                                            "尚未产生 durable receipt；现在必须调用计划工具一次。"
+                                        )
+                                    )
+                                ]
+                            },
+                            config,
+                        )
+                    messages = result.get("messages", [])
+                    if not intent_execution.required_steps_satisfied():
+                        raise QueryPlanError("required_tool_not_called")
             except Exception:
                 _logger.exception(
                     "Core agent execution failed run_id=%s thread_id=%s elapsed_s=%.2f",
@@ -1400,11 +1548,18 @@ async def _execute_core_agent(
             "profile_persisted": profile_ok,
             "is_clarification": is_clarifying,
             "admin_debug": admin_debug,
-            "user_message": req.message[:100],
+            "message_len": len(req.message),
         },
         run_id=req.run_id,
         thread_id=tid,
     )
+    if intent_resolution is not None:
+        record_intent_outcome(
+            intent_resolution,
+            observed_route=intent_route,
+            run_id=req.run_id,
+            thread_id=tid,
+        )
 
     is_v2_run = run_protocol_mode == "grounded_v2"
 
@@ -1443,6 +1598,31 @@ async def _execute_core_agent(
             thread_id=tid,
         )
         visible_reply = gated.reply
+
+    if not cafe_host:
+        from apps.group_agent_api.agent_factory.checks.intent_final_guard import (
+            apply_intent_final_guard,
+        )
+
+        intent_guarded = apply_intent_final_guard(
+            reply=visible_reply,
+            execution=intent_execution,
+            public_reads=public_reads,
+            profile_saved_this_turn=saved_this_turn,
+            profile_persisted=profile_ok,
+            legacy_search_completed=(
+                search_turn.called and match_status in {"matched", "weak", "empty"}
+            ),
+            legacy_result_count=len(out_candidates),
+        )
+        visible_reply = intent_guarded.reply
+        if intent_guarded.blocked:
+            combined_guard_blocked = True
+            combined_guard_violations = list(
+                dict.fromkeys(
+                    [*combined_guard_violations, *intent_guarded.violations]
+                )
+            )
 
     final_payload = {
         "reply": visible_reply,
@@ -1625,6 +1805,13 @@ async def _execute_core_agent(
     if trace_path:
         final_payload["debug_trace_path"] = trace_path
 
+    if intent_execution is not None:
+        await _intent_progress(
+            "composing",
+            intent=intent_execution.decision.primary_intent,
+            routing_hash=intent_execution.snapshot.canonical_content_hash,
+            display_code="composing_reply",
+        )
     _gate("final_callback")
     from apps.group_agent_api.agent_factory.brain_repair import (
         emit_final_with_mouth_repair,

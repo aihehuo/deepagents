@@ -13,8 +13,10 @@ from .classifier import ClassifierResult, aclassify_intent, classify_intent
 from .context import (
     IntentContextScope,
     TrustedIntentContext,
+    build_classifier_context,
     extract_completed_context,
     is_elliptical_followup,
+    merge_classifier_constraints,
     merge_followup_constraints,
 )
 from .policy import build_decision
@@ -201,6 +203,17 @@ def _finalize(
     )
 
 
+def _classifier_constraints(
+    *,
+    intent: IntentKind,
+    signal: SignalResult,
+    trusted: TrustedIntentContext | None,
+) -> IntentConstraintsV1:
+    if intent not in _READ_INTENTS or trusted is None:
+        return signal.constraints
+    return merge_classifier_constraints(trusted.constraints, signal.constraints)
+
+
 def resolve_intent(
     message: str,
     *,
@@ -209,6 +222,7 @@ def resolve_intent(
     prior_messages: list[Any] | None = None,
     scope: IntentContextScope | None = None,
     classifier_model: Any = None,
+    profile_constraints: IntentConstraintsV1 | None = None,
 ) -> IntentResolution:
     """Resolve one turn without changing the execution path.
 
@@ -219,6 +233,7 @@ def resolve_intent(
         prior_messages: Messages from the exact scoped checkpoint.
         scope: Provenance for those messages; required for inheritance.
         classifier_model: Optional bare model used only for L2 structured output.
+        profile_constraints: Optional structured profile fields for L1 context.
 
     Returns:
         A contract-valid decision and bounded observe diagnostics.
@@ -263,10 +278,16 @@ def resolve_intent(
             classifier=unavailable,
             inherited=False,
         )
+    classifier_context = build_classifier_context(
+        trusted=context,
+        prior_messages=prior_messages,
+        profile=profile_constraints,
+        current_negations=signal.negations,
+    )
     classified = classify_intent(
         message,
         model=classifier_model,
-        prior_intent=context.intent if context else None,
+        context=classifier_context,
     )
     intent, confidence, evidence = _classifier_choice(classified)
     safe_evidence = tuple(span for span in evidence if span and span in message)[:16]
@@ -278,7 +299,9 @@ def resolve_intent(
         source="classifier",
         evidence=safe_evidence,
         negations=signal.negations,
-        constraints=signal.constraints,
+        constraints=_classifier_constraints(
+            intent=intent, signal=signal, trusted=context
+        ),
         execution_mode=execution_mode,
         can_search=can_search,
         classifier=classified,
@@ -294,6 +317,7 @@ async def aresolve_intent(
     prior_messages: list[Any] | None = None,
     scope: IntentContextScope | None = None,
     classifier_model: Any = None,
+    profile_constraints: IntentConstraintsV1 | None = None,
 ) -> IntentResolution:
     """Async equivalent of `resolve_intent`, including a bounded L2 timeout."""
     started = time.perf_counter()
@@ -336,10 +360,16 @@ async def aresolve_intent(
             classifier=unavailable,
             inherited=False,
         )
+    classifier_context = build_classifier_context(
+        trusted=context,
+        prior_messages=prior_messages,
+        profile=profile_constraints,
+        current_negations=signal.negations,
+    )
     classified = await aclassify_intent(
         message,
         model=classifier_model,
-        prior_intent=context.intent if context else None,
+        context=classifier_context,
         timeout_s=intent_classifier_timeout_s(),
     )
     intent, confidence, evidence = _classifier_choice(classified)
@@ -352,7 +382,9 @@ async def aresolve_intent(
         source="classifier",
         evidence=safe_evidence,
         negations=signal.negations,
-        constraints=signal.constraints,
+        constraints=_classifier_constraints(
+            intent=intent, signal=signal, trusted=context
+        ),
         execution_mode=execution_mode,
         can_search=can_search,
         classifier=classified,

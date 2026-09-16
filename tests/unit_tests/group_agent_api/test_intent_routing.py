@@ -64,13 +64,23 @@ def _scope() -> IntentContextScope:
         ("先别查，只是聊聊怎么找合伙人", "conversation", "conversation"),
         ("找合伙人是不是很难", "conversation", "conversation"),
         ("把我的所在地改成上海", "profile_update", "delegate_existing_flow"),
-        ("你好，今天想聊聊创业", "conversation", "conversation"),
     ],
 )
 def test_frozen_rule_replays(message: str, intent: str, action: str) -> None:
     result = resolve_intent(message, execution_mode="group_agent", can_search=True)
     assert result.decision.primary_intent == intent
     assert result.decision.action == action
+
+
+def test_ordinary_chat_without_classifier_fail_closes_to_clarify() -> None:
+    result = resolve_intent(
+        "你好，今天想聊聊创业", execution_mode="group_agent", can_search=True
+    )
+    assert result.decision.primary_intent == "clarification"
+    assert result.decision.action == "clarify"
+    assert result.signal_ids == ("no_business_action",)
+    assert result.classifier_status == "unavailable"
+    assert result.routing_class == "clarification_fallback"
 
 
 def test_read_policy_rejects_cafe_and_missing_permission() -> None:
@@ -186,19 +196,22 @@ def test_server_context_requires_completion_hash_and_exact_scope() -> None:
     assert context.intent == "people_search"
     assert context.constraints.capability == ("供应链经验",)
     assert extract_completed_context([marker], scope=_scope()) is None
-    assert extract_completed_context(
-        completed,
-        scope=IntentContextScope(
-            thread_id="other-thread",
-            user_id="u",
-            execution_mode="group_agent",
-            episode_id="episode-1",
-        ),
-    ) is None
+    assert (
+        extract_completed_context(
+            completed,
+            scope=IntentContextScope(
+                thread_id="other-thread",
+                user_id="u",
+                execution_mode="group_agent",
+                episode_id="episode-1",
+            ),
+        )
+        is None
+    )
 
-    marker.additional_kwargs["group_agent_completed_intent_context_v1"][
-        "plan_id"
-    ] = "platform-help-v1"
+    marker.additional_kwargs["group_agent_completed_intent_context_v1"]["plan_id"] = (
+        "platform-help-v1"
+    )
     assert extract_completed_context(completed, scope=_scope()) is None
 
 
@@ -296,17 +309,24 @@ class _Structured:
         self.outputs = outputs
         self.delay = delay
         self.calls = 0
+        self.last_prompts: Any = None
 
-    def invoke(self, _: Any) -> Any:
+    def invoke(self, prompts: Any) -> Any:
+        self.last_prompts = prompts
         output = self.outputs[min(self.calls, len(self.outputs) - 1)]
         self.calls += 1
         return output
 
-    async def ainvoke(self, _: Any) -> Any:
+    async def ainvoke(self, prompts: Any) -> Any:
+        self.last_prompts = prompts
         self.calls += 1
         if self.delay:
             await asyncio.sleep(self.delay)
         return self.outputs[min(self.calls - 1, len(self.outputs) - 1)]
+
+
+class _CapturingStructured(_Structured):
+    """Alias kept for Phase 1 prompt-context assertions."""
 
 
 class _ClassifierModel:
@@ -648,10 +668,26 @@ def _assert_routing_diagnostics(
 
 
 def test_phase0_explicit_chinese_people_search_is_l0_positive() -> None:
+    structured = _Structured(
+        [
+            {
+                "version": 1,
+                "candidates": [{"intent": "conversation", "confidence": "high"}],
+                "evidence_spans": [],
+                "missing_object": None,
+                "classifier_version": "intent-classifier-v1",
+            }
+        ]
+    )
+    model = _ClassifierModel(structured)
     result = resolve_intent(
-        "找上海餐饮运营合伙人", execution_mode="group_agent", can_search=True
+        "找上海餐饮运营合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=model,
     )
     assert result.decision.primary_intent == "people_search"
+    assert structured.calls == 0
     _assert_routing_diagnostics(
         result,
         source="rules",
@@ -666,75 +702,162 @@ def test_phase0_explicit_chinese_people_search_is_l0_positive() -> None:
     assert result.decision.query_plan_ref.plan_id == "people-search-v1"
 
 
-def test_phase0_english_search_with_prior_target_is_still_l0_conversation() -> None:
+def _classification(
+    intent: str,
+    *,
+    confidence: str = "high",
+    missing_object: str | None = None,
+    evidence: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "version": 1,
+        "candidates": [{"intent": intent, "confidence": confidence}],
+        "evidence_spans": evidence or [],
+        "missing_object": missing_object,
+        "classifier_version": "intent-classifier-v1",
+    }
+
+
+def _completed_shanghai_ops_people_search() -> list[Any]:
+    call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "id": "read-sh",
+                "name": "query_aihehuo_public_data",
+                "args": {
+                    "resource": "users",
+                    "location": "上海",
+                    "industry": "餐饮",
+                    "role": "运营合伙人",
+                    "capability": "运营经验",
+                },
+            }
+        ],
+    )
+    result = ToolMessage(
+        content='{"status":"succeeded","items":[]}',
+        tool_call_id="read-sh",
+        name="query_aihehuo_public_data",
+    )
+    return [call, result, AIMessage(content="查询完成。")]
+
+
+def test_phase1_english_people_search_reaches_query_plan() -> None:
+    structured = _Structured([_classification("people_search", evidence=["Shanghai"])])
     result = resolve_intent(
         "Can you find restaurant operators in Shanghai?",
         execution_mode="group_agent",
         can_search=True,
-        prior_messages=_completed_people_search(),
-        scope=_scope(),
+        classifier_model=_ClassifierModel(structured),
     )
-    assert result.decision.primary_intent == "conversation"
+    assert result.decision.primary_intent == "people_search"
     _assert_routing_diagnostics(
         result,
-        source="rules",
-        classifier_status="not_needed",
+        source="classifier",
+        classifier_status="ok",
         inherited=False,
-        action="conversation",
-        query_plan=False,
-        routing_class="l0_conversation",
+        action="execute",
+        query_plan=True,
+        routing_class="semantic_planner",
         signal_ids=("no_business_action",),
-        classifier_attempts=0,
+        classifier_attempts=1,
     )
+    assert result.decision.query_plan_ref.plan_id == "people-search-v1"
+    assert structured.calls == 1
 
 
-def test_phase0_generic_english_search_without_target_is_l0_conversation() -> None:
+def test_phase1_english_search_with_trusted_context_executes_people_search() -> None:
+    structured = _Structured([_classification("people_search", evidence=["search"])])
     result = resolve_intent(
         "Can you help me do a search",
         execution_mode="group_agent",
         can_search=True,
+        prior_messages=_completed_shanghai_ops_people_search(),
+        scope=_scope(),
+        classifier_model=_ClassifierModel(structured),
+    )
+    assert result.decision.primary_intent == "people_search"
+    assert result.decision.constraints.location == ("上海",)
+    assert result.decision.constraints.industry == ("餐饮",)
+    _assert_routing_diagnostics(
+        result,
+        source="classifier",
+        classifier_status="ok",
+        inherited=False,
+        action="execute",
+        query_plan=True,
+        routing_class="semantic_planner",
+        signal_ids=("no_business_action",),
+        classifier_attempts=1,
+    )
+
+
+def test_phase1_english_search_without_usable_context_clarifies() -> None:
+    structured = _Structured(
+        [
+            _classification(
+                "clarification",
+                confidence="low",
+                missing_object="要找的人或资源",
+                evidence=["search"],
+            )
+        ]
+    )
+    result = resolve_intent(
+        "Can you help me do a search",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(structured),
+    )
+    assert result.decision.primary_intent == "clarification"
+    _assert_routing_diagnostics(
+        result,
+        source="classifier",
+        classifier_status="ok",
+        inherited=False,
+        action="clarify",
+        query_plan=False,
+        routing_class="semantic_planner",
+        signal_ids=("no_business_action",),
+        classifier_attempts=1,
+    )
+
+
+def test_phase1_ordinary_conversation_via_classifier() -> None:
+    structured = _Structured([_classification("conversation")])
+    result = resolve_intent(
+        "你好",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(structured),
     )
     assert result.decision.primary_intent == "conversation"
     _assert_routing_diagnostics(
         result,
-        source="rules",
-        classifier_status="not_needed",
+        source="classifier",
+        classifier_status="ok",
         inherited=False,
         action="conversation",
         query_plan=False,
-        routing_class="l0_conversation",
+        routing_class="semantic_planner",
         signal_ids=("no_business_action",),
+        classifier_attempts=1,
     )
 
 
-@pytest.mark.parametrize(
-    "message",
-    ["你好", "Hello", "Hi"],
-)
-def test_phase0_ordinary_conversation_is_l0_conversation(message: str) -> None:
-    result = resolve_intent(message, execution_mode="group_agent", can_search=True)
-    assert result.decision.primary_intent == "conversation"
-    _assert_routing_diagnostics(
-        result,
-        source="rules",
-        classifier_status="not_needed",
-        inherited=False,
-        action="conversation",
-        query_plan=False,
-        routing_class="l0_conversation",
-        signal_ids=("no_business_action",),
-    )
-
-
-def test_phase0_explicit_search_negation_is_hard_veto() -> None:
+def test_phase1_explicit_search_negation_is_hard_veto() -> None:
+    structured = _Structured([_classification("people_search")])
     result = resolve_intent(
         "先别查，只是聊聊",
         execution_mode="group_agent",
         can_search=True,
         prior_messages=_completed_people_search(),
         scope=_scope(),
+        classifier_model=_ClassifierModel(structured),
     )
     assert result.decision.primary_intent == "conversation"
+    assert structured.calls == 0
     _assert_routing_diagnostics(
         result,
         source="rules",
@@ -748,16 +871,19 @@ def test_phase0_explicit_search_negation_is_hard_veto() -> None:
     assert "先别查" in result.decision.negations or result.decision.negations
 
 
-def test_phase0_elliptical_followup_after_completed_query_inherits_context() -> None:
+def test_phase1_elliptical_followup_after_completed_query_inherits_context() -> None:
+    structured = _Structured([_classification("opportunity_search")])
     result = resolve_intent(
         "北京的呢",
         execution_mode="group_agent",
         can_search=True,
         prior_messages=_completed_people_search(),
         scope=_scope(),
+        classifier_model=_ClassifierModel(structured),
     )
     assert result.decision.primary_intent == "people_search"
     assert result.decision.constraints.location == ("北京",)
+    assert structured.calls == 0
     _assert_routing_diagnostics(
         result,
         source="context",
@@ -770,7 +896,29 @@ def test_phase0_elliptical_followup_after_completed_query_inherits_context() -> 
     )
 
 
-def test_phase0_classifier_unavailable_clarifies_without_public_request() -> None:
+def test_phase1_replace_location_followup_inherits_without_beijing() -> None:
+    result = resolve_intent(
+        "不要北京，改成上海的",
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=_completed_people_search(),
+        scope=_scope(),
+    )
+    assert result.decision.primary_intent == "people_search"
+    assert result.decision.constraints.location == ("上海",)
+    assert "location:北京" in result.decision.negations
+    _assert_routing_diagnostics(
+        result,
+        source="context",
+        classifier_status="not_needed",
+        inherited=True,
+        action="execute",
+        query_plan=True,
+        routing_class="context_inheritance",
+    )
+
+
+def test_phase1_classifier_unavailable_clarifies_without_public_request() -> None:
     result = resolve_intent(
         "帮我找一下",
         execution_mode="group_agent",
@@ -786,6 +934,25 @@ def test_phase0_classifier_unavailable_clarifies_without_public_request() -> Non
         query_plan=False,
         routing_class="clarification_fallback",
         signal_ids=("search_missing_object",),
+        classifier_attempts=0,
+    )
+
+
+def test_phase1_no_business_action_without_classifier_clarifies() -> None:
+    result = resolve_intent(
+        "Can you help me do a search",
+        execution_mode="group_agent",
+        can_search=True,
+    )
+    _assert_routing_diagnostics(
+        result,
+        source="classifier",
+        classifier_status="unavailable",
+        inherited=False,
+        action="clarify",
+        query_plan=False,
+        routing_class="clarification_fallback",
+        signal_ids=("no_business_action",),
         classifier_attempts=0,
     )
 
@@ -810,7 +977,7 @@ def test_phase0_policy_rejection_is_observable_without_query_plan() -> None:
         )
 
 
-def test_phase0_motivating_english_sequence_is_l0_conversation_false_negative() -> None:
+def test_phase1_motivating_english_sequence_reaches_people_search() -> None:
     import json
 
     fixture_path = (
@@ -818,7 +985,7 @@ def test_phase0_motivating_english_sequence_is_l0_conversation_false_negative() 
     )
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     current = fixture["current_turn"]
-    expected = fixture["frozen_current_behavior"]
+    expected = fixture["phase1_with_classifier"]
     assert current == "Can you help me do a search"
     assert all("token" not in turn["text"].lower() for turn in fixture["turns"])
     assert all("password" not in turn["text"].lower() for turn in fixture["turns"])
@@ -829,14 +996,19 @@ def test_phase0_motivating_english_sequence_is_l0_conversation_false_negative() 
         else AIMessage(content=turn["text"])
         for turn in fixture["turns"][:-1]
     ]
+    structured = _CapturingStructured(
+        [_classification("people_search", evidence=["search"])]
+    )
     result = resolve_intent(
         current,
         execution_mode="group_agent",
         can_search=True,
         prior_messages=prior,
         scope=_scope(),
+        classifier_model=_ClassifierModel(structured),
     )
     assert result.decision.primary_intent == expected["primary_intent"]
+    assert result.decision.query_plan_ref.plan_id == expected["query_plan_id"]
     _assert_routing_diagnostics(
         result,
         source=expected["decision_source"],
@@ -848,9 +1020,41 @@ def test_phase0_motivating_english_sequence_is_l0_conversation_false_negative() 
         signal_ids=tuple(expected["signal_ids"]),
         classifier_attempts=expected["classifier_attempts"],
     )
+    prompt_text = str(structured.last_prompts)
+    assert "classifier_context=" in prompt_text
+    assert "Shanghai" in prompt_text or "restaurant" in prompt_text
+    assert "token" not in prompt_text.lower()
+    assert "password" not in prompt_text.lower()
 
 
-def test_phase0_observe_logs_distinguish_routing_classes(
+async def test_phase1_sync_async_matrix_paths_match() -> None:
+    structured_sync = _Structured([_classification("people_search")])
+    structured_async = _Structured([_classification("people_search")])
+    message = "Can you help me do a search"
+    prior = _completed_shanghai_ops_people_search()
+    sync = resolve_intent(
+        message,
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=prior,
+        scope=_scope(),
+        classifier_model=_ClassifierModel(structured_sync),
+    )
+    async_result = await aresolve_intent(
+        message,
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=prior,
+        scope=_scope(),
+        classifier_model=_ClassifierModel(structured_async),
+    )
+    assert sync.decision == async_result.decision
+    assert sync.signal_ids == async_result.signal_ids
+    assert sync.classifier_status == async_result.classifier_status
+    assert sync.routing_class == async_result.routing_class
+
+
+def test_phase1_observe_logs_distinguish_routing_classes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: list[dict[str, Any]] = []
@@ -863,16 +1067,24 @@ def test_phase0_observe_logs_distinguish_routing_classes(
         record,
     )
     cases = [
-        ("找上海餐饮运营合伙人", "l0_positive", True),
-        ("Can you help me do a search", "l0_conversation", False),
-        ("帮我找一下", "clarification_fallback", False),
+        ("找上海餐饮运营合伙人", "l0_positive", True, None),
+        (
+            "Can you help me do a search",
+            "semantic_planner",
+            True,
+            _ClassifierModel(_Structured([_classification("people_search")])),
+        ),
+        ("帮我找一下", "clarification_fallback", False, None),
     ]
-    for message, routing_class, query_plan in cases:
+    for message, routing_class, query_plan, model in cases:
         captured.clear()
         result = resolve_intent(
-            message, execution_mode="group_agent", can_search=True
+            message,
+            execution_mode="group_agent",
+            can_search=True,
+            classifier_model=model,
         )
-        record_intent_prediction(result, run_id="run-phase0", thread_id="thread-phase0")
+        record_intent_prediction(result, run_id="run-phase1", thread_id="thread-phase1")
         detail = captured[0]
         assert detail["routing_class"] == routing_class
         assert detail["query_plan_would_run"] is query_plan

@@ -48,6 +48,19 @@ class IntentConstraintsV1(ClosedModel):
     time_range: str | None = Field(default=None, max_length=64)
 
 
+class ClassifierContextV1(ClosedModel):
+    """Closed, bounded L1 context. Values are data, never executable instructions."""
+
+    prior_intent: IntentKind | None = None
+    prior_constraints: IntentConstraintsV1 = Field(default_factory=IntentConstraintsV1)
+    profile_location: tuple[str, ...] = Field(default=(), max_length=10)
+    profile_industry: tuple[str, ...] = Field(default=(), max_length=10)
+    profile_role: tuple[str, ...] = Field(default=(), max_length=10)
+    profile_capability: tuple[str, ...] = Field(default=(), max_length=10)
+    recent_user_turns: tuple[str, ...] = Field(default=(), max_length=5)
+    current_negations: tuple[str, ...] = Field(default=(), max_length=16)
+
+
 class QueryPlanRefV1(ClosedModel):
     """Reference to a plan frozen by INTENT-XCUT-000."""
 

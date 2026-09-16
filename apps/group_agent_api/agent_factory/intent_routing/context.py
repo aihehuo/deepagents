@@ -10,8 +10,16 @@ from typing import Any, Literal
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from .canonical import canonical_hash
-from .schema import IntentConstraintsV1, IntentDecisionV1, IntentKind
+from .schema import (
+    ClassifierContextV1,
+    IntentConstraintsV1,
+    IntentDecisionV1,
+    IntentKind,
+)
 from .signals import normalize_text
+
+_MAX_RECENT_USER_TURNS = 5
+_MAX_RECENT_TURN_CHARS = 240
 
 _RESOURCE_INTENT: dict[str, IntentKind] = {
     "users": "people_search",
@@ -237,9 +245,11 @@ def _completed_server_context(
             continue
         intent = marker.get("intent")
         receipt_ids = marker.get("receipt_ids")
-        if intent not in set(_RESOURCE_INTENT.values()) or not isinstance(
-            receipt_ids, list
-        ) or not receipt_ids:
+        if (
+            intent not in set(_RESOURCE_INTENT.values())
+            or not isinstance(receipt_ids, list)
+            or not receipt_ids
+        ):
             continue
         if (
             marker.get("plan_id") != _INTENT_PLAN.get(intent)
@@ -247,8 +257,7 @@ def _completed_server_context(
             or _HASH.fullmatch(marker["routing_snapshot_hash"]) is None
             or len(receipt_ids) > 20
             or any(
-                not isinstance(receipt_id, str)
-                or _HASH.fullmatch(receipt_id) is None
+                not isinstance(receipt_id, str) or _HASH.fullmatch(receipt_id) is None
                 for receipt_id in receipt_ids
             )
         ):
@@ -341,4 +350,56 @@ def merge_followup_constraints(
             time_range=current.time_range or previous.time_range,
         ),
         tuple(negations),
+    )
+
+
+def _bounded_recent_user_turns(messages: list[Any] | None) -> tuple[str, ...]:
+    turns: list[str] = []
+    for message in messages or []:
+        if not isinstance(message, HumanMessage):
+            continue
+        text = str(message.content or "").strip()
+        if not text:
+            continue
+        turns.append(text[:_MAX_RECENT_TURN_CHARS])
+    return tuple(turns[-_MAX_RECENT_USER_TURNS:])
+
+
+def build_classifier_context(
+    *,
+    trusted: TrustedIntentContext | None,
+    prior_messages: list[Any] | None,
+    profile: IntentConstraintsV1 | None,
+    current_negations: tuple[str, ...],
+) -> ClassifierContextV1:
+    """Assemble the closed L1 context object with strict field and length limits."""
+    profile_fields = profile or IntentConstraintsV1()
+    prior_constraints = (
+        trusted.constraints if trusted is not None else IntentConstraintsV1()
+    )
+    return ClassifierContextV1(
+        prior_intent=trusted.intent if trusted is not None else None,
+        prior_constraints=prior_constraints,
+        profile_location=tuple(profile_fields.location)[:10],
+        profile_industry=tuple(profile_fields.industry)[:10],
+        profile_role=tuple(profile_fields.role)[:10],
+        profile_capability=tuple(profile_fields.capability)[:10],
+        recent_user_turns=_bounded_recent_user_turns(prior_messages),
+        current_negations=tuple(current_negations)[:16],
+    )
+
+
+def merge_classifier_constraints(
+    previous: IntentConstraintsV1 | None,
+    current: IntentConstraintsV1,
+) -> IntentConstraintsV1:
+    """Prefer current non-empty fields, otherwise keep trusted prior constraints."""
+    if previous is None:
+        return current
+    return IntentConstraintsV1(
+        location=current.location or previous.location,
+        industry=current.industry or previous.industry,
+        role=current.role or previous.role,
+        capability=current.capability or previous.capability,
+        time_range=current.time_range or previous.time_range,
     )

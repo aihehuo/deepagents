@@ -290,6 +290,13 @@ def detect_signals(message: str) -> SignalResult:
             (),
             True,
         )
+    # Absence of an L0 keyword match is unknown, not proof of conversation.
     return SignalResult(
-        "conversation", "high", ("no_business_action",), (), constraints, ()
+        None,
+        "low",
+        ("no_business_action",),
+        (),
+        constraints,
+        (),
+        True,
     )

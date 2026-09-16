@@ -11,7 +11,7 @@ from langchain_core.exceptions import OutputParserException
 from pydantic import ValidationError
 
 from .prompts import CLASSIFIER_SYSTEM_PROMPT, classifier_user_prompt
-from .schema import IntentClassificationV1
+from .schema import ClassifierContextV1, IntentClassificationV1
 
 
 @dataclass(frozen=True)
@@ -32,32 +32,37 @@ def _structured(model: Any) -> Any:
     return candidate.with_structured_output(IntentClassificationV1)
 
 
+def _prompts(message: str, context: ClassifierContextV1) -> list[Any]:
+    return [
+        SystemMessage(content=CLASSIFIER_SYSTEM_PROMPT),
+        HumanMessage(content=classifier_user_prompt(message, context)),
+    ]
+
+
 def classify_intent(
     message: str,
     *,
     model: Any,
-    prior_intent: str | None = None,
+    context: ClassifierContextV1 | None = None,
 ) -> ClassifierResult:
     """Invoke a tool-free structured model at most twice.
 
     Args:
         message: Current user message, bounded by the prompt builder.
         model: Bare chat model supporting `with_structured_output`.
-        prior_intent: Optional trusted prior intent name, never free text.
+        context: Optional closed L1 context; values are data, never instructions.
 
     Returns:
         Validated output or a failure status for clarification fallback.
     """
+    bounded = context or ClassifierContextV1()
     try:
         structured = _structured(model)
     except Exception:  # noqa: BLE001 - model setup must not break observe mode.
         return ClassifierResult(None, "error", 0)
     if structured is None:
         return ClassifierResult(None, "unavailable", 0)
-    prompts = [
-        SystemMessage(content=CLASSIFIER_SYSTEM_PROMPT),
-        HumanMessage(content=classifier_user_prompt(message, prior_intent)),
-    ]
+    prompts = _prompts(message, bounded)
     for attempt in (1, 2):
         try:
             raw = structured.invoke(prompts)
@@ -85,20 +90,18 @@ async def aclassify_intent(
     message: str,
     *,
     model: Any,
-    prior_intent: str | None = None,
+    context: ClassifierContextV1 | None = None,
     timeout_s: float = 1.5,
 ) -> ClassifierResult:
     """Asynchronously classify with a total timeout and one schema retry."""
+    bounded = context or ClassifierContextV1()
     try:
         structured = _structured(model)
     except Exception:  # noqa: BLE001 - model setup must not break observe mode.
         return ClassifierResult(None, "error", 0)
     if structured is None:
         return ClassifierResult(None, "unavailable", 0)
-    prompts = [
-        SystemMessage(content=CLASSIFIER_SYSTEM_PROMPT),
-        HumanMessage(content=classifier_user_prompt(message, prior_intent)),
-    ]
+    prompts = _prompts(message, bounded)
 
     async def run() -> ClassifierResult:
         for attempt in (1, 2):

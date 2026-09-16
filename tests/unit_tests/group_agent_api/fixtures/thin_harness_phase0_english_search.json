@@ -1,7 +1,7 @@
 {
   "incident_id": "phase0-english-search-false-negative",
   "sanitized": true,
-  "note": "Synthetic replay of the 2026-09-16 thin-harness motivating sequence. No credentials, tokens, or private profile fields.",
+  "note": "Synthetic replay of the 2026-09-16 thin-harness motivating sequence. No credentials, tokens, or private profile fields. Phase 1 expects L1 people_search when the classifier is available and clarification when it is not.",
   "turns": [
     {
       "role": "user",
@@ -33,7 +33,7 @@
     }
   ],
   "current_turn": "Can you help me do a search",
-  "frozen_current_behavior": {
+  "phase0_frozen_false_negative": {
     "primary_intent": "conversation",
     "action": "conversation",
     "decision_source": "rules",
@@ -43,5 +43,28 @@
     "context_inherited": false,
     "query_plan_would_run": false,
     "routing_class": "l0_conversation"
+  },
+  "phase1_with_classifier": {
+    "primary_intent": "people_search",
+    "action": "execute",
+    "decision_source": "classifier",
+    "signal_ids": ["no_business_action"],
+    "classifier_status": "ok",
+    "classifier_attempts": 1,
+    "context_inherited": false,
+    "query_plan_would_run": true,
+    "routing_class": "semantic_planner",
+    "query_plan_id": "people-search-v1"
+  },
+  "phase1_without_classifier": {
+    "primary_intent": "clarification",
+    "action": "clarify",
+    "decision_source": "classifier",
+    "signal_ids": ["no_business_action"],
+    "classifier_status": "unavailable",
+    "classifier_attempts": 0,
+    "context_inherited": false,
+    "query_plan_would_run": false,
+    "routing_class": "clarification_fallback"
   }
 }

@@ -13,9 +13,19 @@ from .contracts import QueryPlanStepV1
 from .constraint_lexicon import expand_constraint_token
 from .execution import IntentExecution, QueryPlanError, active_intent_execution
 
+_LATIN_ALIAS = re.compile(r"^[a-z0-9][a-z0-9+.#'_\s-]*$", re.IGNORECASE)
+_NEGATION_PREFIX = r"(?:不要|别|排除|去掉|不看|not(?:\s+in)?)"
+
+
+def _alias_pattern(alias: str) -> str:
+    escaped = re.escape(alias)
+    if _LATIN_ALIAS.fullmatch(alias):
+        return rf"(?<![a-z0-9]){escaped}(?![a-z0-9])"
+    return escaped
+
 
 def _remove_negated_constraints(execution: IntentExecution, message: str) -> str:
-    """Remove values the frozen decision explicitly deleted from positive search."""
+    """Remove only explicit negation phrases, never unrelated alias substrings."""
     cleaned = message
     removed = False
     allowed_kinds = {"location", "industry", "role", "capability"}
@@ -24,16 +34,14 @@ def _remove_negated_constraints(execution: IntentExecution, message: str) -> str
         value = value.strip()
         if separator != ":" or kind not in allowed_kinds or not value:
             continue
-        removed = True
         for alias in expand_constraint_token(kind, value):
-            escaped = re.escape(alias)
-            cleaned = re.sub(
-                rf"(?:不要|别|排除|去掉|不看|not(?:\s+in)?)\s*{escaped}",
-                "",
-                cleaned,
-                flags=re.IGNORECASE,
-            )
-            cleaned = re.sub(escaped, "", cleaned, flags=re.IGNORECASE)
+            if not alias.strip():
+                continue
+            pattern = rf"{_NEGATION_PREFIX}\s*{_alias_pattern(alias)}"
+            updated, count = re.subn(pattern, "", cleaned, flags=re.IGNORECASE)
+            if count:
+                cleaned = updated
+                removed = True
     if removed:
         cleaned = re.sub(r"\s*[,，;；]\s*", " ", cleaned)
     return re.sub(r"\s+", " ", cleaned).strip()

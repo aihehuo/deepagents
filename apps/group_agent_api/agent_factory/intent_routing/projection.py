@@ -18,7 +18,7 @@ from apps.group_agent_api.agent_factory.match_stub import MAX_CANDIDATES
 
 from .execution import IntentExecution
 from .canonical import canonical_hash
-from .constraint_lexicon import expand_constraint_token
+from .constraint_lexicon import expand_constraint_token, phrase_in_text
 
 _STABLE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -235,13 +235,13 @@ def _matches_frozen_constraints(execution: IntentExecution, raw: Any) -> bool:
             continue
         haystack = _dimension_haystack(raw, keys)
         aliases = [
-            alias.casefold()
+            alias
             for value in expected
             if value.strip()
             for alias in expand_constraint_token(kind, value)
             if alias.strip()
         ]
-        if not aliases or not any(alias in haystack for alias in aliases):
+        if not aliases or not any(phrase_in_text(haystack, alias) for alias in aliases):
             return False
     return True
 
@@ -280,11 +280,9 @@ def _violates_frozen_negations(execution: IntentExecution, raw: Any) -> bool:
             continue
         haystack = _dimension_haystack(raw, key_map[kind])
         aliases = [
-            alias.casefold()
-            for alias in expand_constraint_token(kind, value)
-            if alias.strip()
+            alias for alias in expand_constraint_token(kind, value) if alias.strip()
         ]
-        if any(alias in haystack for alias in aliases):
+        if any(phrase_in_text(haystack, alias) for alias in aliases):
             return True
     return False
 

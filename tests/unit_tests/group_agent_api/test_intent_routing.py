@@ -1005,6 +1005,136 @@ def test_phase1_profile_exclusion_filters_chinese_candidates(
     assert [candidate["user_id"] for candidate in projected.candidates] == ["u-sh"]
 
 
+def test_phase1_short_ai_alias_does_not_match_shanghai_city(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.projection import (
+        project_intent_search,
+    )
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    result = resolve_intent(
+        "找上海人工智能运营合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+    )
+    execution = prepare_intent_execution(
+        result,
+        original_message="找上海人工智能运营合伙人",
+        run_id=None,
+        request_fingerprint=None,
+    )
+    assert execution.decision.constraints.industry == ("人工智能",)
+    reservation = execution.reserve(
+        resource="users",
+        parameters={"page": 1},
+        tool_call_id="projection-ai-substring",
+    )
+    execution.commit_result(
+        reservation,
+        __import__("json").dumps(
+            {
+                "data": [
+                    {
+                        "id": "u-sh-food",
+                        "name": "上海餐饮",
+                        "city": "Shanghai",
+                        "industry": "餐饮",
+                        "role": "运营",
+                        "bio": "Working in Shanghai catering",
+                    },
+                    {
+                        "id": "u-sh-ai",
+                        "name": "上海AI",
+                        "city": "Shanghai",
+                        "industry": "人工智能",
+                        "role": "运营",
+                        "bio": "AI in Shanghai",
+                    },
+                ],
+                "_source_url": "https://www.aihehuo.com/ai/users.json?page=1",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    projected = project_intent_search(execution)
+    assert [candidate["user_id"] for candidate in projected.candidates] == ["u-sh-ai"]
+
+
+def test_phase1_excluding_ai_does_not_drop_shanghai_restaurant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
+        build_step_parameters,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.projection import (
+        project_intent_search,
+    )
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    result = resolve_intent(
+        "Find Shanghai restaurant operators",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(
+            _Structured([_classification("people_search")])
+        ),
+        profile_constraints=IntentConstraintsV1(industry=("餐饮",), role=("运营",)),
+        profile_negations=("industry:人工智能",),
+    )
+    assert result.decision.action == "execute"
+    assert "industry:人工智能" in result.decision.negations
+    execution = prepare_intent_execution(
+        result,
+        original_message="Find Shanghai restaurant operators",
+        run_id=None,
+        request_fingerprint=None,
+    )
+    query = build_step_parameters(execution, execution.plan.steps[0])["q"]
+    assert "Shanghai" in query
+    assert "Shangh " not in query
+    reservation = execution.reserve(
+        resource="users",
+        parameters={"page": 1},
+        tool_call_id="projection-exclude-ai",
+    )
+    execution.commit_result(
+        reservation,
+        __import__("json").dumps(
+            {
+                "data": [
+                    {
+                        "id": "u-sh-food",
+                        "name": "上海餐饮",
+                        "city": "Shanghai",
+                        "industry": "餐饮",
+                        "role": "运营",
+                        "bio": "Working in Shanghai catering",
+                    },
+                    {
+                        "id": "u-sh-ai",
+                        "name": "上海AI",
+                        "city": "Shanghai",
+                        "industry": "人工智能",
+                        "tags": ["AI"],
+                        "role": "运营",
+                    },
+                ],
+                "_source_url": "https://www.aihehuo.com/ai/users.json?page=1",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    projected = project_intent_search(execution)
+    assert [candidate["user_id"] for candidate in projected.candidates] == ["u-sh-food"]
+
+
 def test_phase1_time_range_alone_does_not_satisfy_search_object() -> None:
     structured = _Structured([_classification("people_search")])
     result = resolve_intent(

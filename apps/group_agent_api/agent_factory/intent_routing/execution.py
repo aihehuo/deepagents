@@ -331,7 +331,7 @@ class IntentExecution:
         hard_timeout_ms = max(
             100,
             min(
-                10_000,
+                15_000,
                 self.plan.budget.max_elapsed_ms // self.plan.budget.max_requests,
             ),
         )

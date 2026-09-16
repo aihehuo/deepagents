@@ -83,7 +83,7 @@ def test_frozen_routing_hash_aad_and_aead_vector() -> None:
         created_at="2026-09-15T08:00:00Z",
     )
     assert snapshot.canonical_content_hash == (
-        "sha256:e32d221269b5442a19c79ad568f592364ee8bb8f319b02fe1678b5399c7d1dc3"
+        "sha256:afcb14422242b512710f8c7ce2ad4bf2abc42e01ac9bc2390e6032159605c4e4"
     )
     aad = routing_aad(
         run_id=snapshot.run_id,
@@ -133,6 +133,21 @@ def test_registry_is_six_unique_closed_plans() -> None:
     assert len({entry.plan.plan_id for entry in READ_REGISTRY.values()}) == 6
     with pytest.raises(RuntimeError, match="query_plan_invalid"):
         validate_registry(installed_skills={"get-ai-cofounders"})
+
+
+def test_public_query_timeout_budget_allows_fifteen_seconds_per_request() -> None:
+    for entry in READ_REGISTRY.values():
+        budget = entry.plan.budget
+        assert budget.max_elapsed_ms == budget.max_requests * 15_000
+        assert budget.max_elapsed_ms <= 60_000
+
+    execution = _execution()
+    reservation = execution.reserve(
+        resource="users", parameters={"page": 1}, tool_call_id="timeout-budget"
+    )
+    assert reservation.hard_timeout_ms == 15_000
+    assert execution.plan is not None
+    assert execution.plan.budget.max_elapsed_ms == 30_000
 
 
 def _execution(message: str = "有没有上海餐饮合伙人"):
@@ -806,6 +821,41 @@ async def test_public_tool_async_waits_for_tool_started_ack_before_fetch(
 
     assert result == "AIHEHUO query rejected: callback_ack_invalid"
     assert fetches == []
+
+
+async def test_public_tool_async_uses_fifteen_second_fetch_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from skillpacks.aihehuo import integration
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    _install_route_skill(tmp_path)
+    skills = tmp_path / "skills" / "aihehuo"
+    monkeypatch.setattr(
+        integration,
+        "_catalog",
+        lambda: {"get-ai-cofounders": {"resources": ["users"]}},
+    )
+    timeouts: list[float] = []
+
+    def fetch(_path: str, *, timeout: float, **_kwargs: object) -> str:
+        timeouts.append(timeout)
+        return '{"data":[{"id":"u-1"}]}'
+
+    async def emitter(_event: str, _payload: dict[str, Any]) -> bool:
+        return True
+
+    monkeypatch.setattr(integration, "fetch", fetch)
+    execution = _execution()
+    execution.bind_progress_emitter(emitter, started_monotonic=0.0)
+    tool = integration.create_aihehuo_tool(skills_dir=skills)
+    with active_intent_execution(execution):
+        result = await tool.ainvoke({"resource": "users", "page": 1})
+
+    assert "u-1" in result
+    assert timeouts == [15.0]
+    assert execution.required_steps_satisfied()
 
 
 async def test_sync_reserve_on_progress_loop_fails_closed() -> None:

@@ -38,14 +38,15 @@ def _step(
 
 def _plan(plan_id: str, *steps: QueryPlanStepV1) -> QueryPlanV1:
     people = plan_id == "people-search-v1"
+    max_requests = 2 if people else 4
     return QueryPlanV1(
         plan_id=plan_id,
         steps=steps,
         budget=QueryBudgetV1(
-            max_requests=2 if people else 4,
+            max_requests=max_requests,
             max_pages=2 if people else 4,
             max_items=40 if people else 100,
-            max_elapsed_ms=10_000,
+            max_elapsed_ms=15_000 * max_requests,
         ),
         scope_disclosure=("pages_queried", "items_examined"),
     )

@@ -33,9 +33,10 @@ _JUDGE_SYSTEM_PROMPT = """你是群智能体「推荐文案事实对照」裁判
 只输出一个 JSON 对象，不要 markdown：
 {"verdict":"pass"|"fail","codes":[string],"spans":[string],"repairable_by":"llm"|"orchestrator","message":"给主模型的短中文，禁止给用户"}
 
-codes 仅允许：unsupported_claim, exaggeration, unverified_action, invented_candidate
+codes 仅允许：unsupported_claim, exaggeration, unverified_action, invented_candidate, internal_context_leak
 spans 摘录 reply 中有问题的短句，最多 3 条。
 pass 时 codes/spans 必须为空数组。
+reply 不得出现 ground、check_deny、receipt、public_reads 等实现字段名；若出现判 internal_context_leak。
 """  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
 
 

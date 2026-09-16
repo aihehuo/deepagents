@@ -12,6 +12,9 @@ from apps.group_agent_api.agent_factory.checks.reply_grounding.gate import (
     apply_reply_grounding_gate,
     default_repair_fn,
 )
+from apps.group_agent_api.agent_factory.checks.reply_grounding.leak import (
+    scrub_internal_context_leak,
+)
 from apps.group_agent_api.agent_factory.checks.reply_grounding.ground import (
     build_ground_from_turn,
 )
@@ -52,4 +55,5 @@ __all__ = [
     "check_reply_grounding",
     "default_repair_fn",
     "format_check_deny",
+    "scrub_internal_context_leak",
 ]

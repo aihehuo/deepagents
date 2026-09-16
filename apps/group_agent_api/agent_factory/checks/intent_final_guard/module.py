@@ -194,6 +194,14 @@ def apply_intent_final_guard(
             violations.append("execution_result_omitted")
 
     violations = list(dict.fromkeys(violations))
+    projected_names: tuple[str, ...] = ()
+    if execute and receipts and "receipt_invalid" not in violations and "query_plan_unsatisfied" not in violations:
+        from apps.group_agent_api.agent_factory.intent_routing.projection import (
+            project_intent_search,
+        )
+
+        projected_names = _projected_candidate_names(project_intent_search(execution))
+
     if violations:
         guarded = _strip_user_visible_source_urls(
             _safe_reply(
@@ -201,7 +209,7 @@ def apply_intent_final_guard(
                 execute=execute,
                 receipts=receipts,
                 result_count=result_count,
-                evidence=evidence,
+                projected_names=projected_names,
             )
         )
         _log(violations, blocked=True)
@@ -427,13 +435,32 @@ def _append_scope(reply: str, receipts: list[Any], item_count: int) -> str:
     return f"{cleaned}\n\n{scope}"
 
 
+def _projected_candidate_names(projection: Any) -> tuple[str, ...]:
+    """Display names from constraint-filtered projection only (never raw evidence)."""
+    names: list[str] = []
+    seen: set[str] = set()
+    for candidate in getattr(projection, "candidates", None) or []:
+        if not isinstance(candidate, dict):
+            continue
+        name = str(
+            candidate.get("display_name") or candidate.get("name") or ""
+        ).strip()
+        if len(name) < 2 or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+        if len(names) >= 3:
+            break
+    return tuple(names)
+
+
 def _safe_reply(
     *,
     violations: list[str],
     execute: bool,
     receipts: list[Any],
     result_count: int,
-    evidence: list[Any],
+    projected_names: tuple[str, ...] = (),
 ) -> str:
     if "unverified_external_action" in violations:
         return "我无法确认消息、通知或联系已经完成；本次没有可验证的外部操作凭证。"
@@ -446,14 +473,18 @@ def _safe_reply(
         if result_count <= 0 or "empty_result_misrepresented" in violations:
             lead = "本次公开查询已完成，但没有返回符合条件的公开记录。"
         elif "execution_result_omitted" in violations:
-            names = sorted(_evidence_names(evidence))[:3]
-            if names:
+            if projected_names:
                 lead = (
                     "本次公开查询已完成。返回的公开记录包括："
-                    f"{'、'.join(names)}。这些记录是查询候选，是否符合全部条件仍需依公开资料逐项核对。"
+                    f"{'、'.join(projected_names)}。"
+                    "这些记录是查询候选，是否符合全部条件仍需依公开资料逐项核对。"
                 )
             else:
-                lead = "本次公开查询已完成，但当前回复未展示经核验的结果摘要。"
+                # Raw evidence may still have rows; do not sample unfiltered names.
+                lead = (
+                    "本次公开查询已完成，但没有找到完全满足当前条件的人选。"
+                    "你可以调整地点或能力条件后重试。"
+                )
         else:
             lead = "本次公开查询已完成；具体结果仅以已返回的公开记录为准。"
         return f"{lead}\n\n{_scope(receipts, result_count)}"

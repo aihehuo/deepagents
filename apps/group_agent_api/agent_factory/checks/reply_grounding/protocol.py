@@ -32,6 +32,7 @@ GroundingCode = Literal[
     "exaggeration",
     "unverified_action",
     "invented_candidate",
+    "internal_context_leak",
     "schema_invalid",
 ]
 
@@ -41,6 +42,7 @@ ALLOWED_CODES: frozenset[str] = frozenset(
         "exaggeration",
         "unverified_action",
         "invented_candidate",
+        "internal_context_leak",
         "schema_invalid",
     }
 )

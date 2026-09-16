@@ -183,7 +183,15 @@ def test_completed_people_query_must_not_end_with_ack_only(
     execution = _execution()
     _commit(
         execution,
-        [{"id": "101", "name": "张三", "bio": "餐饮供应链经验"}],
+        [
+            {
+                "id": "101",
+                "name": "张三",
+                "city": "上海",
+                "title": "技术合伙人",
+                "bio": "餐饮供应链经验",
+            }
+        ],
     )
     result = apply_intent_final_guard(
         reply=reply,
@@ -194,6 +202,34 @@ def test_completed_people_query_must_not_end_with_ack_only(
     assert "execution_result_omitted" in result.violations
     assert "张三" in result.reply
     assert "公开查询已完成" in result.reply
+
+
+def test_safe_reply_does_not_list_unfiltered_raw_evidence_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fallback copy must use projected candidates only — never raw page names."""
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    execution = _execution()
+    _commit(
+        execution,
+        [
+            {
+                "id": "shenzhen-1",
+                "name": "chen富",
+                "city": "深圳",
+                "bio": "供应链",
+            }
+        ],
+    )
+    result = apply_intent_final_guard(
+        reply="好的，我们来查。",
+        execution=execution,
+        enabled=True,
+    )
+    assert result.blocked
+    assert "execution_result_omitted" in result.violations
+    assert "chen富" not in result.reply
+    assert "没有找到完全满足当前条件的人选" in result.reply
 
 
 def test_empty_query_must_explicitly_report_no_match(
@@ -309,3 +345,30 @@ def test_guard_has_independent_yaml_switch(tmp_path: Path) -> None:
         assert result.reply == original
     finally:
         reset_modules_config_cache()
+
+
+def test_repair_scrub_removes_ground_jargon_from_user_text() -> None:
+    from apps.group_agent_api.agent_factory.checks.reply_grounding.leak import (
+        scrub_internal_context_leak,
+    )
+    from apps.group_agent_api.agent_factory.checks.reply_grounding.l0 import run_l0
+    from apps.group_agent_api.agent_factory.checks.reply_grounding.protocol import (
+        GroundBlock,
+        ReplyGroundingInput,
+    )
+
+    leaked = "ground 中无 ID 为 9659712 的用户。公开资料里有几位相关人选。"
+    cleaned = scrub_internal_context_leak(leaked)
+    assert "ground" not in cleaned.lower()
+    assert "9659712" not in cleaned  # dropped with the leaking clause
+    assert "公开资料里有几位相关人选" in cleaned
+
+    denial = run_l0(
+        ReplyGroundingInput(
+            reply=leaked,
+            reply_mode="dialogue",
+            ground=GroundBlock(),
+        )
+    )
+    assert denial is not None
+    assert denial.codes == ["internal_context_leak"]

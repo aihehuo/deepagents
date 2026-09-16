@@ -14,6 +14,9 @@ from apps.group_agent_api.agent_factory.checks.reply_grounding.ground import (
     build_ground_from_turn,
 )
 from apps.group_agent_api.agent_factory.checks.reply_grounding.ids import MODULE_ID
+from apps.group_agent_api.agent_factory.checks.reply_grounding.leak import (
+    scrub_internal_context_leak,
+)
 from apps.group_agent_api.agent_factory.checks.reply_grounding.module import (
     check_reply_grounding,
 )
@@ -148,6 +151,7 @@ def apply_reply_grounding_gate(
         result = check_reply_grounding(payload, model=model, l0_only=l0_only)
         results.append(result)
         if result.verdict == Verdict.pass_:
+            current = scrub_internal_context_leak(current) or current
             record_decision_point(
                 phase="reply_grounding",
                 detail={
@@ -196,7 +200,9 @@ def apply_reply_grounding_gate(
                 _logger.warning("action=reply_grounding_repair_failed error=%s", exc)
                 rewritten = ""
             if rewritten:
-                current = rewritten
+                current = scrub_internal_context_leak(rewritten)
+                if not current:
+                    break
                 continue
 
         # No usable repair → fall through to abandon after loop.
@@ -296,19 +302,32 @@ def default_repair_fn(model: Any | None) -> RepairFn | None:
 
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        from apps.group_agent_api.agent_factory.checks.reply_grounding.leak import (
+            scrub_internal_context_leak,
+        )
+
+        facts_payload = {
+            "candidates": [c.model_dump(mode="json") for c in ground.candidates],
+            "public_reads": [r.model_dump(mode="json") for r in ground.public_reads],
+            "initiator_profile": ground.initiator_profile,
+        }
         system = (
-            "你是群智能体主对话模型的改口步骤。上一份 reply 未通过事实对照，"
-            "必须按 check_deny 修改后只输出新的用户可见正文。\n"
-            "硬约束：只能使用 ground 中的 facts；不得编造经历/数字/项目；"
+            "你是群智能体主对话模型的改口步骤。上一份用户可见回复未通过事实对照，"
+            "必须按下方「修改说明」改正后，只输出新的用户可见正文。\n"
+            "硬约束：只能使用「本轮事实」里的内容；不得编造经历/数字/项目；"
             "不得声称已发群/已通知；"
-            "不得写「非常适合/高度契合/完美匹配」等无 evidence 支持的主观拔高；"
+            "不得写「非常适合/高度契合/完美匹配」等无证据支持的主观拔高；"
             "不确定就写「是否合拍仍需沟通确认」；"
-            "不要输出 JSON 或标签。"
+            "不要输出 JSON、XML 或任何标签；"
+            "禁止在正文中出现实现术语或字段名"
+            "（例如 ground、check_deny、receipt、public_reads、candidate_count、"
+            "repairable_by、routing_snapshot、evidence_digest、plan_step_id、user_id）。"
         )
         human = (
-            f"{deny_block}\n\n"
-            f"ground: {json.dumps(ground.model_dump(mode='json'), ensure_ascii=False)}\n\n"
-            f"previous_reply:\n{previous_reply}\n\n"
+            f"修改说明：\n{deny_block}\n\n"
+            f"本轮事实（仅供对照，不要复述字段名）：\n"
+            f"{json.dumps(facts_payload, ensure_ascii=False)}\n\n"
+            f"上一份回复：\n{previous_reply}\n\n"
             "请只输出改口后的完整正文。"
         )
         msg = model.invoke([SystemMessage(content=system), HumanMessage(content=human)])
@@ -316,15 +335,17 @@ def default_repair_fn(model: Any | None) -> RepairFn | None:
         if content is None:
             return ""
         if isinstance(content, str):
-            return content.strip()
-        if isinstance(content, list):
+            text = content.strip()
+        elif isinstance(content, list):
             parts: list[str] = []
             for block in content:
                 if isinstance(block, str):
                     parts.append(block)
                 elif isinstance(block, dict) and block.get("type") == "text":
                     parts.append(str(block.get("text") or ""))
-            return "".join(parts).strip()
-        return str(content).strip()
+            text = "".join(parts).strip()
+        else:
+            text = str(content).strip()
+        return scrub_internal_context_leak(text)
 
     return _repair

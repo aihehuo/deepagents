@@ -10,6 +10,9 @@ from apps.group_agent_api.agent_factory.checks.reply_grounding.protocol import (
     ReplyGroundingOutput,
     Verdict,
 )
+from apps.group_agent_api.agent_factory.checks.reply_grounding.leak import (
+    reply_has_internal_context_leak,
+)
 from apps.group_agent_api.agent_factory.content_quality import (
     looks_like_invented_candidate_narrative,
     looks_like_unauthorized_action_claim,
@@ -52,6 +55,19 @@ def run_l0(payload: ReplyGroundingInput) -> ReplyGroundingOutput | None:
             spans=[],
             repairable_by=RepairableBy.llm,
             message="",
+            layer="l0",
+        )
+
+    if reply_has_internal_context_leak(reply):
+        return ReplyGroundingOutput(
+            verdict=Verdict.fail,
+            codes=["internal_context_leak"],
+            spans=["内部实现用语"],
+            repairable_by=RepairableBy.llm,
+            message=(
+                "reply 含 ground/check_deny/receipt 等内部实现用语。"
+                "删掉这些词，只保留用户可读的自然语言正文。"
+            ),
             layer="l0",
         )
 

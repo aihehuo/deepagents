@@ -107,13 +107,13 @@ def intent_routing_mode() -> str:
 
 
 def intent_classifier_timeout_s() -> float:
-    """Return the bounded total L2 classification timeout."""
+    """Return the bounded total L1 classification timeout."""
     try:
         value = float(os.environ.get("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", "1.5"))
     except ValueError as exc:
         msg = "GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S must be numeric"
         raise RuntimeError(msg) from exc
-    return min(5.0, max(0.05, value))
+    return min(30.0, max(0.05, value))
 
 
 def _classifier_choice(

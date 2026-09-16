@@ -507,6 +507,19 @@ def test_observe_config_is_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
         intent_classifier_timeout_s()
 
 
+def test_classifier_timeout_accepts_thirty_seconds_and_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", raising=False)
+    assert intent_classifier_timeout_s() == 1.5
+    monkeypatch.setenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", "30")
+    assert intent_classifier_timeout_s() == 30.0
+    monkeypatch.setenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", "60")
+    assert intent_classifier_timeout_s() == 30.0
+    monkeypatch.setenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", "0")
+    assert intent_classifier_timeout_s() == 0.05
+
+
 async def test_classifier_helper_reports_timeout_without_raw_exception() -> None:
     result = await aclassify_intent(
         "模糊请求",

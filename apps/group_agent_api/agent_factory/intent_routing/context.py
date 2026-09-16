@@ -10,6 +10,7 @@ from typing import Any, Literal
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from .canonical import canonical_hash
+from .constraint_lexicon import canonicalize_constraint_token
 from .schema import (
     ClassifierContextV1,
     IntentConstraintsV1,
@@ -30,6 +31,7 @@ _PROFILE_FIELD_TO_CONSTRAINT = {
     "capability": "capability",
 }
 _POSITIVE_PROFILE_OPERATORS = frozenset({"eq", "in", "all", "any"})
+_NEGATIVE_PROFILE_OPERATORS = frozenset({"not_in", "not_any"})
 
 _RESOURCE_INTENT: dict[str, IntentKind] = {
     "users": "people_search",
@@ -384,32 +386,57 @@ def bound_intent_constraints(
     if time_range is not None:
         time_range = str(time_range).strip()[:_MAX_CONSTRAINT_TOKEN_CHARS] or None
     return IntentConstraintsV1(
-        location=_clip_constraint_tokens(constraints.location),
-        industry=_clip_constraint_tokens(constraints.industry),
-        role=_clip_constraint_tokens(constraints.role),
+        location=_clip_constraint_tokens(
+            tuple(
+                canonicalize_constraint_token("location", value)
+                for value in constraints.location
+            )
+        ),
+        industry=_clip_constraint_tokens(
+            tuple(
+                canonicalize_constraint_token("industry", value)
+                for value in constraints.industry
+            )
+        ),
+        role=_clip_constraint_tokens(
+            tuple(
+                canonicalize_constraint_token("role", value)
+                for value in constraints.role
+            )
+        ),
         capability=_clip_constraint_tokens(constraints.capability),
         time_range=time_range,
     )
 
 
 def intent_constraints_from_profile(profile: Any | None) -> IntentConstraintsV1 | None:
-    """Convert saved profile match_constraints into closed IntentConstraintsV1.
+    """Return only positive profile constraints; see ``profile_routing_hints``."""
+    constraints, _negations = profile_routing_hints(profile)
+    return constraints
 
-    Only known search-relevant fields and positive operators are projected into
-    forward constraints. Negative operators such as ``not_in`` / ``not_any`` are
-    ignored so exclusions cannot invert into positive search objects.
+
+def profile_routing_hints(
+    profile: Any | None,
+) -> tuple[IntentConstraintsV1 | None, tuple[str, ...]]:
+    """Convert profile match_constraints into positive constraints and exclusions.
+
+    Positive operators project into forward constraints. Negative operators such
+    as ``not_in`` / ``not_any`` become ``kind:value`` negations and never invert
+    into positive search objects. Values are canonicalized through the shared
+    constraint lexicon when possible.
     """
     if profile is None:
-        return None
+        return None, ()
     buckets: dict[str, list[str]] = {
         "location": [],
         "industry": [],
         "role": [],
         "capability": [],
     }
+    negations: list[str] = []
     raw_items = getattr(profile, "match_constraints", None) or []
     if not isinstance(raw_items, list):
-        return None
+        return None, ()
     for item in raw_items:
         if isinstance(item, dict):
             field = str(item.get("field") or "").strip()
@@ -419,17 +446,29 @@ def intent_constraints_from_profile(profile: Any | None) -> IntentConstraintsV1 
             field = str(getattr(item, "field", "") or "").strip()
             operator = str(getattr(item, "operator", "") or "").strip()
             values = getattr(item, "values", None) or []
-        if operator not in _POSITIVE_PROFILE_OPERATORS:
-            continue
         target = _PROFILE_FIELD_TO_CONSTRAINT.get(field)
         if target is None or not isinstance(values, list):
             continue
-        for value in values:
-            text = str(value or "").strip()[:_MAX_CONSTRAINT_TOKEN_CHARS]
-            if text and text not in buckets[target]:
-                buckets[target].append(text)
-            if len(buckets[target]) >= 10:
-                break
+        if operator in _POSITIVE_PROFILE_OPERATORS:
+            for value in values:
+                text = canonicalize_constraint_token(
+                    target, str(value or "").strip()[:_MAX_CONSTRAINT_TOKEN_CHARS]
+                )
+                if text and text not in buckets[target]:
+                    buckets[target].append(text)
+                if len(buckets[target]) >= 10:
+                    break
+            continue
+        if operator in _NEGATIVE_PROFILE_OPERATORS:
+            for value in values:
+                text = canonicalize_constraint_token(
+                    target, str(value or "").strip()[:_MAX_CONSTRAINT_TOKEN_CHARS]
+                )
+                key = f"{target}:{text}"
+                if text and key not in negations:
+                    negations.append(key)
+                if len(negations) >= 16:
+                    break
     constraints = IntentConstraintsV1(
         location=tuple(buckets["location"]),
         industry=tuple(buckets["industry"]),
@@ -442,8 +481,8 @@ def intent_constraints_from_profile(profile: Any | None) -> IntentConstraintsV1 
         or constraints.role
         or constraints.capability
     ):
-        return None
-    return constraints
+        return None, tuple(negations)[:16]
+    return constraints, tuple(negations)[:16]
 
 
 def _bounded_recent_user_turns(messages: list[Any] | None) -> tuple[str, ...]:
@@ -507,11 +546,6 @@ def merge_classifier_constraints(
 def has_structured_search_object(constraints: IntentConstraintsV1) -> bool:
     """Return whether constraints contain a usable who/what search object.
 
-    ``time_range`` is only a modifier and never sufficient on its own.
+    Location and time alone are insufficient; they only modify who/what.
     """
-    return bool(
-        constraints.location
-        or constraints.industry
-        or constraints.role
-        or constraints.capability
-    )
+    return bool(constraints.industry or constraints.role or constraints.capability)

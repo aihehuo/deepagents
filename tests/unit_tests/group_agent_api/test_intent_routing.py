@@ -749,14 +749,14 @@ def _completed_shanghai_ops_people_search() -> list[Any]:
 
 def _shanghai_ops_profile() -> IntentConstraintsV1:
     return IntentConstraintsV1(
-        location=("Shanghai",),
-        industry=("restaurant",),
-        role=("operations",),
+        location=("上海",),
+        industry=("餐饮",),
+        role=("运营",),
     )
 
 
 def test_phase1_english_people_search_without_profile_executes() -> None:
-    """Explicit English search objects must freeze into constraints without profile."""
+    """Explicit English search objects must freeze into canonical Chinese constraints."""
     structured = _Structured([_classification("people_search", evidence=["Shanghai"])])
     result = resolve_intent(
         "Can you find restaurant operators in Shanghai?",
@@ -766,9 +766,9 @@ def test_phase1_english_people_search_without_profile_executes() -> None:
     )
     assert result.decision.primary_intent == "people_search"
     assert result.decision.action == "execute"
-    assert "shanghai" in result.decision.constraints.location
-    assert "restaurant" in result.decision.constraints.industry
-    assert "operators" in result.decision.constraints.role
+    assert result.decision.constraints.location == ("上海",)
+    assert result.decision.constraints.industry == ("餐饮",)
+    assert result.decision.constraints.role == ("运营",)
     assert "ai" not in result.decision.constraints.industry
     _assert_routing_diagnostics(
         result,
@@ -785,7 +785,43 @@ def test_phase1_english_people_search_without_profile_executes() -> None:
     assert structured.calls == 1
 
 
+def test_phase1_message_location_exclusion_is_not_positive_constraint() -> None:
+    structured = _Structured([_classification("people_search")])
+    result = resolve_intent(
+        "Find operators, not in Beijing",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(structured),
+    )
+    assert result.decision.primary_intent == "people_search"
+    assert result.decision.action == "execute"
+    assert result.decision.constraints.location == ()
+    assert result.decision.constraints.role == ("运营",)
+    assert "location:北京" in result.decision.negations
+    assert "beijing" not in {
+        value.casefold() for value in result.decision.constraints.location
+    }
+
+
+def test_phase1_location_alone_does_not_satisfy_search_object() -> None:
+    structured = _Structured([_classification("people_search")])
+    result = resolve_intent(
+        "Search Shanghai",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(structured),
+    )
+    assert result.decision.constraints.location == ("上海",)
+    assert result.decision.primary_intent == "clarification"
+    assert result.decision.action == "clarify"
+    assert _query_plan_would_run(result) is False
+
+
 def test_phase1_profile_not_in_operator_is_not_projected_as_positive() -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.context import (
+        profile_routing_hints,
+    )
+
     profile = SimpleNamespace(
         match_constraints=[
             {
@@ -793,22 +829,180 @@ def test_phase1_profile_not_in_operator_is_not_projected_as_positive() -> None:
                 "operator": "not_in",
                 "values": ["北京"],
                 "strength": "hard",
-            }
+            },
+            {
+                "field": "role",
+                "operator": "in",
+                "values": ["运营"],
+                "strength": "hard",
+            },
         ]
     )
-    assert intent_constraints_from_profile(profile) is None
+    constraints, negations = profile_routing_hints(profile)
+    assert constraints is not None
+    assert constraints.role == ("运营",)
+    assert constraints.location == ()
+    assert "location:北京" in negations
     structured = _Structured([_classification("people_search")])
     result = resolve_intent(
         "Can you help me do a search",
         execution_mode="group_agent",
         can_search=True,
         classifier_model=_ClassifierModel(structured),
-        profile_constraints=intent_constraints_from_profile(profile),
+        profile_constraints=constraints,
+        profile_negations=negations,
     )
-    assert result.decision.primary_intent == "clarification"
-    assert result.decision.action == "clarify"
+    assert result.decision.primary_intent == "people_search"
     assert result.decision.constraints.location == ()
-    assert _query_plan_would_run(result) is False
+    assert "location:北京" in result.decision.negations
+    assert _query_plan_would_run(result) is True
+
+
+def test_phase1_english_constraints_keep_chinese_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.projection import (
+        project_intent_search,
+    )
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    structured = _Structured([_classification("people_search")])
+    result = resolve_intent(
+        "Can you find restaurant operators in Shanghai?",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(structured),
+    )
+    execution = prepare_intent_execution(
+        result,
+        original_message="Can you find restaurant operators in Shanghai?",
+        run_id=None,
+        request_fingerprint=None,
+    )
+    reservation = execution.reserve(
+        resource="users",
+        parameters={"page": 1},
+        tool_call_id="projection-en-zh",
+    )
+    execution.commit_result(
+        reservation,
+        __import__("json").dumps(
+            {
+                "data": [
+                    {
+                        "id": "u-cn",
+                        "name": "张三",
+                        "city": "上海",
+                        "industry": "餐饮",
+                        "role": "运营",
+                        "bio": "餐饮运营",
+                    },
+                    {
+                        "id": "u-bj",
+                        "name": "李四",
+                        "city": "北京",
+                        "industry": "餐饮",
+                        "role": "运营",
+                        "bio": "餐饮运营",
+                    },
+                ],
+                "_source_url": "https://www.aihehuo.com/ai/users.json?page=1",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    projected = project_intent_search(execution)
+    assert [candidate["user_id"] for candidate in projected.candidates] == ["u-cn"]
+
+
+def test_phase1_profile_exclusion_filters_chinese_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.context import (
+        profile_routing_hints,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.projection import (
+        project_intent_search,
+    )
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    profile = SimpleNamespace(
+        match_constraints=[
+            {
+                "field": "city",
+                "operator": "not_in",
+                "values": ["北京"],
+                "strength": "hard",
+            },
+            {
+                "field": "role",
+                "operator": "in",
+                "values": ["运营"],
+                "strength": "hard",
+            },
+            {
+                "field": "industry",
+                "operator": "in",
+                "values": ["餐饮"],
+                "strength": "hard",
+            },
+        ]
+    )
+    constraints, negations = profile_routing_hints(profile)
+    result = resolve_intent(
+        "Can you help me do a search",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(
+            _Structured([_classification("people_search")])
+        ),
+        profile_constraints=constraints,
+        profile_negations=negations,
+    )
+    execution = prepare_intent_execution(
+        result,
+        original_message="Can you help me do a search",
+        run_id=None,
+        request_fingerprint=None,
+    )
+    reservation = execution.reserve(
+        resource="users",
+        parameters={"page": 1},
+        tool_call_id="projection-exclude-bj",
+    )
+    execution.commit_result(
+        reservation,
+        __import__("json").dumps(
+            {
+                "data": [
+                    {
+                        "id": "u-sh",
+                        "name": "上海运营",
+                        "city": "上海",
+                        "industry": "餐饮",
+                        "role": "运营",
+                    },
+                    {
+                        "id": "u-bj",
+                        "name": "北京运营",
+                        "city": "北京",
+                        "industry": "餐饮",
+                        "role": "运营",
+                    },
+                ],
+                "_source_url": "https://www.aihehuo.com/ai/users.json?page=1",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    projected = project_intent_search(execution)
+    assert [candidate["user_id"] for candidate in projected.candidates] == ["u-sh"]
 
 
 def test_phase1_time_range_alone_does_not_satisfy_search_object() -> None:
@@ -1059,6 +1253,10 @@ def test_phase1_classifier_context_clips_oversized_profile_tokens() -> None:
 
 
 def test_phase1_intent_constraints_from_profile_match_constraints() -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.context import (
+        profile_routing_hints,
+    )
+
     profile = SimpleNamespace(
         match_constraints=[
             {
@@ -1093,12 +1291,14 @@ def test_phase1_intent_constraints_from_profile_match_constraints() -> None:
             },
         ]
     )
-    constraints = intent_constraints_from_profile(profile)
+    constraints, negations = profile_routing_hints(profile)
     assert constraints is not None
-    assert constraints.location == ("Shanghai", "x" * 64)
+    assert constraints.location == ("上海", "x" * 64)
     assert "北京" not in constraints.location
-    assert constraints.industry == ("restaurant",)
-    assert constraints.role == ("operations",)
+    assert constraints.industry == ("餐饮",)
+    assert constraints.role == ("运营",)
+    assert "location:北京" in negations
+    assert intent_constraints_from_profile(profile) == constraints
 
 
 def test_phase0_policy_rejection_is_observable_without_query_plan() -> None:
@@ -1187,9 +1387,9 @@ def test_phase1_motivating_english_sequence_reaches_people_search() -> None:
     )
     prompt_text = str(structured.last_prompts)
     assert "classifier_context=" in prompt_text
-    assert "Shanghai" in prompt_text
-    assert "restaurant" in prompt_text
-    assert "operations" in prompt_text
+    assert "上海" in prompt_text or "Shanghai" in prompt_text
+    assert "餐饮" in prompt_text or "restaurant" in prompt_text
+    assert "运营" in prompt_text or "operation" in prompt_text
 
     execution = prepare_intent_execution(
         result,
@@ -1198,9 +1398,9 @@ def test_phase1_motivating_english_sequence_reaches_people_search() -> None:
         request_fingerprint=None,
     )
     query = build_step_parameters(execution, execution.plan.steps[0])["q"]
-    assert "Shanghai" in query
-    assert "restaurant" in query
-    assert "operations" in query
+    assert "上海" in query
+    assert "餐饮" in query
+    assert "运营" in query
     assert query != current
 
 

@@ -18,6 +18,7 @@ from apps.group_agent_api.agent_factory.match_stub import MAX_CANDIDATES
 
 from .execution import IntentExecution
 from .canonical import canonical_hash
+from .constraint_lexicon import expand_constraint_token
 
 _STABLE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -83,6 +84,8 @@ def project_intent_search(
         filtered_items: list[Any] = []
         for item in candidate_items:
             if not _matches_frozen_constraints(execution, item):
+                continue
+            if _violates_frozen_negations(execution, item):
                 continue
             filtered_items.append(item)
             candidate = _public_candidate(item)
@@ -162,9 +165,7 @@ def _public_candidate(raw: Any) -> dict[str, Any] | None:
             facts.insert(0, {"field": "doing", **fact})
     if facts:
         candidate["facts"] = facts
-        candidate["match_evidence"] = [
-            {"summary": facts[0]["value"][:1000]}
-        ]
+        candidate["match_evidence"] = [{"summary": facts[0]["value"][:1000]}]
     return candidate
 
 
@@ -186,14 +187,19 @@ def _public_text(raw: Any) -> str:
     return scrub_contact_text(str(raw).strip())[:200]
 
 
+def _dimension_haystack(raw: dict[str, Any], keys: tuple[str, ...]) -> str:
+    return " ".join(_search_text(raw.get(key)) for key in keys).casefold()
+
+
 def _matches_frozen_constraints(execution: IntentExecution, raw: Any) -> bool:
     if not isinstance(raw, dict):
         return False
     constraints = execution.decision.constraints
     dimensions = (
-        (constraints.location, ("city", "province", "location", "address")),
+        (constraints.location, "location", ("city", "province", "location", "address")),
         (
             constraints.industry,
+            "industry",
             (
                 "industry",
                 "tags",
@@ -207,20 +213,80 @@ def _matches_frozen_constraints(execution: IntentExecution, raw: Any) -> bool:
         ),
         (
             constraints.role,
+            "role",
             ("role", "status_role", "title", "bio", "summary", "description"),
         ),
         (
             constraints.capability,
-            ("capability", "skills", "tags", "bio", "summary", "description", "job_descriptions"),
+            "capability",
+            (
+                "capability",
+                "skills",
+                "tags",
+                "bio",
+                "summary",
+                "description",
+                "job_descriptions",
+            ),
         ),
     )
-    for expected, keys in dimensions:
+    for expected, kind, keys in dimensions:
         if not expected:
             continue
-        haystack = " ".join(_search_text(raw.get(key)) for key in keys).casefold()
-        if not any(value.strip().casefold() in haystack for value in expected if value.strip()):
+        haystack = _dimension_haystack(raw, keys)
+        aliases = [
+            alias.casefold()
+            for value in expected
+            if value.strip()
+            for alias in expand_constraint_token(kind, value)
+            if alias.strip()
+        ]
+        if not aliases or not any(alias in haystack for alias in aliases):
             return False
     return True
+
+
+def _violates_frozen_negations(execution: IntentExecution, raw: Any) -> bool:
+    """Exclude candidates that match explicit field exclusions."""
+    if not isinstance(raw, dict):
+        return True
+    key_map = {
+        "location": ("city", "province", "location", "address"),
+        "industry": (
+            "industry",
+            "tags",
+            "bio",
+            "summary",
+            "description",
+            "job_descriptions",
+            "title",
+            "status_role",
+        ),
+        "role": ("role", "status_role", "title", "bio", "summary", "description"),
+        "capability": (
+            "capability",
+            "skills",
+            "tags",
+            "bio",
+            "summary",
+            "description",
+            "job_descriptions",
+        ),
+    }
+    for negation in execution.decision.negations:
+        kind, separator, value = negation.partition(":")
+        value = value.strip()
+        if separator != ":" or kind not in key_map or not value:
+            continue
+        haystack = _dimension_haystack(raw, key_map[kind])
+        aliases = [
+            alias.casefold()
+            for alias in expand_constraint_token(kind, value)
+            if alias.strip()
+        ]
+        if any(alias in haystack for alias in aliases):
+            return True
+    return False
 
 
 def _search_text(raw: Any) -> str:
@@ -246,8 +312,7 @@ def _valid_receipt(
     return bool(
         step is not None
         and receipt.run_id == execution.snapshot.run_id
-        and receipt.routing_snapshot_hash
-        == execution.snapshot.canonical_content_hash
+        and receipt.routing_snapshot_hash == execution.snapshot.canonical_content_hash
         and receipt.plan_id == execution.plan.plan_id
         and receipt.tool == step.tool
         and receipt.resource == step.resource

@@ -34,9 +34,9 @@
   ],
   "current_turn": "Can you help me do a search",
   "phase1_structured_profile": {
-    "location": ["Shanghai"],
-    "industry": ["restaurant"],
-    "role": ["operations"]
+    "location": ["上海"],
+    "industry": ["餐饮"],
+    "role": ["运营"]
   },
   "phase0_frozen_false_negative": {
     "primary_intent": "conversation",
@@ -61,9 +61,9 @@
     "routing_class": "semantic_planner",
     "query_plan_id": "people-search-v1",
     "constraints": {
-      "location": ["Shanghai"],
-      "industry": ["restaurant"],
-      "role": ["operations"]
+      "location": ["上海"],
+      "industry": ["餐饮"],
+      "role": ["运营"]
     }
   },
   "phase1_without_structured_object": {

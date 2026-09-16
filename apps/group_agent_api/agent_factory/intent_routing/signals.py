@@ -6,6 +6,12 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from .constraint_lexicon import (
+    aliases_for,
+    canonicalize_constraint_token,
+    match_phrases,
+    phrase_in_text,
+)
 from .schema import Confidence, IntentConstraintsV1, IntentKind
 
 _SPACE = re.compile(r"\s+")
@@ -73,60 +79,16 @@ _PROFILE_FIELD = (
     "need",
     "offer",
 )
-_LOCATIONS = (
-    "北京",
-    "上海",
-    "广州",
-    "深圳",
-    "杭州",
-    "成都",
-    "南京",
-    "苏州",
-    "武汉",
-    "西安",
-    "beijing",
-    "shanghai",
-    "guangzhou",
-    "shenzhen",
-    "hangzhou",
-    "chengdu",
-    "nanjing",
-    "suzhou",
-    "wuhan",
-    "xian",
-)
-_INDUSTRIES = (
-    "餐饮",
-    "ai",
-    "人工智能",
-    "电商",
-    "教育",
-    "医疗",
-    "文旅",
-    "新能源",
-    "消费",
-    "restaurant",
-    "restaurants",
-    "catering",
-)
-_ROLES = (
-    "技术合伙人",
-    "运营合伙人",
-    "产品合伙人",
-    "联合创始人",
-    "合伙人",
-    "创始人",
-    "运营",
-    "operators",
-    "operator",
-    "operations",
-    "cofounder",
-    "co-founder",
-)
+_LOCATIONS = aliases_for("location")
+_INDUSTRIES = aliases_for("industry")
+_ROLES = aliases_for("role")
 _PRIORITY_CAPABILITY = re.compile(
     r"优先(?:有|具备)?\s*([^,，。！？;；]{1,32}?(?:经验|能力|资源))"
 )
-_LATIN_TOKEN = re.compile(r"^[a-z0-9][a-z0-9+.#_-]*$", re.IGNORECASE)
+_FIELD_EXCLUSION_PREFIX = re.compile(
+    r"(?:not\s+in|not|不要|排除|别去|别在|不含|除了)\s*$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -150,43 +112,81 @@ def normalize_text(message: str) -> str:
 
 def _matches(text: str, phrases: tuple[str, ...]) -> tuple[str, ...]:
     """Match fixed phrases; Latin tokens require whole-word boundaries."""
+    return match_phrases(text, phrases)
+
+
+def _canonical_hits(kind: str, text: str, phrases: tuple[str, ...]) -> tuple[str, ...]:
     hits: list[str] = []
+    for phrase in _matches(text, phrases):
+        canonical = canonicalize_constraint_token(kind, phrase)
+        if canonical and canonical not in hits:
+            hits.append(canonical)
+    return tuple(hits)[:10]
+
+
+def _field_exclusions(
+    kind: str, text: str, phrases: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Detect explicit field exclusions such as ``not in Beijing`` / ``不要北京``."""
+    excluded: list[str] = []
     for phrase in phrases:
-        if not phrase:
+        if not phrase_in_text(text, phrase):
             continue
-        if _LATIN_TOKEN.fullmatch(phrase):
-            if (
-                re.search(
-                    rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])",
-                    text,
-                    flags=re.IGNORECASE,
-                )
-                is not None
-            ):
-                hits.append(phrase)
-            continue
-        if phrase in text:
-            hits.append(phrase)
-    return tuple(hits)
+        for match in re.finditer(re.escape(phrase), text, flags=re.IGNORECASE):
+            prefix = text[max(0, match.start() - 24) : match.start()]
+            if _FIELD_EXCLUSION_PREFIX.search(prefix) is None:
+                continue
+            canonical = canonicalize_constraint_token(kind, phrase)
+            key = f"{kind}:{canonical}"
+            if canonical and key not in excluded:
+                excluded.append(key)
+            break
+    return tuple(excluded)[:16]
 
 
-def _constraints(text: str) -> IntentConstraintsV1:
-    locations = _matches(text, _LOCATIONS)
-    industries = _matches(text, _INDUSTRIES)
-    roles = _matches(text, _ROLES)
+def _constraints_and_field_negations(
+    text: str,
+) -> tuple[IntentConstraintsV1, tuple[str, ...]]:
+    location_exclusions = _field_exclusions("location", text, _LOCATIONS)
+    industry_exclusions = _field_exclusions("industry", text, _INDUSTRIES)
+    role_exclusions = _field_exclusions("role", text, _ROLES)
+    excluded_locations = {
+        item.partition(":")[2] for item in location_exclusions if ":" in item
+    }
+    excluded_industries = {
+        item.partition(":")[2] for item in industry_exclusions if ":" in item
+    }
+    excluded_roles = {item.partition(":")[2] for item in role_exclusions if ":" in item}
+    locations = tuple(
+        value
+        for value in _canonical_hits("location", text, _LOCATIONS)
+        if value not in excluded_locations
+    )
+    industries = tuple(
+        value
+        for value in _canonical_hits("industry", text, _INDUSTRIES)
+        if value not in excluded_industries
+    )
+    roles = tuple(
+        value
+        for value in _canonical_hits("role", text, _ROLES)
+        if value not in excluded_roles
+    )
     capabilities = tuple(
         dict.fromkeys(match.strip() for match in _PRIORITY_CAPABILITY.findall(text))
     )[:10]
     time_range = next(
         (value for value in ("本周", "近期", "最近", "本月") if value in text), None
     )
-    return IntentConstraintsV1(
+    constraints = IntentConstraintsV1(
         location=locations,
         industry=industries,
         role=roles,
         capability=capabilities,
         time_range=time_range,
     )
+    negations = location_exclusions + industry_exclusions + role_exclusions
+    return constraints, negations
 
 
 def detect_signals(message: str) -> SignalResult:
@@ -202,7 +202,7 @@ def detect_signals(message: str) -> SignalResult:
         A bounded signal result. `intent=None` delegates to context or L2.
     """
     text = normalize_text(message)
-    constraints = _constraints(text)
+    constraints, field_negations = _constraints_and_field_negations(text)
     profile_hits = _matches(text, _PROFILE_ACTION) + _matches(text, _PROFILE_FIELD)
     if (
         _matches(text, _PROFILE_ACTION)
@@ -215,7 +215,7 @@ def detect_signals(message: str) -> SignalResult:
             ("explicit_write",),
             profile_hits[:16],
             constraints,
-            (),
+            field_negations,
         )
 
     cancelled = _matches(text, _FULL_NEGATION)
@@ -226,7 +226,7 @@ def detect_signals(message: str) -> SignalResult:
             ("explicit_negation",),
             cancelled,
             constraints,
-            cancelled,
+            tuple(dict.fromkeys((*cancelled, *field_negations)))[:16],
         )
 
     help_hits = _matches(text, _HELP_ACTION) + _matches(text, _HELP_OBJECT)
@@ -237,13 +237,18 @@ def detect_signals(message: str) -> SignalResult:
             ("action_object:platform_operation",),
             help_hits[:16],
             constraints,
-            (),
+            field_negations,
         )
 
     discussion = _matches(text, _DISCUSSION)
     if discussion:
         return SignalResult(
-            "conversation", "high", ("method_discussion",), discussion, constraints, ()
+            "conversation",
+            "high",
+            ("method_discussion",),
+            discussion,
+            constraints,
+            field_negations,
         )
 
     search = _matches(text, _SEARCH)
@@ -258,7 +263,7 @@ def detect_signals(message: str) -> SignalResult:
             ("action_object:project_seat",),
             evidence[:16],
             constraints,
-            (),
+            field_negations,
         )
     if search and people:
         return SignalResult(
@@ -267,7 +272,7 @@ def detect_signals(message: str) -> SignalResult:
             ("action_object:people",),
             (search + people)[:16],
             constraints,
-            (),
+            field_negations,
         )
 
     community = _matches(text, _COMMUNITY)
@@ -278,7 +283,7 @@ def detect_signals(message: str) -> SignalResult:
             ("action_object:community",),
             (search + community)[:16],
             constraints,
-            (),
+            field_negations,
         )
 
     digest = _matches(text, _DIGEST)
@@ -289,7 +294,7 @@ def detect_signals(message: str) -> SignalResult:
             ("action_object:digest",),
             (search + digest)[:16],
             constraints,
-            (),
+            field_negations,
         )
 
     opportunity = _matches(text, _OPPORTUNITY)
@@ -300,7 +305,7 @@ def detect_signals(message: str) -> SignalResult:
             ("action_object:opportunity",),
             (search + opportunity + project)[:16],
             constraints,
-            (),
+            field_negations,
         )
 
     if search:
@@ -310,7 +315,7 @@ def detect_signals(message: str) -> SignalResult:
             ("search_missing_object",),
             search[:16],
             constraints,
-            (),
+            field_negations,
             True,
         )
     ambiguous = _matches(text, _AMBIGUOUS_QUERY)
@@ -321,7 +326,7 @@ def detect_signals(message: str) -> SignalResult:
             ("ambiguous_object",),
             ambiguous,
             constraints,
-            (),
+            field_negations,
             True,
         )
     business = people + project + partnership + opportunity + community + digest
@@ -332,7 +337,7 @@ def detect_signals(message: str) -> SignalResult:
             ("business_object_without_action",),
             business[:16],
             constraints,
-            (),
+            field_negations,
             True,
         )
     # Absence of an L0 keyword match is unknown, not proof of conversation.
@@ -342,6 +347,6 @@ def detect_signals(message: str) -> SignalResult:
         ("no_business_action",),
         (),
         constraints,
-        (),
+        field_negations,
         True,
     )

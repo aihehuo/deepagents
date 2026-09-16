@@ -243,6 +243,18 @@ def _apply_object_requirement(
     return intent, confidence, evidence, constraints
 
 
+def _merge_negations(*groups: tuple[str, ...]) -> tuple[str, ...]:
+    merged: list[str] = []
+    for group in groups:
+        for item in group:
+            text = str(item or "").strip()
+            if text and text not in merged:
+                merged.append(text)
+            if len(merged) >= 16:
+                return tuple(merged)
+    return tuple(merged)
+
+
 def _classify_and_finalize(
     *,
     started: float,
@@ -250,6 +262,7 @@ def _classify_and_finalize(
     signal: SignalResult,
     trusted: TrustedIntentContext | None,
     profile_constraints: IntentConstraintsV1 | None,
+    profile_negations: tuple[str, ...],
     execution_mode: str,
     can_search: bool,
     classified: ClassifierResult,
@@ -275,7 +288,7 @@ def _classify_and_finalize(
         confidence=confidence,
         source="classifier",
         evidence=safe_evidence,
-        negations=signal.negations,
+        negations=_merge_negations(signal.negations, profile_negations),
         constraints=constraints,
         execution_mode=execution_mode,
         can_search=can_search,
@@ -293,6 +306,7 @@ def resolve_intent(
     scope: IntentContextScope | None = None,
     classifier_model: Any = None,
     profile_constraints: IntentConstraintsV1 | None = None,
+    profile_negations: tuple[str, ...] = (),
 ) -> IntentResolution:
     """Resolve one turn without changing the execution path.
 
@@ -304,6 +318,7 @@ def resolve_intent(
         scope: Provenance for those messages; required for inheritance.
         classifier_model: Optional bare model used only for L2 structured output.
         profile_constraints: Optional structured profile fields for L1 context.
+        profile_negations: Optional profile exclusions as ``kind:value`` tokens.
 
     Returns:
         A contract-valid decision and bounded observe diagnostics.
@@ -326,7 +341,7 @@ def resolve_intent(
             confidence=confidence,
             source="context",
             evidence=evidence,
-            negations=negations,
+            negations=_merge_negations(negations, profile_negations),
             constraints=constraints,
             execution_mode=execution_mode,
             can_search=can_search,
@@ -341,7 +356,7 @@ def resolve_intent(
             confidence=signal.confidence,
             source="rules",
             evidence=signal.evidence_spans,
-            negations=signal.negations,
+            negations=_merge_negations(signal.negations, profile_negations),
             constraints=signal.constraints,
             execution_mode=execution_mode,
             can_search=can_search,
@@ -352,7 +367,7 @@ def resolve_intent(
         trusted=context,
         prior_messages=prior_messages,
         profile=profile_constraints,
-        current_negations=signal.negations,
+        current_negations=_merge_negations(signal.negations, profile_negations),
     )
     classified = classify_intent(
         message,
@@ -365,6 +380,7 @@ def resolve_intent(
         signal=signal,
         trusted=context,
         profile_constraints=profile_constraints,
+        profile_negations=profile_negations,
         execution_mode=execution_mode,
         can_search=can_search,
         classified=classified,
@@ -380,6 +396,7 @@ async def aresolve_intent(
     scope: IntentContextScope | None = None,
     classifier_model: Any = None,
     profile_constraints: IntentConstraintsV1 | None = None,
+    profile_negations: tuple[str, ...] = (),
 ) -> IntentResolution:
     """Async equivalent of `resolve_intent`, including a bounded L2 timeout."""
     started = time.perf_counter()
@@ -400,7 +417,7 @@ async def aresolve_intent(
             confidence=confidence,
             source="context",
             evidence=evidence,
-            negations=negations,
+            negations=_merge_negations(negations, profile_negations),
             constraints=constraints,
             execution_mode=execution_mode,
             can_search=can_search,
@@ -415,7 +432,7 @@ async def aresolve_intent(
             confidence=signal.confidence,
             source="rules",
             evidence=signal.evidence_spans,
-            negations=signal.negations,
+            negations=_merge_negations(signal.negations, profile_negations),
             constraints=signal.constraints,
             execution_mode=execution_mode,
             can_search=can_search,
@@ -426,7 +443,7 @@ async def aresolve_intent(
         trusted=context,
         prior_messages=prior_messages,
         profile=profile_constraints,
-        current_negations=signal.negations,
+        current_negations=_merge_negations(signal.negations, profile_negations),
     )
     classified = await aclassify_intent(
         message,
@@ -440,6 +457,7 @@ async def aresolve_intent(
         signal=signal,
         trusted=context,
         profile_constraints=profile_constraints,
+        profile_negations=profile_negations,
         execution_mode=execution_mode,
         can_search=can_search,
         classified=classified,

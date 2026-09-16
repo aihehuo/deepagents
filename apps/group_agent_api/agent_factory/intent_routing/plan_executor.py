@@ -10,6 +10,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .contracts import QueryPlanStepV1
+from .constraint_lexicon import expand_constraint_token
 from .execution import IntentExecution, QueryPlanError, active_intent_execution
 
 
@@ -24,14 +25,15 @@ def _remove_negated_constraints(execution: IntentExecution, message: str) -> str
         if separator != ":" or kind not in allowed_kinds or not value:
             continue
         removed = True
-        escaped = re.escape(value)
-        cleaned = re.sub(
-            rf"(?:不要|别|排除|去掉|不看|not)\s*{escaped}",
-            "",
-            cleaned,
-            flags=re.IGNORECASE,
-        )
-        cleaned = re.sub(escaped, "", cleaned, flags=re.IGNORECASE)
+        for alias in expand_constraint_token(kind, value):
+            escaped = re.escape(alias)
+            cleaned = re.sub(
+                rf"(?:不要|别|排除|去掉|不看|not(?:\s+in)?)\s*{escaped}",
+                "",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
+            cleaned = re.sub(escaped, "", cleaned, flags=re.IGNORECASE)
     if removed:
         cleaned = re.sub(r"\s*[,，;；]\s*", " ", cleaned)
     return re.sub(r"\s+", " ", cleaned).strip()
@@ -94,16 +96,16 @@ def _created_since(execution: IntentExecution) -> str | None:
     if value == "本周":
         local_start = (
             local_anchor - datetime.timedelta(days=local_anchor.weekday())
-        ).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        ).replace(hour=0, minute=0, second=0, microsecond=0)
     else:
         local_start = local_anchor.replace(
             day=1, hour=0, minute=0, second=0, microsecond=0
         )
-    return local_start.astimezone(datetime.UTC).isoformat(
-        timespec="milliseconds"
-    ).replace("+00:00", "Z")
+    return (
+        local_start.astimezone(datetime.UTC)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def _selected_group_event_id(execution: IntentExecution) -> str | None:
@@ -242,9 +244,7 @@ async def _execute_page(
     return _next_page(content, page)
 
 
-async def execute_query_plan(
-    execution: IntentExecution, *, skills_dir: Path
-) -> None:
+async def execute_query_plan(execution: IntentExecution, *, skills_dir: Path) -> None:
     """Execute every active plan step before the composing model is invoked."""
     if execution.decision.action != "execute":
         return
@@ -274,9 +274,7 @@ async def execute_query_plan(
         requests_left = execution.plan.budget.max_requests - requests_used
         if requests_left <= 0:
             raise QueryPlanError("query_budget_exhausted")
-        next_page = await _execute_page(
-            execution, tool=tool, step=step, page=1
-        )
+        next_page = await _execute_page(execution, tool=tool, step=step, page=1)
         requests_used += 1
         if next_page is not None:
             pending_pages[step.step_id] = (step, next_page)
@@ -288,9 +286,7 @@ async def execute_query_plan(
         step_id = next(iter(pending_pages))
         step, page = pending_pages.pop(step_id)
         try:
-            next_page = await _execute_page(
-                execution, tool=tool, step=step, page=page
-            )
+            next_page = await _execute_page(execution, tool=tool, step=step, page=page)
         except QueryPlanError as exc:
             if exc.code == "query_budget_exhausted":
                 break

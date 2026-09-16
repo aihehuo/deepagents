@@ -48,6 +48,33 @@ class IntentResolution:
     classifier_status: str
     classifier_attempts: int
     context_inherited: bool
+    routing_class: str
+
+
+def _routing_class(
+    *,
+    source: DecisionSource,
+    action: str,
+) -> str:
+    """Map a finished decision onto the thin-harness observability classes.
+
+    This does not change routing. It only labels the path already taken:
+    L0 positive, L0 conversation, context inheritance, semantic classifier,
+    clarification fallback, policy rejection, or profile delegation.
+    """
+    if action == "reject":
+        return "policy_rejection"
+    if action == "clarify":
+        return "clarification_fallback"
+    if source == "context":
+        return "context_inheritance"
+    if source == "classifier":
+        return "semantic_planner"
+    if action == "execute":
+        return "l0_positive"
+    if action == "delegate_existing_flow":
+        return "delegate_existing_flow"
+    return "l0_conversation"
 
 
 def intent_routing_mode() -> str:
@@ -160,6 +187,9 @@ def _finalize(
         classifier_status=classifier.status,
         classifier_attempts=classifier.attempts,
         context_inherited=inherited,
+        routing_class=_routing_class(
+            source=decision.decision_source, action=decision.action
+        ),
     )
 
 
@@ -342,6 +372,10 @@ def record_intent_prediction(
             "classifier_status": resolution.classifier_status,
             "classifier_attempts": resolution.classifier_attempts,
             "context_inherited": resolution.context_inherited,
+            "routing_class": resolution.routing_class,
+            "query_plan_would_run": bool(
+                decision.action == "execute" and decision.query_plan_ref is not None
+            ),
             "latency_ms": resolution.latency_ms,
         },
         run_id=run_id,

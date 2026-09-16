@@ -1,0 +1,47 @@
+{
+  "incident_id": "phase0-english-search-false-negative",
+  "sanitized": true,
+  "note": "Synthetic replay of the 2026-09-16 thin-harness motivating sequence. No credentials, tokens, or private profile fields.",
+  "turns": [
+    {
+      "role": "user",
+      "text": "I need to find someone for a different idea."
+    },
+    {
+      "role": "assistant",
+      "text": "What is the new idea?"
+    },
+    {
+      "role": "user",
+      "text": "The new idea is about opening a new kind of restaurant in a busy area in Shanghai."
+    },
+    {
+      "role": "assistant",
+      "text": "What kind of partner do you need?"
+    },
+    {
+      "role": "user",
+      "text": "I need someone experienced in operation."
+    },
+    {
+      "role": "assistant",
+      "text": "Would you like me to search public records?"
+    },
+    {
+      "role": "user",
+      "text": "Can you help me do a search"
+    }
+  ],
+  "current_turn": "Can you help me do a search",
+  "frozen_current_behavior": {
+    "primary_intent": "conversation",
+    "action": "conversation",
+    "decision_source": "rules",
+    "signal_ids": ["no_business_action"],
+    "classifier_status": "not_needed",
+    "classifier_attempts": 0,
+    "context_inherited": false,
+    "query_plan_would_run": false,
+    "routing_class": "l0_conversation"
+  }
+}

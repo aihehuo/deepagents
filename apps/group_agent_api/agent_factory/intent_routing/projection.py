@@ -29,7 +29,10 @@ class IntentSearchProjection:
     completed: bool = False
     result_count: int = 0
     candidates: list[dict[str, Any]] = field(default_factory=list)
+    # Full receipt evidence (debug / audit). May include constraint-mismatched people.
     public_reads: list[PublicReadGround] = field(default_factory=list)
+    # Users/group-members filtered by frozen constraints — for reply grounding only.
+    grounding_public_reads: list[PublicReadGround] = field(default_factory=list)
     pages: int = 0
 
 
@@ -46,6 +49,7 @@ def project_intent_search(
         return IntentSearchProjection()
 
     reads: list[PublicReadGround] = []
+    grounding_reads: list[PublicReadGround] = []
     candidates: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     steps = {step.step_id: step for step in execution.plan.steps}
@@ -56,11 +60,13 @@ def project_intent_search(
         items = evidence if isinstance(evidence, list) else [evidence]
         document_data: Any = items
         candidate_items = items
+        group_wrapper: dict[str, Any] | None = None
         if (
             receipt.resource == "group-members"
             and len(items) == 1
             and isinstance(items[0], dict)
         ):
+            group_wrapper = items[0]
             document_data = items[0]
             members = items[0].get("members")
             candidate_items = members if isinstance(members, list) else []
@@ -72,23 +78,38 @@ def project_intent_search(
             )
         )
         if receipt.resource not in {"users", "group-members"}:
+            grounding_reads.append(reads[-1])
             continue
+        filtered_items: list[Any] = []
         for item in candidate_items:
             if not _matches_frozen_constraints(execution, item):
                 continue
+            filtered_items.append(item)
             candidate = _public_candidate(item)
             if candidate is None or candidate["user_id"] in seen_ids:
                 continue
+            if len(candidates) >= MAX_CANDIDATES:
+                continue
             seen_ids.add(candidate["user_id"])
             candidates.append(candidate)
-            if len(candidates) >= MAX_CANDIDATES:
-                break
+        if receipt.resource == "group-members" and group_wrapper is not None:
+            filtered_document: Any = {**group_wrapper, "members": filtered_items}
+        else:
+            filtered_document = filtered_items
+        grounding_reads.append(
+            PublicReadGround(
+                resource=receipt.resource,
+                source_url=receipt.source_urls[0],
+                document={"data": filtered_document},
+            )
+        )
 
     return IntentSearchProjection(
         completed=True,
         result_count=execution.unique_result_count(),
         candidates=candidates,
         public_reads=reads,
+        grounding_public_reads=grounding_reads,
         pages=len(execution.receipts),
     )
 

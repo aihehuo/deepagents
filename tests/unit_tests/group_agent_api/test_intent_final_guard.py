@@ -103,7 +103,18 @@ def test_valid_receipt_authorizes_search_and_appends_scope_without_source_url(
 ) -> None:
     monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
     execution = _execution()
-    _commit(execution, [{"id": "u-1", "name": "张三"}])
+    _commit(
+        execution,
+        [
+            {
+                "id": "u-1",
+                "name": "张三",
+                "city": "上海",
+                "title": "技术合伙人",
+                "bio": "公开资料",
+            }
+        ],
+    )
     result = apply_intent_final_guard(
         reply=(
             "已经搜索，候选人【张三】的公开资料符合地域条件。"
@@ -222,14 +233,17 @@ def test_safe_reply_does_not_list_unfiltered_raw_evidence_names(
         ],
     )
     result = apply_intent_final_guard(
-        reply="好的，我们来查。",
+        reply="好的，条件已记下。",
         execution=execution,
         enabled=True,
     )
     assert result.blocked
     assert "execution_result_omitted" in result.violations
     assert "chen富" not in result.reply
-    assert "没有找到完全满足当前条件的人选" in result.reply
+    assert (
+        "没有找到完全满足当前条件的人选" in result.reply
+        or "没有返回符合条件的公开记录" in result.reply
+    )
 
 
 def test_empty_query_must_explicitly_report_no_match(
@@ -349,6 +363,7 @@ def test_guard_has_independent_yaml_switch(tmp_path: Path) -> None:
 
 def test_repair_scrub_removes_ground_jargon_from_user_text() -> None:
     from apps.group_agent_api.agent_factory.checks.reply_grounding.leak import (
+        reply_has_internal_context_leak,
         scrub_internal_context_leak,
     )
     from apps.group_agent_api.agent_factory.checks.reply_grounding.l0 import run_l0
@@ -372,3 +387,185 @@ def test_repair_scrub_removes_ground_jargon_from_user_text() -> None:
     )
     assert denial is not None
     assert denial.codes == ["internal_context_leak"]
+
+    natural = "We need an on-the-ground operator in Shanghai."
+    assert not reply_has_internal_context_leak(natural)
+    assert scrub_internal_context_leak(natural) == natural
+
+    assert reply_has_internal_context_leak("请核对 user_id=9659712")
+    assert "user_id" not in scrub_internal_context_leak("请核对 user_id=9659712")
+
+
+def test_shanghai_query_blocks_shenzhen_name_on_normal_reply_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    execution = _execution()
+    _commit(
+        execution,
+        [
+            {
+                "id": "shenzhen-1",
+                "name": "chen富",
+                "city": "深圳",
+                "bio": "供应链",
+            },
+            {
+                "id": "101",
+                "name": "张三",
+                "city": "上海",
+                "title": "技术合伙人",
+                "bio": "餐饮供应链经验",
+            },
+        ],
+    )
+    for reply in (
+        "已经搜索，候选人【chen富】值得进一步了解。",
+        "相关公开记录包括：chen富（ID: shenzhen-1）",
+        "- chen富（ID: shenzhen-1），深圳，供应链\n没有完全匹配的人选。",
+    ):
+        blocked = apply_intent_final_guard(
+            reply=reply,
+            execution=execution,
+            enabled=True,
+        )
+        assert blocked.blocked, reply
+        assert "invented_public_entity" in blocked.violations
+        assert "chen富" not in blocked.reply
+
+    ok = apply_intent_final_guard(
+        reply="已经搜索，候选人【张三】的公开资料符合地域条件。",
+        execution=execution,
+        enabled=True,
+    )
+    assert not ok.blocked
+    assert "张三" in ok.reply
+    assert "chen富" not in ok.reply
+    assert "检查 2 条去重公开记录" in ok.reply
+
+
+def test_job_title_and_nested_company_name_are_not_treated_as_people(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    execution = _execution()
+    _commit(
+        execution,
+        [
+            {
+                "id": "u-1",
+                "name": "张三",
+                "city": "上海",
+                "title": "技术合伙人",
+                "company": {"name": "星火供应链"},
+                "bio": "餐饮供应链经验",
+            }
+        ],
+    )
+    result = apply_intent_final_guard(
+        reply="候选人【张三】是技术合伙人，有餐饮供应链经验，曾在星火供应链任职。",
+        execution=execution,
+        enabled=True,
+    )
+    assert not result.blocked
+    assert "张三" in result.reply
+    assert "技术合伙人" in result.reply
+    assert "星火供应链" in result.reply
+
+
+def test_source_url_strip_preserves_business_source_phrases() -> None:
+    from apps.group_agent_api.agent_factory.checks.intent_final_guard.module import (
+        _strip_user_visible_source_urls,
+    )
+
+    text = (
+        "资金来源：自有资金，项目来源：https://www.aihehuo.com/ideas/123。"
+        "收入来源：服务费。"
+    )
+    cleaned = _strip_user_visible_source_urls(text)
+    assert "资金来源：自有资金" in cleaned
+    assert "收入来源：服务费" in cleaned
+    assert "https://www.aihehuo.com/" not in cleaned
+    assert "项目来源：" not in cleaned
+
+
+def test_platform_help_faq_is_not_treated_as_people_zero_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    import json
+
+    resolution = resolve_intent(
+        "如何发布餐饮项目招合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+    )
+    assert resolution.decision.primary_intent == "platform_help"
+    execution = prepare_intent_execution(
+        resolution,
+        original_message="如何发布餐饮项目招合伙人",
+        run_id="faq-run",
+        request_fingerprint=None,
+    )
+    reservation = execution.reserve(
+        resource="faqs", parameters={"page": 1}, tool_call_id="faq-tool"
+    )
+    execution.commit_result(
+        reservation,
+        json.dumps(
+            {
+                "data": [{"title": "如何发布项目", "body": "打开发布入口填写信息"}],
+                "_source_url": "https://www.aihehuo.com/ai/faqs.json?page=1",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    result = apply_intent_final_guard(
+        reply="已经查询。如何发布项目：打开发布入口填写信息。",
+        execution=execution,
+        enabled=True,
+    )
+    assert not result.blocked
+    assert "人选" not in result.reply
+    assert "检查 1 条去重公开记录" in result.reply
+
+
+def test_startup_digest_keeps_raw_result_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    import json
+
+    resolution = resolve_intent(
+        "看看本周创业周报和文章",
+        execution_mode="group_agent",
+        can_search=True,
+    )
+    assert resolution.decision.primary_intent == "startup_digest"
+    execution = prepare_intent_execution(
+        resolution,
+        original_message="看看本周创业周报和文章",
+        run_id="digest-run",
+        request_fingerprint=None,
+    )
+    reservation = execution.reserve(
+        resource="weekly", parameters={}, tool_call_id="weekly-tool"
+    )
+    execution.commit_result(
+        reservation,
+        json.dumps(
+            {
+                "data": [{"title": "本周融资速递", "summary": "三家 AI 公司完成融资"}],
+                "_source_url": "https://www.aihehuo.com/ai/weekly.json?page=1",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    result = apply_intent_final_guard(
+        reply="已经查询。本周融资速递：三家 AI 公司完成融资。",
+        execution=execution,
+        enabled=True,
+    )
+    assert not result.blocked
+    assert "没有找到完全满足当前条件的人选" not in result.reply
+    assert "检查 1 条去重公开记录" in result.reply

@@ -303,6 +303,7 @@ def default_repair_fn(model: Any | None) -> RepairFn | None:
         from langchain_core.messages import HumanMessage, SystemMessage
 
         from apps.group_agent_api.agent_factory.checks.reply_grounding.leak import (
+            forbidden_internal_fields_prompt,
             scrub_internal_context_leak,
         )
 
@@ -311,6 +312,7 @@ def default_repair_fn(model: Any | None) -> RepairFn | None:
             "public_reads": [r.model_dump(mode="json") for r in ground.public_reads],
             "initiator_profile": ground.initiator_profile,
         }
+        banned = forbidden_internal_fields_prompt()
         system = (
             "你是群智能体主对话模型的改口步骤。上一份用户可见回复未通过事实对照，"
             "必须按下方「修改说明」改正后，只输出新的用户可见正文。\n"
@@ -319,9 +321,7 @@ def default_repair_fn(model: Any | None) -> RepairFn | None:
             "不得写「非常适合/高度契合/完美匹配」等无证据支持的主观拔高；"
             "不确定就写「是否合拍仍需沟通确认」；"
             "不要输出 JSON、XML 或任何标签；"
-            "禁止在正文中出现实现术语或字段名"
-            "（例如 ground、check_deny、receipt、public_reads、candidate_count、"
-            "repairable_by、routing_snapshot、evidence_digest、plan_step_id、user_id）。"
+            f"禁止在正文中出现实现术语或字段名（例如 {banned}）。"
         )
         human = (
             f"修改说明：\n{deny_block}\n\n"

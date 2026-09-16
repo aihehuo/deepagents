@@ -1388,7 +1388,8 @@ async def _execute_core_agent(
     search_completed = search_turn.called
     if intent_search.completed:
         search_completed = True
-        public_reads = intent_search.public_reads
+        # Reply grounding / user-visible checks must only see constraint-filtered people.
+        public_reads = intent_search.grounding_public_reads
         # ga-grounding-v1 currently accepts only authoritative profile-backed
         # candidate facts. Public QueryPlan records remain valid reply ground,
         # but must not be mislabeled as profile candidates in grounded_v2.

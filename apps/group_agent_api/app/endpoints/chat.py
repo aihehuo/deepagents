@@ -718,7 +718,7 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
     quality_gaps: list[str] = []
     if intent_search.completed:
         search_completed = True
-        public_reads = intent_search.public_reads
+        public_reads = intent_search.grounding_public_reads
         candidates = intent_search.candidates
         match_status = "matched" if candidates else "empty"
         match_reason = "intent_query_plan"

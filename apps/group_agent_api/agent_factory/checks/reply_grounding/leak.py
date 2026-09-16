@@ -1,15 +1,50 @@
-"""Strip / detect implementation jargon that must not reach users."""
+"""Strip / detect implementation jargon that must not reach users.
+
+Prompt bans, L0 checks, and scrub share FORBIDDEN_INTERNAL_FIELDS so coverage
+stays aligned. Prefer structured field forms over bare English words like
+``ground`` / ``receipt`` that appear in normal business copy.
+"""
 
 from __future__ import annotations
 
 import re
 
-_INTERNAL_CONTEXT_LEAK = re.compile(
-    r"(?i)(?:\bground\b|ground\s*中|<check_deny\b|</check_deny>|\bcheck_deny\b|"
-    r"\breceipts?\b|\bpublic_reads\b|\bcandidate_count\b|\brepairable_by\b|"
-    r"\brouting_snapshot(?:_hash)?\b|\bevidence_digest\b|\bplan_step_id\b|"
-    r"\bunsupported_claim\b|\binvented_candidate\b)"
+# Single source of truth for repair prompts + deterministic leak detection.
+FORBIDDEN_INTERNAL_FIELDS: tuple[str, ...] = (
+    "check_deny",
+    "public_reads",
+    "candidate_count",
+    "repairable_by",
+    "routing_snapshot",
+    "routing_snapshot_hash",
+    "evidence_digest",
+    "plan_step_id",
+    "initiator_profile",
+    "receipt_id",
+    "user_id",
+    "unsupported_claim",
+    "invented_candidate",
+    "internal_context_leak",
 )
+
+_FIELD_ALT = "|".join(re.escape(name) for name in FORBIDDEN_INTERNAL_FIELDS)
+
+# Structured / jargon forms only — not bare English "ground" or "receipt".
+_INTERNAL_CONTEXT_LEAK = re.compile(
+    rf"(?i)(?:"
+    rf"ground\s*中|"
+    rf"(?:^|\n)\s*ground\s*[=:：]|"
+    rf"<check_deny\b|</check_deny>|"
+    rf"\b(?:{_FIELD_ALT})\b\s*[=:：]\s*\S+|"
+    rf"\b(?:{_FIELD_ALT})\b|"
+    rf"\bcandidates\s*[=:：]\s*\["
+    rf")"
+)
+
+
+def forbidden_internal_fields_prompt() -> str:
+    """Comma-separated ban list for repair / judge prompts."""
+    return "、".join(("ground 中", "ground:", *FORBIDDEN_INTERNAL_FIELDS))
 
 
 def scrub_internal_context_leak(reply: str) -> str:
@@ -20,6 +55,8 @@ def scrub_internal_context_leak(reply: str) -> str:
     parts = re.split(r"(?<=[。！？!?；;\n])", text)
     kept: list[str] = []
     for part in parts:
+        if not part or not part.strip():
+            continue
         if _INTERNAL_CONTEXT_LEAK.search(part):
             continue
         kept.append(part)

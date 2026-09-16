@@ -69,7 +69,9 @@ _USER_VISIBLE_SOURCE_URL = re.compile(
     r"https://www\.aihehuo\.com/[^\s)）\]】>，。；;\"']+",
     re.IGNORECASE,
 )
-_BARE_SOURCE_LABEL = re.compile(r"(?:^|\n)\s*来源：\s*(?=\n|$)|来源：\s*")
+# Only strip standalone evidence labels — never compound nouns like「资金来源：」.
+_STANDALONE_SOURCE_LINE = re.compile(r"(?:^|\n)\s*来源：\s*(?=\n|$)")
+_ORPHAN_SOURCE_LABEL = re.compile(r"(?<![\u4e00-\u9fff])来源：\s*(?=(?:[，。；;\n]|$))")
 _NO_FULL_MATCH = re.compile(
     r"(?:没有|未找到|未发现|暂无|暂未).{0,18}(?:完全|同时|全部|精确)?(?:符合|匹配|记录|人选|候选人)|"
     r"(?:证据|公开资料).{0,18}(?:不足|无法确认)|"
@@ -132,6 +134,12 @@ def apply_intent_final_guard(
     execute = bool(
         execution is not None and execution.decision.action == "execute"
     )
+    is_people_search = bool(
+        execute
+        and execution is not None
+        and execution.decision.primary_intent == "people_search"
+    )
+    projected_names: tuple[str, ...] = ()
     if execute:
         valid, receipt_violation = _validate_execution(execution)
         if not valid:
@@ -142,20 +150,32 @@ def apply_intent_final_guard(
                 execution.evidence_by_receipt[receipt.receipt_id]
                 for receipt in receipts
             ]
+            if is_people_search:
+                from apps.group_agent_api.agent_factory.intent_routing.projection import (
+                    project_intent_search,
+                )
+
+                projected_names = _projected_candidate_names(
+                    project_intent_search(execution)
+                )
 
     public_completed = bool(public_reads)
     completed = bool(receipts) or public_completed or legacy_search_completed
-    result_count = (
+    raw_result_count = (
         execution.unique_result_count()
         if receipts
         else _public_result_count(public_reads) or max(0, int(legacy_result_count))
+    )
+    # People-search matching count uses projected candidates; other intents use raw rows.
+    visible_result_count = (
+        len(projected_names) if is_people_search and receipts else raw_result_count
     )
 
     if future:
         violations.append("future_execution_promise")
     if search_done and not completed:
         violations.append("unverified_search_claim")
-    if found and result_count <= 0:
+    if found and visible_result_count <= 0:
         violations.append("empty_result_misrepresented")
     if profile_done and not (profile_saved_this_turn and profile_persisted):
         violations.append("unverified_profile_claim")
@@ -166,41 +186,53 @@ def apply_intent_final_guard(
         violations.append("unverified_external_action")
 
     if execute and receipts:
-        supported_names = _evidence_names(evidence)
-        mentioned = _explicit_entity_names(claim_text)
-        if mentioned - supported_names:
-            violations.append("invented_public_entity")
         if _OVERCLAIM.search(claim_text):
             violations.append("query_scope_overclaim")
-        # Check URLs on raw reply (claim_text splits on ``?``/``!`` and mangles query strings).
-        # Non-official links are blocked; official aihehuo evidence links are stripped later.
         if any(
             not url.lower().startswith("https://www.aihehuo.com/")
             for url in _URL.findall(raw)
         ):
             violations.append("unsupported_source")
         no_full_match = bool(_NO_FULL_MATCH.search(claim_text))
-        mentioned_supported = any(
-            len(name) >= 2 and name in claim_text for name in supported_names
-        )
-        if _ACK_ONLY.fullmatch(raw) or (
-            result_count <= 0 and not no_full_match
-        ) or (
-            result_count > 0
-            and supported_names
-            and not mentioned_supported
-            and not no_full_match
-        ):
-            violations.append("execution_result_omitted")
+
+        if is_people_search:
+            supported_names = set(projected_names)
+            raw_names = _evidence_person_names(evidence)
+            mentioned = _explicit_entity_names(claim_text) | {
+                name for name in raw_names if _name_appears_in_reply(name, raw)
+            }
+            if mentioned - supported_names:
+                violations.append("invented_public_entity")
+            mentioned_supported = any(
+                len(name) >= 2 and _name_appears_in_reply(name, claim_text)
+                for name in supported_names
+            )
+            if _ACK_ONLY.fullmatch(raw) or (
+                visible_result_count <= 0 and not no_full_match
+            ) or (
+                visible_result_count > 0
+                and supported_names
+                and not mentioned_supported
+                and not no_full_match
+            ):
+                violations.append("execution_result_omitted")
+        else:
+            evidence_labels = _evidence_resource_labels(evidence)
+            mentioned_supported = any(
+                len(label) >= 2 and _name_appears_in_reply(label, claim_text)
+                for label in evidence_labels
+            )
+            if _ACK_ONLY.fullmatch(raw) or (
+                raw_result_count <= 0 and not no_full_match
+            ) or (
+                raw_result_count > 0
+                and evidence_labels
+                and not mentioned_supported
+                and not no_full_match
+            ):
+                violations.append("execution_result_omitted")
 
     violations = list(dict.fromkeys(violations))
-    projected_names: tuple[str, ...] = ()
-    if execute and receipts and "receipt_invalid" not in violations and "query_plan_unsatisfied" not in violations:
-        from apps.group_agent_api.agent_factory.intent_routing.projection import (
-            project_intent_search,
-        )
-
-        projected_names = _projected_candidate_names(project_intent_search(execution))
 
     if violations:
         guarded = _strip_user_visible_source_urls(
@@ -208,8 +240,10 @@ def apply_intent_final_guard(
                 violations=violations,
                 execute=execute,
                 receipts=receipts,
-                result_count=result_count,
+                result_count=visible_result_count,
+                raw_result_count=raw_result_count,
                 projected_names=projected_names,
+                is_people_search=is_people_search,
             )
         )
         _log(violations, blocked=True)
@@ -221,7 +255,7 @@ def apply_intent_final_guard(
 
     guarded = _strip_user_visible_source_urls(raw)
     if execute and receipts:
-        guarded = _append_scope(guarded, receipts, result_count)
+        guarded = _append_scope(guarded, receipts, raw_result_count)
     _log([], blocked=False)
     return IntentFinalGuardResult(reply=guarded, blocked=False)
 
@@ -370,36 +404,52 @@ def _public_result_count(reads: list[PublicReadGround] | None) -> int:
     return sum(len(read.records) for read in reads or [])
 
 
-def _walk(value: Any):
-    if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            yield from _walk(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _walk(child)
-
-
-def _evidence_names(evidence: list[Any]) -> set[str]:
-    names: set[str] = set()
+def _top_level_records(evidence: list[Any]) -> list[dict[str, Any]]:
+    """Flatten receipt evidence to top-level row dicts (users or group members)."""
+    records: list[dict[str, Any]] = []
     for value in evidence:
-        for item in _walk(value):
-            for key in ("name", "display_name", "title"):
-                candidate = item.get(key)
-                if isinstance(candidate, str) and candidate.strip():
-                    names.add(candidate.strip())
+        items = value if isinstance(value, list) else [value]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            members = item.get("members")
+            if isinstance(members, list):
+                for member in members:
+                    if isinstance(member, dict):
+                        records.append(member)
+                continue
+            records.append(item)
+    return records
+
+
+def _evidence_person_names(evidence: list[Any]) -> set[str]:
+    """Person identifiers only: top-level name/display_name/nickname (never title)."""
+    names: set[str] = set()
+    for item in _top_level_records(evidence):
+        for key in ("name", "display_name", "nickname"):
+            candidate = item.get(key)
+            if isinstance(candidate, str) and len(candidate.strip()) >= 2:
+                names.add(candidate.strip())
     return names
 
 
-def _evidence_urls(evidence: list[Any]) -> set[str]:
-    urls: set[str] = set()
-    for value in evidence:
-        for item in _walk(value):
-            for key in ("url", "source_url", "profile_url"):
-                candidate = item.get(key)
-                if isinstance(candidate, str) and candidate.startswith("https://"):
-                    urls.add(candidate)
-    return urls
+def _evidence_resource_labels(evidence: list[Any]) -> set[str]:
+    """Non-person result labels (FAQ/weekly/project titles) for completeness checks."""
+    labels: set[str] = set()
+    for item in _top_level_records(evidence):
+        for key in ("title", "question", "name"):
+            candidate = item.get(key)
+            if isinstance(candidate, str) and len(candidate.strip()) >= 2:
+                labels.add(candidate.strip())
+    return labels
+
+
+def _name_appears_in_reply(name: str, reply: str) -> bool:
+    text = reply or ""
+    token = (name or "").strip()
+    if len(token) < 2:
+        return False
+    return token in text
 
 
 def _explicit_entity_names(reply: str) -> set[str]:
@@ -416,9 +466,14 @@ def _scope(receipts: list[Any], item_count: int) -> str:
 
 
 def _strip_user_visible_source_urls(reply: str) -> str:
-    """Remove official evidence links and bare「来源：」labels from user-facing text."""
+    """Remove official evidence links and orphan「来源：」labels from user-facing text."""
     text = _USER_VISIBLE_SOURCE_URL.sub("", reply or "")
-    text = _BARE_SOURCE_LABEL.sub("", text)
+    text = _STANDALONE_SOURCE_LINE.sub("\n", text)
+    text = _ORPHAN_SOURCE_LABEL.sub("", text)
+    # Drop empty compound labels left after URL removal (e.g. 「项目来源：。」).
+    text = re.sub(r"[\u4e00-\u9fff]{0,8}来源：\s*(?=[，。；;\n]|$)", "", text)
+    text = re.sub(r"[，,]\s*[。．.]", "。", text)
+    text = re.sub(r"[，,]\s*(?=[，。；;\n]|$)", "", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r" *\n{3,}", "\n\n", text)
     text = re.sub(r" +\n", "\n", text)
@@ -461,6 +516,8 @@ def _safe_reply(
     receipts: list[Any],
     result_count: int,
     projected_names: tuple[str, ...] = (),
+    raw_result_count: int = 0,
+    is_people_search: bool = False,
 ) -> str:
     if "unverified_external_action" in violations:
         return "我无法确认消息、通知或联系已经完成；本次没有可验证的外部操作凭证。"
@@ -470,24 +527,30 @@ def _safe_reply(
     if invalid.intersection(violations):
         return "本次公开查询的执行凭证未通过校验，无法据此提供结果，请重新发起查询。"
     if execute and receipts:
-        if result_count <= 0 or "empty_result_misrepresented" in violations:
+        if (
+            is_people_search
+            and "execution_result_omitted" in violations
+            and not projected_names
+            and raw_result_count > 0
+        ):
+            lead = (
+                "本次公开查询已完成，但没有找到完全满足当前条件的人选。"
+                "你可以调整地点或能力条件后重试。"
+            )
+        elif result_count <= 0 or "empty_result_misrepresented" in violations:
             lead = "本次公开查询已完成，但没有返回符合条件的公开记录。"
         elif "execution_result_omitted" in violations:
-            if projected_names:
+            if is_people_search and projected_names:
                 lead = (
                     "本次公开查询已完成。返回的公开记录包括："
                     f"{'、'.join(projected_names)}。"
                     "这些记录是查询候选，是否符合全部条件仍需依公开资料逐项核对。"
                 )
             else:
-                # Raw evidence may still have rows; do not sample unfiltered names.
-                lead = (
-                    "本次公开查询已完成，但没有找到完全满足当前条件的人选。"
-                    "你可以调整地点或能力条件后重试。"
-                )
+                lead = "本次公开查询已完成，但当前回复未展示经核验的结果摘要。"
         else:
             lead = "本次公开查询已完成；具体结果仅以已返回的公开记录为准。"
-        return f"{lead}\n\n{_scope(receipts, result_count)}"
+        return f"{lead}\n\n{_scope(receipts, raw_result_count)}"
     if "future_execution_promise" in violations:
         return "当前回复不能以“正在处理”或“稍后返回”作为终态；本次没有可继续执行的后台任务。"
     return "本次没有可验证的查询凭证，无法确认已经查询或找到结果，请重新发起查询。"

@@ -38,7 +38,8 @@ from skillpacks.aihehuo import integration
 from skillpacks.aihehuo.manage import install
 
 SOURCE = "https://www.aihehuo.com/ai/users.json?page=1&per=2"
-REPLY = f"公开人才资料：伙伴【张测试】有 Python 项目经验。来源：{SOURCE}"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+REPLY_WITH_SOURCE = f"公开人才资料：伙伴【张测试】有 Python 项目经验。来源：{SOURCE}"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+REPLY = "公开人才资料：伙伴【张测试】有 Python 项目经验。"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
 
 
 class ToolModel(BaseChatModel):
@@ -381,8 +382,9 @@ async def test_all_returned_users_survive_endpoint_evidence(
     records = [{"id": str(index), "name": f"用户{index}", "bio": "真实项目经验"} for index in range(1, per + 1)]
     monkeypatch.setattr(integration, "fetch", lambda *_args, **_kwargs: json.dumps({"data": records}))
     source = f"https://www.aihehuo.com/ai/users.json?page=1&per={per}"
-    reply = f"伙伴【用户{per}】有真实项目经验。来源：{source}"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
-    model = ToolModel(calls=[{"name": "query_aihehuo_public_data", "id": "read", "args": {"resource": "users", "page": 1, "per": per}}], reply=reply)
+    model_reply = f"伙伴【用户{per}】有真实项目经验。来源：{source}"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+    expected_reply = f"伙伴【用户{per}】有真实项目经验。"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+    model = ToolModel(calls=[{"name": "query_aihehuo_public_data", "id": "read", "args": {"resource": "users", "page": 1, "per": per}}], reply=model_reply)
     graph = factory.create_member_agent(runtime=tmp_path, model=model, checkpointer=InMemorySaver(), include_save=False)
     state = AppState(agent=object(), base_dir=tmp_path, search_only_agent=graph)
     session = TrustedSession(
@@ -400,7 +402,9 @@ async def test_all_returned_users_survive_endpoint_evidence(
     monkeypatch.setattr(chat_ep, "resolve_trusted_session", resolve)
     monkeypatch.setattr(chat_ep, "reply_grounding_enabled_for_user", lambda _: True)
     result = await chat_ep.chat(ChatRequest(user_id="owner", group_id="g1", message="介绍返回的最后一位人才"), state)
-    assert result.reply == reply
+    assert result.reply == expected_reply
+    assert source not in result.reply
+    assert "来源：" not in result.reply
 
 
 @pytest.mark.parametrize(
@@ -514,14 +518,14 @@ async def test_public_person_reply_survives_actual_endpoint_finalization(
     monkeypatch.setattr(
         integration, "fetch", lambda *_args, **_kwargs: json.dumps({"data": [{"id": "p1", "name": "张测试", "bio": "Python 项目经验"}]})
     )
-    model = ToolModel(calls=[{"name": "query_aihehuo_public_data", "id": "public", "args": {"resource": "users", "page": 1, "per": 2}}], reply=REPLY)
+    model = ToolModel(calls=[{"name": "query_aihehuo_public_data", "id": "public", "args": {"resource": "users", "page": 1, "per": 2}}], reply=REPLY_WITH_SOURCE)
     graph = factory.create_member_agent(runtime=tmp_path, model=model, checkpointer=InMemorySaver(), include_save=False)
     if compacted:
         original_invoke = graph.ainvoke
 
         async def invoke_without_history(*args: Any, **kwargs: Any) -> dict[str, Any]:
             await original_invoke(*args, **kwargs)
-            return {"messages": [AIMessage(content=REPLY)]}
+            return {"messages": [AIMessage(content=REPLY_WITH_SOURCE)]}
 
         monkeypatch.setattr(graph, "ainvoke", invoke_without_history)
     state = AppState(agent=object(), base_dir=tmp_path, search_only_agent=graph)
@@ -573,6 +577,8 @@ async def test_public_person_reply_survives_actual_endpoint_finalization(
         monkeypatch.setattr(chat_ep, "resolve_trusted_session", resolve)
         result = (await chat_ep.chat(ChatRequest(user_id="owner", group_id="g1", message=message), state)).model_dump()
     assert result["reply"] == REPLY
+    assert SOURCE not in result["reply"]
+    assert "来源：" not in result["reply"]
     assert result["candidates"] == []
     if async_entry:
         assert result["reply_mode"] == "dialogue"

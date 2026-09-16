@@ -98,20 +98,27 @@ def test_negated_quoted_hypothetical_historical_and_method_claims_pass(
     assert result.reply == reply
 
 
-def test_valid_receipt_authorizes_search_and_appends_scope_and_source(
+def test_valid_receipt_authorizes_search_and_appends_scope_without_source_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
     execution = _execution()
     _commit(execution, [{"id": "u-1", "name": "张三"}])
     result = apply_intent_final_guard(
-        reply="已经搜索，候选人【张三】的公开资料符合地域条件。",
+        reply=(
+            "已经搜索，候选人【张三】的公开资料符合地域条件。"
+            "来源：https://www.aihehuo.com/ai/users.json?page=1"
+        ),
         execution=execution,
         enabled=True,
     )
     assert not result.blocked
     assert "查询范围：本次查询覆盖 1 页，检查 1 条去重公开记录" in result.reply
-    assert "https://www.aihehuo.com/ai/users.json?page=1" in result.reply
+    assert "https://www.aihehuo.com/ai/users.json?page=1" not in result.reply
+    assert "来源：" not in result.reply
+    assert execution.receipts[0].source_urls[0].startswith(
+        "https://www.aihehuo.com/ai/users.json"
+    )
 
 
 def test_invented_extra_entity_wrong_source_and_scope_overclaim_are_blocked(

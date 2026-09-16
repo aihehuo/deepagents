@@ -64,6 +64,12 @@ _EXPLICIT_ENTITY = (
 )
 _SCOPE = re.compile(r"(?:查询范围|本次查询覆盖|查询了)\D{0,8}\d+\s*页")
 _URL = re.compile(r"https://[^\s)）\]】>，。；;]+")
+# Official evidence URLs belong in receipts / debug traces, never in user reply.
+_USER_VISIBLE_SOURCE_URL = re.compile(
+    r"https://www\.aihehuo\.com/[^\s)）\]】>，。；;\"']+",
+    re.IGNORECASE,
+)
+_BARE_SOURCE_LABEL = re.compile(r"(?:^|\n)\s*来源：\s*(?=\n|$)|来源：\s*")
 _NO_FULL_MATCH = re.compile(
     r"(?:没有|未找到|未发现|暂无|暂未).{0,18}(?:完全|同时|全部|精确)?(?:符合|匹配|记录|人选|候选人)|"
     r"(?:证据|公开资料).{0,18}(?:不足|无法确认)|"
@@ -109,7 +115,10 @@ def apply_intent_final_guard(
     """Enforce current-run action and evidence claims without an LLM judge."""
     raw = (reply or "").strip()
     if not intent_final_guard_enabled(enabled=enabled):
-        return IntentFinalGuardResult(reply=raw, blocked=False)
+        return IntentFinalGuardResult(
+            reply=_strip_user_visible_source_urls(raw),
+            blocked=False,
+        )
 
     violations: list[str] = []
     claim_text = _claim_text(raw)
@@ -163,9 +172,12 @@ def apply_intent_final_guard(
             violations.append("invented_public_entity")
         if _OVERCLAIM.search(claim_text):
             violations.append("query_scope_overclaim")
-        allowed_urls = _evidence_urls(evidence)
-        allowed_urls.update(url for receipt in receipts for url in receipt.source_urls)
-        if any(url not in allowed_urls for url in _URL.findall(claim_text)):
+        # Check URLs on raw reply (claim_text splits on ``?``/``!`` and mangles query strings).
+        # Non-official links are blocked; official aihehuo evidence links are stripped later.
+        if any(
+            not url.lower().startswith("https://www.aihehuo.com/")
+            for url in _URL.findall(raw)
+        ):
             violations.append("unsupported_source")
         no_full_match = bool(_NO_FULL_MATCH.search(claim_text))
         mentioned_supported = any(
@@ -183,12 +195,14 @@ def apply_intent_final_guard(
 
     violations = list(dict.fromkeys(violations))
     if violations:
-        guarded = _safe_reply(
-            violations=violations,
-            execute=execute,
-            receipts=receipts,
-            result_count=result_count,
-            evidence=evidence,
+        guarded = _strip_user_visible_source_urls(
+            _safe_reply(
+                violations=violations,
+                execute=execute,
+                receipts=receipts,
+                result_count=result_count,
+                evidence=evidence,
+            )
         )
         _log(violations, blocked=True)
         return IntentFinalGuardResult(
@@ -197,7 +211,7 @@ def apply_intent_final_guard(
             violations=tuple(violations),
         )
 
-    guarded = raw
+    guarded = _strip_user_visible_source_urls(raw)
     if execute and receipts:
         guarded = _append_scope(guarded, receipts, result_count)
     _log([], blocked=False)
@@ -388,21 +402,29 @@ def _explicit_entity_names(reply: str) -> set[str]:
 
 
 def _scope(receipts: list[Any], item_count: int) -> str:
+    """User-visible scope footer without source URLs (URLs stay in receipts/debug)."""
     pages = len(receipts)
-    sources = list(dict.fromkeys(url for receipt in receipts for url in receipt.source_urls))
-    return (
-        f"查询范围：本次查询覆盖 {pages} 页，检查 {item_count} 条去重公开记录。\n"
-        f"来源：{'、'.join(sources)}"
-    )
+    return f"查询范围：本次查询覆盖 {pages} 页，检查 {item_count} 条去重公开记录。"
+
+
+def _strip_user_visible_source_urls(reply: str) -> str:
+    """Remove official evidence links and bare「来源：」labels from user-facing text."""
+    text = _USER_VISIBLE_SOURCE_URL.sub("", reply or "")
+    text = _BARE_SOURCE_LABEL.sub("", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r" *\n{3,}", "\n\n", text)
+    text = re.sub(r" +\n", "\n", text)
+    return text.strip()
 
 
 def _append_scope(reply: str, receipts: list[Any], item_count: int) -> str:
     scope = _scope(receipts, item_count)
-    if not reply:
+    cleaned = _strip_user_visible_source_urls(reply)
+    if not cleaned:
         return scope
-    if _SCOPE.search(reply) and all(url in reply for receipt in receipts for url in receipt.source_urls):
-        return reply
-    return f"{reply}\n\n{scope}"
+    if _SCOPE.search(cleaned):
+        return cleaned
+    return f"{cleaned}\n\n{scope}"
 
 
 def _safe_reply(

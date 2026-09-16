@@ -59,12 +59,11 @@ def run_l0(payload: ReplyGroundingInput) -> ReplyGroundingOutput | None:
     adopted = len(payload.ground.candidates or [])
     effective_count = min(count, adopted) if adopted else count
     public_people = [record for item in payload.ground.public_reads if item.resource in {"users", "group-members"} for record in item.records]
+    # Names present in this-turn public_reads are supported without pasting
+    # source URLs into the user-visible reply (URLs live in ground/debug only).
     supported_public_person = any(
-        isinstance(record.get("name"), str) and bool(record["name"]) and record["name"] in reply for record in public_people
-    ) and any(
-        item.source_url in reply
-        or any(isinstance(record.get("url"), str) and bool(record["url"]) and record["url"] in reply for record in item.records)
-        for item in payload.ground.public_reads
+        isinstance(record.get("name"), str) and bool(record["name"]) and record["name"] in reply
+        for record in public_people
     )
     public_group_span = _public_group_span(reply)
     if payload.ground.public_reads and not adopted and public_group_span:

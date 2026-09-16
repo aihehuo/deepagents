@@ -911,6 +911,8 @@ async def test_chat_enforce_executes_required_tool_before_composing(
         state,
     )
     assert "查询范围：本次查询覆盖 1 页" in response.reply
+    assert "https://www.aihehuo.com/" not in response.reply
+    assert "来源：" not in response.reply
     assert response.match_reason == "intent_query_plan"
     assert response.match_status == "matched"
     assert response.candidates[0]["user_id"] == "101"
@@ -1033,6 +1035,8 @@ async def test_async_enforce_executes_required_tool_before_composing(
     )
     assert events[-1][0] == "final"
     assert "查询范围：本次查询覆盖 1 页" in events[-1][1]["reply"]
+    assert "https://www.aihehuo.com/" not in events[-1][1]["reply"]
+    assert "来源：" not in events[-1][1]["reply"]
     assert events[-1][1]["reply_mode"] == "recommendation"
     assert events[-1][1]["match_reason"] == "intent_query_plan"
     assert events[-1][1]["candidates"][0]["user_id"] == "101"

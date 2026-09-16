@@ -32,6 +32,14 @@ _FULL_NEGATION = (
     "不想找",
     "不用找",
     "只是聊聊",
+    "do not search",
+    "don't search",
+    "dont search",
+    "do not find",
+    "don't find",
+    "dont find",
+    "no searching",
+    "just chat",
 )
 _DISCUSSION = (
     "怎么找",

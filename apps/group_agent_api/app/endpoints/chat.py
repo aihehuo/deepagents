@@ -29,6 +29,7 @@ from apps.group_agent_api.agent_factory.integrations.config import read_mode
 from apps.group_agent_api.agent_factory.intent_routing.context import (
     IntentContextScope,
     completed_intent_context_message,
+    intent_constraints_from_profile,
 )
 from apps.group_agent_api.agent_factory.intent_routing.execution import (
     IntentExecution,
@@ -418,6 +419,9 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                             episode_id=_episode_id_from_metadata(req.metadata),
                         ),
                         classifier_model=state.quality_model or state.polish_model,
+                        profile_constraints=intent_constraints_from_profile(
+                            load_profile(state.base_dir, user_id, group_id)
+                        ),
                     )
                     record_intent_prediction(
                         intent_resolution,

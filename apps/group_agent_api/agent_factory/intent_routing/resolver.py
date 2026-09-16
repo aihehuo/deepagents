@@ -13,8 +13,10 @@ from .classifier import ClassifierResult, aclassify_intent, classify_intent
 from .context import (
     IntentContextScope,
     TrustedIntentContext,
+    bound_intent_constraints,
     build_classifier_context,
     extract_completed_context,
+    has_structured_search_object,
     is_elliptical_followup,
     merge_classifier_constraints,
     merge_followup_constraints,
@@ -37,6 +39,11 @@ _READ_INTENTS = {
     "community_search",
     "startup_digest",
     "platform_help",
+}
+_OBJECT_REQUIRED_INTENTS = {
+    "people_search",
+    "opportunity_search",
+    "project_partnership_search",
 }
 
 
@@ -208,10 +215,80 @@ def _classifier_constraints(
     intent: IntentKind,
     signal: SignalResult,
     trusted: TrustedIntentContext | None,
+    profile: IntentConstraintsV1 | None,
 ) -> IntentConstraintsV1:
-    if intent not in _READ_INTENTS or trusted is None:
-        return signal.constraints
-    return merge_classifier_constraints(trusted.constraints, signal.constraints)
+    """Merge profile → trusted → current L0 constraints into the frozen decision.
+
+    ``no_business_action`` L0 hits often contain accidental substring matches
+    (for example English ``find`` → industry ``ai``), so those signal constraints
+    are ignored in favor of structured profile/trusted context.
+    """
+    if intent not in _READ_INTENTS:
+        return bound_intent_constraints(signal.constraints)
+    merged = IntentConstraintsV1()
+    if profile is not None:
+        merged = merge_classifier_constraints(merged, profile)
+    if trusted is not None:
+        merged = merge_classifier_constraints(merged, trusted.constraints)
+    if "no_business_action" not in signal.signal_ids:
+        merged = merge_classifier_constraints(merged, signal.constraints)
+    return merged
+
+
+def _apply_object_requirement(
+    *,
+    intent: IntentKind,
+    confidence: Confidence,
+    evidence: tuple[str, ...],
+    constraints: IntentConstraintsV1,
+) -> tuple[IntentKind, Confidence, tuple[str, ...], IntentConstraintsV1]:
+    """Fail closed when a search intent has no structured object to execute."""
+    if intent in _OBJECT_REQUIRED_INTENTS and not has_structured_search_object(
+        constraints
+    ):
+        return "clarification", "low", evidence, constraints
+    return intent, confidence, evidence, constraints
+
+
+def _classify_and_finalize(
+    *,
+    started: float,
+    message: str,
+    signal: SignalResult,
+    trusted: TrustedIntentContext | None,
+    profile_constraints: IntentConstraintsV1 | None,
+    execution_mode: str,
+    can_search: bool,
+    classified: ClassifierResult,
+) -> IntentResolution:
+    intent, confidence, evidence = _classifier_choice(classified)
+    safe_evidence = tuple(span for span in evidence if span and span in message)[:16]
+    constraints = _classifier_constraints(
+        intent=intent,
+        signal=signal,
+        trusted=trusted,
+        profile=profile_constraints,
+    )
+    intent, confidence, safe_evidence, constraints = _apply_object_requirement(
+        intent=intent,
+        confidence=confidence,
+        evidence=safe_evidence,
+        constraints=constraints,
+    )
+    return _finalize(
+        started=started,
+        signal=signal,
+        intent=intent,
+        confidence=confidence,
+        source="classifier",
+        evidence=safe_evidence,
+        negations=signal.negations,
+        constraints=constraints,
+        execution_mode=execution_mode,
+        can_search=can_search,
+        classifier=classified,
+        inherited=False,
+    )
 
 
 def resolve_intent(
@@ -289,23 +366,15 @@ def resolve_intent(
         model=classifier_model,
         context=classifier_context,
     )
-    intent, confidence, evidence = _classifier_choice(classified)
-    safe_evidence = tuple(span for span in evidence if span and span in message)[:16]
-    return _finalize(
+    return _classify_and_finalize(
         started=started,
+        message=message,
         signal=signal,
-        intent=intent,
-        confidence=confidence,
-        source="classifier",
-        evidence=safe_evidence,
-        negations=signal.negations,
-        constraints=_classifier_constraints(
-            intent=intent, signal=signal, trusted=context
-        ),
+        trusted=context,
+        profile_constraints=profile_constraints,
         execution_mode=execution_mode,
         can_search=can_search,
-        classifier=classified,
-        inherited=False,
+        classified=classified,
     )
 
 
@@ -372,23 +441,15 @@ async def aresolve_intent(
         context=classifier_context,
         timeout_s=intent_classifier_timeout_s(),
     )
-    intent, confidence, evidence = _classifier_choice(classified)
-    safe_evidence = tuple(span for span in evidence if span and span in message)[:16]
-    return _finalize(
+    return _classify_and_finalize(
         started=started,
+        message=message,
         signal=signal,
-        intent=intent,
-        confidence=confidence,
-        source="classifier",
-        evidence=safe_evidence,
-        negations=signal.negations,
-        constraints=_classifier_constraints(
-            intent=intent, signal=signal, trusted=context
-        ),
+        trusted=context,
+        profile_constraints=profile_constraints,
         execution_mode=execution_mode,
         can_search=can_search,
-        classifier=classified,
-        inherited=False,
+        classified=classified,
     )
 
 

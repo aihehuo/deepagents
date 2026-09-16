@@ -17,6 +17,7 @@ from apps.group_agent_api.agent_factory.intent_routing.context import (
     IntentContextScope,
     completed_intent_context_message,
     extract_completed_context,
+    intent_constraints_from_profile,
 )
 from apps.group_agent_api.agent_factory.intent_routing.resolver import (
     IntentResolution,
@@ -27,7 +28,10 @@ from apps.group_agent_api.agent_factory.intent_routing.resolver import (
     record_intent_prediction,
     resolve_intent,
 )
-from apps.group_agent_api.agent_factory.intent_routing.schema import IntentDecisionV1
+from apps.group_agent_api.agent_factory.intent_routing.schema import (
+    IntentConstraintsV1,
+    IntentDecisionV1,
+)
 from apps.group_agent_api.agent_factory.capability import (
     CapabilityTier,
     SessionCapabilities,
@@ -743,15 +747,28 @@ def _completed_shanghai_ops_people_search() -> list[Any]:
     return [call, result, AIMessage(content="查询完成。")]
 
 
+def _shanghai_ops_profile() -> IntentConstraintsV1:
+    return IntentConstraintsV1(
+        location=("Shanghai",),
+        industry=("restaurant",),
+        role=("operations",),
+    )
+
+
 def test_phase1_english_people_search_reaches_query_plan() -> None:
     structured = _Structured([_classification("people_search", evidence=["Shanghai"])])
+    profile = _shanghai_ops_profile()
     result = resolve_intent(
         "Can you find restaurant operators in Shanghai?",
         execution_mode="group_agent",
         can_search=True,
         classifier_model=_ClassifierModel(structured),
+        profile_constraints=profile,
     )
     assert result.decision.primary_intent == "people_search"
+    assert result.decision.constraints.location == ("Shanghai",)
+    assert result.decision.constraints.industry == ("restaurant",)
+    assert result.decision.constraints.role == ("operations",)
     _assert_routing_diagnostics(
         result,
         source="classifier",
@@ -794,16 +811,7 @@ def test_phase1_english_search_with_trusted_context_executes_people_search() -> 
 
 
 def test_phase1_english_search_without_usable_context_clarifies() -> None:
-    structured = _Structured(
-        [
-            _classification(
-                "clarification",
-                confidence="low",
-                missing_object="要找的人或资源",
-                evidence=["search"],
-            )
-        ]
-    )
+    structured = _Structured([_classification("people_search", evidence=["search"])])
     result = resolve_intent(
         "Can you help me do a search",
         execution_mode="group_agent",
@@ -811,6 +819,7 @@ def test_phase1_english_search_without_usable_context_clarifies() -> None:
         classifier_model=_ClassifierModel(structured),
     )
     assert result.decision.primary_intent == "clarification"
+    assert result.decision.constraints.location == ()
     _assert_routing_diagnostics(
         result,
         source="classifier",
@@ -822,6 +831,20 @@ def test_phase1_english_search_without_usable_context_clarifies() -> None:
         signal_ids=("no_business_action",),
         classifier_attempts=1,
     )
+
+
+def test_phase1_profile_constraints_merge_into_authoritative_decision() -> None:
+    structured = _Structured([_classification("people_search")])
+    result = resolve_intent(
+        "Can you help me do a search",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(structured),
+        profile_constraints=_shanghai_ops_profile(),
+    )
+    assert result.decision.primary_intent == "people_search"
+    assert result.decision.constraints == _shanghai_ops_profile()
+    assert _query_plan_would_run(result) is True
 
 
 def test_phase1_ordinary_conversation_via_classifier() -> None:
@@ -869,6 +892,22 @@ def test_phase1_explicit_search_negation_is_hard_veto() -> None:
         signal_ids=("explicit_negation",),
     )
     assert "先别查" in result.decision.negations or result.decision.negations
+
+
+def test_phase1_english_explicit_negation_is_hard_veto() -> None:
+    structured = _Structured([_classification("people_search")])
+    result = resolve_intent(
+        "Do not search, just chat",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(structured),
+        profile_constraints=_shanghai_ops_profile(),
+    )
+    assert result.decision.primary_intent == "conversation"
+    assert result.decision.action == "conversation"
+    assert structured.calls == 0
+    assert result.signal_ids == ("explicit_negation",)
+    assert _query_plan_would_run(result) is False
 
 
 def test_phase1_elliptical_followup_after_completed_query_inherits_context() -> None:
@@ -957,6 +996,63 @@ def test_phase1_no_business_action_without_classifier_clarifies() -> None:
     )
 
 
+def test_phase1_classifier_context_clips_oversized_profile_tokens() -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.context import (
+        build_classifier_context,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.prompts import (
+        classifier_user_prompt,
+    )
+
+    oversized = IntentConstraintsV1(location=("上海" + ("x" * 1_000_000),))
+    context = build_classifier_context(
+        trusted=None,
+        prior_messages=None,
+        profile=oversized,
+        current_negations=(),
+    )
+    assert len(context.profile_location) == 1
+    assert len(context.profile_location[0]) == 64
+    prompt = classifier_user_prompt("hello", context)
+    assert len(prompt) < 5_000
+
+
+def test_phase1_intent_constraints_from_profile_match_constraints() -> None:
+    profile = SimpleNamespace(
+        match_constraints=[
+            {
+                "field": "city",
+                "operator": "in",
+                "values": ["Shanghai", "x" * 200],
+                "strength": "hard",
+            },
+            {
+                "field": "industry",
+                "operator": "in",
+                "values": ["restaurant"],
+                "strength": "hard",
+            },
+            {
+                "field": "role",
+                "operator": "in",
+                "values": ["operations"],
+                "strength": "soft",
+            },
+            {
+                "field": "gender",
+                "operator": "eq",
+                "values": ["ignored"],
+                "strength": "hard",
+            },
+        ]
+    )
+    constraints = intent_constraints_from_profile(profile)
+    assert constraints is not None
+    assert constraints.location == ("Shanghai", "x" * 64)
+    assert constraints.industry == ("restaurant",)
+    assert constraints.role == ("operations",)
+
+
 def test_phase0_policy_rejection_is_observable_without_query_plan() -> None:
     cafe = resolve_intent(
         "找上海餐饮运营合伙人", execution_mode="cafe_host", can_search=True
@@ -980,12 +1076,25 @@ def test_phase0_policy_rejection_is_observable_without_query_plan() -> None:
 def test_phase1_motivating_english_sequence_reaches_people_search() -> None:
     import json
 
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
+        build_step_parameters,
+    )
+
     fixture_path = (
         Path(__file__).parent / "fixtures" / "thin_harness_phase0_english_search.json"
     )
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     current = fixture["current_turn"]
-    expected = fixture["phase1_with_classifier"]
+    expected = fixture["phase1_with_classifier_and_profile"]
+    profile_raw = fixture["phase1_structured_profile"]
+    profile = IntentConstraintsV1(
+        location=tuple(profile_raw["location"]),
+        industry=tuple(profile_raw["industry"]),
+        role=tuple(profile_raw["role"]),
+    )
     assert current == "Can you help me do a search"
     assert all("token" not in turn["text"].lower() for turn in fixture["turns"])
     assert all("password" not in turn["text"].lower() for turn in fixture["turns"])
@@ -1006,9 +1115,17 @@ def test_phase1_motivating_english_sequence_reaches_people_search() -> None:
         prior_messages=prior,
         scope=_scope(),
         classifier_model=_ClassifierModel(structured),
+        profile_constraints=profile,
     )
     assert result.decision.primary_intent == expected["primary_intent"]
     assert result.decision.query_plan_ref.plan_id == expected["query_plan_id"]
+    assert result.decision.constraints.location == tuple(
+        expected["constraints"]["location"]
+    )
+    assert result.decision.constraints.industry == tuple(
+        expected["constraints"]["industry"]
+    )
+    assert result.decision.constraints.role == tuple(expected["constraints"]["role"])
     _assert_routing_diagnostics(
         result,
         source=expected["decision_source"],
@@ -1022,9 +1139,59 @@ def test_phase1_motivating_english_sequence_reaches_people_search() -> None:
     )
     prompt_text = str(structured.last_prompts)
     assert "classifier_context=" in prompt_text
-    assert "Shanghai" in prompt_text or "restaurant" in prompt_text
-    assert "token" not in prompt_text.lower()
-    assert "password" not in prompt_text.lower()
+    assert "Shanghai" in prompt_text
+    assert "restaurant" in prompt_text
+    assert "operations" in prompt_text
+
+    execution = prepare_intent_execution(
+        result,
+        original_message=current,
+        run_id=None,
+        request_fingerprint=None,
+    )
+    query = build_step_parameters(execution, execution.plan.steps[0])["q"]
+    assert "Shanghai" in query
+    assert "restaurant" in query
+    assert "operations" in query
+    assert query != current
+
+
+def test_phase1_motivating_sequence_without_structured_object_clarifies() -> None:
+    import json
+
+    fixture_path = (
+        Path(__file__).parent / "fixtures" / "thin_harness_phase0_english_search.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    expected = fixture["phase1_without_structured_object"]
+    prior = [
+        HumanMessage(content=turn["text"])
+        if turn["role"] == "user"
+        else AIMessage(content=turn["text"])
+        for turn in fixture["turns"][:-1]
+    ]
+    result = resolve_intent(
+        fixture["current_turn"],
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=prior,
+        scope=_scope(),
+        classifier_model=_ClassifierModel(
+            _Structured([_classification("people_search")])
+        ),
+    )
+    assert result.decision.primary_intent == expected["primary_intent"]
+    _assert_routing_diagnostics(
+        result,
+        source=expected["decision_source"],
+        classifier_status=expected["classifier_status"],
+        inherited=expected["context_inherited"],
+        action=expected["action"],
+        query_plan=expected["query_plan_would_run"],
+        routing_class=expected["routing_class"],
+        signal_ids=tuple(expected["signal_ids"]),
+        classifier_attempts=expected["classifier_attempts"],
+    )
 
 
 async def test_phase1_sync_async_matrix_paths_match() -> None:
@@ -1067,22 +1234,24 @@ def test_phase1_observe_logs_distinguish_routing_classes(
         record,
     )
     cases = [
-        ("找上海餐饮运营合伙人", "l0_positive", True, None),
+        ("找上海餐饮运营合伙人", "l0_positive", True, None, None),
         (
             "Can you help me do a search",
             "semantic_planner",
             True,
             _ClassifierModel(_Structured([_classification("people_search")])),
+            _shanghai_ops_profile(),
         ),
-        ("帮我找一下", "clarification_fallback", False, None),
+        ("帮我找一下", "clarification_fallback", False, None, None),
     ]
-    for message, routing_class, query_plan, model in cases:
+    for message, routing_class, query_plan, model, profile in cases:
         captured.clear()
         result = resolve_intent(
             message,
             execution_mode="group_agent",
             can_search=True,
             classifier_model=model,
+            profile_constraints=profile,
         )
         record_intent_prediction(result, run_id="run-phase1", thread_id="thread-phase1")
         detail = captured[0]

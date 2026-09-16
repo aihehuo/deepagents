@@ -20,6 +20,15 @@ from .signals import normalize_text
 
 _MAX_RECENT_USER_TURNS = 5
 _MAX_RECENT_TURN_CHARS = 240
+_MAX_CONSTRAINT_TOKEN_CHARS = 64
+_PROFILE_FIELD_TO_CONSTRAINT = {
+    "city": "location",
+    "location": "location",
+    "industry": "industry",
+    "role": "role",
+    "experience_tags": "capability",
+    "capability": "capability",
+}
 
 _RESOURCE_INTENT: dict[str, IntentKind] = {
     "users": "people_search",
@@ -353,6 +362,84 @@ def merge_followup_constraints(
     )
 
 
+def _clip_constraint_tokens(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    clipped: list[str] = []
+    for value in values:
+        text = str(value or "").strip()[:_MAX_CONSTRAINT_TOKEN_CHARS]
+        if text and text not in clipped:
+            clipped.append(text)
+        if len(clipped) >= 10:
+            break
+    return tuple(clipped)
+
+
+def bound_intent_constraints(
+    constraints: IntentConstraintsV1 | None,
+) -> IntentConstraintsV1:
+    """Clip every constraint token to a fixed length and item count."""
+    if constraints is None:
+        return IntentConstraintsV1()
+    time_range = constraints.time_range
+    if time_range is not None:
+        time_range = str(time_range).strip()[:_MAX_CONSTRAINT_TOKEN_CHARS] or None
+    return IntentConstraintsV1(
+        location=_clip_constraint_tokens(constraints.location),
+        industry=_clip_constraint_tokens(constraints.industry),
+        role=_clip_constraint_tokens(constraints.role),
+        capability=_clip_constraint_tokens(constraints.capability),
+        time_range=time_range,
+    )
+
+
+def intent_constraints_from_profile(profile: Any | None) -> IntentConstraintsV1 | None:
+    """Convert saved profile match_constraints into closed IntentConstraintsV1.
+
+    Only known search-relevant fields are accepted. Values are clipped. Soft and
+    hard strengths are both admitted as query hints; unknown fields are ignored.
+    """
+    if profile is None:
+        return None
+    buckets: dict[str, list[str]] = {
+        "location": [],
+        "industry": [],
+        "role": [],
+        "capability": [],
+    }
+    raw_items = getattr(profile, "match_constraints", None) or []
+    if not isinstance(raw_items, list):
+        return None
+    for item in raw_items:
+        if isinstance(item, dict):
+            field = str(item.get("field") or "").strip()
+            values = item.get("values") or []
+        else:
+            field = str(getattr(item, "field", "") or "").strip()
+            values = getattr(item, "values", None) or []
+        target = _PROFILE_FIELD_TO_CONSTRAINT.get(field)
+        if target is None or not isinstance(values, list):
+            continue
+        for value in values:
+            text = str(value or "").strip()[:_MAX_CONSTRAINT_TOKEN_CHARS]
+            if text and text not in buckets[target]:
+                buckets[target].append(text)
+            if len(buckets[target]) >= 10:
+                break
+    constraints = IntentConstraintsV1(
+        location=tuple(buckets["location"]),
+        industry=tuple(buckets["industry"]),
+        role=tuple(buckets["role"]),
+        capability=tuple(buckets["capability"]),
+    )
+    if not (
+        constraints.location
+        or constraints.industry
+        or constraints.role
+        or constraints.capability
+    ):
+        return None
+    return constraints
+
+
 def _bounded_recent_user_turns(messages: list[Any] | None) -> tuple[str, ...]:
     turns: list[str] = []
     for message in messages or []:
@@ -373,19 +460,23 @@ def build_classifier_context(
     current_negations: tuple[str, ...],
 ) -> ClassifierContextV1:
     """Assemble the closed L1 context object with strict field and length limits."""
-    profile_fields = profile or IntentConstraintsV1()
-    prior_constraints = (
-        trusted.constraints if trusted is not None else IntentConstraintsV1()
+    profile_fields = bound_intent_constraints(profile)
+    prior_constraints = bound_intent_constraints(
+        trusted.constraints if trusted is not None else None
     )
     return ClassifierContextV1(
         prior_intent=trusted.intent if trusted is not None else None,
         prior_constraints=prior_constraints,
-        profile_location=tuple(profile_fields.location)[:10],
-        profile_industry=tuple(profile_fields.industry)[:10],
-        profile_role=tuple(profile_fields.role)[:10],
-        profile_capability=tuple(profile_fields.capability)[:10],
+        profile_location=profile_fields.location,
+        profile_industry=profile_fields.industry,
+        profile_role=profile_fields.role,
+        profile_capability=profile_fields.capability,
         recent_user_turns=_bounded_recent_user_turns(prior_messages),
-        current_negations=tuple(current_negations)[:16],
+        current_negations=tuple(
+            str(item).strip()[:_MAX_CONSTRAINT_TOKEN_CHARS]
+            for item in current_negations
+            if str(item).strip()
+        )[:16],
     )
 
 
@@ -395,11 +486,24 @@ def merge_classifier_constraints(
 ) -> IntentConstraintsV1:
     """Prefer current non-empty fields, otherwise keep trusted prior constraints."""
     if previous is None:
-        return current
+        return bound_intent_constraints(current)
+    previous = bound_intent_constraints(previous)
+    current = bound_intent_constraints(current)
     return IntentConstraintsV1(
         location=current.location or previous.location,
         industry=current.industry or previous.industry,
         role=current.role or previous.role,
         capability=current.capability or previous.capability,
         time_range=current.time_range or previous.time_range,
+    )
+
+
+def has_structured_search_object(constraints: IntentConstraintsV1) -> bool:
+    """Return whether constraints contain any usable structured search object."""
+    return bool(
+        constraints.location
+        or constraints.industry
+        or constraints.role
+        or constraints.capability
+        or constraints.time_range
     )

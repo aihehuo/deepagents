@@ -54,6 +54,7 @@ from apps.group_agent_api.agent_factory.integrations.config import async_run_tim
 from apps.group_agent_api.agent_factory.intent_routing.context import (
     IntentContextScope,
     completed_intent_context_message,
+    intent_constraints_from_profile,
 )
 from apps.group_agent_api.agent_factory.intent_routing.execution import (
     IntentExecution,
@@ -979,6 +980,9 @@ async def _execute_core_agent(
                         episode_id=str(episode_id) if episode_id else None,
                     ),
                     classifier_model=state.quality_model or state.polish_model,
+                    profile_constraints=intent_constraints_from_profile(
+                        load_profile(state.base_dir, user_id, group_id)
+                    ),
                 )
                 record_intent_prediction(
                     intent_resolution,

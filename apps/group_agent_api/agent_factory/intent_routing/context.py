@@ -29,6 +29,7 @@ _PROFILE_FIELD_TO_CONSTRAINT = {
     "experience_tags": "capability",
     "capability": "capability",
 }
+_POSITIVE_PROFILE_OPERATORS = frozenset({"eq", "in", "all", "any"})
 
 _RESOURCE_INTENT: dict[str, IntentKind] = {
     "users": "people_search",
@@ -394,8 +395,9 @@ def bound_intent_constraints(
 def intent_constraints_from_profile(profile: Any | None) -> IntentConstraintsV1 | None:
     """Convert saved profile match_constraints into closed IntentConstraintsV1.
 
-    Only known search-relevant fields are accepted. Values are clipped. Soft and
-    hard strengths are both admitted as query hints; unknown fields are ignored.
+    Only known search-relevant fields and positive operators are projected into
+    forward constraints. Negative operators such as ``not_in`` / ``not_any`` are
+    ignored so exclusions cannot invert into positive search objects.
     """
     if profile is None:
         return None
@@ -411,10 +413,14 @@ def intent_constraints_from_profile(profile: Any | None) -> IntentConstraintsV1 
     for item in raw_items:
         if isinstance(item, dict):
             field = str(item.get("field") or "").strip()
+            operator = str(item.get("operator") or "").strip()
             values = item.get("values") or []
         else:
             field = str(getattr(item, "field", "") or "").strip()
+            operator = str(getattr(item, "operator", "") or "").strip()
             values = getattr(item, "values", None) or []
+        if operator not in _POSITIVE_PROFILE_OPERATORS:
+            continue
         target = _PROFILE_FIELD_TO_CONSTRAINT.get(field)
         if target is None or not isinstance(values, list):
             continue
@@ -499,11 +505,13 @@ def merge_classifier_constraints(
 
 
 def has_structured_search_object(constraints: IntentConstraintsV1) -> bool:
-    """Return whether constraints contain any usable structured search object."""
+    """Return whether constraints contain a usable who/what search object.
+
+    ``time_range`` is only a modifier and never sufficient on its own.
+    """
     return bool(
         constraints.location
         or constraints.industry
         or constraints.role
         or constraints.capability
-        or constraints.time_range
     )

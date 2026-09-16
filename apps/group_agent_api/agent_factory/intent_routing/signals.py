@@ -84,6 +84,16 @@ _LOCATIONS = (
     "苏州",
     "武汉",
     "西安",
+    "beijing",
+    "shanghai",
+    "guangzhou",
+    "shenzhen",
+    "hangzhou",
+    "chengdu",
+    "nanjing",
+    "suzhou",
+    "wuhan",
+    "xian",
 )
 _INDUSTRIES = (
     "餐饮",
@@ -95,6 +105,9 @@ _INDUSTRIES = (
     "文旅",
     "新能源",
     "消费",
+    "restaurant",
+    "restaurants",
+    "catering",
 )
 _ROLES = (
     "技术合伙人",
@@ -104,10 +117,16 @@ _ROLES = (
     "合伙人",
     "创始人",
     "运营",
+    "operators",
+    "operator",
+    "operations",
+    "cofounder",
+    "co-founder",
 )
 _PRIORITY_CAPABILITY = re.compile(
     r"优先(?:有|具备)?\s*([^,，。！？;；]{1,32}?(?:经验|能力|资源))"
 )
+_LATIN_TOKEN = re.compile(r"^[a-z0-9][a-z0-9+.#_-]*$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -130,7 +149,25 @@ def normalize_text(message: str) -> str:
 
 
 def _matches(text: str, phrases: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(phrase for phrase in phrases if phrase in text)
+    """Match fixed phrases; Latin tokens require whole-word boundaries."""
+    hits: list[str] = []
+    for phrase in phrases:
+        if not phrase:
+            continue
+        if _LATIN_TOKEN.fullmatch(phrase):
+            if (
+                re.search(
+                    rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])",
+                    text,
+                    flags=re.IGNORECASE,
+                )
+                is not None
+            ):
+                hits.append(phrase)
+            continue
+        if phrase in text:
+            hits.append(phrase)
+    return tuple(hits)
 
 
 def _constraints(text: str) -> IntentConstraintsV1:

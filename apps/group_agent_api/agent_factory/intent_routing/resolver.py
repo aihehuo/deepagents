@@ -217,12 +217,7 @@ def _classifier_constraints(
     trusted: TrustedIntentContext | None,
     profile: IntentConstraintsV1 | None,
 ) -> IntentConstraintsV1:
-    """Merge profile → trusted → current L0 constraints into the frozen decision.
-
-    ``no_business_action`` L0 hits often contain accidental substring matches
-    (for example English ``find`` → industry ``ai``), so those signal constraints
-    are ignored in favor of structured profile/trusted context.
-    """
+    """Merge profile → trusted → current L0 constraints into the frozen decision."""
     if intent not in _READ_INTENTS:
         return bound_intent_constraints(signal.constraints)
     merged = IntentConstraintsV1()
@@ -230,9 +225,7 @@ def _classifier_constraints(
         merged = merge_classifier_constraints(merged, profile)
     if trusted is not None:
         merged = merge_classifier_constraints(merged, trusted.constraints)
-    if "no_business_action" not in signal.signal_ids:
-        merged = merge_classifier_constraints(merged, signal.constraints)
-    return merged
+    return merge_classifier_constraints(merged, signal.constraints)
 
 
 def _apply_object_requirement(

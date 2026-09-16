@@ -755,20 +755,21 @@ def _shanghai_ops_profile() -> IntentConstraintsV1:
     )
 
 
-def test_phase1_english_people_search_reaches_query_plan() -> None:
+def test_phase1_english_people_search_without_profile_executes() -> None:
+    """Explicit English search objects must freeze into constraints without profile."""
     structured = _Structured([_classification("people_search", evidence=["Shanghai"])])
-    profile = _shanghai_ops_profile()
     result = resolve_intent(
         "Can you find restaurant operators in Shanghai?",
         execution_mode="group_agent",
         can_search=True,
         classifier_model=_ClassifierModel(structured),
-        profile_constraints=profile,
     )
     assert result.decision.primary_intent == "people_search"
-    assert result.decision.constraints.location == ("Shanghai",)
-    assert result.decision.constraints.industry == ("restaurant",)
-    assert result.decision.constraints.role == ("operations",)
+    assert result.decision.action == "execute"
+    assert "shanghai" in result.decision.constraints.location
+    assert "restaurant" in result.decision.constraints.industry
+    assert "operators" in result.decision.constraints.role
+    assert "ai" not in result.decision.constraints.industry
     _assert_routing_diagnostics(
         result,
         source="classifier",
@@ -782,6 +783,46 @@ def test_phase1_english_people_search_reaches_query_plan() -> None:
     )
     assert result.decision.query_plan_ref.plan_id == "people-search-v1"
     assert structured.calls == 1
+
+
+def test_phase1_profile_not_in_operator_is_not_projected_as_positive() -> None:
+    profile = SimpleNamespace(
+        match_constraints=[
+            {
+                "field": "city",
+                "operator": "not_in",
+                "values": ["北京"],
+                "strength": "hard",
+            }
+        ]
+    )
+    assert intent_constraints_from_profile(profile) is None
+    structured = _Structured([_classification("people_search")])
+    result = resolve_intent(
+        "Can you help me do a search",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(structured),
+        profile_constraints=intent_constraints_from_profile(profile),
+    )
+    assert result.decision.primary_intent == "clarification"
+    assert result.decision.action == "clarify"
+    assert result.decision.constraints.location == ()
+    assert _query_plan_would_run(result) is False
+
+
+def test_phase1_time_range_alone_does_not_satisfy_search_object() -> None:
+    structured = _Structured([_classification("people_search")])
+    result = resolve_intent(
+        "帮我查一下本周",
+        execution_mode="group_agent",
+        can_search=True,
+        classifier_model=_ClassifierModel(structured),
+    )
+    assert result.decision.constraints.time_range == "本周"
+    assert result.decision.primary_intent == "clarification"
+    assert result.decision.action == "clarify"
+    assert _query_plan_would_run(result) is False
 
 
 def test_phase1_english_search_with_trusted_context_executes_people_search() -> None:
@@ -1039,6 +1080,12 @@ def test_phase1_intent_constraints_from_profile_match_constraints() -> None:
                 "strength": "soft",
             },
             {
+                "field": "city",
+                "operator": "not_in",
+                "values": ["北京"],
+                "strength": "hard",
+            },
+            {
                 "field": "gender",
                 "operator": "eq",
                 "values": ["ignored"],
@@ -1049,6 +1096,7 @@ def test_phase1_intent_constraints_from_profile_match_constraints() -> None:
     constraints = intent_constraints_from_profile(profile)
     assert constraints is not None
     assert constraints.location == ("Shanghai", "x" * 64)
+    assert "北京" not in constraints.location
     assert constraints.industry == ("restaurant",)
     assert constraints.role == ("operations",)
 

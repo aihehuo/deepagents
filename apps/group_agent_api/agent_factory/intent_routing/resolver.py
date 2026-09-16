@@ -48,32 +48,43 @@ class IntentResolution:
     classifier_status: str
     classifier_attempts: int
     context_inherited: bool
-    routing_class: str
+
+    @property
+    def routing_class(self) -> str:
+        """Thin-harness observability label; does not affect routing decisions."""
+        return _routing_class(
+            source=self.decision.decision_source,
+            action=self.decision.action,
+            classifier_status=self.classifier_status,
+        )
 
 
 def _routing_class(
     *,
     source: DecisionSource,
     action: str,
+    classifier_status: str,
 ) -> str:
     """Map a finished decision onto the thin-harness observability classes.
 
-    This does not change routing. It only labels the path already taken:
-    L0 positive, L0 conversation, context inheritance, semantic classifier,
-    clarification fallback, policy rejection, or profile delegation.
+    This does not change routing. It only labels the path already taken.
+    Classifier success (including intentional clarify) is ``semantic_planner``;
+    classifier failure fallbacks are ``clarification_fallback``.
     """
     if action == "reject":
         return "policy_rejection"
-    if action == "clarify":
-        return "clarification_fallback"
     if source == "context":
         return "context_inheritance"
     if source == "classifier":
-        return "semantic_planner"
+        if classifier_status == "ok":
+            return "semantic_planner"
+        return "clarification_fallback"
     if action == "execute":
         return "l0_positive"
     if action == "delegate_existing_flow":
         return "delegate_existing_flow"
+    if action == "clarify":
+        return "clarification_fallback"
     return "l0_conversation"
 
 
@@ -187,9 +198,6 @@ def _finalize(
         classifier_status=classifier.status,
         classifier_attempts=classifier.attempts,
         context_inherited=inherited,
-        routing_class=_routing_class(
-            source=decision.decision_source, action=decision.action
-        ),
     )
 
 

@@ -19,6 +19,7 @@ from apps.group_agent_api.agent_factory.intent_routing.context import (
     extract_completed_context,
 )
 from apps.group_agent_api.agent_factory.intent_routing.resolver import (
+    IntentResolution,
     aresolve_intent,
     intent_classifier_timeout_s,
     intent_routing_mode,
@@ -393,6 +394,8 @@ def test_classifier_missing_object_or_top_tie_clarifies(
     assert result.classifier_status == "ok"
     assert result.decision.primary_intent == "clarification"
     assert result.decision.action == "clarify"
+    assert result.routing_class == "semantic_planner"
+    assert _query_plan_would_run(result) is False
 
 
 async def test_classifier_timeout_fails_to_clarification(
@@ -596,6 +599,21 @@ async def test_worker_observe_runs_before_first_agent_generation(
     )
     assert events[-1] == "final"
     assert recorded == [True]
+
+
+def test_intent_resolution_public_constructor_omits_routing_class() -> None:
+    decision = resolve_intent(
+        "找上海餐饮运营合伙人", execution_mode="group_agent", can_search=True
+    ).decision
+    rebuilt = IntentResolution(
+        decision=decision,
+        latency_ms=0,
+        signal_ids=("action_object:people",),
+        classifier_status="not_needed",
+        classifier_attempts=0,
+        context_inherited=False,
+    )
+    assert rebuilt.routing_class == "l0_positive"
 
 
 def _query_plan_would_run(result: Any) -> bool:

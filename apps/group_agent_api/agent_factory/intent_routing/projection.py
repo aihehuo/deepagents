@@ -191,6 +191,14 @@ def _dimension_haystack(raw: dict[str, Any], keys: tuple[str, ...]) -> str:
     return " ".join(_search_text(raw.get(key)) for key in keys).casefold()
 
 
+def _location_haystack(raw: dict[str, Any]) -> str:
+    """Trust an explicit city over broader location text such as street addresses."""
+    city = _search_text(raw.get("city")).strip()
+    if city:
+        return city.casefold()
+    return _dimension_haystack(raw, ("location", "province", "address"))
+
+
 def _matches_frozen_constraints(execution: IntentExecution, raw: Any) -> bool:
     if not isinstance(raw, dict):
         return False
@@ -233,7 +241,11 @@ def _matches_frozen_constraints(execution: IntentExecution, raw: Any) -> bool:
     for expected, kind, keys in dimensions:
         if not expected:
             continue
-        haystack = _dimension_haystack(raw, keys)
+        haystack = (
+            _location_haystack(raw)
+            if kind == "location"
+            else _dimension_haystack(raw, keys)
+        )
         aliases = [
             alias
             for value in expected
@@ -278,7 +290,11 @@ def _violates_frozen_negations(execution: IntentExecution, raw: Any) -> bool:
         value = value.strip()
         if separator != ":" or kind not in key_map or not value:
             continue
-        haystack = _dimension_haystack(raw, key_map[kind])
+        haystack = (
+            _location_haystack(raw)
+            if kind == "location"
+            else _dimension_haystack(raw, key_map[kind])
+        )
         aliases = [
             alias for alias in expand_constraint_token(kind, value) if alias.strip()
         ]

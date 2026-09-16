@@ -44,6 +44,7 @@ _KIND_GROUPS = {
 }
 
 _LATIN_TOKEN = re.compile(r"^[a-z0-9][a-z0-9+.#'_\s-]*$", re.IGNORECASE)
+FIELD_EXCLUSION_PREFIX_PATTERN = r"(?:not\s+in|not|不要|排除|别去|别在|不含|除了)"
 
 
 def aliases_for(kind: str) -> tuple[str, ...]:

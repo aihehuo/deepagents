@@ -803,6 +803,34 @@ def test_phase1_message_location_exclusion_is_not_positive_constraint() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "prefix", ("不要", "排除", "别去", "别在", "不含", "除了", "not in ", "not ")
+)
+def test_phase1_recognized_location_exclusion_is_removed_from_query(
+    prefix: str,
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
+        build_step_parameters,
+    )
+
+    message = f"找运营合伙人，{prefix}北京"
+    result = resolve_intent(message, execution_mode="group_agent", can_search=True)
+    assert result.decision.action == "execute"
+    assert "location:北京" in result.decision.negations
+    execution = prepare_intent_execution(
+        result,
+        original_message=message,
+        run_id=None,
+        request_fingerprint=None,
+    )
+    query = build_step_parameters(execution, execution.plan.steps[0])["q"]
+    assert "北京" not in query
+    assert "运营" in query
+
+
 def test_phase1_location_alone_does_not_satisfy_search_object() -> None:
     structured = _Structured([_classification("people_search")])
     result = resolve_intent(
@@ -896,6 +924,7 @@ def test_phase1_english_constraints_keep_chinese_candidates(
                         "id": "u-cn",
                         "name": "张三",
                         "city": "上海",
+                        "address": "上海市北京西路",
                         "industry": "餐饮",
                         "role": "运营",
                         "bio": "餐饮运营",
@@ -904,6 +933,7 @@ def test_phase1_english_constraints_keep_chinese_candidates(
                         "id": "u-bj",
                         "name": "李四",
                         "city": "北京",
+                        "address": "上海市南京路",
                         "industry": "餐饮",
                         "role": "运营",
                         "bio": "餐饮运营",
@@ -985,6 +1015,7 @@ def test_phase1_profile_exclusion_filters_chinese_candidates(
                         "id": "u-sh",
                         "name": "上海运营",
                         "city": "上海",
+                        "address": "上海市北京西路",
                         "industry": "餐饮",
                         "role": "运营",
                     },

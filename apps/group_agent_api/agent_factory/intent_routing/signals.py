@@ -7,6 +7,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from .constraint_lexicon import (
+    FIELD_EXCLUSION_PREFIX_PATTERN,
     aliases_for,
     canonicalize_constraint_token,
     match_phrases,
@@ -86,7 +87,7 @@ _PRIORITY_CAPABILITY = re.compile(
     r"优先(?:有|具备)?\s*([^,，。！？;；]{1,32}?(?:经验|能力|资源))"
 )
 _FIELD_EXCLUSION_PREFIX = re.compile(
-    r"(?:not\s+in|not|不要|排除|别去|别在|不含|除了)\s*$",
+    rf"{FIELD_EXCLUSION_PREFIX_PATTERN}\s*$",
     re.IGNORECASE,
 )
 

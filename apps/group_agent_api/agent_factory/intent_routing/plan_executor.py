@@ -10,11 +10,11 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .contracts import QueryPlanStepV1
-from .constraint_lexicon import expand_constraint_token
+from .constraint_lexicon import FIELD_EXCLUSION_PREFIX_PATTERN, expand_constraint_token
 from .execution import IntentExecution, QueryPlanError, active_intent_execution
 
 _LATIN_ALIAS = re.compile(r"^[a-z0-9][a-z0-9+.#'_\s-]*$", re.IGNORECASE)
-_NEGATION_PREFIX = r"(?:不要|别|排除|去掉|不看|not(?:\s+in)?)"
+_NEGATION_PREFIX = rf"(?:{FIELD_EXCLUSION_PREFIX_PATTERN}|别|去掉|不看)"
 
 
 def _alias_pattern(alias: str) -> str:

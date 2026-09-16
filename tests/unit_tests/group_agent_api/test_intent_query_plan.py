@@ -26,6 +26,7 @@ from apps.group_agent_api.agent_factory.intent_routing.execution import (
     active_intent_execution,
     current_intent_execution,
     prepare_intent_execution,
+    search_log_schema_enabled,
 )
 from apps.group_agent_api.agent_factory.intent_routing.registry import (
     READ_REGISTRY,
@@ -814,7 +815,7 @@ async def test_public_tool_async_waits_for_tool_started_ack_before_fetch(
         return False
 
     execution = _execution()
-    execution.bind_progress_emitter(emitter, started_monotonic=0.0)
+    execution.bind_progress_emitter(emitter, started_monotonic=0.0, emit_search_logs=True)
     tool = integration.create_aihehuo_tool(skills_dir=skills)
     with active_intent_execution(execution):
         result = await tool.ainvoke({"resource": "users", "page": 1})
@@ -843,19 +844,91 @@ async def test_public_tool_async_uses_fifteen_second_fetch_timeout(
         timeouts.append(timeout)
         return '{"data":[{"id":"u-1"}]}'
 
+    events: list[tuple[str, dict[str, Any]]] = []
+
     async def emitter(_event: str, _payload: dict[str, Any]) -> bool:
+        events.append((_event, _payload))
         return True
 
     monkeypatch.setattr(integration, "fetch", fetch)
     execution = _execution()
-    execution.bind_progress_emitter(emitter, started_monotonic=0.0)
+    execution.bind_progress_emitter(emitter, started_monotonic=0.0, emit_search_logs=True)
     tool = integration.create_aihehuo_tool(skills_dir=skills)
     with active_intent_execution(execution):
         result = await tool.ainvoke({"resource": "users", "page": 1})
 
     assert "u-1" in result
     assert timeouts == [15.0]
+    assert [event for event, _ in events[:2]] == ["progress", "search_log"]
+    assert events[1][1]["search_log"]["query"] == "（无关键词）"
+    assert events[1][1]["search_log"]["resource"] == "users"
     assert execution.required_steps_satisfied()
+
+
+async def test_public_tool_async_search_log_ack_precedes_fetch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from skillpacks.aihehuo import integration
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    _install_route_skill(tmp_path)
+    monkeypatch.setattr(
+        integration,
+        "_catalog",
+        lambda: {"get-ai-cofounders": {"resources": ["users"]}},
+    )
+    fetches: list[str] = []
+    monkeypatch.setattr(
+        integration,
+        "fetch",
+        lambda path, **_kwargs: fetches.append(path) or '{"data":[]}',
+    )
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    async def emitter(event: str, payload: dict[str, Any]) -> bool:
+        events.append((event, payload))
+        return event != "search_log"
+
+    execution = _execution()
+    execution.bind_progress_emitter(emitter, started_monotonic=0.0, emit_search_logs=True)
+    tool = integration.create_aihehuo_tool(skills_dir=tmp_path / "skills" / "aihehuo")
+    with active_intent_execution(execution):
+        result = await tool.ainvoke(
+            {"resource": "users", "q": "上海 餐饮 运营", "page": 2}
+        )
+
+    assert result == "AIHEHUO query rejected: callback_ack_invalid"
+    assert fetches == []
+    assert [event for event, _ in events] == ["progress", "search_log"]
+    assert events[1][1]["search_log"]["query"] == "q=上海 餐饮 运营"
+    assert events[1][1]["search_log"]["page"] == 2
+
+
+async def test_search_diagnostics_are_v3_only_and_redact_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GROUP_AGENT_SEARCH_LOG_SCHEMA_VERSION", raising=False)
+    assert search_log_schema_enabled() is False
+    monkeypatch.setenv("GROUP_AGENT_SEARCH_LOG_SCHEMA_VERSION", "1")
+    assert search_log_schema_enabled() is True
+    monkeypatch.setenv("GROUP_AGENT_SEARCH_LOG_SCHEMA_VERSION", "invalid")
+    assert search_log_schema_enabled() is False
+    execution = _execution()
+    events: list[str] = []
+
+    async def emitter(event: str, _payload: dict[str, Any]) -> bool:
+        events.append(event)
+        return True
+
+    execution.bind_progress_emitter(emitter, started_monotonic=0.0)
+    reservation = await execution.reserve_async(
+        resource="users", parameters={"q": "上海"}, tool_call_id="legacy-tool"
+    )
+    await execution.record_search_async(reservation)
+    assert events == ["progress"]
+    assert "secret" not in execution._search_query(
+        {"q": "Bearer secret access"}
+    )
 
 
 async def test_sync_reserve_on_progress_loop_fails_closed() -> None:

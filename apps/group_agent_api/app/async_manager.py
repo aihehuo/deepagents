@@ -61,6 +61,7 @@ from apps.group_agent_api.agent_factory.intent_routing.execution import (
     QueryPlanError,
     active_intent_execution,
     prepare_intent_execution,
+    search_log_schema_enabled,
 )
 from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
     execute_query_plan,
@@ -1001,6 +1002,11 @@ async def _execute_core_agent(
                     intent_execution.bind_progress_emitter(
                         emit_callback,
                         started_monotonic=progress_started,
+                        emit_search_logs=(
+                            req.request_schema_version == 3
+                            and execution_mode == "group_agent"
+                            and search_log_schema_enabled()
+                        ),
                     )
                     intent_execution.restore_adopted_evidence()
                     await _intent_progress(
@@ -1701,7 +1707,18 @@ async def _execute_core_agent(
         "match_status": match_status if out_candidates or match_status in {"empty", "skipped", "weak", "rejected", "error"} else "empty",
         "candidates": out_candidates,
         "match_reason": match_reason,
-        "search_log": search_log.model_dump() if search_log else None,
+        # v3 QueryPlan emits one durable event per public request. Its old
+        # final-summary log is the user message, not the actual query.
+        "search_log": (
+            search_log.model_dump()
+            if search_log and not (
+                req.request_schema_version == 3
+                and req.execution_mode == "group_agent"
+                and intent_search.completed
+                and search_log_schema_enabled()
+            )
+            else None
+        ),
         "guard_blocked": combined_guard_blocked,
         "guard_violations": combined_guard_violations,
         "delivery_kind": delivery_kind,

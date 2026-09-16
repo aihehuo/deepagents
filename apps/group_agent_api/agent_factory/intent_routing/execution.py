@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
 from contextlib import contextmanager
@@ -45,6 +46,11 @@ from .snapshot import (
 _ACTIVE: ContextVar["IntentExecution | None"] = ContextVar(
     "group_agent_intent_execution", default=None
 )
+
+
+def search_log_schema_enabled() -> bool:
+    """Enable new callback events only after Micro accepts their schema."""
+    return os.environ.get("GROUP_AGENT_SEARCH_LOG_SCHEMA_VERSION", "0") == "1"
 
 
 class QueryPlanError(RuntimeError):
@@ -190,6 +196,8 @@ class QueryReservation:
     started_at: str
     started_monotonic: float
     hard_timeout_ms: int
+    search_query: str
+    page: int | None
 
 
 @dataclass
@@ -213,6 +221,7 @@ class IntentExecution:
     _progress_emitter: Callable[[str, dict[str, Any]], Awaitable[bool]] | None = None
     _progress_loop: asyncio.AbstractEventLoop | None = None
     _progress_started_monotonic: float | None = None
+    _emit_search_logs: bool = False
 
     @property
     def decision(self) -> Any:
@@ -394,7 +403,75 @@ class IntentExecution:
             started_at=utc_timestamp(),
             started_monotonic=time.monotonic(),
             hard_timeout_ms=hard_timeout_ms,
+            search_query=self._search_query(parameters),
+            page=parameters.get("page"),
         )
+
+    @staticmethod
+    def _search_query(parameters: dict[str, Any]) -> str:
+        """Expose only public query filters, never request headers or credentials."""
+        filters = (
+            f"{key}={str(parameters[key])[:320]}"
+            for key in ("q", "keyword", "event_id", "created_since")
+            if parameters.get(key) is not None
+        )
+        query = "; ".join(filters)[:512] or "（无关键词）"
+        query = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._-]+", "Bearer [redacted]", query)
+        return re.sub(
+            r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b",
+            "[redacted]",
+            query,
+        )
+
+    def _search_log_payload(self, reservation: QueryReservation) -> dict[str, Any]:
+        return {
+            "search_log": {
+                "search_id": (
+                    f"{self.snapshot.run_id}:{reservation.step.step_id}:"
+                    f"{reservation.request_index}"
+                ),
+                "query": reservation.search_query,
+                "resource": reservation.step.resource,
+                "plan_step_id": reservation.step.step_id,
+                "request_index": reservation.request_index,
+                "page": reservation.page,
+            }
+        }
+
+    def record_search(self, reservation: QueryReservation) -> None:
+        """Acknowledge the public query record immediately before the fetch."""
+        if not self._emit_search_logs:
+            return
+        loop = self._progress_loop
+        if self._progress_emitter is None or loop is None:
+            return
+        self._ensure_sync_progress_supported()
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self._deliver_search_log(reservation), loop
+            )
+            future.result(timeout=10)
+        except Exception as exc:
+            raise QueryPlanError(str(getattr(exc, "code", "callback_ack_invalid"))) from exc
+
+    async def record_search_async(self, reservation: QueryReservation) -> None:
+        if not self._emit_search_logs:
+            return
+        if self._progress_emitter is None or self._progress_loop is None:
+            return
+        try:
+            await self._deliver_search_log(reservation)
+        except QueryPlanError:
+            raise
+        except Exception as exc:
+            raise QueryPlanError(str(getattr(exc, "code", "callback_ack_invalid"))) from exc
+
+    async def _deliver_search_log(self, reservation: QueryReservation) -> None:
+        emitter = self._progress_emitter
+        if emitter is not None and await emitter(
+            "search_log", self._search_log_payload(reservation)
+        ) is not True:
+            raise QueryPlanError("callback_ack_invalid")
 
     def adopted_result(self, resource: str) -> str | None:
         """Return adopted evidence for a resource without another public request."""
@@ -508,11 +585,13 @@ class IntentExecution:
         emitter: Callable[[str, dict[str, Any]], Awaitable[bool]],
         *,
         started_monotonic: float,
+        emit_search_logs: bool = False,
     ) -> None:
         """Bind the durable progress transport used by LangChain tools."""
         self._progress_emitter = emitter
         self._progress_loop = asyncio.get_running_loop()
         self._progress_started_monotonic = started_monotonic
+        self._emit_search_logs = emit_search_logs
 
     def _emit_tool_progress(
         self,

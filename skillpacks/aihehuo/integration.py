@@ -119,6 +119,7 @@ def create_aihehuo_tool(*, skills_dir: Path) -> BaseTool:
                 resource, params=params, output_format=output, event_id=event_id
             )
             if reservation is not None:
+                execution.record_search(reservation)
                 response = fetch(
                     path,
                     output_format=output,
@@ -211,6 +212,7 @@ def create_aihehuo_tool(*, skills_dir: Path) -> BaseTool:
                 resource, params=params, output_format=output, event_id=event_id
             )
             if reservation is not None:
+                await execution.record_search_async(reservation)
                 response = await asyncio.to_thread(
                     fetch,
                     path,

@@ -89,7 +89,7 @@ def _first_verified_group_event_id(execution: IntentExecution) -> str | None:
 
 
 def _selected_group_event_id(execution: IntentExecution) -> str | None:
-    """Resolve event_id only from the user request or verified groups receipts."""
+    """Resolve event_id from an explicit request ID or verified groups receipts."""
     request = execution.original_message or ""
     request_l = request.lower()
     requested_members = any(
@@ -112,13 +112,15 @@ def _selected_group_event_id(execution: IntentExecution) -> str | None:
     if explicit_in_request is not None:
         return explicit_in_request.group(1)
 
+    # Never treat a bare digit substring in the user text as an event id
+    # (e.g. "活动有763人"). Accept frozen ids only after groups receipt verify.
     frozen = getattr(execution.decision, "group_event_id", None)
     if (
         isinstance(frozen, str)
         and frozen.isascii()
         and frozen.isdecimal()
         and 1 <= len(frozen) <= 18
-        and (frozen in request or _event_id_in_verified_groups(execution, frozen))
+        and _event_id_in_verified_groups(execution, frozen)
     ):
         return frozen
 

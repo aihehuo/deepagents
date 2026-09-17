@@ -769,6 +769,59 @@ def test_phase2_guessed_group_event_id_is_ignored_without_request_or_receipt(
     assert "event_id" not in build_step_parameters(execution, members_step)
 
 
+def test_phase2_headcount_digits_are_not_treated_as_event_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
+        build_step_parameters,
+    )
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    message = "看看这个社群的成员，活动有763人"
+    result = resolve_intent(
+        message,
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(
+            community_query(
+                "社群成员",
+                group_member_scope="first_verified",
+                group_event_id="763",
+            )
+        ),
+    )
+    execution = prepare_intent_execution(
+        result,
+        original_message=message,
+        run_id=None,
+        request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
+    )
+    assert execution.decision.group_event_id == "763"
+    members_step = execution.plan.steps[1]
+    # "763" appears in the request as a headcount, not as an explicit event id.
+    assert "event_id" not in build_step_parameters(execution, members_step)
+    reservation = execution.reserve(
+        resource="groups", parameters={"page": 1}, tool_call_id="groups-headcount"
+    )
+    execution.commit_result(
+        reservation,
+        json.dumps(
+            {
+                "data": [{"id": 42, "name": "目标社群"}],
+                "_source_url": "https://www.aihehuo.com/ai/wechat_groups.json?page=1",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    # first_verified may use the receipt id; guessed 763 must still be ignored.
+    assert build_step_parameters(execution, members_step)["event_id"] == "42"
+
+
 def test_phase2_recovered_execute_denied_when_search_revoked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

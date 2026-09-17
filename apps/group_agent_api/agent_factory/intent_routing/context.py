@@ -16,12 +16,21 @@ from .schema import (
     IntentConstraintsV1,
     IntentDecisionV1,
     IntentKind,
+    PlannerContextV2,
+    PlannerProfileV2,
+    PlannerTurnV2,
+    ResourceQueriesV2,
 )
 from .signals import normalize_text
 
 _MAX_RECENT_USER_TURNS = 5
 _MAX_RECENT_TURN_CHARS = 240
 _MAX_CONSTRAINT_TOKEN_CHARS = 64
+_MAX_EPISODE_TURNS = 40
+_MAX_TURN_CHARS = 1000
+_MAX_EPISODE_CHARS = 12_000
+_MAX_PROFILE_FIELD_CHARS = 500
+_MAX_MATCH_CONSTRAINT_LINES = 32
 _PROFILE_FIELD_TO_CONSTRAINT = {
     "city": "location",
     "location": "location",
@@ -549,3 +558,153 @@ def has_structured_search_object(constraints: IntentConstraintsV1) -> bool:
     Location and time alone are insufficient; they only modify who/what.
     """
     return bool(constraints.industry or constraints.role or constraints.capability)
+
+
+def _profile_field_text(profile: Any | None, name: str) -> str | None:
+    if profile is None:
+        return None
+    raw = getattr(profile, name, None)
+    if raw is None:
+        return None
+    if hasattr(raw, "value"):
+        raw = raw.value
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    return text[:_MAX_PROFILE_FIELD_CHARS]
+
+
+def _match_constraint_lines(profile: Any | None) -> tuple[str, ...]:
+    if profile is None:
+        return ()
+    raw_items = getattr(profile, "match_constraints", None) or []
+    if not isinstance(raw_items, list):
+        return ()
+    lines: list[str] = []
+    for item in raw_items:
+        if isinstance(item, dict):
+            field = str(item.get("field") or "").strip()
+            operator = str(item.get("operator") or "").strip()
+            values = item.get("values") or []
+        else:
+            field = str(getattr(item, "field", "") or "").strip()
+            operator = str(getattr(item, "operator", "") or "").strip()
+            values = getattr(item, "values", None) or []
+        if not field or not operator or not isinstance(values, list):
+            continue
+        rendered_values = [
+            str(value).strip()[:_MAX_CONSTRAINT_TOKEN_CHARS]
+            for value in values[:10]
+            if str(value).strip()
+        ]
+        if not rendered_values:
+            continue
+        line = f"{field}:{operator}:{','.join(rendered_values)}"[:160]
+        if line and line not in lines:
+            lines.append(line)
+        if len(lines) >= _MAX_MATCH_CONSTRAINT_LINES:
+            break
+    return tuple(lines)
+
+
+def planner_profile_from_store(profile: Any | None) -> PlannerProfileV2:
+    """Project persistent profile free text and match constraints into planner data."""
+    return PlannerProfileV2(
+        doing=_profile_field_text(profile, "doing"),
+        need=_profile_field_text(profile, "need"),
+        offer=_profile_field_text(profile, "offer"),
+        match_constraints=_match_constraint_lines(profile),
+    )
+
+
+def _episode_turns(messages: list[Any] | None) -> list[PlannerTurnV2]:
+    turns: list[PlannerTurnV2] = []
+    for message in messages or []:
+        if isinstance(message, HumanMessage):
+            role = "human"
+        elif isinstance(message, AIMessage):
+            if getattr(message, "tool_calls", None):
+                continue
+            role = "assistant"
+        else:
+            continue
+        text = str(message.content or "").strip()
+        if not text:
+            continue
+        turns.append(PlannerTurnV2(role=role, content=text[:_MAX_TURN_CHARS]))
+    return turns
+
+
+def _compress_episode_turns(
+    turns: list[PlannerTurnV2],
+) -> tuple[tuple[PlannerTurnV2, ...], bool, str | None]:
+    """Keep recent turns verbatim; compress older turns with an explicit reason."""
+    if len(turns) <= _MAX_EPISODE_TURNS and sum(len(item.content) for item in turns) <= (
+        _MAX_EPISODE_CHARS
+    ):
+        return tuple(turns), False, None
+
+    retained: list[PlannerTurnV2] = []
+    used = 0
+    for turn in reversed(turns):
+        cost = len(turn.content)
+        if retained and (len(retained) >= _MAX_EPISODE_TURNS or used + cost > _MAX_EPISODE_CHARS):
+            break
+        retained.append(turn)
+        used += cost
+    retained.reverse()
+    omitted = len(turns) - len(retained)
+    if omitted <= 0:
+        return tuple(retained), False, None
+    older = turns[:omitted]
+    summary_parts = [
+        f"{item.role}:{item.content[:80]}" for item in older[:12]
+    ]
+    summary = (
+        f"[earlier_episode_turns_compressed count={omitted}] "
+        + " | ".join(summary_parts)
+    )[:_MAX_TURN_CHARS]
+    # Keep the compression marker plus as many recent turns as remain in budget.
+    recent_limit = max(0, _MAX_EPISODE_TURNS - 1)
+    compressed = (PlannerTurnV2(role="assistant", content=summary), *retained[-recent_limit:])
+    return tuple(compressed), True, "episode_context_window"
+
+
+def queries_from_constraints(constraints: IntentConstraintsV1) -> ResourceQueriesV2:
+    """Best-effort prior query hint from completed-context constraints (data only)."""
+    parts = [
+        *constraints.location,
+        *constraints.industry,
+        *constraints.role,
+        *constraints.capability,
+    ]
+    text = " ".join(item.strip() for item in parts if item.strip())[:160]
+    if not text:
+        return ResourceQueriesV2()
+    return ResourceQueriesV2(users=text)
+
+
+def build_planner_context(
+    *,
+    message: str,
+    prior_messages: list[Any] | None,
+    profile: Any | None,
+    trusted: TrustedIntentContext | None,
+) -> PlannerContextV2:
+    """Assemble the Phase 2 planner context with full retained episode history."""
+    current = (message or "").strip()[:2000] or "(empty)"
+    turns, compressed, reason = _compress_episode_turns(_episode_turns(prior_messages))
+    prior_queries = ResourceQueriesV2()
+    prior_intent = None
+    if trusted is not None:
+        prior_intent = trusted.intent
+        prior_queries = queries_from_constraints(trusted.constraints)
+    return PlannerContextV2(
+        current_message=current,
+        episode_turns=turns,
+        profile=planner_profile_from_store(profile),
+        prior_completed_intent=prior_intent,
+        prior_completed_queries=prior_queries,
+        context_compressed=compressed,
+        compression_reason=reason,
+    )

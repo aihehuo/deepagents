@@ -1,14 +1,14 @@
-"""Pure decision policy and frozen read-plan references for INTENT-DA-001."""
+"""Pure decision policy mapping planner proposals to frozen IntentDecisionV1."""
 
 from __future__ import annotations
 
 from .schema import (
-    Confidence,
-    DecisionSource,
     IntentConstraintsV1,
     IntentDecisionV1,
     IntentKind,
+    PlannerProposalV2,
     QueryPlanRefV1,
+    ResourceQueriesV2,
 )
 
 _READ_ROUTES: dict[str, tuple[str, str]] = {
@@ -24,61 +24,124 @@ _READ_ROUTES: dict[str, tuple[str, str]] = {
 }
 
 
-def build_decision(
+def _clip_queries(queries: ResourceQueriesV2) -> ResourceQueriesV2:
+    def clip(value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = value.strip()[:160]
+        return text or None
+
+    return ResourceQueriesV2(
+        users=clip(queries.users),
+        ideas=clip(queries.ideas),
+        projects=clip(queries.projects),
+        groups=clip(queries.groups),
+        faqs=clip(queries.faqs),
+    )
+
+
+def build_decision_from_planner(
+    proposal: PlannerProposalV2,
     *,
-    intent: IntentKind,
-    confidence: Confidence,
-    source: DecisionSource,
-    evidence_spans: tuple[str, ...],
-    constraints: IntentConstraintsV1,
-    negations: tuple[str, ...],
     execution_mode: str,
     can_search: bool,
 ) -> IntentDecisionV1:
-    """Build a contract-valid decision from trusted inputs.
+    """Map a validated planner proposal onto the server-owned decision contract.
 
-    Args:
-        intent: Resolved primary intent.
-        confidence: Bounded resolver confidence.
-        source: Highest routing layer used.
-        evidence_spans: Short matched phrases only.
-        constraints: Normalized query constraints.
-        negations: Explicit negative phrases.
-        execution_mode: Trusted execution mode.
-        can_search: Trusted public-read capability.
-
-    Returns:
-        A closed `IntentDecisionV1`. This function never executes a tool.
+    The planner owns semantic intent and query wording. This function only
+    applies authorization and registered plan binding. It never invents query
+    terms from lexicons.
     """
-    route = _READ_ROUTES.get(intent)
-    if route is not None:
-        if confidence == "low":
-            intent = "clarification"
-            action = "clarify"
-            route = None
-        elif execution_mode != "group_agent" or not can_search:
-            action = "reject"
-        else:
-            action = "execute"
-    elif intent == "profile_update":
-        action = "delegate_existing_flow"
-    elif intent == "clarification":
-        action = "clarify"
-    else:
-        action = "conversation"
+    queries = _clip_queries(proposal.queries)
+    constraints = IntentConstraintsV1(time_range=proposal.time_range)
 
-    skill, plan_id = (
-        route if action == "execute" and route is not None else (None, None)
-    )
+    if proposal.action == "query":
+        intent: IntentKind = proposal.intent or "clarification"
+        route = _READ_ROUTES.get(intent)
+        if route is None:
+            return IntentDecisionV1(
+                primary_intent="clarification",
+                confidence="low",
+                decision_source="planner",
+                evidence_spans=(),
+                constraints=constraints,
+                negations=(),
+                action="clarify",
+                planner_version=proposal.planner_version,
+            )
+        if execution_mode != "group_agent" or not can_search:
+            return IntentDecisionV1(
+                primary_intent=intent,
+                confidence="high",
+                decision_source="planner",
+                evidence_spans=(),
+                constraints=constraints,
+                negations=(),
+                action="reject",
+                planner_version=proposal.planner_version,
+            )
+        skill, plan_id = route
+        return IntentDecisionV1(
+            primary_intent=intent,
+            confidence="high",
+            decision_source="planner",
+            evidence_spans=(),
+            constraints=constraints,
+            negations=(),
+            action="execute",
+            required_skill=skill,
+            query_plan_ref=QueryPlanRefV1(plan_id=plan_id),
+            requires_plan_receipts=True,
+            resource_queries=queries,
+            planner_version=proposal.planner_version,
+        )
+
+    if proposal.action == "clarify":
+        return IntentDecisionV1(
+            primary_intent="clarification",
+            confidence="low",
+            decision_source="planner",
+            evidence_spans=(),
+            constraints=constraints,
+            negations=(),
+            action="clarify",
+            planner_version=proposal.planner_version,
+        )
+
+    intent = proposal.intent or "conversation"
+    if intent == "profile_update":
+        return IntentDecisionV1(
+            primary_intent="profile_update",
+            confidence="high",
+            decision_source="planner",
+            evidence_spans=(),
+            constraints=constraints,
+            negations=(),
+            action="delegate_existing_flow",
+            planner_version=proposal.planner_version,
+        )
     return IntentDecisionV1(
-        primary_intent=intent,
-        confidence=confidence,
-        decision_source=source,
-        evidence_spans=evidence_spans[:16],
+        primary_intent="conversation",
+        confidence="high",
+        decision_source="planner",
+        evidence_spans=(),
         constraints=constraints,
-        negations=negations[:16],
-        action=action,
-        required_skill=skill,
-        query_plan_ref=QueryPlanRefV1(plan_id=plan_id) if plan_id else None,
-        requires_plan_receipts=bool(plan_id),
+        negations=(),
+        action="conversation",
+        planner_version=proposal.planner_version,
+    )
+
+
+def clarification_decision(*, source: str = "planner") -> IntentDecisionV1:
+    """Fail-closed clarification used when the planner is unavailable or invalid."""
+    decision_source = "planner" if source == "planner" else "classifier"
+    return IntentDecisionV1(
+        primary_intent="clarification",
+        confidence="low",
+        decision_source=decision_source,  # type: ignore[arg-type]
+        evidence_spans=(),
+        constraints=IntentConstraintsV1(),
+        negations=(),
+        action="clarify",
+        planner_version="intent-planner-v2" if source == "planner" else None,
     )

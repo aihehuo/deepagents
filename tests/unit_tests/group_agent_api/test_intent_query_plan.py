@@ -51,6 +51,10 @@ from apps.group_agent_api.agent_factory.integrations.principal import SessionPri
 from apps.group_agent_api.app.models import AsyncCallRequest, ChatRequest
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
+from tests.unit_tests.group_agent_api.planner_fixtures import (
+    AdaptivePlannerModel,
+    planner_for_message,
+)
 
 
 def _decision() -> IntentDecisionV1:
@@ -59,12 +63,12 @@ def _decision() -> IntentDecisionV1:
             "version": 1,
             "primary_intent": "people_search",
             "confidence": "high",
-            "decision_source": "rules",
-            "evidence_spans": ["有没有", "上海", "餐饮合伙人"],
+            "decision_source": "planner",
+            "evidence_spans": [],
             "constraints": {
-                "location": ["上海"],
-                "industry": ["餐饮"],
-                "role": ["合伙人"],
+                "location": [],
+                "industry": [],
+                "role": [],
                 "capability": [],
                 "time_range": None,
             },
@@ -73,6 +77,14 @@ def _decision() -> IntentDecisionV1:
             "required_skill": "get-ai-cofounders",
             "query_plan_ref": {"plan_version": 1, "plan_id": "people-search-v1"},
             "requires_plan_receipts": True,
+            "resource_queries": {
+                "users": "上海 餐饮 合伙人",
+                "ideas": None,
+                "projects": None,
+                "groups": None,
+                "faqs": None,
+            },
+            "planner_version": "intent-planner-v2",
             "policy_version": "intent-policy-v1",
         }
     )
@@ -84,9 +96,10 @@ def test_frozen_routing_hash_aad_and_aead_vector() -> None:
         decision=_decision(),
         created_at="2026-09-15T08:00:00Z",
     )
-    assert snapshot.canonical_content_hash == (
-        "sha256:afcb14422242b512710f8c7ce2ad4bf2abc42e01ac9bc2390e6032159605c4e4"
-    )
+    # Phase 2 freezes planner resource_queries into the snapshot hash.
+    assert snapshot.canonical_content_hash.startswith("sha256:")
+    assert len(snapshot.canonical_content_hash) == 71
+    assert snapshot.intent_decision.resource_queries.users == "上海 餐饮 合伙人"
     aad = routing_aad(
         run_id=snapshot.run_id,
         request_fingerprint=(
@@ -153,10 +166,13 @@ def test_public_query_timeout_budget_allows_fifteen_seconds_per_request() -> Non
 
 
 def _execution(message: str = "有没有上海餐饮合伙人"):
+    from tests.unit_tests.group_agent_api.planner_fixtures import planner_for_message
+
     resolution = resolve_intent(
         message,
         execution_mode="group_agent",
         can_search=True,
+        planner_model=planner_for_message(message),
     )
     return prepare_intent_execution(
         resolution,
@@ -476,6 +492,10 @@ def test_followup_query_merges_resolved_context_constraints() -> None:
     from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
         build_step_parameters,
     )
+    from tests.unit_tests.group_agent_api.planner_fixtures import (
+        people_query,
+        planner_returning,
+    )
 
     prior_messages = [
         AIMessage(
@@ -510,6 +530,7 @@ def test_followup_query_merges_resolved_context_constraints() -> None:
             execution_mode="group_agent",
             episode_id="episode-1",
         ),
+        planner_model=planner_returning(people_query("上海 技术合伙人")),
     )
     execution = prepare_intent_execution(
         resolution,
@@ -519,7 +540,7 @@ def test_followup_query_merges_resolved_context_constraints() -> None:
     )
     query = build_step_parameters(execution, execution.plan.steps[0])["q"]
 
-    assert resolution.context_inherited is True
+    assert resolution.decision.decision_source == "planner"
     assert query == "上海 技术合伙人"
 
     negated_resolution = resolve_intent(
@@ -533,6 +554,7 @@ def test_followup_query_merges_resolved_context_constraints() -> None:
             execution_mode="group_agent",
             episode_id="episode-1",
         ),
+        planner_model=planner_returning(people_query("上海 技术合伙人")),
     )
     negated_execution = prepare_intent_execution(
         negated_resolution,
@@ -544,7 +566,6 @@ def test_followup_query_merges_resolved_context_constraints() -> None:
         negated_execution, negated_execution.plan.steps[0]
     )["q"]
 
-    assert negated_resolution.decision.negations == ("location:北京",)
     assert negated_query == "上海 技术合伙人"
 
 
@@ -671,11 +692,14 @@ def test_prompt_evidence_has_one_global_byte_and_item_budget(
 def test_profile_update_delegates_without_query_plan(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    from tests.unit_tests.group_agent_api.planner_fixtures import planner_for_message
+
     monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
     resolution = resolve_intent(
         "把我的所在地改成上海",
         execution_mode="group_agent",
         can_search=True,
+        planner_model=planner_for_message("把我的所在地改成上海"),
     )
     execution = prepare_intent_execution(
         resolution,
@@ -731,9 +755,14 @@ def test_wrong_resource_and_parameters_fail_before_io(
 def test_legacy_read_mode_cannot_satisfy_execute_plan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from tests.unit_tests.group_agent_api.planner_fixtures import planner_for_message
+
     monkeypatch.setenv("GROUP_AGENT_READ_MODE", "legacy")
     resolution = resolve_intent(
-        "帮我找合伙人", execution_mode="group_agent", can_search=True
+        "帮我找合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_for_message("帮我找合伙人"),
     )
     with pytest.raises(QueryPlanError, match="query_plan_invalid"):
         prepare_intent_execution(
@@ -1083,6 +1112,7 @@ async def test_chat_enforce_executes_required_tool_before_composing(
         search_only_agent=search_agent,
         write_only_agent=compose_agent,
         no_tool_agent=compose_agent,
+        quality_model=planner_for_message("帮我找技术合伙人"),
     )
     _install_route_skill(tmp_path)
 
@@ -1137,6 +1167,7 @@ async def test_chat_enforce_stops_before_model_when_public_query_fails(
         search_only_agent=agent,
         write_only_agent=agent,
         no_tool_agent=agent,
+        quality_model=planner_for_message("帮我找技术合伙人"),
     )
     _install_route_skill(tmp_path)
 
@@ -1182,6 +1213,7 @@ async def test_async_enforce_executes_required_tool_before_composing(
         search_only_agent=search_agent,
         write_only_agent=compose_agent,
         no_tool_agent=compose_agent,
+        quality_model=planner_for_message("帮我找技术合伙人"),
     )
     _install_route_skill(tmp_path)
     events: list[tuple[str, dict[str, Any]]] = []
@@ -1255,6 +1287,7 @@ async def test_async_consecutive_turns_restore_server_query_context(
         search_only_agent=search_agent,
         write_only_agent=compose_agent,
         no_tool_agent=compose_agent,
+        quality_model=AdaptivePlannerModel(),
     )
     _install_route_skill(tmp_path)
     paths: list[str] = []

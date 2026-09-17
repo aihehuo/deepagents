@@ -26,10 +26,22 @@ ReadIntent = Literal[
     "platform_help",
 ]
 Confidence = Literal["low", "medium", "high"]
-DecisionSource = Literal["rules", "context", "classifier", "combined"]
+DecisionSource = Literal["rules", "context", "classifier", "combined", "planner"]
 DecisionAction = Literal[
     "execute", "clarify", "conversation", "reject", "delegate_existing_flow"
 ]
+PlannerAction = Literal["query", "clarify", "reply"]
+PlannerTimeRange = Literal["本周", "本月", "最近", "近期"]
+EpisodeTurnRole = Literal["human", "assistant"]
+
+_INTENT_PRIMARY_QUERY_FIELD: dict[str, str | None] = {
+    "people_search": "users",
+    "opportunity_search": "ideas",
+    "project_partnership_search": "projects",
+    "community_search": "groups",
+    "startup_digest": None,
+    "platform_help": "faqs",
+}
 
 
 class ClosedModel(BaseModel):
@@ -39,7 +51,7 @@ class ClosedModel(BaseModel):
 
 
 class IntentConstraintsV1(ClosedModel):
-    """Normalized constraints extracted without retaining the full message."""
+    """Normalized constraints retained for markers and calendar parameters."""
 
     location: tuple[str, ...] = Field(default=(), max_length=10)
     industry: tuple[str, ...] = Field(default=(), max_length=10)
@@ -48,8 +60,45 @@ class IntentConstraintsV1(ClosedModel):
     time_range: str | None = Field(default=None, max_length=64)
 
 
+class ResourceQueriesV2(ClosedModel):
+    """Closed resource-specific search text frozen before any public request."""
+
+    users: str | None = Field(default=None, max_length=160)
+    ideas: str | None = Field(default=None, max_length=160)
+    projects: str | None = Field(default=None, max_length=160)
+    groups: str | None = Field(default=None, max_length=160)
+    faqs: str | None = Field(default=None, max_length=160)
+
+    def for_resource(self, resource: str) -> str | None:
+        """Return the frozen query string for a registered resource, if any."""
+        mapping = {
+            "users": self.users,
+            "ideas": self.ideas,
+            "projects": self.projects,
+            "groups": self.groups,
+            "faqs": self.faqs,
+        }
+        value = mapping.get(resource)
+        if value is None:
+            return None
+        text = value.strip()
+        return text or None
+
+    def non_empty(self) -> bool:
+        return any(
+            value and value.strip()
+            for value in (
+                self.users,
+                self.ideas,
+                self.projects,
+                self.groups,
+                self.faqs,
+            )
+        )
+
+
 class ClassifierContextV1(ClosedModel):
-    """Closed, bounded L1 context. Values are data, never executable instructions."""
+    """Historical L1 context shape retained only for snapshot/test compatibility."""
 
     prior_intent: IntentKind | None = None
     prior_constraints: IntentConstraintsV1 = Field(default_factory=IntentConstraintsV1)
@@ -61,6 +110,80 @@ class ClassifierContextV1(ClosedModel):
     current_negations: tuple[str, ...] = Field(default=(), max_length=16)
 
 
+class PlannerTurnV2(ClosedModel):
+    """One bounded current-episode turn supplied to the planner as data."""
+
+    role: EpisodeTurnRole
+    content: str = Field(min_length=1, max_length=1000)
+
+
+class PlannerProfileV2(ClosedModel):
+    """Persistent profile fields the planner may read; never credentials."""
+
+    doing: str | None = Field(default=None, max_length=500)
+    need: str | None = Field(default=None, max_length=500)
+    offer: str | None = Field(default=None, max_length=500)
+    match_constraints: tuple[str, ...] = Field(default=(), max_length=32)
+
+
+class PlannerContextV2(ClosedModel):
+    """Closed planner input: full retained episode, profile, and provenance flags."""
+
+    current_message: str = Field(min_length=1, max_length=2000)
+    episode_turns: tuple[PlannerTurnV2, ...] = Field(default=(), max_length=40)
+    profile: PlannerProfileV2 = Field(default_factory=PlannerProfileV2)
+    prior_completed_intent: IntentKind | None = None
+    prior_completed_queries: ResourceQueriesV2 = Field(default_factory=ResourceQueriesV2)
+    context_compressed: bool = False
+    compression_reason: str | None = Field(default=None, max_length=64)
+
+
+class PlannerProposalV2(ClosedModel):
+    """Authoritative semantic and query proposal for one turn."""
+
+    version: Literal[2] = 2
+    action: PlannerAction
+    intent: IntentKind | None = None
+    queries: ResourceQueriesV2 = Field(default_factory=ResourceQueriesV2)
+    clarification: str | None = Field(default=None, max_length=240)
+    time_range: PlannerTimeRange | None = None
+    planner_version: Literal["intent-planner-v2"] = "intent-planner-v2"
+
+    @model_validator(mode="after")
+    def validate_action_bindings(self) -> PlannerProposalV2:
+        """Enforce closed action/intent/query bindings before policy mapping."""
+        if self.action == "query":
+            if self.intent is None or self.intent not in _INTENT_PRIMARY_QUERY_FIELD:
+                msg = "query action requires a registered read intent"
+                raise ValueError(msg)
+            if self.intent in {"profile_update", "conversation", "clarification"}:
+                msg = "query action cannot use non-read intents"
+                raise ValueError(msg)
+            primary = _INTENT_PRIMARY_QUERY_FIELD[self.intent]
+            if primary is not None and self.queries.for_resource(primary) is None:
+                msg = f"query action for {self.intent} requires a {primary} query"
+                raise ValueError(msg)
+            if self.clarification is not None:
+                msg = "query action cannot include clarification text"
+                raise ValueError(msg)
+            return self
+        if self.action == "clarify":
+            if self.intent not in {None, "clarification"}:
+                msg = "clarify action requires clarification intent"
+                raise ValueError(msg)
+            if self.queries.non_empty():
+                msg = "clarify action cannot include resource queries"
+                raise ValueError(msg)
+            return self
+        if self.intent not in {None, "conversation", "profile_update"}:
+            msg = "reply action must be conversation or profile_update"
+            raise ValueError(msg)
+        if self.queries.non_empty():
+            msg = "reply action cannot include resource queries"
+            raise ValueError(msg)
+        return self
+
+
 class QueryPlanRefV1(ClosedModel):
     """Reference to a plan frozen by INTENT-XCUT-000."""
 
@@ -69,14 +192,14 @@ class QueryPlanRefV1(ClosedModel):
 
 
 class IntentCandidateV1(ClosedModel):
-    """One bounded classifier candidate."""
+    """One bounded classifier candidate (historical Phase 1 shape)."""
 
     intent: IntentKind
     confidence: Confidence
 
 
 class IntentClassificationV1(ClosedModel):
-    """Tool-free L2 classifier response."""
+    """Historical L2 classifier response retained for test fixtures only."""
 
     version: Literal[1] = 1
     candidates: tuple[IntentCandidateV1, ...] = Field(min_length=1, max_length=3)
@@ -99,6 +222,8 @@ class IntentDecisionV1(ClosedModel):
     required_skill: str | None = Field(default=None, max_length=128)
     query_plan_ref: QueryPlanRefV1 | None = None
     requires_plan_receipts: bool = False
+    resource_queries: ResourceQueriesV2 = Field(default_factory=ResourceQueriesV2)
+    planner_version: Literal["intent-planner-v2"] | None = None
     policy_version: Literal["intent-policy-v1"] = "intent-policy-v1"
 
     @model_validator(mode="after")
@@ -111,6 +236,14 @@ class IntentDecisionV1(ClosedModel):
             and self.requires_plan_receipts
         ):
             msg = "execute decisions must exclusively own skill, plan, and receipt requirements"
+            raise ValueError(msg)
+        if execute:
+            primary = _INTENT_PRIMARY_QUERY_FIELD.get(self.primary_intent)
+            if primary is not None and self.resource_queries.for_resource(primary) is None:
+                msg = "execute decisions must freeze the primary resource query"
+                raise ValueError(msg)
+        elif self.resource_queries.non_empty():
+            msg = "non-execute decisions cannot carry resource queries"
             raise ValueError(msg)
         if (
             self.primary_intent == "profile_update"

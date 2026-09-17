@@ -10,134 +10,16 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .contracts import QueryPlanStepV1
-from .constraint_lexicon import FIELD_EXCLUSION_PREFIX_PATTERN, expand_constraint_token
 from .execution import IntentExecution, QueryPlanError, active_intent_execution
 
-_LATIN_ALIAS = re.compile(r"^[a-z0-9][a-z0-9+.#'_\s-]*$", re.IGNORECASE)
-_NEGATION_PREFIX = rf"(?:{FIELD_EXCLUSION_PREFIX_PATTERN}|别|去掉|不看)"
-_SEARCH_PREFIX = re.compile(
-    r"^(?:(?:请|麻烦|能否|可以|能不能)\s*)?(?:(?:你|帮我|给我|替我)\s*)?"
-    r"(?:有没有|搜索|查找|查询|查一下|找一下|想认识|找|查|推荐|看看|看下)\s*"
-    r"|^(?:please\s+)?(?:help me\s+)?(?:find|search(?: for)?|look for|show me)\s+",
-    re.IGNORECASE,
-)
-_FOLLOWUP_PREFIX = re.compile(r"^(?:改成|改为|换成|换到)\s*")
-_QUERY_FILLER = re.compile(r"(?:行业|优先(?:有|具备)?|哪些|做|的|呢)")
 
-
-def _alias_pattern(alias: str) -> str:
-    escaped = re.escape(alias)
-    if _LATIN_ALIAS.fullmatch(alias):
-        return rf"(?<![a-z0-9]){escaped}(?![a-z0-9])"
-    return escaped
-
-
-def _remove_negated_constraints(execution: IntentExecution, message: str) -> str:
-    """Remove only explicit negation phrases, never unrelated alias substrings."""
-    cleaned = message
-    removed = False
-    allowed_kinds = {"location", "industry", "role", "capability"}
-    for negation in execution.decision.negations:
-        kind, separator, value = negation.partition(":")
-        value = value.strip()
-        if separator != ":" or kind not in allowed_kinds or not value:
-            continue
-        for alias in expand_constraint_token(kind, value):
-            if not alias.strip():
-                continue
-            pattern = rf"{_NEGATION_PREFIX}\s*{_alias_pattern(alias)}"
-            updated, count = re.subn(pattern, "", cleaned, flags=re.IGNORECASE)
-            if count:
-                cleaned = updated
-                removed = True
-    if removed:
-        cleaned = re.sub(r"\s*[,，;；]\s*", " ", cleaned)
-    return re.sub(r"\s+", " ", cleaned).strip()
-
-
-def _semantic_query(execution: IntentExecution) -> str:
-    """Use a focused search phrase while preserving unmodeled user semantics."""
-    current = _remove_negated_constraints(execution, execution.original_message)
-    current = _SEARCH_PREFIX.sub("", current, count=1).strip()
-    current = _FOLLOWUP_PREFIX.sub("", current, count=1).strip()
-    constraints = execution.decision.constraints
-    frozen = [
-        *constraints.location,
-        *constraints.industry,
-        *constraints.role,
-        *constraints.capability,
-    ]
-    if constraints.time_range in {"本周", "本月", "最近", "近期"}:
-        current = re.sub(
-            r"(?:本周|本月|最近|近期)的?(?=$|[，,。;；])", "", current
-        ).strip(" ，,。;；")
-    if len(current) <= 16 and any(value in current for value in constraints.location):
-        current = re.sub(r"(?:的呢|呢|的)$", "", current).strip()
-    normalized_current = current.casefold()
-    missing = list(
-        dict.fromkeys(
-            item.strip()
-            for item in frozen
-            if item.strip() and item.strip().casefold() not in normalized_current
-        )
-    )
-    if not missing:
-        return current[:160]
-    suffix = " ".join(missing)[:80]
-    current_limit = max(0, 160 - len(suffix) - 1)
-    return f"{current[:current_limit]} {suffix}".strip()
-
-
-def _people_query(execution: IntentExecution) -> str:
-    """Lead with frozen search constraints and retain otherwise unmodeled details."""
-    constraints = execution.decision.constraints
-    roles = tuple(
-        value
-        for value in constraints.role
-        if not any(value != other and value in other for other in constraints.role)
-    )
-    fields = (
-        ("location", constraints.location),
-        ("industry", constraints.industry),
-        ("role", roles),
-        ("capability", constraints.capability),
-    )
-    positive = list(
-        dict.fromkeys(
-            value.strip() for _, values in fields for value in values if value.strip()
-        )
-    )
-    if not positive:
-        return _semantic_query(execution)
-
-    remainder = _semantic_query(execution)
-    for kind, values in fields:
-        for value in values:
-            for alias in sorted(
-                expand_constraint_token(kind, value), key=len, reverse=True
-            ):
-                remainder = re.sub(
-                    _alias_pattern(alias), " ", remainder, flags=re.IGNORECASE
-                )
-    remainder = _QUERY_FILLER.sub(" ", remainder)
-    remainder = re.sub(r"[，,。！？;；\s]+", " ", remainder).strip()
-    core = " ".join(positive)[:160]
-    remaining = 160 - len(core) - 1
-    return f"{core} {remainder[:remaining]}" if remainder and remaining > 0 else core
-
-
-def _keyword_text(execution: IntentExecution) -> str:
-    constraints = execution.decision.constraints
-    values = [
-        *constraints.location,
-        *constraints.industry,
-        *constraints.role,
-        *constraints.capability,
-    ]
-    unique = list(dict.fromkeys(item.strip() for item in values if item.strip()))
-    if unique:
-        return " ".join(unique)[:160]
-    return _semantic_query(execution)
+def _frozen_query(execution: IntentExecution, resource: str) -> str:
+    """Return the planner-frozen query for a resource; never invent terms."""
+    queries = getattr(execution.decision, "resource_queries", None)
+    if queries is None:
+        return ""
+    value = queries.for_resource(resource)
+    return value or ""
 
 
 def _created_since(execution: IntentExecution) -> str | None:
@@ -171,7 +53,8 @@ def _created_since(execution: IntentExecution) -> str | None:
 
 
 def _selected_group_event_id(execution: IntentExecution) -> str | None:
-    text = _semantic_query(execution)
+    """Deterministic event_id from frozen groups query text or prior receipts."""
+    text = _frozen_query(execution, "groups") or execution.original_message
     lowered = text.lower()
     if not any(
         marker in lowered for marker in ("成员", "参与者", "报名名单", "member")
@@ -209,7 +92,7 @@ def _selected_group_event_id(execution: IntentExecution) -> str | None:
 def build_step_parameters(
     execution: IntentExecution, step: QueryPlanStepV1, *, page: int = 1
 ) -> dict[str, Any]:
-    """Build bounded parameters from the authoritative decision and step policy."""
+    """Build bounded parameters from the frozen planner queries and step policy."""
     if execution.plan is None or page < 1:
         raise QueryPlanError("query_plan_invalid")
     output = "md" if step.resource == "weekly" else "json"
@@ -225,11 +108,14 @@ def build_step_parameters(
     if created_since is not None:
         parameters["created_since"] = created_since
     if step.resource == "users":
-        parameters["q"] = _people_query(execution)
+        parameters["q"] = _frozen_query(execution, "users")[:160]
     elif step.resource == "ideas":
-        parameters["q"] = _semantic_query(execution)
+        parameters["q"] = _frozen_query(execution, "ideas")[:160]
     elif step.resource in {"projects", "groups", "faqs"}:
-        parameters["keyword"] = _keyword_text(execution)
+        field = "projects" if step.resource == "projects" else (
+            "groups" if step.resource == "groups" else "faqs"
+        )
+        parameters["keyword"] = _frozen_query(execution, field)[:160]
     elif step.resource == "group-members":
         event_id = _selected_group_event_id(execution)
         if event_id is not None:

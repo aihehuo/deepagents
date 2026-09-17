@@ -13,17 +13,26 @@ from apps.group_agent_api.agent_factory.intent_routing.execution import (
     prepare_intent_execution,
 )
 from apps.group_agent_api.agent_factory.intent_routing.resolver import resolve_intent
+from tests.unit_tests.group_agent_api.planner_fixtures import (
+    people_query,
+    planner_for_message,
+    planner_returning,
+    platform_help_query,
+    proposal,
+)
 
 
 def _execution(run_id: str = "guard-run"):
+    message = "帮我找上海的技术合伙人"
     resolution = resolve_intent(
-        "帮我找上海的技术合伙人",
+        message,
         execution_mode="group_agent",
         can_search=True,
+        planner_model=planner_returning(people_query("上海 技术合伙人")),
     )
     return prepare_intent_execution(
         resolution,
-        original_message="帮我找上海的技术合伙人",
+        original_message=message,
         run_id=run_id,
         request_fingerprint=None,
     )
@@ -494,6 +503,7 @@ def test_platform_help_faq_is_not_treated_as_people_zero_match(
         "如何发布餐饮项目招合伙人",
         execution_mode="group_agent",
         can_search=True,
+        planner_model=planner_for_message("如何发布餐饮项目招合伙人"),
     )
     assert resolution.decision.primary_intent == "platform_help"
     execution = prepare_intent_execution(
@@ -535,6 +545,7 @@ def test_startup_digest_keeps_raw_result_scope(
         "看看本周创业周报和文章",
         execution_mode="group_agent",
         can_search=True,
+        planner_model=planner_returning(proposal(intent="startup_digest")),
     )
     assert resolution.decision.primary_intent == "startup_digest"
     execution = prepare_intent_execution(

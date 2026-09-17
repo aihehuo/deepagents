@@ -29,7 +29,6 @@ from apps.group_agent_api.agent_factory.integrations.config import read_mode
 from apps.group_agent_api.agent_factory.intent_routing.context import (
     IntentContextScope,
     completed_intent_context_message,
-    profile_routing_hints,
 )
 from apps.group_agent_api.agent_factory.intent_routing.execution import (
     IntentExecution,
@@ -406,9 +405,6 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                 msg_count_before = len(prior_messages)
                 routing_mode = intent_routing_mode()
                 if routing_mode in {"observe", "enforce"}:
-                    profile_constraints, profile_negations = profile_routing_hints(
-                        load_profile(state.base_dir, user_id, group_id)
-                    )
                     intent_resolution = await aresolve_intent(
                         req.message,
                         execution_mode="group_agent",
@@ -420,9 +416,8 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                             execution_mode="group_agent",
                             episode_id=_episode_id_from_metadata(req.metadata),
                         ),
-                        classifier_model=state.quality_model or state.polish_model,
-                        profile_constraints=profile_constraints,
-                        profile_negations=profile_negations,
+                        planner_model=state.quality_model or state.polish_model,
+                        profile=load_profile(state.base_dir, user_id, group_id),
                     )
                     record_intent_prediction(
                         intent_resolution,

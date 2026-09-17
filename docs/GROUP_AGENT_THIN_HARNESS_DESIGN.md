@@ -1,7 +1,12 @@
 # Group Agent Thin Harness Design and Phased Migration Plan
 
-- Status: Phases 0–1 implemented locally; Phase 1 not deployed; later phases proposed
+- Status: Phases 0–2 are historical/local implementation milestones; Phases 3–4
+  below remain the next proposal boundaries, not yet authorized for
+  implementation or deployment
 - Baseline date: 2026-09-16
+- Design revision: 2026-09-17 — model-owned query formulation from conversation
+  and profile; supersedes the original L0-fast-path end state
+- Phase 2 local implementation: 2026-09-17 — authoritative planner cutover
 - Primary repository: `deepagents`
 - Primary surface: `apps/group_agent_api` in `group_agent` execution mode
 
@@ -25,6 +30,12 @@ The implementation agent MUST follow these rules:
 This proposal does not freeze or otherwise change the status of `INTENT-000`.
 Any contract-freeze decision remains separate.
 
+Phases 0–1 document what was implemented and why. The 2026-09-17 decision
+changes the **target** for Phase 2 onward: no semantic keyword fast path or
+lexicon-based query construction remains in the end state. Where historical
+Phase 0–1 acceptance criteria mention L0, they are not requirements for the
+revised end state.
+
 ## 2. Executive decision
 
 The harness should be made thinner by removing duplicated semantic judgment,
@@ -38,12 +49,16 @@ The target ownership model is:
 - One evidence authority decides what facts are available to the response.
 - One response model decides how those facts are explained to the user.
 
-L0 becomes a positive-only, high-precision fast path. Failure to match L0 is
-unknown, not proof of conversation. All non-positive and ambiguous cases move to
-the semantic model layer.
+The model becomes the sole semantic authority on **every turn**, including
+explicit search, elliptical follow-up, conversation, and clarification. It
+reads the current-episode conversation (both human and assistant turns) and the
+persistent user profile, then proposes the action, registered intent, and
+resource-appropriate search query. L0 keyword rules and industry/role/location
+lexicons are historical Phase 1 mechanisms, not the target design.
 
 The end state is not unrestricted model tool calling. The model owns semantic
-decisions; the server continues to own authorization and execution.
+decisions and query wording; the server continues to own authorization,
+registered plans, execution, and evidence provenance.
 
 ## 3. Motivating incident
 
@@ -101,6 +116,7 @@ allows multiple layers to disagree about:
 - whether a query was requested;
 - which resource the user meant;
 - whether prior constraints should be inherited;
+- which profile and conversation details belong in the search query;
 - which results satisfy semantic requirements;
 - whether the answer sufficiently displays those results.
 
@@ -111,7 +127,8 @@ that is difficult to reason about as a whole.
 
 1. Let the model be the default authority for multilingual, contextual semantic
    intent.
-2. Retain a deterministic fast path for explicit, high-confidence read intents.
+2. Remove semantic L0 fast paths and lexicon-based query assembly from the
+   target path; explicit requests also go through the model planner.
 3. Preserve server ownership of permissions, budgets, QueryPlan execution,
    receipts, ACK, retries, and recovery.
 4. Ensure no response can claim a query or external action without current-turn
@@ -120,6 +137,9 @@ that is difficult to reason about as a whole.
 6. Preserve the current Deep-to-Micro callback contract and iOS projection
    contract unless a later phase explicitly changes them.
 7. Make every phase independently reviewable and reversible.
+8. Use the full retained current-episode conversation, including prior assistant
+   replies, and persistent `doing`/`need`/`offer` profile text when formulating
+   a query. Do not silently reduce this to the latest message or five user turns.
 
 ## 6. Non-goals
 
@@ -135,10 +155,11 @@ that is difficult to reason about as a whole.
 
 ## 7. Design principles
 
-### 7.1 Absence of an L0 match is unknown
+### 7.1 Semantic interpretation belongs to the model
 
-L0 may confirm a search only when it has positive evidence. It may not classify a
-turn as conversation merely because a phrase was not found.
+No semantic keyword hit, alias, or regex may settle whether a turn is a search
+or what its query should say. Phase 2 removes the Phase 1 L0 runtime path
+directly; it does not retain a parallel routing switch.
 
 ### 7.2 One layer owns each decision
 
@@ -155,9 +176,11 @@ upstream semantic decision.
 
 ### 7.3 Model proposes; server disposes
 
-The model may propose an intent, resource, constraints, and response. The server
-validates all executable fields against closed schemas and trusted capability
-state before any public request.
+The model may propose an action, registered intent, resource-specific query,
+and response. The server validates executable shape, resource membership, query
+length, and trusted capability state before any public request. It must not
+re-interpret industry, location, role, or negation with another semantic
+lexicon after the model has decided.
 
 ### 7.4 Fail closed at execution boundaries
 
@@ -165,25 +188,41 @@ Classifier or planner failure must not trigger a query. Timeout, unavailable
 models, invalid schemas, ambiguous top candidates, and missing objects resolve
 to clarification or safe conversation.
 
-### 7.5 Explicit negation is a hard veto
+### 7.5 Current instructions outrank historical context
 
-Phrases such as `不要搜索`, `先别查`, or their supported semantic equivalents
-must not be converted into an execute action by a downstream model. Negation is
-a policy constraint, not merely a classifier hint.
+The planner must understand statements such as `不要搜索` or `不要北京` semantically,
+without an enumerated veto phrase list. It must prefer the current user's
+explicit direction over older turns and profile defaults. A `reply` or
+`clarify` decision cannot be converted into a query by downstream code.
+Authorization and resource restrictions remain deterministic policy, not
+semantic keyword rules.
+
+### 7.6 Conversation and profile provenance
+
+- Supply the complete retained **current-episode** human and assistant history
+  in order, plus persistent profile `doing`/`need`/`offer` and any explicit
+  `match_constraints`. Assistant replies explain conversational references but
+  are not verified facts about users or external entities.
+- A new episode deliberately has no prior-episode checkpoint transcript; its
+  persistent profile remains available. Reading older episode transcripts is a
+  separate scope decision, not an implicit part of this revision.
+- If the retained history exceeds the model context window, use an explicit,
+  provenance-bound compression of older turns plus recent turns verbatim.
+  Record that compression occurred; never silently take only the last message
+  or last five user turns. Do not include credentials, raw tool results, or
+  internal prompts as conversation content.
 
 ## 8. Target architecture
 
 ```mermaid
 flowchart TD
-    U[Current user turn] --> C[Bounded trusted context]
-    C --> L0{L0 positive executable read intent?}
-    L0 -->|Yes| D[Structured intent decision]
-    L0 -->|No or unknown| P[Semantic planner]
-    P --> D
-    D --> V{Policy and schema validation}
+    U[Current user turn] --> C[Current-episode dialogue + persistent profile]
+    C --> P[One model semantic and query planner]
+    P --> V{Policy and schema validation}
     V -->|Reply or clarify| R[User-visible response]
-    V -->|Authorized query| E[Durable QueryPlan executor]
+    V -->|Authorized query| F[Frozen action, intent and resource queries]
     V -->|Rejected| R
+    F --> E[Durable QueryPlan executor]
     E --> X[Verified receipts and typed evidence]
     X --> M[Evidence composer]
     M --> G[Minimal deterministic evidence validator]
@@ -192,14 +231,12 @@ flowchart TD
 
 ### 8.1 Expected model-call count
 
-- Explicit L0 query: query execution plus one evidence-composition call.
-- Ambiguous or multilingual query: one planning call, query execution, then one
-  evidence-composition call.
-- Ordinary conversation or clarification in the eventual end state: one planner
-  call that may also provide the direct reply.
+- Every turn: one planning call. A search then uses the registered QueryPlan
+  and one evidence-composition call; reply/clarification may be produced by the
+  planner without a second model judgment.
 
-Phase 1 does not yet combine planning and ordinary response generation. That
-optimization belongs to later phases.
+Phase 1 did not combine planning and ordinary response generation. That
+historical implementation is a rollback baseline, not the revised target.
 
 ## 9. Security and reliability invariants
 
@@ -358,7 +395,7 @@ Requirements:
   unbounded transcript.
 - Put strict field and length limits on the context schema.
 - Treat contextual values as data, not instructions.
-- Preserve the current marker integrity checks until Phase 5 replaces them.
+- Preserve the current marker integrity checks until Phase 4 replaces them.
 
 ### Likely files
 
@@ -414,33 +451,35 @@ Revert the Phase 1 commit. Existing QueryPlan and client contracts are unchanged
 
 ---
 
-## Phase 2A: Introduce a structured semantic planner in shadow mode
+## Phase 2: Replace semantic routing and query construction in one change
 
 ### Objective
 
-Replace intent-only L1 classification with a richer closed planner contract,
-without allowing the new planner to control production execution yet.
+Replace intent-only L1 classification, L0 semantic fast paths, fixed synonym
+lexicons, and server-side semantic query assembly with one authoritative model
+planner. This is one implementation/review phase, not shadow, canary, or
+observe/enforce rollout stages. The planner runs on every turn, including
+obvious search requests and ordinary conversation.
+
+Its input includes the current turn, the retained current-episode human and
+assistant conversation, and the persistent profile (including legacy free-text
+`doing`, `need`, and `offer`, not just `match_constraints`). Long history needs
+explicit, tested compression or rehydration; silently keeping only the last
+five user turns is not acceptable. Prior assistant replies are conversational
+context, not trusted factual evidence.
 
 ### Proposed planner output
 
-The exact versioned schema should be finalized during this phase, but it should
-remain conceptually bounded to:
+Finalize a closed, versioned schema in this phase. Its query action is
+conceptually:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "action": "query",
   "intent": "people_search",
-  "resource": "users",
-  "constraints": {
-    "location": ["上海"],
-    "industry": ["餐饮"],
-    "role": ["运营负责人"],
-    "capability": []
-  },
-  "preferences": [],
-  "missing_fields": [],
-  "evidence_spans": ["do a search"]
+  "queries": {"users": "上海 餐饮 运营合伙人"},
+  "clarification": null
 }
 ```
 
@@ -450,181 +489,88 @@ Allowed actions should be closed, for example:
 - `clarify`
 - `reply`
 
-The planner must not output URLs, credentials, raw query strings, callback
-settings, budgets, receipt IDs, or arbitrary tool names.
-
-### Shadow behavior
-
-- Existing Phase 1 decisions remain authoritative.
-- Run the planner only where bounded latency and rollout settings permit.
-- Record bounded comparison data, never raw sensitive messages.
-- Do not execute from a shadow-only planner result.
-
-### Comparison dimensions
-
-- selected action;
-- selected intent/resource;
-- normalized constraints;
-- missing-object decision;
-- expected QueryPlan ID;
-- latency and status;
-- disagreement category.
-
-### Likely files
-
-- New versioned planner schema under `intent_routing`
-- Planner prompt/model adapter
-- Resolver shadow integration
-- Debug-trace or metrics integration
-- Planner contract and adversarial tests
-
-### Acceptance criteria
-
-- Planner outputs are closed-schema validated.
-- Invalid or injected fields are rejected.
-- Shadow results never execute tools.
-- No raw prompt, transcript, credentials, or evidence payload is logged.
-- A representative multilingual evaluation set shows acceptable agreement and
-  explains intentional disagreements with Phase 1.
-- Existing runtime behavior remains unchanged.
-
-### Review evidence
-
-- Schema and threat-model review.
-- Shadow comparison summary by scenario, not only aggregate accuracy.
-- Latency distribution and timeout rate.
-- Examples of disagreement classes and proposed handling.
-
-### Rollback
-
-Disable the shadow call and revert the Phase 2A commit. No execution or data
-migration dependency is allowed.
-
----
-
-## Phase 2B: Make the semantic planner authoritative
-
-### Objective
-
-Use the planner as the sole semantic authority for cases not resolved by the L0
-positive fast path or hard negation veto.
-
-### Required behavior
-
-- L0 positive read intents continue to bypass the planner.
-- All other semantic routing uses the planner result.
-- Deterministic policy still maps only registered intent/resource combinations
-  to execution.
-- Missing fields produce clarification.
-- Planner failure produces clarification, never execution.
-- Planner constraints remain proposals until policy/schema validation succeeds.
-
-### Rollout
-
-Use explicit observe/enforce gating with a fast rollback path. Do not silently
-change the meaning of the existing intent-routing rollout flag. If a new flag is
-necessary, document its default, accepted values, and interaction with current
-flags.
-
-Recommended progression:
-
-1. allowlisted test users;
-2. prod3 scripted conversations;
-3. bounded canary;
-4. broader enforcement after review.
-
-### Acceptance criteria
-
-- Phase 2A disagreement classes are resolved or explicitly accepted.
-- Query execution parity holds for the existing frozen intent set.
-- Authorization and no-public-request failure tests remain green.
-- Production can immediately revert to Phase 1 behavior through configuration.
-- Callback and client schemas remain unchanged.
-
-### Review evidence
-
-- Before/after route distribution.
-- False-positive query and false-negative query samples.
-- Planner failure and timeout behavior.
-- Canary rollback demonstration.
-
-### Rollback
-
-Switch authority back to Phase 1 routing and retain planner shadow telemetry.
-
----
-
-## Phase 3: Simplify semantic parameter construction and QueryPlan wiring
-
-### Objective
-
-Remove duplicated semantic interpretation between the planner and
-`plan_executor`, while retaining deterministic execution.
-
-### Target boundary
-
-The planner owns semantic fields:
-
-- intent;
-- resource;
-- required constraints;
-- preferences;
-- missing information.
-
-The server owns mechanical fields:
-
-- registered plan and step IDs;
-- pagination;
-- per-step and total budgets;
-- parameter encoding;
-- timezone conversion from a trusted timezone;
-- ACK and progress events;
-- receipts, ledger, fences, attempts, retries, and recovery.
+The planner **does** output semantic search text for each selected registered
+read resource. It must not output URLs, credentials, headers, callback settings,
+budgets, receipt IDs, arbitrary tool names, or arbitrary parameter keys. Define
+resource-specific fields, length bounds, and non-text parameter handling in the
+schema. No fixed bilingual lexicon or industry-specific rules may manufacture
+missing semantic terms after the planner responds.
 
 ### Required work
 
-1. Define a single normalization step from validated planner constraints to
-   registered resource parameters.
-2. Remove only semantic heuristics proven redundant by planner output.
-3. Preserve deterministic handling for values that must not be guessed, such as
-   event IDs and trusted timezone boundaries.
-4. Preserve fairness across active plan steps before pagination.
-5. Preserve preflight validation before public requests.
+1. Supply the full retained current-episode conversation and persistent profile
+   as bounded, provenance-marked data. Exclude credentials, raw tool results,
+   and internal prompts. Explicitly handle context-window overflow.
+2. Use one planner result for every turn. Current instructions override older
+   turns and profile defaults. Missing search objects or planner failure produce
+   clarification; no public request occurs.
+3. Validate action, registered intent/resource, query size and shape,
+   authorization, and plan contract before execution. Freeze the accepted
+   action, intent, resource-specific queries, context identity, and planner
+   version in a versioned routing snapshot before any public request. Retry
+   reuses that snapshot instead of regenerating a query.
+4. Adapt validated query text mechanically to registered resource parameters
+   (`q`, `keyword`, and other allowed fields). Keep deterministic handling for
+   trusted timezone boundaries and event IDs; never guess them.
+5. Remove L0 search fast paths, the old classifier-only path, fixed synonym
+   lexicons, and semantic query builders such as `_semantic_query` and
+   `_people_query` in the same change. Do not retain dual routing, shadow calls,
+   observe/enforce flags, or a temporary old-query adapter.
+6. Keep the QueryPlan registry, skill and plan preflight, permissions, budgets,
+   step fairness, ACK-before-fetch, receipts, fences, min-success conditions,
+   retry, and recovery unchanged in ownership and behavior.
+7. Keep old snapshots readable **only if** an in-flight run can still resume
+   during deployment. Otherwise drain or finish those runs before cutover. Do
+   not build a permanent dual-path compatibility framework for unused beta
+   traffic or migrate/delete user data as part of this phase.
 
-### Do not remove
+Query text may contain private profile details. Store it in the protected
+execution snapshot and explicitly contracted bounded debugging surfaces, not
+unrestricted application logs. Planner failure must never silently fall back to
+latest-message-only query construction.
 
-- QueryPlan registry;
-- skill and plan contract validation;
-- budgets;
-- receipt ledger;
-- ACK;
-- fences;
-- min-success conditions;
-- cross-attempt recovery.
+### Likely files
+
+- Versioned planner schema, prompt/model adapter, and resolver
+- Sync and async entry points and profile/conversation context loader
+- Routing snapshot and mechanical `plan_executor` parameter adapter
+- Deletion of old semantic routing, lexicon, and query assembly code
+- Planner, QueryPlan, failure, retry, and conversation regressions
 
 ### Acceptance criteria
 
-- Existing public-skill integration tests remain green.
-- Identical validated planner input produces deterministic resource parameters.
-- Negated values never reappear in a query.
-- Timezone boundary tests remain explicit.
-- Multi-step budget fairness remains covered.
-- No client schema change is required.
+- Every turn uses the planner in sync and async paths; no L0/lexicon semantic
+  decision path remains.
+- Invalid/injected output, timeout, and missing object cause clarification with
+  no public request. Explicit `不要搜索` does not execute.
+- A multilingual, multi-industry evaluation set checks query relevance from
+  current request, full available episode history, and legacy profile text.
+- Identical frozen planner output yields identical request parameters; retry
+  does not call the planner again for the same execution.
+- Public-skill, authorization, budget fairness, ACK, receipt, fence, recovery,
+  and callback tests pass. No callback or client schema change is required.
+- No raw prompt, full transcript, credentials, or evidence payload is logged.
 
 ### Review evidence
 
-- Inventory of deleted heuristics and the planner fields replacing each one.
-- Golden parameter vectors before and after.
-- Proof that public requests cannot occur before validation and ACK.
+- Schema and threat-model review; query examples across industries and
+  corrections, including the new-episode restaurant/profile incident.
+- Planner failure/timeout, context-overflow, and snapshot/retry traces.
+- Exact inventory of removed semantic rules and proof of no request before
+  validation and ACK.
+- Focused and broader test commands/results, latency distribution, and
+  confirmation that no deployment/flag change occurred.
 
 ### Rollback
 
-Keep the old parameter adapter behind a temporary internal switch until parity is
-accepted, then remove the switch in a separate reviewed cleanup commit.
+Revert the focused Phase 2 code commit before deployment, or redeploy the prior
+image if a beta deployment fails. Do not maintain the old routing path in the
+new runtime solely for rollback. Check and finish or safely cancel in-flight
+runs before switching images; never discard a durable execution silently.
 
 ---
 
-## Phase 4: Replace overlapping response guards with typed evidence references
+## Phase 3: Replace overlapping response guards with typed evidence references
 
 ### Objective
 
@@ -669,15 +615,16 @@ current-turn typed evidence.
 - portions of `intent_final_guard` covered by typed references;
 - duplicate projection filtering.
 
-Do not delete these components until typed-output parity and fallback behavior
-have been reviewed. Introduce typed composition in shadow or dual-validation mode
-first.
+Replace the overlapping checks in one focused change after Phase 2 is reviewed.
+Use adversarial and existing response fixtures to prove each invariant before
+deleting its old implementation; no shadow composer or dual-validation runtime
+is required for beta traffic.
 
 ### Client compatibility
 
 Prefer deriving the existing Micro/iOS projection payload from typed evidence so
-that no client change is required. If a payload change is unavoidable, it must be
-specified as a separate compatibility subphase with Micro and iOS tests.
+that no client change is required. If a payload change is unavoidable, pause
+for an explicit cross-repository review and compatibility tests.
 
 ### Acceptance criteria
 
@@ -690,19 +637,19 @@ specified as a separate compatibility subphase with Micro and iOS tests.
 
 ### Review evidence
 
-- Dual-validation comparison between old grounding and typed validation.
+- Fixture-based comparison between old grounding and typed validation.
 - False-accept and false-reject examples.
 - Explicit list of old checks proposed for deletion.
 - Latency and model-call-count comparison.
 
 ### Rollback
 
-Return to the old composer and guard path while retaining typed-output logs only
-if they contain no sensitive raw payloads.
+Revert the focused code commit or redeploy the prior image. Do not keep a
+permanent dual-composer path for rollback.
 
 ---
 
-## Phase 5: Simplify durable context and remove obsolete code
+## Phase 4: Simplify durable context and remove obsolete code
 
 ### Objective
 
@@ -730,25 +677,28 @@ The state must be bound to the same scope currently protected by marker hashes.
 It must not become available for inheritance until the successful final answer
 is durably committed.
 
-### Migration approach
+### Implementation approach
 
-1. Dual-write explicit state and existing markers.
-2. Compare restored context from both sources.
-3. Prefer explicit state for allowlisted traffic.
-4. Prove failure, retry, and episode-isolation behavior.
-5. Stop writing markers.
-6. Remove marker scanning in a separate cleanup commit.
+1. Write explicit state when the final answer is durably committed.
+2. Read that state for subsequent turns and remove marker scanning/writing in
+   the same reviewed change; prove failure, retry, and episode isolation with
+   real checkpoint tests.
+3. Before deployment, identify unfinished runs or checkpoints that could still
+   need old markers. Drain/finish them or provide a narrowly scoped reader for
+   those exact snapshots; do not introduce ongoing dual-write or allowlist
+   migration for beta traffic. Do not delete historical conversations or other
+   user data.
 
 ### Cleanup inventory
 
-After parity is proven, identify and remove:
+Within this phase, identify and remove remaining obsolete code:
 
 - obsolete semantic regexes;
 - old classifier-only schemas and prompts;
 - redundant grounding rewrites;
 - duplicate projection matchers;
 - message-marker recovery code;
-- temporary rollout switches and shadow comparison code.
+- obsolete rollout switches, if no active caller requires them.
 
 Deletion must follow evidence. Do not delete a component merely because a later
 component appears to cover it.
@@ -759,20 +709,22 @@ component appears to cover it.
 - Failed composition cannot publish inheritable context.
 - Late callbacks and old attempts cannot overwrite current context.
 - Three-turn positive and negative follow-up regressions pass.
-- Dual-read comparison shows parity before marker removal.
+- Existing completed checkpoints and in-flight runs have a documented safe
+  cutover; no user conversation data is deleted.
 - Final code and flags have a documented single owner for each invariant.
 
 ### Review evidence
 
 - State transition table for success, failure, retry, and episode reset.
-- Dual-read parity report.
+- Checkpoint cutover inventory and targeted recovery tests.
 - Exact deletion inventory.
 - Recovery tests using real checkpoint behavior rather than duplicated test logic.
 
 ### Rollback
 
-During dual-write, return reads to existing markers. Marker removal is permitted
-only after an explicit review gate and must have its own reversible commit.
+Revert the focused code commit or redeploy the prior image after safely
+handling in-flight runs. Do not maintain ongoing marker dual-write solely for
+rollback.
 
 ## 11. Cross-repository impact by phase
 
@@ -780,11 +732,9 @@ only after an explicit review gate and must have its own reversible commit.
 | --- | --- | --- | --- |
 | 0 | Tests/observability | None | None |
 | 1 | Resolver/classifier/context | None | None |
-| 2A | Shadow planner | None | None |
-| 2B | Planner authority | None if callback schemas stay stable | None |
-| 3 | Planner-to-executor normalization | None | None |
-| 4 | Typed composition and projection derivation | Possibly projection compatibility tests | Possibly only if payload changes |
-| 5 | Checkpoint context and cleanup | Only if state ownership moves across service boundary | None expected |
+| 2 | Authoritative planner, query adapter/snapshot, old semantic-rule deletion | None if callback schemas stay stable | None |
+| 3 | Typed composition and projection derivation | Possibly projection compatibility tests | Possibly only if payload changes |
+| 4 | Checkpoint context and cleanup | Only if state ownership moves across service boundary | None expected |
 
 No implementation agent may introduce a Micro or iOS change merely for
 convenience during a Deep-only phase.
@@ -793,14 +743,16 @@ convenience during a Deep-only phase.
 
 ### 12.1 Routing tests
 
-Cover Chinese and English, explicit and implicit requests, positive and negative
-follow-ups, and classifier failures. Assert both the decision and absence or
-presence of public requests.
+Cover Chinese and English, varied industries and paraphrases, explicit and
+implicit requests, positive and negative follow-ups, full retained episode
+history, persistent profile, and planner failures. Assert action, selected
+resource, query content, and absence or presence of public requests. Do not
+make a finite keyword list the acceptance oracle.
 
 ### 12.2 QueryPlan tests
 
-Assert deterministic parameters, budget fairness, ACK-before-fetch, receipt
-validity, min-success conditions, and resume behavior.
+Assert deterministic parameters from the frozen query snapshot, budget fairness,
+ACK-before-fetch, receipt validity, min-success conditions, and resume behavior.
 
 ### 12.3 Evidence tests
 
@@ -823,7 +775,7 @@ scripted scenario:
 3. `I need someone experienced in operation.`
 4. `Can you help me do a search?`
 
-Expected final behavior after Phase 1:
+Expected behavior after Phase 1 (historical acceptance):
 
 - the final turn does not resolve as `no_business_action`;
 - the semantic layer uses the bounded Shanghai/restaurant/operations context;
@@ -835,21 +787,49 @@ Expected final behavior after Phase 1:
 Also test the same final request without the prior three turns. It must clarify
 the search object and must not issue a public request.
 
+For Phase 2 implementation and review, add these cases:
+
+- A new episode starts with `继续搜索`: retained history is empty, but a legacy
+  persistent profile containing restaurant, Shanghai, and operations context
+  still informs a relevant search query when the object is sufficiently clear;
+  otherwise the planner asks a precise clarification.
+- A new episode starts with `搜索上海的运营合伙人`: profile free text mentions a
+  restaurant business while structured `match_constraints` is empty. The
+  `users` query includes the restaurant industry context; it is not built only
+  from the latest message.
+- Earlier user and assistant turns establish an industry or object, followed by
+  a short correction such as `全职` or `不要北京，改成上海的`. The planner uses the
+  conversation and current correction, without reviving superseded details.
+- Equivalent scenarios across different industries and Chinese/English wording
+  pass without adding vocabulary-specific code.
+- A new episode does not inherit the old episode's raw conversation or
+  completed-intent marker. Persistent profile remains available under its own
+  user/mode scope.
+- Planner timeout, malformed output, or context overflow does not trigger a
+  latest-message-only fallback or public fetch. Long context is explicitly
+  compressed/rehydrated or fails closed with an observable reason.
+- On retry, the same accepted query and routing snapshot are reused; no second
+  model call silently changes search semantics.
+
 ## 13. Observability and evaluation
 
 Track at least:
 
-- routing source: context, L0, planner, fallback;
+- routing source: authoritative planner or failure fallback;
 - planner status and attempts;
 - action distribution;
-- L0-to-planner disagreement;
-- planner-to-observed-route disagreement;
+- offline query-quality results and representative failure categories;
 - query execution rate;
 - clarification rate;
 - policy rejection rate;
 - future-promise guard rate;
 - grounding abandonment rate;
 - planner and total turn latency;
+- query semantic-completeness evaluation, with sanitized examples and bounded
+  query fingerprints rather than raw private profile or full transcript logs;
+- context source/coverage (current episode, profile, explicit compression) and
+  overflow/failure rates;
+- routing-snapshot version and retry-query consistency;
 - public-request count per turn;
 - duplicate receipt or retry anomalies.
 
@@ -895,9 +875,11 @@ The review should answer:
 The implementation agent must stop and request direction if any phase would
 require:
 
-- changing a public callback schema earlier than Phase 4;
+- changing a public callback schema without a separate compatibility review;
 - weakening receipt validation;
-- allowing arbitrary model-generated tool names, URLs, or query parameters;
+- allowing arbitrary model-generated tool names, URLs, or parameter keys outside
+  the closed registered resource schema (validated search-query values are
+  intentionally model-generated);
 - removing ACK or attempt fencing;
 - changing Micro or iOS during a Deep-only phase;
 - migrating or deleting production data;
@@ -910,8 +892,9 @@ require:
 At the end of the migration, the system should be understandable as three
 primary components:
 
-1. Semantic planner: understands the user and proposes reply, clarification, or
-   a structured read request.
+1. Semantic planner: reads the current request, current-episode conversation,
+   and persistent profile; chooses reply, clarification, or a registered read,
+   and writes its resource-specific search query.
 2. Policy plus durable executor: validates and reliably executes allowed work.
 3. Evidence composer plus minimal validator: explains only verified results.
 
@@ -921,14 +904,16 @@ durability, and evidence provenance.
 
 ## 17. Implementation progress (2026-09-16)
 
-This section records implementation state; the phase contracts above remain the
-source of truth for later work. `INTENT-000` is still not frozen.
+This section records the historical 2026-09-16 implementation snapshot. The
+revised Phase 2–4 contracts above govern future work; this snapshot is not a
+claim about the current deployment. `INTENT-000` was not frozen at this point.
 
 | Phase | Status | Evidence |
 | --- | --- | --- |
 | 0 | Complete | `9fa8c311` froze routing evidence; `726fafa5` restored public construction compatibility and separated semantic clarification from classifier failure. No routing behavior changed. |
 | 1 | Implemented and locally verified; not deployed | `42369e6c` changed L0 `no_business_action` from conversation to unknown, allowing bounded L1 classification. Follow-up fixes `25d127e2`, `2eb9e783`, `0c16acd5`, `0d7b8a5f`, and the code committed with this progress update aligned classification with frozen query constraints, added bilingual aliases and exclusions, and fixed query/projection edge cases. |
-| 2A–5 | Not started | No planner-authority change, callback-schema change, Micro/iOS change, or production rollout has been made for these phases. |
+| 2 | Implemented and locally verified; not deployed | Authoritative `PlannerProposalV2` on every turn; frozen `resource_queries` in `IntentDecisionV1` / routing snapshot; mechanical QueryPlan parameter adapter; L0 semantic fast path, classifier-only path, and `_semantic_query` / `_people_query` lexicon assembly removed. Sync/async entry points pass full episode history plus persistent `doing`/`need`/`offer`. No callback/client schema change; no production flag change. |
+| 3–4 | Not started | Typed evidence composer and durable checkpoint context remain separate phases. |
 
 Phase 1's current behavior:
 
@@ -954,8 +939,38 @@ Chinese receipt projection, profile exclusions, exclusion-prefix query cleanup,
 and city-versus-street cases have regression coverage. These are local checks,
 not evidence of a prod3 rollout or live simulator acceptance.
 
-Deployment and Phase 2A remain separate review gates. Before rollout, confirm
-the deployed SHA and flags, replay the four-turn motivating conversation and
-explicit-negation cases against the target environment, and inspect receipt,
-candidate, and progress ordering. Do not begin Phase 2A merely because Phase 1
-unit tests pass.
+## 18. Design revision and next implementation gate (2026-09-17)
+
+The current incident exposes a semantic ownership gap: a fresh episode may
+still have a useful persistent profile, but the existing routing context mostly
+projects structured `match_constraints` and recent user turns. A legacy profile
+can describe a restaurant business in free text while `match_constraints` is
+empty. A short request such as `全职` or `搜索上海的运营合伙人` can then yield a query
+without the restaurant context. Adding another restaurant synonym or regex
+would only repair one example and keep semantic decisions split across layers.
+
+The revised direction is to remove the eventual L0/lexicon semantic fast path
+and use one model planner on every turn. It must see the current request, the
+retained full current-episode conversation (both sides), and persistent profile
+fields including legacy free text. It returns a closed action, registered
+intent/resource, and resource-specific search query. The server validates and
+freezes that proposal, then executes the existing durable QueryPlan; it does
+not reinterpret the business meaning or append terms using a keyword list.
+
+“Full conversation” means all retained messages in the **current episode**,
+subject to an explicit context-window strategy. It does not silently merge raw
+messages from a previous episode. The profile persists across episodes, while
+old conversation must be deliberately summarized into profile/memory if it is
+meant to survive reset. Assistant messages inform conversational references
+but cannot serve as independent factual evidence for results or authorization.
+
+This is a design update only: no code, flag, deployment, or callback/client
+schema change is authorized by this document edit. Because the agent is still
+in internal beta, Phase 2 directly introduces the authoritative planner,
+query construction, versioned snapshot, and deletion of redundant rules in one
+reviewable change. It does not require shadow evaluation, staged authority,
+canary flags, or a second cleanup phase. Phase 3 independently simplifies
+response guards; Phase 4 independently simplifies durable context. Each phase
+still needs tests and review, and deployment remains separately authorized.
+The historical Phase 0–1 commits and their behavior are recorded above, not
+retroactively rewritten as if this revision had already shipped.

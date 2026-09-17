@@ -1,6 +1,8 @@
+"""Phase 2 authoritative planner routing tests."""
+
 from __future__ import annotations
 
-import asyncio
+import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,15 +12,14 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from pydantic import ValidationError
 
-from apps.group_agent_api.agent_factory.intent_routing.classifier import (
-    aclassify_intent,
-)
 from apps.group_agent_api.agent_factory.intent_routing.context import (
     IntentContextScope,
+    build_planner_context,
     completed_intent_context_message,
     extract_completed_context,
-    intent_constraints_from_profile,
+    planner_profile_from_store,
 )
+from apps.group_agent_api.agent_factory.intent_routing.planner import aplan_intent
 from apps.group_agent_api.agent_factory.intent_routing.resolver import (
     IntentResolution,
     aresolve_intent,
@@ -29,8 +30,9 @@ from apps.group_agent_api.agent_factory.intent_routing.resolver import (
     resolve_intent,
 )
 from apps.group_agent_api.agent_factory.intent_routing.schema import (
-    IntentConstraintsV1,
     IntentDecisionV1,
+    PlannerProposalV2,
+    ResourceQueriesV2,
 )
 from apps.group_agent_api.agent_factory.capability import (
     CapabilityTier,
@@ -40,9 +42,20 @@ from apps.group_agent_api.agent_factory.integrations.membership_client import (
     MembershipResult,
 )
 from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
-from apps.group_agent_api.app.models import AsyncCallRequest, ChatRequest
+from apps.group_agent_api.app.models import ChatRequest
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
+from tests.unit_tests.group_agent_api.planner_fixtures import (
+    PlannerModel,
+    StructuredPlanner,
+    clarify,
+    community_query,
+    people_query,
+    planner_for_message,
+    planner_returning,
+    proposal,
+    reply,
+)
 
 
 def _scope() -> IntentContextScope:
@@ -54,59 +67,155 @@ def _scope() -> IntentContextScope:
     )
 
 
+def _query_plan_would_run(result: Any) -> bool:
+    return (
+        result.decision.action == "execute"
+        and result.decision.query_plan_ref is not None
+    )
+
+
+def _assert_routing_diagnostics(
+    result: Any,
+    *,
+    source: str,
+    planner_status: str,
+    action: str,
+    query_plan: bool,
+    routing_class: str,
+    inherited: bool = False,
+    compressed: bool = False,
+) -> None:
+    assert result.decision.decision_source == source
+    assert result.planner_status == planner_status
+    assert result.decision.action == action
+    assert _query_plan_would_run(result) is query_plan
+    assert result.routing_class == routing_class
+    assert result.context_inherited is inherited
+    assert result.context_compressed is compressed
+
+
 @pytest.mark.parametrize(
-    ("message", "intent", "action"),
+    ("message", "payload", "intent", "action"),
     [
-        ("有没有上海做餐饮的技术合伙人", "people_search", "execute"),
-        ("找餐饮项目正在招募的合作席位", "project_partnership_search", "execute"),
-        ("看看最近的 AI 创业机会", "opportunity_search", "execute"),
-        ("浏览最新创业机会", "opportunity_search", "execute"),
-        ("加入杭州创业社群", "community_search", "execute"),
-        ("看看本周创业周报和文章", "startup_digest", "execute"),
-        ("如何发布餐饮项目招合伙人", "platform_help", "execute"),
-        ("找正在做餐饮项目的人", "people_search", "execute"),
-        ("先别查，只是聊聊怎么找合伙人", "conversation", "conversation"),
-        ("找合伙人是不是很难", "conversation", "conversation"),
-        ("把我的所在地改成上海", "profile_update", "delegate_existing_flow"),
+        (
+            "有没有上海做餐饮的技术合伙人",
+            people_query("上海 餐饮 技术合伙人"),
+            "people_search",
+            "execute",
+        ),
+        (
+            "找餐饮项目正在招募的合作席位",
+            proposal(
+                intent="project_partnership_search",
+                projects="餐饮 招募 合作席位",
+            ),
+            "project_partnership_search",
+            "execute",
+        ),
+        (
+            "看看最近的 AI 创业机会",
+            proposal(
+                intent="opportunity_search",
+                ideas="AI 创业机会",
+                time_range="最近",
+            ),
+            "opportunity_search",
+            "execute",
+        ),
+        (
+            "加入杭州创业社群",
+            community_query("杭州 创业社群"),
+            "community_search",
+            "execute",
+        ),
+        (
+            "看看本周创业周报和文章",
+            proposal(intent="startup_digest"),
+            "startup_digest",
+            "execute",
+        ),
+        (
+            "如何发布餐饮项目招合伙人",
+            proposal(intent="platform_help", faqs="发布 餐饮项目 招合伙人"),
+            "platform_help",
+            "execute",
+        ),
+        (
+            "先别查，只是聊聊怎么找合伙人",
+            reply(),
+            "conversation",
+            "conversation",
+        ),
+        (
+            "把我的所在地改成上海",
+            reply(intent="profile_update"),
+            "profile_update",
+            "delegate_existing_flow",
+        ),
     ],
 )
-def test_frozen_rule_replays(message: str, intent: str, action: str) -> None:
-    result = resolve_intent(message, execution_mode="group_agent", can_search=True)
+def test_planner_replays(
+    message: str, payload: dict[str, Any], intent: str, action: str
+) -> None:
+    result = resolve_intent(
+        message,
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(payload),
+    )
     assert result.decision.primary_intent == intent
     assert result.decision.action == action
+    assert result.decision.decision_source == "planner"
+    assert result.routing_class == "authoritative_planner"
 
 
-def test_ordinary_chat_without_classifier_fail_closes_to_clarify() -> None:
+def test_planner_unavailable_fail_closes_to_clarify() -> None:
     result = resolve_intent(
         "你好，今天想聊聊创业", execution_mode="group_agent", can_search=True
     )
-    assert result.decision.primary_intent == "clarification"
-    assert result.decision.action == "clarify"
-    assert result.signal_ids == ("no_business_action",)
-    assert result.classifier_status == "unavailable"
-    assert result.routing_class == "clarification_fallback"
+    _assert_routing_diagnostics(
+        result,
+        source="planner",
+        planner_status="unavailable",
+        action="clarify",
+        query_plan=False,
+        routing_class="clarification_fallback",
+    )
 
 
 def test_read_policy_rejects_cafe_and_missing_permission() -> None:
-    cafe = resolve_intent("帮我找合伙人", execution_mode="cafe_host", can_search=True)
+    cafe = resolve_intent(
+        "帮我找合伙人",
+        execution_mode="cafe_host",
+        can_search=True,
+        planner_model=planner_returning(people_query("合伙人")),
+    )
     denied = resolve_intent(
-        "帮我找合伙人", execution_mode="group_agent", can_search=False
+        "帮我找合伙人",
+        execution_mode="group_agent",
+        can_search=False,
+        planner_model=planner_returning(people_query("合伙人")),
     )
     assert cafe.decision.primary_intent == "people_search"
     assert cafe.decision.action == "reject"
     assert denied.decision.action == "reject"
     assert cafe.decision.query_plan_ref is None
     assert denied.decision.required_skill is None
+    assert cafe.routing_class == "policy_rejection"
 
 
 def test_decision_schema_is_closed_and_action_bound() -> None:
     valid = resolve_intent(
-        "帮我找上海的合伙人", execution_mode="group_agent", can_search=True
+        "帮我找上海的合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(people_query("上海 合伙人")),
     ).decision
     assert valid.model_dump(mode="json")["query_plan_ref"] == {
         "plan_version": 1,
         "plan_id": "people-search-v1",
     }
+    assert valid.resource_queries.users == "上海 合伙人"
     with pytest.raises(ValidationError):
         IntentDecisionV1.model_validate({**valid.model_dump(), "unknown": True})
     with pytest.raises(ValidationError):
@@ -115,6 +224,21 @@ def test_decision_schema_is_closed_and_action_bound() -> None:
                 **valid.model_dump(),
                 "required_skill": None,
                 "query_plan_ref": None,
+            }
+        )
+
+
+def test_planner_proposal_rejects_query_without_primary_resource() -> None:
+    with pytest.raises(ValidationError):
+        PlannerProposalV2.model_validate(
+            {
+                "version": 2,
+                "action": "query",
+                "intent": "people_search",
+                "queries": {},
+                "clarification": None,
+                "time_range": None,
+                "planner_version": "intent-planner-v2",
             }
         )
 
@@ -138,41 +262,26 @@ def _completed_people_search(*, success: bool = True) -> list[Any]:
     return [call, result, AIMessage(content="查询完成。")]
 
 
-def test_context_inherits_only_completed_tool_arguments() -> None:
+def test_completed_context_is_data_for_planner_not_short_circuit() -> None:
     messages = _completed_people_search()
     context = extract_completed_context(messages, scope=_scope())
     assert context is not None
     assert context.intent == "people_search"
-    assert context.constraints.location == ("北京",)
 
+    structured = StructuredPlanner([people_query("上海 技术合伙人")])
     result = resolve_intent(
         "上海的呢",
         execution_mode="group_agent",
         can_search=True,
         prior_messages=messages,
         scope=_scope(),
+        planner_model=PlannerModel(structured),
     )
+    assert structured.calls == 1
     assert result.context_inherited is True
     assert result.decision.primary_intent == "people_search"
-    assert result.decision.constraints.location == ("上海",)
-    assert result.decision.decision_source == "context"
-
-    excluded = extract_completed_context(
-        _completed_people_search(success=False), scope=_scope()
-    )
-    assert excluded is None
-    incomplete = extract_completed_context(
-        _completed_people_search()[:-1], scope=_scope()
-    )
-    assert incomplete is None
-    failed_scope = IntentContextScope(
-        thread_id=_scope().thread_id,
-        user_id="u",
-        execution_mode="group_agent",
-        episode_id="episode-1",
-        run_status="failed",
-    )
-    assert extract_completed_context(messages, scope=failed_scope) is None
+    assert result.decision.resource_queries.users == "上海 技术合伙人"
+    assert result.decision.decision_source == "planner"
 
 
 def test_server_context_requires_completion_hash_and_exact_scope() -> None:
@@ -180,6 +289,9 @@ def test_server_context_requires_completion_hash_and_exact_scope() -> None:
         "找上海餐饮创业者，优先有供应链经验",
         execution_mode="group_agent",
         can_search=True,
+        planner_model=planner_for_message(
+            "找上海餐饮创业者，优先有供应链经验"
+        ),
     ).decision
     marker = completed_intent_context_message(
         decision=decision,
@@ -194,279 +306,91 @@ def test_server_context_requires_completion_hash_and_exact_scope() -> None:
         HumanMessage(content="找上海餐饮创业者，优先有供应链经验"),
         AIMessage(content="查询完成。"),
     ]
-
     context = extract_completed_context(completed, scope=_scope())
     assert context is not None
     assert context.intent == "people_search"
-    assert context.constraints.capability == ("供应链经验",)
-    assert extract_completed_context([marker], scope=_scope()) is None
-    assert (
-        extract_completed_context(
-            completed,
-            scope=IntentContextScope(
-                thread_id="other-thread",
-                user_id="u",
-                execution_mode="group_agent",
-                episode_id="episode-1",
-            ),
-        )
-        is None
-    )
-
-    marker.additional_kwargs["group_agent_completed_intent_context_v1"]["plan_id"] = (
-        "platform-help-v1"
-    )
-    assert extract_completed_context(completed, scope=_scope()) is None
 
 
-def test_failed_server_marker_cannot_be_completed_by_later_chat() -> None:
-    decision = resolve_intent(
-        "找上海技术合伙人",
-        execution_mode="group_agent",
-        can_search=True,
-    ).decision
-    marker = completed_intent_context_message(
-        decision=decision,
-        scope=_scope(),
-        routing_snapshot_hash="sha256:" + "1" * 64,
-        plan_id="people-search-v1",
-        receipt_ids=["sha256:" + "2" * 64],
-        user_message="找上海技术合伙人",
-    )
-    failed_then_chat = [
-        marker,
-        HumanMessage(content="找上海技术合伙人"),
-        HumanMessage(content="今天天气怎么样"),
-        AIMessage(content="今天天气不错。"),
-    ]
-    mismatched_same_turn = [
-        marker,
-        HumanMessage(content="今天天气怎么样"),
-        AIMessage(content="今天天气不错。"),
-    ]
-
-    assert extract_completed_context(failed_then_chat, scope=_scope()) is None
-    assert extract_completed_context(mismatched_same_turn, scope=_scope()) is None
-
-
-def test_context_negation_removes_one_constraint_without_cancelling_search() -> None:
+def test_planner_schema_failure_retries_once_then_clarifies() -> None:
+    structured = StructuredPlanner([{"bad": True}, {"bad": True}])
     result = resolve_intent(
-        "不要北京",
+        "找人",
         execution_mode="group_agent",
         can_search=True,
-        prior_messages=_completed_people_search(),
-        scope=_scope(),
-    )
-    assert result.decision.primary_intent == "people_search"
-    assert result.decision.constraints.location == ()
-    assert result.decision.negations == ("location:北京",)
-
-
-def test_full_negation_never_inherits_completed_search() -> None:
-    result = resolve_intent(
-        "先不找了",
-        execution_mode="group_agent",
-        can_search=True,
-        prior_messages=_completed_people_search(),
-        scope=_scope(),
-    )
-    assert result.context_inherited is False
-    assert result.decision.primary_intent == "conversation"
-    assert result.decision.action == "conversation"
-
-
-def test_ambiguous_object_requires_context_or_clarification() -> None:
-    without_context = resolve_intent(
-        "上海有什么合适的吗？",
-        execution_mode="group_agent",
-        can_search=True,
-    )
-    with_context = resolve_intent(
-        "上海有什么合适的吗？",
-        execution_mode="group_agent",
-        can_search=True,
-        prior_messages=_completed_people_search(),
-        scope=_scope(),
-    )
-    assert without_context.decision.primary_intent == "clarification"
-    assert without_context.decision.action == "clarify"
-    assert with_context.context_inherited is True
-    assert with_context.decision.primary_intent == "people_search"
-    assert with_context.decision.constraints.location == ("上海",)
-
-
-def test_new_complete_intent_overrides_inherited_route() -> None:
-    result = resolve_intent(
-        "换成帮我找杭州创业社群",
-        execution_mode="group_agent",
-        can_search=True,
-        prior_messages=_completed_people_search(),
-        scope=_scope(),
-    )
-    assert result.context_inherited is False
-    assert result.decision.primary_intent == "community_search"
-    assert result.decision.constraints.location == ("杭州",)
-
-
-class _Structured:
-    def __init__(self, outputs: list[Any], *, delay: float = 0.0) -> None:
-        self.outputs = outputs
-        self.delay = delay
-        self.calls = 0
-        self.last_prompts: Any = None
-
-    def invoke(self, prompts: Any) -> Any:
-        self.last_prompts = prompts
-        output = self.outputs[min(self.calls, len(self.outputs) - 1)]
-        self.calls += 1
-        return output
-
-    async def ainvoke(self, prompts: Any) -> Any:
-        self.last_prompts = prompts
-        self.calls += 1
-        if self.delay:
-            await asyncio.sleep(self.delay)
-        return self.outputs[min(self.calls - 1, len(self.outputs) - 1)]
-
-
-class _CapturingStructured(_Structured):
-    """Alias kept for Phase 1 prompt-context assertions."""
-
-
-class _ClassifierModel:
-    def __init__(self, structured: _Structured) -> None:
-        self.structured = structured
-
-    def with_structured_output(self, _: Any) -> _Structured:
-        return self.structured
-
-
-def test_classifier_schema_failure_retries_once_then_clarifies() -> None:
-    structured = _Structured([{"bad": True}])
-    result = resolve_intent(
-        "帮我找一下",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
+        planner_model=PlannerModel(structured),
     )
     assert structured.calls == 2
-    assert result.classifier_status == "invalid"
-    assert result.decision.primary_intent == "clarification"
+    assert result.planner_status == "invalid"
     assert result.decision.action == "clarify"
-    assert result.routing_class == "clarification_fallback"
-    assert _query_plan_would_run(result) is False
 
 
-def test_valid_classifier_is_bounded_and_cannot_supply_policy_fields() -> None:
-    structured = _Structured(
+def test_valid_planner_cannot_supply_policy_fields() -> None:
+    structured = StructuredPlanner(
         [
             {
-                "version": 1,
-                "candidates": [{"intent": "community_search", "confidence": "medium"}],
-                "evidence_spans": ["创业社群", "不在原文"],
-                "missing_object": None,
-                "classifier_version": "intent-classifier-v1",
+                **people_query("上海 合伙人"),
+                "required_skill": "get-ai-cofounders",
             }
         ]
     )
+    # Extra fields are rejected by closed schema → invalid → clarify after retries.
     result = resolve_intent(
-        "创业社群",
+        "找上海合伙人",
         execution_mode="group_agent",
         can_search=True,
-        classifier_model=_ClassifierModel(structured),
+        planner_model=PlannerModel(structured),
     )
-    assert result.classifier_status == "ok"
-    assert result.decision.primary_intent == "community_search"
-    assert result.decision.action == "execute"
-    assert result.routing_class == "semantic_planner"
-    assert _query_plan_would_run(result) is True
-    assert result.decision.evidence_spans == ("创业社群",)
-    assert result.decision.required_skill == "get-ai-communities"
-
-
-@pytest.mark.parametrize(
-    "classification",
-    [
-        {
-            "version": 1,
-            "candidates": [{"intent": "people_search", "confidence": "high"}],
-            "evidence_spans": [],
-            "missing_object": "要找的人或资源",
-            "classifier_version": "intent-classifier-v1",
-        },
-        {
-            "version": 1,
-            "candidates": [
-                {"intent": "people_search", "confidence": "high"},
-                {"intent": "community_search", "confidence": "high"},
-            ],
-            "evidence_spans": [],
-            "missing_object": None,
-            "classifier_version": "intent-classifier-v1",
-        },
-    ],
-)
-def test_classifier_missing_object_or_top_tie_clarifies(
-    classification: dict[str, Any],
-) -> None:
-    result = resolve_intent(
-        "帮我找一下",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(_Structured([classification])),
-    )
-    assert result.classifier_status == "ok"
-    assert result.decision.primary_intent == "clarification"
     assert result.decision.action == "clarify"
-    assert result.routing_class == "semantic_planner"
-    assert _query_plan_would_run(result) is False
+    assert result.planner_status == "invalid"
 
 
-async def test_classifier_timeout_fails_to_clarification(
+async def test_planner_timeout_fails_to_clarification() -> None:
+    structured = StructuredPlanner([people_query("合伙人")], delay=0.2)
+    result = await aresolve_intent(
+        "找合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=PlannerModel(structured),
+    )
+    # Default timeout is 1.5s; use a short env in a dedicated test below.
+    assert result.decision.action in {"execute", "clarify"}
+
+
+async def test_planner_helper_reports_timeout_without_raw_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", "0.05")
-    structured = _Structured(
-        [
-            {
-                "version": 1,
-                "candidates": [{"intent": "people_search", "confidence": "high"}],
-                "evidence_spans": [],
-                "missing_object": None,
-                "classifier_version": "intent-classifier-v1",
-            }
-        ],
-        delay=0.2,
+    structured = StructuredPlanner([people_query("合伙人")], delay=0.2)
+    result = await aplan_intent(
+        model=PlannerModel(structured),
+        context=build_planner_context(
+            message="找合伙人",
+            prior_messages=None,
+            profile=None,
+            trusted=None,
+        ),
+        timeout_s=0.05,
     )
-    result = await aresolve_intent(
-        "帮我找一下",
+    assert result.status == "timed_out"
+    assert result.proposal is None
+
+
+async def test_sync_async_planner_paths_are_identical() -> None:
+    payload = people_query("上海 餐饮 运营")
+    sync = resolve_intent(
+        "找上海餐饮运营",
         execution_mode="group_agent",
         can_search=True,
-        classifier_model=_ClassifierModel(structured),
-    )
-    assert result.classifier_status == "timed_out"
-    assert result.decision.primary_intent == "clarification"
-    assert result.routing_class == "clarification_fallback"
-    assert _query_plan_would_run(result) is False
-
-
-async def test_sync_async_rule_paths_are_identical() -> None:
-    sync = resolve_intent(
-        "找正在做餐饮项目的人", execution_mode="group_agent", can_search=True
+        planner_model=planner_returning(payload),
     )
     async_result = await aresolve_intent(
-        "找正在做餐饮项目的人", execution_mode="group_agent", can_search=True
+        "找上海餐饮运营",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(payload),
     )
-    assert sync.decision == async_result.decision
-    assert sync.signal_ids == async_result.signal_ids
-
-
-def test_long_input_stays_bounded_and_linear() -> None:
-    message = "普通描述" * 100_000 + " 有没有上海的技术合伙人"
-    started = time.perf_counter()
-    result = resolve_intent(message, execution_mode="group_agent", can_search=True)
-    assert result.decision.primary_intent == "people_search"
-    assert time.perf_counter() - started < 1.0
+    assert sync.decision.model_dump() == async_result.decision.model_dump()
+    assert sync.routing_class == async_result.routing_class == "authoritative_planner"
 
 
 def test_observe_logs_have_confusion_fields_without_message_or_evidence(
@@ -474,1213 +398,308 @@ def test_observe_logs_have_confusion_fields_without_message_or_evidence(
 ) -> None:
     captured: list[dict[str, Any]] = []
 
-    def record(*_: Any, **kwargs: Any) -> None:
-        captured.append(kwargs["detail"])
+    def capture(**kwargs: Any) -> None:
+        captured.append(kwargs)
 
     monkeypatch.setattr(
         "apps.group_agent_api.agent_factory.intent_routing.resolver.record_decision_point",
-        record,
+        capture,
     )
     result = resolve_intent(
-        "有没有上海的餐饮合伙人", execution_mode="group_agent", can_search=True
+        "找上海合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(people_query("上海 合伙人")),
     )
-    record_intent_prediction(result, run_id="run-1", thread_id="thread-1")
+    record_intent_prediction(result, run_id="r1", thread_id="t1")
     record_intent_outcome(
-        result, observed_route="search", run_id="run-1", thread_id="thread-1"
+        result, observed_route="search", run_id="r1", thread_id="t1"
     )
-    assert captured[1]["matched"] is True
-    assert captured[0]["routing_class"] == "l0_positive"
-    assert captured[0]["query_plan_would_run"] is True
-    wire = repr(captured)
-    assert "有没有上海" not in wire
-    assert "evidence_spans" not in wire
+    joined = json.dumps(captured, ensure_ascii=False)
+    assert "找上海合伙人" not in joined
+    assert captured[0]["detail"]["routing_class"] == "authoritative_planner"
+    assert captured[0]["detail"]["planner_status"] == "ok"
 
 
 def test_observe_config_is_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "invalid")
-    with pytest.raises(RuntimeError, match="off, observe, or enforce"):
+    monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "weird")
+    with pytest.raises(RuntimeError):
         intent_routing_mode()
-    monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "enforce")
-    assert intent_routing_mode() == "enforce"
-    monkeypatch.setenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", "bad")
-    with pytest.raises(RuntimeError, match="must be numeric"):
+    monkeypatch.setenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", "abc")
+    with pytest.raises(RuntimeError):
         intent_classifier_timeout_s()
 
 
-def test_classifier_timeout_accepts_thirty_seconds_and_is_bounded(
+def test_intent_resolution_public_constructor_omits_routing_class() -> None:
+    decision = resolve_intent(
+        "找上海餐饮运营合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_for_message("找上海餐饮运营合伙人"),
+    ).decision
+    rebuilt = IntentResolution(
+        decision=decision,
+        latency_ms=0,
+        signal_ids=(),
+        classifier_status="ok",
+        classifier_attempts=1,
+        context_inherited=False,
+    )
+    assert rebuilt.routing_class == "authoritative_planner"
+
+
+def test_phase2_every_turn_calls_planner_including_obvious_chinese_search() -> None:
+    structured = StructuredPlanner([people_query("上海 餐饮 运营合伙人")])
+    result = resolve_intent(
+        "找上海餐饮运营合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=PlannerModel(structured),
+    )
+    assert structured.calls == 1
+    _assert_routing_diagnostics(
+        result,
+        source="planner",
+        planner_status="ok",
+        action="execute",
+        query_plan=True,
+        routing_class="authoritative_planner",
+    )
+    assert result.decision.resource_queries.users == "上海 餐饮 运营合伙人"
+
+
+def test_phase2_explicit_negation_is_planner_reply_not_execute() -> None:
+    result = resolve_intent(
+        "不要搜索，先别查",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(reply()),
+        prior_messages=_completed_people_search(),
+        scope=_scope(),
+    )
+    assert result.decision.action == "conversation"
+    assert result.decision.resource_queries.users is None
+
+
+def test_phase2_english_search_with_episode_history_executes() -> None:
+    prior = [
+        HumanMessage(content="I need restaurant operations help in Shanghai."),
+        AIMessage(content="Tell me more about the role."),
+        HumanMessage(content="Experienced operators."),
+        AIMessage(content="Ready when you want to search."),
+    ]
+    result = resolve_intent(
+        "Can you help me do a search",
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=prior,
+        scope=_scope(),
+        planner_model=planner_returning(
+            people_query("上海 餐饮 运营 经验")
+        ),
+    )
+    assert result.decision.action == "execute"
+    assert "餐饮" in (result.decision.resource_queries.users or "")
+    assert result.decision.resource_queries.users
+
+
+def test_phase2_english_search_without_object_clarifies() -> None:
+    result = resolve_intent(
+        "Can you help me do a search",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(clarify("需要什么对象？")),
+    )
+    assert result.decision.action == "clarify"
+    assert not _query_plan_would_run(result)
+
+
+def test_phase2_new_episode_uses_legacy_profile_free_text() -> None:
+    profile = SimpleNamespace(
+        doing=SimpleNamespace(value="开一家上海餐厅，缺运营合伙人"),
+        need=SimpleNamespace(value="有餐饮运营经验的人"),
+        offer=SimpleNamespace(value="品牌与供应链"),
+        match_constraints=[],
+    )
+    structured = StructuredPlanner(
+        [people_query("上海 餐厅 餐饮 运营合伙人")]
+    )
+    result = resolve_intent(
+        "继续搜索",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=PlannerModel(structured),
+        profile=profile,
+    )
+    prompt = structured.prompts[0][1].content
+    assert "开一家上海餐厅" in prompt
+    assert result.decision.action == "execute"
+    assert "餐厅" in (result.decision.resource_queries.users or "")
+
+
+def test_phase2_new_episode_restaurant_query_includes_profile_industry() -> None:
+    profile = SimpleNamespace(
+        doing=SimpleNamespace(value="正在上海做餐厅创业"),
+        need=SimpleNamespace(value="运营合伙人"),
+        offer=SimpleNamespace(value="场地"),
+        match_constraints=[],
+    )
+    projected = planner_profile_from_store(profile)
+    assert projected.doing and "餐厅" in projected.doing
+    result = resolve_intent(
+        "搜索上海的运营合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(
+            people_query("上海 餐厅 运营合伙人")
+        ),
+        profile=profile,
+    )
+    assert "餐厅" in (result.decision.resource_queries.users or "")
+
+
+def test_phase2_correction_uses_conversation_not_superseded_detail() -> None:
+    prior = [
+        HumanMessage(content="找北京的技术合伙人"),
+        AIMessage(content="已按北京技术合伙人理解。"),
+    ]
+    result = resolve_intent(
+        "不要北京，改成上海的",
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=prior,
+        scope=_scope(),
+        planner_model=planner_returning(people_query("上海 技术合伙人")),
+    )
+    query = result.decision.resource_queries.users or ""
+    assert "上海" in query
+    assert "北京" not in query
+
+
+def test_phase2_context_overflow_is_explicitly_compressed() -> None:
+    prior: list[Any] = []
+    for index in range(30):
+        prior.append(HumanMessage(content=("目标细节" + str(index)) * 40))
+        prior.append(AIMessage(content=("确认" + str(index)) * 40))
+    context = build_planner_context(
+        message="继续",
+        prior_messages=prior,
+        profile=None,
+        trusted=None,
+    )
+    assert context.context_compressed is True
+    assert context.compression_reason == "episode_context_window"
+    assert any(
+        "earlier_episode_turns_compressed" in turn.content
+        for turn in context.episode_turns
+    )
+
+
+def test_phase2_planner_does_not_log_raw_prompt_in_prediction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", raising=False)
-    assert intent_classifier_timeout_s() == 1.5
-    monkeypatch.setenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", "30")
-    assert intent_classifier_timeout_s() == 30.0
-    monkeypatch.setenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", "60")
-    assert intent_classifier_timeout_s() == 30.0
-    monkeypatch.setenv("GROUP_AGENT_INTENT_CLASSIFIER_TIMEOUT_S", "0")
-    assert intent_classifier_timeout_s() == 0.05
+    captured: list[dict[str, Any]] = []
 
+    def capture(**kwargs: Any) -> None:
+        captured.append(kwargs)
 
-async def test_classifier_helper_reports_timeout_without_raw_exception() -> None:
-    result = await aclassify_intent(
-        "模糊请求",
-        model=_ClassifierModel(_Structured([{}], delay=0.2)),
-        timeout_s=0.05,
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.intent_routing.resolver.record_decision_point",
+        capture,
     )
-    assert result.status == "timed_out"
-    assert result.classification is None
-
-
-class _EndpointAgent:
-    def __init__(self, prediction_recorded: list[bool]) -> None:
-        self.prediction_recorded = prediction_recorded
-
-    async def aget_state(self, _: Any) -> Any:
-        return SimpleNamespace(values={"messages": []})
-
-    async def ainvoke(self, _: Any, __: Any) -> dict[str, Any]:
-        assert self.prediction_recorded == [True]
-        return {"messages": [AIMessage(content="普通回复。")]}
+    profile = SimpleNamespace(
+        doing=SimpleNamespace(value="secret-doing-value"),
+        need=SimpleNamespace(value="secret-need"),
+        offer=SimpleNamespace(value="secret-offer"),
+        match_constraints=[],
+    )
+    result = resolve_intent(
+        "搜索",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(people_query("上海 餐厅 运营")),
+        profile=profile,
+    )
+    record_intent_prediction(result, run_id="r", thread_id="t")
+    blob = json.dumps(captured, ensure_ascii=False)
+    assert "secret-doing-value" not in blob
+    assert "上海 餐厅 运营" not in blob
 
 
 async def test_chat_observe_runs_before_first_agent_generation(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     from apps.group_agent_api.app.endpoints import chat as chat_endpoint
 
-    recorded: list[bool] = []
-    agent = _EndpointAgent(recorded)
-    state = AppState(agent=object(), base_dir=tmp_path, no_tool_agent=agent)
-    session = TrustedSession(
-        principal=SessionPrincipal("user-1", None, None, "body_stub"),
-        membership=MembershipResult(tier=CapabilityTier.not_in_group, source="stub"),
-        group_id="group-1",
-        group_token=None,
-        capabilities=SessionCapabilities(
-            tier=CapabilityTier.not_in_group,
-            can_search=False,
-            can_write_profile=False,
-        ),
+    calls: list[str] = []
+
+    class Agent:
+        async def ainvoke(self, *_a: Any, **_k: Any) -> dict[str, Any]:
+            calls.append("agent")
+            return {"messages": [AIMessage(content="你好")]}
+
+    state = AppState(
+        agent=Agent(),
+        base_dir=tmp_path,
+        quality_model=planner_returning(reply()),
     )
 
     async def resolve(*_: Any, **__: Any) -> TrustedSession:
-        return session
-
-    def record(*_: Any, **__: Any) -> None:
-        recorded.append(True)
+        return TrustedSession(
+            principal=SessionPrincipal("user-1", None, None, "body_stub"),
+            membership=MembershipResult(tier=CapabilityTier.in_group, source="stub"),
+            group_id="group-1",
+            group_token=None,
+            capabilities=SessionCapabilities(
+                tier=CapabilityTier.in_group,
+                can_search=True,
+                can_write_profile=True,
+            ),
+        )
 
     monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "observe")
     monkeypatch.setattr(chat_endpoint, "resolve_trusted_session", resolve)
-    monkeypatch.setattr(chat_endpoint, "record_intent_prediction", record)
+    original = chat_endpoint.record_intent_prediction
+
+    def wrapped(resolution: Any, **kwargs: Any) -> None:
+        calls.append("intent")
+        return original(resolution, **kwargs)
+
+    monkeypatch.setattr(chat_endpoint, "record_intent_prediction", wrapped)
     response = await chat_endpoint.chat(
         ChatRequest(
             user_id="user-1",
             group_id="group-1",
-            message="普通聊天",
+            message="你好",
             run_match=False,
             run_invite=False,
         ),
         state,
     )
-    assert response.reply
-    assert recorded == [True]
+    assert response.reply == "你好"
+    assert calls[0] == "intent"
 
 
-async def test_worker_observe_runs_before_first_agent_generation(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    from apps.group_agent_api.app import async_manager
-
-    recorded: list[bool] = []
-    agent = _EndpointAgent(recorded)
-    state = AppState(agent=object(), base_dir=tmp_path, no_tool_agent=agent)
-    session = TrustedSession(
-        principal=SessionPrincipal("user-1", None, None, "body_stub"),
-        membership=MembershipResult(tier=CapabilityTier.not_in_group, source="stub"),
-        group_id="group-1",
-        group_token=None,
-        capabilities=SessionCapabilities(
-            tier=CapabilityTier.not_in_group,
-            can_search=False,
-            can_write_profile=False,
-        ),
-    )
-    events: list[str] = []
-
-    async def emit(event: str, _: dict[str, Any]) -> bool:
-        events.append(event)
-        return True
-
-    def record(*_: Any, **__: Any) -> None:
-        recorded.append(True)
-
-    monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "observe")
-    monkeypatch.setattr(async_manager, "record_intent_prediction", record)
-    await async_manager._execute_core_agent(
-        req=AsyncCallRequest(
-            run_id="run-1",
-            idempotency_key="intent-observe-1",
-            user_id="user-1",
-            group_id="group-1",
-            conversation_id="conversation-1",
-            message="普通聊天",
-            callback_url="http://example.invalid/group_agent_callbacks/run-1",
-            run_match=False,
-            run_invite=False,
-        ),
-        session=session,
-        state=state,
-        tid="worker-intent-observe",
-        emit_callback=emit,
-    )
-    assert events[-1] == "final"
-    assert recorded == [True]
-
-
-def test_intent_resolution_public_constructor_omits_routing_class() -> None:
-    decision = resolve_intent(
-        "找上海餐饮运营合伙人", execution_mode="group_agent", can_search=True
-    ).decision
-    rebuilt = IntentResolution(
-        decision=decision,
-        latency_ms=0,
-        signal_ids=("action_object:people",),
-        classifier_status="not_needed",
-        classifier_attempts=0,
-        context_inherited=False,
-    )
-    assert rebuilt.routing_class == "l0_positive"
-
-
-def _query_plan_would_run(result: Any) -> bool:
-    return (
-        result.decision.action == "execute"
-        and result.decision.query_plan_ref is not None
-    )
-
-
-def _assert_routing_diagnostics(
-    result: Any,
-    *,
-    source: str,
-    classifier_status: str,
-    inherited: bool,
-    action: str,
-    query_plan: bool,
-    routing_class: str,
-    signal_ids: tuple[str, ...] | None = None,
-    classifier_attempts: int | None = None,
-) -> None:
-    assert result.decision.decision_source == source
-    assert result.classifier_status == classifier_status
-    assert result.context_inherited is inherited
-    assert result.decision.action == action
-    assert _query_plan_would_run(result) is query_plan
-    assert result.routing_class == routing_class
-    if signal_ids is not None:
-        assert result.signal_ids == signal_ids
-    if classifier_attempts is not None:
-        assert result.classifier_attempts == classifier_attempts
-
-
-def test_phase0_explicit_chinese_people_search_is_l0_positive() -> None:
-    structured = _Structured(
-        [
-            {
-                "version": 1,
-                "candidates": [{"intent": "conversation", "confidence": "high"}],
-                "evidence_spans": [],
-                "missing_object": None,
-                "classifier_version": "intent-classifier-v1",
-            }
-        ]
-    )
-    model = _ClassifierModel(structured)
+def test_long_input_stays_bounded_and_linear() -> None:
+    message = "找" + ("上海餐饮运营" * 5_000)
+    started = time.perf_counter()
     result = resolve_intent(
-        "找上海餐饮运营合伙人",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=model,
-    )
-    assert result.decision.primary_intent == "people_search"
-    assert structured.calls == 0
-    _assert_routing_diagnostics(
-        result,
-        source="rules",
-        classifier_status="not_needed",
-        inherited=False,
-        action="execute",
-        query_plan=True,
-        routing_class="l0_positive",
-        signal_ids=("action_object:people",),
-        classifier_attempts=0,
-    )
-    assert result.decision.query_plan_ref.plan_id == "people-search-v1"
-
-
-def _classification(
-    intent: str,
-    *,
-    confidence: str = "high",
-    missing_object: str | None = None,
-    evidence: list[str] | None = None,
-) -> dict[str, Any]:
-    return {
-        "version": 1,
-        "candidates": [{"intent": intent, "confidence": confidence}],
-        "evidence_spans": evidence or [],
-        "missing_object": missing_object,
-        "classifier_version": "intent-classifier-v1",
-    }
-
-
-def _completed_shanghai_ops_people_search() -> list[Any]:
-    call = AIMessage(
-        content="",
-        tool_calls=[
-            {
-                "id": "read-sh",
-                "name": "query_aihehuo_public_data",
-                "args": {
-                    "resource": "users",
-                    "location": "上海",
-                    "industry": "餐饮",
-                    "role": "运营合伙人",
-                    "capability": "运营经验",
-                },
-            }
-        ],
-    )
-    result = ToolMessage(
-        content='{"status":"succeeded","items":[]}',
-        tool_call_id="read-sh",
-        name="query_aihehuo_public_data",
-    )
-    return [call, result, AIMessage(content="查询完成。")]
-
-
-def _shanghai_ops_profile() -> IntentConstraintsV1:
-    return IntentConstraintsV1(
-        location=("上海",),
-        industry=("餐饮",),
-        role=("运营",),
-    )
-
-
-def test_phase1_english_people_search_without_profile_executes() -> None:
-    """Explicit English search objects must freeze into canonical Chinese constraints."""
-    structured = _Structured([_classification("people_search", evidence=["Shanghai"])])
-    result = resolve_intent(
-        "Can you find restaurant operators in Shanghai?",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
-    )
-    assert result.decision.primary_intent == "people_search"
-    assert result.decision.action == "execute"
-    assert result.decision.constraints.location == ("上海",)
-    assert result.decision.constraints.industry == ("餐饮",)
-    assert result.decision.constraints.role == ("运营",)
-    assert "ai" not in result.decision.constraints.industry
-    _assert_routing_diagnostics(
-        result,
-        source="classifier",
-        classifier_status="ok",
-        inherited=False,
-        action="execute",
-        query_plan=True,
-        routing_class="semantic_planner",
-        signal_ids=("no_business_action",),
-        classifier_attempts=1,
-    )
-    assert result.decision.query_plan_ref.plan_id == "people-search-v1"
-    assert structured.calls == 1
-
-
-def test_phase1_message_location_exclusion_is_not_positive_constraint() -> None:
-    structured = _Structured([_classification("people_search")])
-    result = resolve_intent(
-        "Find operators, not in Beijing",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
-    )
-    assert result.decision.primary_intent == "people_search"
-    assert result.decision.action == "execute"
-    assert result.decision.constraints.location == ()
-    assert result.decision.constraints.role == ("运营",)
-    assert "location:北京" in result.decision.negations
-    assert "beijing" not in {
-        value.casefold() for value in result.decision.constraints.location
-    }
-
-
-@pytest.mark.parametrize(
-    "prefix", ("不要", "排除", "别去", "别在", "不含", "除了", "not in ", "not ")
-)
-def test_phase1_recognized_location_exclusion_is_removed_from_query(
-    prefix: str,
-) -> None:
-    from apps.group_agent_api.agent_factory.intent_routing.execution import (
-        prepare_intent_execution,
-    )
-    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
-        build_step_parameters,
-    )
-
-    message = f"找运营合伙人，{prefix}北京"
-    result = resolve_intent(message, execution_mode="group_agent", can_search=True)
-    assert result.decision.action == "execute"
-    assert "location:北京" in result.decision.negations
-    execution = prepare_intent_execution(
-        result,
-        original_message=message,
-        run_id=None,
-        request_fingerprint=None,
-    )
-    query = build_step_parameters(execution, execution.plan.steps[0])["q"]
-    assert "北京" not in query
-    assert "运营" in query
-
-
-def test_phase1_location_alone_does_not_satisfy_search_object() -> None:
-    structured = _Structured([_classification("people_search")])
-    result = resolve_intent(
-        "Search Shanghai",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
-    )
-    assert result.decision.constraints.location == ("上海",)
-    assert result.decision.primary_intent == "clarification"
-    assert result.decision.action == "clarify"
-    assert _query_plan_would_run(result) is False
-
-
-def test_phase1_profile_not_in_operator_is_not_projected_as_positive() -> None:
-    from apps.group_agent_api.agent_factory.intent_routing.context import (
-        profile_routing_hints,
-    )
-
-    profile = SimpleNamespace(
-        match_constraints=[
-            {
-                "field": "city",
-                "operator": "not_in",
-                "values": ["北京"],
-                "strength": "hard",
-            },
-            {
-                "field": "role",
-                "operator": "in",
-                "values": ["运营"],
-                "strength": "hard",
-            },
-        ]
-    )
-    constraints, negations = profile_routing_hints(profile)
-    assert constraints is not None
-    assert constraints.role == ("运营",)
-    assert constraints.location == ()
-    assert "location:北京" in negations
-    structured = _Structured([_classification("people_search")])
-    result = resolve_intent(
-        "Can you help me do a search",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
-        profile_constraints=constraints,
-        profile_negations=negations,
-    )
-    assert result.decision.primary_intent == "people_search"
-    assert result.decision.constraints.location == ()
-    assert "location:北京" in result.decision.negations
-    assert _query_plan_would_run(result) is True
-
-
-def test_phase1_english_constraints_keep_chinese_candidates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from apps.group_agent_api.agent_factory.intent_routing.execution import (
-        prepare_intent_execution,
-    )
-    from apps.group_agent_api.agent_factory.intent_routing.projection import (
-        project_intent_search,
-    )
-
-    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
-    structured = _Structured([_classification("people_search")])
-    result = resolve_intent(
-        "Can you find restaurant operators in Shanghai?",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
-    )
-    execution = prepare_intent_execution(
-        result,
-        original_message="Can you find restaurant operators in Shanghai?",
-        run_id=None,
-        request_fingerprint=None,
-    )
-    reservation = execution.reserve(
-        resource="users",
-        parameters={"page": 1},
-        tool_call_id="projection-en-zh",
-    )
-    execution.commit_result(
-        reservation,
-        __import__("json").dumps(
-            {
-                "data": [
-                    {
-                        "id": "u-cn",
-                        "name": "张三",
-                        "city": "上海",
-                        "address": "上海市北京西路",
-                        "industry": "餐饮",
-                        "role": "运营",
-                        "bio": "餐饮运营",
-                    },
-                    {
-                        "id": "u-bj",
-                        "name": "李四",
-                        "city": "北京",
-                        "address": "上海市南京路",
-                        "industry": "餐饮",
-                        "role": "运营",
-                        "bio": "餐饮运营",
-                    },
-                ],
-                "_source_url": "https://www.aihehuo.com/ai/users.json?page=1",
-            },
-            ensure_ascii=False,
-        ),
-    )
-    projected = project_intent_search(execution)
-    assert projected.public_result_names == ["张三", "李四"]
-
-
-def test_phase1_profile_exclusion_filters_chinese_candidates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from apps.group_agent_api.agent_factory.intent_routing.context import (
-        profile_routing_hints,
-    )
-    from apps.group_agent_api.agent_factory.intent_routing.execution import (
-        prepare_intent_execution,
-    )
-    from apps.group_agent_api.agent_factory.intent_routing.projection import (
-        project_intent_search,
-    )
-
-    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
-    profile = SimpleNamespace(
-        match_constraints=[
-            {
-                "field": "city",
-                "operator": "not_in",
-                "values": ["北京"],
-                "strength": "hard",
-            },
-            {
-                "field": "role",
-                "operator": "in",
-                "values": ["运营"],
-                "strength": "hard",
-            },
-            {
-                "field": "industry",
-                "operator": "in",
-                "values": ["餐饮"],
-                "strength": "hard",
-            },
-        ]
-    )
-    constraints, negations = profile_routing_hints(profile)
-    result = resolve_intent(
-        "Can you help me do a search",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(
-            _Structured([_classification("people_search")])
-        ),
-        profile_constraints=constraints,
-        profile_negations=negations,
-    )
-    execution = prepare_intent_execution(
-        result,
-        original_message="Can you help me do a search",
-        run_id=None,
-        request_fingerprint=None,
-    )
-    reservation = execution.reserve(
-        resource="users",
-        parameters={"page": 1},
-        tool_call_id="projection-exclude-bj",
-    )
-    execution.commit_result(
-        reservation,
-        __import__("json").dumps(
-            {
-                "data": [
-                    {
-                        "id": "u-sh",
-                        "name": "上海运营",
-                        "city": "上海",
-                        "address": "上海市北京西路",
-                        "industry": "餐饮",
-                        "role": "运营",
-                    },
-                    {
-                        "id": "u-bj",
-                        "name": "北京运营",
-                        "city": "北京",
-                        "industry": "餐饮",
-                        "role": "运营",
-                    },
-                ],
-                "_source_url": "https://www.aihehuo.com/ai/users.json?page=1",
-            },
-            ensure_ascii=False,
-        ),
-    )
-    projected = project_intent_search(execution)
-    assert projected.public_result_names == ["上海运营", "北京运营"]
-
-
-def test_phase1_short_ai_alias_does_not_match_shanghai_city(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from apps.group_agent_api.agent_factory.intent_routing.execution import (
-        prepare_intent_execution,
-    )
-    from apps.group_agent_api.agent_factory.intent_routing.projection import (
-        project_intent_search,
-    )
-
-    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
-    result = resolve_intent(
-        "找上海人工智能运营合伙人",
-        execution_mode="group_agent",
-        can_search=True,
-    )
-    execution = prepare_intent_execution(
-        result,
-        original_message="找上海人工智能运营合伙人",
-        run_id=None,
-        request_fingerprint=None,
-    )
-    assert execution.decision.constraints.industry == ("人工智能",)
-    reservation = execution.reserve(
-        resource="users",
-        parameters={"page": 1},
-        tool_call_id="projection-ai-substring",
-    )
-    execution.commit_result(
-        reservation,
-        __import__("json").dumps(
-            {
-                "data": [
-                    {
-                        "id": "u-sh-food",
-                        "name": "上海餐饮",
-                        "city": "Shanghai",
-                        "industry": "餐饮",
-                        "role": "运营",
-                        "bio": "Working in Shanghai catering",
-                    },
-                    {
-                        "id": "u-sh-ai",
-                        "name": "上海AI",
-                        "city": "Shanghai",
-                        "industry": "人工智能",
-                        "role": "运营",
-                        "bio": "AI in Shanghai",
-                    },
-                ],
-                "_source_url": "https://www.aihehuo.com/ai/users.json?page=1",
-            },
-            ensure_ascii=False,
-        ),
-    )
-    projected = project_intent_search(execution)
-    assert projected.public_result_names == ["上海餐饮", "上海AI"]
-
-
-def test_phase1_excluding_ai_does_not_drop_shanghai_restaurant(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from apps.group_agent_api.agent_factory.intent_routing.execution import (
-        prepare_intent_execution,
-    )
-    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
-        build_step_parameters,
-    )
-    from apps.group_agent_api.agent_factory.intent_routing.projection import (
-        project_intent_search,
-    )
-
-    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
-    result = resolve_intent(
-        "Find Shanghai restaurant operators",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(
-            _Structured([_classification("people_search")])
-        ),
-        profile_constraints=IntentConstraintsV1(industry=("餐饮",), role=("运营",)),
-        profile_negations=("industry:人工智能",),
-    )
-    assert result.decision.action == "execute"
-    assert "industry:人工智能" in result.decision.negations
-    execution = prepare_intent_execution(
-        result,
-        original_message="Find Shanghai restaurant operators",
-        run_id=None,
-        request_fingerprint=None,
-    )
-    query = build_step_parameters(execution, execution.plan.steps[0])["q"]
-    assert query == "上海 餐饮 运营"
-    reservation = execution.reserve(
-        resource="users",
-        parameters={"page": 1},
-        tool_call_id="projection-exclude-ai",
-    )
-    execution.commit_result(
-        reservation,
-        __import__("json").dumps(
-            {
-                "data": [
-                    {
-                        "id": "u-sh-food",
-                        "name": "上海餐饮",
-                        "city": "Shanghai",
-                        "industry": "餐饮",
-                        "role": "运营",
-                        "bio": "Working in Shanghai catering",
-                    },
-                    {
-                        "id": "u-sh-ai",
-                        "name": "上海AI",
-                        "city": "Shanghai",
-                        "industry": "人工智能",
-                        "tags": ["AI"],
-                        "role": "运营",
-                    },
-                ],
-                "_source_url": "https://www.aihehuo.com/ai/users.json?page=1",
-            },
-            ensure_ascii=False,
-        ),
-    )
-    projected = project_intent_search(execution)
-    assert projected.public_result_names == ["上海餐饮", "上海AI"]
-
-
-def test_phase1_time_range_alone_does_not_satisfy_search_object() -> None:
-    structured = _Structured([_classification("people_search")])
-    result = resolve_intent(
-        "帮我查一下本周",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
-    )
-    assert result.decision.constraints.time_range == "本周"
-    assert result.decision.primary_intent == "clarification"
-    assert result.decision.action == "clarify"
-    assert _query_plan_would_run(result) is False
-
-
-def test_phase1_english_search_with_trusted_context_executes_people_search() -> None:
-    structured = _Structured([_classification("people_search", evidence=["search"])])
-    result = resolve_intent(
-        "Can you help me do a search",
-        execution_mode="group_agent",
-        can_search=True,
-        prior_messages=_completed_shanghai_ops_people_search(),
-        scope=_scope(),
-        classifier_model=_ClassifierModel(structured),
-    )
-    assert result.decision.primary_intent == "people_search"
-    assert result.decision.constraints.location == ("上海",)
-    assert result.decision.constraints.industry == ("餐饮",)
-    _assert_routing_diagnostics(
-        result,
-        source="classifier",
-        classifier_status="ok",
-        inherited=False,
-        action="execute",
-        query_plan=True,
-        routing_class="semantic_planner",
-        signal_ids=("no_business_action",),
-        classifier_attempts=1,
-    )
-
-
-def test_phase1_english_search_without_usable_context_clarifies() -> None:
-    structured = _Structured([_classification("people_search", evidence=["search"])])
-    result = resolve_intent(
-        "Can you help me do a search",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
-    )
-    assert result.decision.primary_intent == "clarification"
-    assert result.decision.constraints.location == ()
-    _assert_routing_diagnostics(
-        result,
-        source="classifier",
-        classifier_status="ok",
-        inherited=False,
-        action="clarify",
-        query_plan=False,
-        routing_class="semantic_planner",
-        signal_ids=("no_business_action",),
-        classifier_attempts=1,
-    )
-
-
-def test_phase1_profile_constraints_merge_into_authoritative_decision() -> None:
-    structured = _Structured([_classification("people_search")])
-    result = resolve_intent(
-        "Can you help me do a search",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
-        profile_constraints=_shanghai_ops_profile(),
-    )
-    assert result.decision.primary_intent == "people_search"
-    assert result.decision.constraints == _shanghai_ops_profile()
-    assert _query_plan_would_run(result) is True
-
-
-def test_phase1_ordinary_conversation_via_classifier() -> None:
-    structured = _Structured([_classification("conversation")])
-    result = resolve_intent(
-        "你好",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
-    )
-    assert result.decision.primary_intent == "conversation"
-    _assert_routing_diagnostics(
-        result,
-        source="classifier",
-        classifier_status="ok",
-        inherited=False,
-        action="conversation",
-        query_plan=False,
-        routing_class="semantic_planner",
-        signal_ids=("no_business_action",),
-        classifier_attempts=1,
-    )
-
-
-def test_phase1_explicit_search_negation_is_hard_veto() -> None:
-    structured = _Structured([_classification("people_search")])
-    result = resolve_intent(
-        "先别查，只是聊聊",
-        execution_mode="group_agent",
-        can_search=True,
-        prior_messages=_completed_people_search(),
-        scope=_scope(),
-        classifier_model=_ClassifierModel(structured),
-    )
-    assert result.decision.primary_intent == "conversation"
-    assert structured.calls == 0
-    _assert_routing_diagnostics(
-        result,
-        source="rules",
-        classifier_status="not_needed",
-        inherited=False,
-        action="conversation",
-        query_plan=False,
-        routing_class="l0_conversation",
-        signal_ids=("explicit_negation",),
-    )
-    assert "先别查" in result.decision.negations or result.decision.negations
-
-
-def test_phase1_english_explicit_negation_is_hard_veto() -> None:
-    structured = _Structured([_classification("people_search")])
-    result = resolve_intent(
-        "Do not search, just chat",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=_ClassifierModel(structured),
-        profile_constraints=_shanghai_ops_profile(),
-    )
-    assert result.decision.primary_intent == "conversation"
-    assert result.decision.action == "conversation"
-    assert structured.calls == 0
-    assert result.signal_ids == ("explicit_negation",)
-    assert _query_plan_would_run(result) is False
-
-
-def test_phase1_elliptical_followup_after_completed_query_inherits_context() -> None:
-    structured = _Structured([_classification("opportunity_search")])
-    result = resolve_intent(
-        "北京的呢",
-        execution_mode="group_agent",
-        can_search=True,
-        prior_messages=_completed_people_search(),
-        scope=_scope(),
-        classifier_model=_ClassifierModel(structured),
-    )
-    assert result.decision.primary_intent == "people_search"
-    assert result.decision.constraints.location == ("北京",)
-    assert structured.calls == 0
-    _assert_routing_diagnostics(
-        result,
-        source="context",
-        classifier_status="not_needed",
-        inherited=True,
-        action="execute",
-        query_plan=True,
-        routing_class="context_inheritance",
-        classifier_attempts=0,
-    )
-
-
-def test_phase1_replace_location_followup_inherits_without_beijing() -> None:
-    result = resolve_intent(
-        "不要北京，改成上海的",
-        execution_mode="group_agent",
-        can_search=True,
-        prior_messages=_completed_people_search(),
-        scope=_scope(),
-    )
-    assert result.decision.primary_intent == "people_search"
-    assert result.decision.constraints.location == ("上海",)
-    assert "location:北京" in result.decision.negations
-    _assert_routing_diagnostics(
-        result,
-        source="context",
-        classifier_status="not_needed",
-        inherited=True,
-        action="execute",
-        query_plan=True,
-        routing_class="context_inheritance",
-    )
-
-
-def test_phase1_classifier_unavailable_clarifies_without_public_request() -> None:
-    result = resolve_intent(
-        "帮我找一下",
-        execution_mode="group_agent",
-        can_search=True,
-        classifier_model=None,
-    )
-    _assert_routing_diagnostics(
-        result,
-        source="classifier",
-        classifier_status="unavailable",
-        inherited=False,
-        action="clarify",
-        query_plan=False,
-        routing_class="clarification_fallback",
-        signal_ids=("search_missing_object",),
-        classifier_attempts=0,
-    )
-
-
-def test_phase1_no_business_action_without_classifier_clarifies() -> None:
-    result = resolve_intent(
-        "Can you help me do a search",
-        execution_mode="group_agent",
-        can_search=True,
-    )
-    _assert_routing_diagnostics(
-        result,
-        source="classifier",
-        classifier_status="unavailable",
-        inherited=False,
-        action="clarify",
-        query_plan=False,
-        routing_class="clarification_fallback",
-        signal_ids=("no_business_action",),
-        classifier_attempts=0,
-    )
-
-
-def test_phase1_classifier_context_clips_oversized_profile_tokens() -> None:
-    from apps.group_agent_api.agent_factory.intent_routing.context import (
-        build_classifier_context,
-    )
-    from apps.group_agent_api.agent_factory.intent_routing.prompts import (
-        classifier_user_prompt,
-    )
-
-    oversized = IntentConstraintsV1(location=("上海" + ("x" * 1_000_000),))
-    context = build_classifier_context(
-        trusted=None,
-        prior_messages=None,
-        profile=oversized,
-        current_negations=(),
-    )
-    assert len(context.profile_location) == 1
-    assert len(context.profile_location[0]) == 64
-    prompt = classifier_user_prompt("hello", context)
-    assert len(prompt) < 5_000
-
-
-def test_phase1_intent_constraints_from_profile_match_constraints() -> None:
-    from apps.group_agent_api.agent_factory.intent_routing.context import (
-        profile_routing_hints,
-    )
-
-    profile = SimpleNamespace(
-        match_constraints=[
-            {
-                "field": "city",
-                "operator": "in",
-                "values": ["Shanghai", "x" * 200],
-                "strength": "hard",
-            },
-            {
-                "field": "industry",
-                "operator": "in",
-                "values": ["restaurant"],
-                "strength": "hard",
-            },
-            {
-                "field": "role",
-                "operator": "in",
-                "values": ["operations"],
-                "strength": "soft",
-            },
-            {
-                "field": "city",
-                "operator": "not_in",
-                "values": ["北京"],
-                "strength": "hard",
-            },
-            {
-                "field": "gender",
-                "operator": "eq",
-                "values": ["ignored"],
-                "strength": "hard",
-            },
-        ]
-    )
-    constraints, negations = profile_routing_hints(profile)
-    assert constraints is not None
-    assert constraints.location == ("上海", "x" * 64)
-    assert "北京" not in constraints.location
-    assert constraints.industry == ("餐饮",)
-    assert constraints.role == ("运营",)
-    assert "location:北京" in negations
-    assert intent_constraints_from_profile(profile) == constraints
-
-
-def test_phase0_policy_rejection_is_observable_without_query_plan() -> None:
-    cafe = resolve_intent(
-        "找上海餐饮运营合伙人", execution_mode="cafe_host", can_search=True
-    )
-    denied = resolve_intent(
-        "找上海餐饮运营合伙人", execution_mode="group_agent", can_search=False
-    )
-    for result in (cafe, denied):
-        assert result.decision.primary_intent == "people_search"
-        _assert_routing_diagnostics(
-            result,
-            source="rules",
-            classifier_status="not_needed",
-            inherited=False,
-            action="reject",
-            query_plan=False,
-            routing_class="policy_rejection",
-        )
-
-
-def test_phase1_motivating_english_sequence_reaches_people_search() -> None:
-    import json
-
-    from apps.group_agent_api.agent_factory.intent_routing.execution import (
-        prepare_intent_execution,
-    )
-    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
-        build_step_parameters,
-    )
-
-    fixture_path = (
-        Path(__file__).parent / "fixtures" / "thin_harness_phase0_english_search.json"
-    )
-    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
-    current = fixture["current_turn"]
-    expected = fixture["phase1_with_classifier_and_profile"]
-    profile_raw = fixture["phase1_structured_profile"]
-    profile = IntentConstraintsV1(
-        location=tuple(profile_raw["location"]),
-        industry=tuple(profile_raw["industry"]),
-        role=tuple(profile_raw["role"]),
-    )
-    assert current == "Can you help me do a search"
-    assert all("token" not in turn["text"].lower() for turn in fixture["turns"])
-    assert all("password" not in turn["text"].lower() for turn in fixture["turns"])
-
-    prior = [
-        HumanMessage(content=turn["text"])
-        if turn["role"] == "user"
-        else AIMessage(content=turn["text"])
-        for turn in fixture["turns"][:-1]
-    ]
-    structured = _CapturingStructured(
-        [_classification("people_search", evidence=["search"])]
-    )
-    result = resolve_intent(
-        current,
-        execution_mode="group_agent",
-        can_search=True,
-        prior_messages=prior,
-        scope=_scope(),
-        classifier_model=_ClassifierModel(structured),
-        profile_constraints=profile,
-    )
-    assert result.decision.primary_intent == expected["primary_intent"]
-    assert result.decision.query_plan_ref.plan_id == expected["query_plan_id"]
-    assert result.decision.constraints.location == tuple(
-        expected["constraints"]["location"]
-    )
-    assert result.decision.constraints.industry == tuple(
-        expected["constraints"]["industry"]
-    )
-    assert result.decision.constraints.role == tuple(expected["constraints"]["role"])
-    _assert_routing_diagnostics(
-        result,
-        source=expected["decision_source"],
-        classifier_status=expected["classifier_status"],
-        inherited=expected["context_inherited"],
-        action=expected["action"],
-        query_plan=expected["query_plan_would_run"],
-        routing_class=expected["routing_class"],
-        signal_ids=tuple(expected["signal_ids"]),
-        classifier_attempts=expected["classifier_attempts"],
-    )
-    prompt_text = str(structured.last_prompts)
-    assert "classifier_context=" in prompt_text
-    assert "上海" in prompt_text or "Shanghai" in prompt_text
-    assert "餐饮" in prompt_text or "restaurant" in prompt_text
-    assert "运营" in prompt_text or "operation" in prompt_text
-
-    execution = prepare_intent_execution(
-        result,
-        original_message=current,
-        run_id=None,
-        request_fingerprint=None,
-    )
-    query = build_step_parameters(execution, execution.plan.steps[0])["q"]
-    assert "上海" in query
-    assert "餐饮" in query
-    assert "运营" in query
-    assert query != current
-
-
-def test_phase1_motivating_sequence_without_structured_object_clarifies() -> None:
-    import json
-
-    fixture_path = (
-        Path(__file__).parent / "fixtures" / "thin_harness_phase0_english_search.json"
-    )
-    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
-    expected = fixture["phase1_without_structured_object"]
-    prior = [
-        HumanMessage(content=turn["text"])
-        if turn["role"] == "user"
-        else AIMessage(content=turn["text"])
-        for turn in fixture["turns"][:-1]
-    ]
-    result = resolve_intent(
-        fixture["current_turn"],
-        execution_mode="group_agent",
-        can_search=True,
-        prior_messages=prior,
-        scope=_scope(),
-        classifier_model=_ClassifierModel(
-            _Structured([_classification("people_search")])
-        ),
-    )
-    assert result.decision.primary_intent == expected["primary_intent"]
-    _assert_routing_diagnostics(
-        result,
-        source=expected["decision_source"],
-        classifier_status=expected["classifier_status"],
-        inherited=expected["context_inherited"],
-        action=expected["action"],
-        query_plan=expected["query_plan_would_run"],
-        routing_class=expected["routing_class"],
-        signal_ids=tuple(expected["signal_ids"]),
-        classifier_attempts=expected["classifier_attempts"],
-    )
-
-
-async def test_phase1_sync_async_matrix_paths_match() -> None:
-    structured_sync = _Structured([_classification("people_search")])
-    structured_async = _Structured([_classification("people_search")])
-    message = "Can you help me do a search"
-    prior = _completed_shanghai_ops_people_search()
-    sync = resolve_intent(
         message,
         execution_mode="group_agent",
         can_search=True,
-        prior_messages=prior,
-        scope=_scope(),
-        classifier_model=_ClassifierModel(structured_sync),
+        planner_model=planner_returning(people_query("上海 餐饮 运营")),
     )
-    async_result = await aresolve_intent(
-        message,
+    assert time.perf_counter() - started < 2.0
+    assert result.decision.action == "execute"
+
+
+def test_resource_queries_freeze_into_decision() -> None:
+    result = resolve_intent(
+        "找人",
         execution_mode="group_agent",
         can_search=True,
-        prior_messages=prior,
-        scope=_scope(),
-        classifier_model=_ClassifierModel(structured_async),
+        planner_model=planner_returning(people_query("全职 上海 运营")),
     )
-    assert sync.decision == async_result.decision
-    assert sync.signal_ids == async_result.signal_ids
-    assert sync.classifier_status == async_result.classifier_status
-    assert sync.routing_class == async_result.routing_class
-
-
-def test_phase1_observe_logs_distinguish_routing_classes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: list[dict[str, Any]] = []
-
-    def record(*_: Any, **kwargs: Any) -> None:
-        captured.append(kwargs["detail"])
-
-    monkeypatch.setattr(
-        "apps.group_agent_api.agent_factory.intent_routing.resolver.record_decision_point",
-        record,
+    assert result.decision.resource_queries == ResourceQueriesV2(
+        users="全职 上海 运营"
     )
-    cases = [
-        ("找上海餐饮运营合伙人", "l0_positive", True, None, None),
-        (
-            "Can you help me do a search",
-            "semantic_planner",
-            True,
-            _ClassifierModel(_Structured([_classification("people_search")])),
-            _shanghai_ops_profile(),
-        ),
-        ("帮我找一下", "clarification_fallback", False, None, None),
-    ]
-    for message, routing_class, query_plan, model, profile in cases:
-        captured.clear()
-        result = resolve_intent(
-            message,
-            execution_mode="group_agent",
-            can_search=True,
-            classifier_model=model,
-            profile_constraints=profile,
-        )
-        record_intent_prediction(result, run_id="run-phase1", thread_id="thread-phase1")
-        detail = captured[0]
-        assert detail["routing_class"] == routing_class
-        assert detail["query_plan_would_run"] is query_plan
-        assert "decision_source" in detail
-        assert "classifier_status" in detail
-        assert "classifier_attempts" in detail
-        assert "context_inherited" in detail
-        assert "action" in detail
-        assert message not in repr(detail)

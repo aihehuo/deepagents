@@ -16,10 +16,31 @@ from .execution import IntentExecution, QueryPlanError, active_intent_execution
 def _frozen_query(execution: IntentExecution, resource: str) -> str:
     """Return the planner-frozen query for a resource; never invent terms."""
     queries = getattr(execution.decision, "resource_queries", None)
-    if queries is None:
+    if queries is not None:
+        value = queries.for_resource(resource)
+        if value:
+            return value
+    # Narrow Phase-1 resume path: synthesize only when planner_version is absent.
+    if getattr(execution.decision, "planner_version", None) is not None:
         return ""
-    value = queries.for_resource(resource)
-    return value or ""
+    constraints = execution.decision.constraints
+    parts = [
+        *constraints.location,
+        *constraints.industry,
+        *constraints.role,
+        *constraints.capability,
+    ]
+    text = " ".join(item.strip() for item in parts if item.strip())[:160]
+    primary_by_intent = {
+        "people_search": "users",
+        "opportunity_search": "ideas",
+        "project_partnership_search": "projects",
+        "community_search": "groups",
+        "platform_help": "faqs",
+    }
+    if primary_by_intent.get(execution.decision.primary_intent) != resource:
+        return ""
+    return text
 
 
 def _created_since(execution: IntentExecution) -> str | None:
@@ -53,25 +74,35 @@ def _created_since(execution: IntentExecution) -> str | None:
 
 
 def _selected_group_event_id(execution: IntentExecution) -> str | None:
-    """Deterministic event_id from frozen groups query text or prior receipts."""
-    text = _frozen_query(execution, "groups") or execution.original_message
-    lowered = text.lower()
-    if not any(
-        marker in lowered for marker in ("成员", "参与者", "报名名单", "member")
-    ):
-        return None
-    explicit = re.search(
-        r"(?:event[_ -]?id|群(?:组)?\s*(?:id|ID|编号)|社群\s*(?:id|ID|编号))"
-        r"\s*[:：=#]?\s*([0-9]{1,18})(?![0-9])",
-        text,
-        flags=re.IGNORECASE,
+    """Resolve event_id from frozen planner scope + user request, not groups query."""
+    explicit = getattr(execution.decision, "group_event_id", None)
+    if isinstance(explicit, str) and explicit.isascii() and explicit.isdecimal():
+        if 1 <= len(explicit) <= 18:
+            return explicit
+
+    request = execution.original_message or ""
+    request_l = request.lower()
+    requested_members = any(
+        marker in request_l
+        for marker in ("成员", "参与者", "报名名单", "member", "members")
     )
-    if explicit is not None:
-        return explicit.group(1)
-    if not any(
-        marker in lowered
+    requested_first = any(
+        marker in request_l
         for marker in ("第一个群", "首个群", "第一个社群", "首个社群", "first group")
-    ):
+    )
+    if requested_members:
+        explicit_in_request = re.search(
+            r"(?:event[_ -]?id|群(?:组)?\s*(?:id|ID|编号)|社群\s*(?:id|ID|编号))"
+            r"\s*[:：=#]?\s*([0-9]{1,18})(?![0-9])",
+            request,
+            flags=re.IGNORECASE,
+        )
+        if explicit_in_request is not None:
+            return explicit_in_request.group(1)
+
+    scope = getattr(execution.decision, "group_member_scope", "none")
+    allow_first = scope == "first_verified" or (requested_members and requested_first)
+    if not requested_members or not allow_first:
         return None
     for receipt in execution.receipts:
         if receipt.resource != "groups" or receipt.status != "succeeded":

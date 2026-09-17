@@ -17,6 +17,8 @@ def proposal(
     faqs: str | None = None,
     clarification: str | None = None,
     time_range: str | None = None,
+    group_member_scope: str = "none",
+    group_event_id: str | None = None,
 ) -> dict[str, Any]:
     """Build a closed PlannerProposalV2 payload."""
     return {
@@ -32,6 +34,8 @@ def proposal(
         },
         "clarification": clarification,
         "time_range": time_range,
+        "group_member_scope": group_member_scope,
+        "group_event_id": group_event_id,
         "planner_version": "intent-planner-v2",
     }
 
@@ -54,8 +58,18 @@ def opportunity_query(
     )
 
 
-def community_query(groups: str) -> dict[str, Any]:
-    return proposal(intent="community_search", groups=groups)
+def community_query(
+    groups: str,
+    *,
+    group_member_scope: str = "none",
+    group_event_id: str | None = None,
+) -> dict[str, Any]:
+    return proposal(
+        intent="community_search",
+        groups=groups,
+        group_member_scope=group_member_scope,
+        group_event_id=group_event_id,
+    )
 
 
 def platform_help_query(faqs: str) -> dict[str, Any]:
@@ -90,9 +104,13 @@ MESSAGE_PROPOSALS: dict[str, dict[str, Any]] = {
     "看看本月的创业机会": opportunity_query("创业机会", time_range="本月"),
     "看看本周的创业机会": opportunity_query("创业机会", time_range="本周"),
     "查看上海创业社群和第一个社群的报名名单": community_query(
-        "上海 创业社群 第一个社群 报名名单"
+        "上海 创业社群",
+        group_member_scope="first_verified",
     ),
-    "查看社群 ID 763 的报名名单": community_query("社群 ID 763 报名名单"),
+    "查看社群 ID 763 的报名名单": community_query(
+        "社群",
+        group_event_id="763",
+    ),
     "查看社群 ID 763 的详情": community_query("社群 ID 763 详情"),
     "帮我找技术合伙人": people_query("技术合伙人"),
     "帮我找合伙人": people_query("合伙人"),
@@ -205,4 +223,3 @@ class AdaptivePlannerModel:
                 return self.invoke(prompts)
 
         return _Adapter()
-

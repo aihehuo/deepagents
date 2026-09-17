@@ -33,6 +33,7 @@ DecisionAction = Literal[
 PlannerAction = Literal["query", "clarify", "reply"]
 PlannerTimeRange = Literal["本周", "本月", "最近", "近期"]
 EpisodeTurnRole = Literal["human", "assistant"]
+GroupMemberScope = Literal["none", "first_verified"]
 
 _INTENT_PRIMARY_QUERY_FIELD: dict[str, str | None] = {
     "people_search": "users",
@@ -147,6 +148,10 @@ class PlannerProposalV2(ClosedModel):
     queries: ResourceQueriesV2 = Field(default_factory=ResourceQueriesV2)
     clarification: str | None = Field(default=None, max_length=240)
     time_range: PlannerTimeRange | None = None
+    group_member_scope: GroupMemberScope = "none"
+    group_event_id: str | None = Field(
+        default=None, max_length=18, pattern=r"^[0-9]{1,18}$"
+    )
     planner_version: Literal["intent-planner-v2"] = "intent-planner-v2"
 
     @model_validator(mode="after")
@@ -166,7 +171,15 @@ class PlannerProposalV2(ClosedModel):
             if self.clarification is not None:
                 msg = "query action cannot include clarification text"
                 raise ValueError(msg)
+            if self.intent != "community_search" and (
+                self.group_member_scope != "none" or self.group_event_id is not None
+            ):
+                msg = "group member scope is only valid for community_search"
+                raise ValueError(msg)
             return self
+        if self.group_member_scope != "none" or self.group_event_id is not None:
+            msg = "non-query actions cannot request group members"
+            raise ValueError(msg)
         if self.action == "clarify":
             if self.intent not in {None, "clarification"}:
                 msg = "clarify action requires clarification intent"
@@ -223,6 +236,10 @@ class IntentDecisionV1(ClosedModel):
     query_plan_ref: QueryPlanRefV1 | None = None
     requires_plan_receipts: bool = False
     resource_queries: ResourceQueriesV2 = Field(default_factory=ResourceQueriesV2)
+    group_member_scope: GroupMemberScope = "none"
+    group_event_id: str | None = Field(
+        default=None, max_length=18, pattern=r"^[0-9]{1,18}$"
+    )
     planner_version: Literal["intent-planner-v2"] | None = None
     policy_version: Literal["intent-policy-v1"] = "intent-policy-v1"
 
@@ -239,11 +256,26 @@ class IntentDecisionV1(ClosedModel):
             raise ValueError(msg)
         if execute:
             primary = _INTENT_PRIMARY_QUERY_FIELD.get(self.primary_intent)
-            if primary is not None and self.resource_queries.for_resource(primary) is None:
+            missing_primary = (
+                primary is not None
+                and self.resource_queries.for_resource(primary) is None
+            )
+            # Phase-2 planner decisions must freeze queries. Legacy Phase-1
+            # snapshots (planner_version is None) may resume via constraint
+            # synthesis in the snapshot reader / plan_executor.
+            if missing_primary and self.planner_version is not None:
                 msg = "execute decisions must freeze the primary resource query"
+                raise ValueError(msg)
+            if self.primary_intent != "community_search" and (
+                self.group_member_scope != "none" or self.group_event_id is not None
+            ):
+                msg = "group member scope is only valid for community_search"
                 raise ValueError(msg)
         elif self.resource_queries.non_empty():
             msg = "non-execute decisions cannot carry resource queries"
+            raise ValueError(msg)
+        elif self.group_member_scope != "none" or self.group_event_id is not None:
+            msg = "non-execute decisions cannot request group members"
             raise ValueError(msg)
         if (
             self.primary_intent == "profile_update"

@@ -993,6 +993,8 @@ async def _execute_core_agent(
                         original_message=req.message,
                         run_id=req.run_id,
                         request_fingerprint=calculate_request_fingerprint(req, session),
+                        execution_mode=execution_mode,
+                        can_search=session.capabilities.can_search and not cafe_host,
                     )
                     intent_execution.bind_progress_emitter(
                         emit_callback,

@@ -576,23 +576,223 @@ def test_phase2_correction_uses_conversation_not_superseded_detail() -> None:
     assert "北京" not in query
 
 
-def test_phase2_context_overflow_is_explicitly_compressed() -> None:
+def test_phase2_context_overflow_fail_closes_without_search() -> None:
     prior: list[Any] = []
     for index in range(30):
         prior.append(HumanMessage(content=("目标细节" + str(index)) * 40))
         prior.append(AIMessage(content=("确认" + str(index)) * 40))
+    # Plant an industry term in the omitted middle so lossy compression would
+    # otherwise drop it; overflow must clarify instead of searching.
+    prior[20] = HumanMessage(content="关键行业是关键，不要丢掉")
     context = build_planner_context(
-        message="继续",
+        message="继续搜索",
         prior_messages=prior,
         profile=None,
         trusted=None,
     )
     assert context.context_compressed is True
-    assert context.compression_reason == "episode_context_window"
-    assert any(
-        "earlier_episode_turns_compressed" in turn.content
-        for turn in context.episode_turns
+    assert context.compression_reason == "episode_context_overflow_fail_closed"
+    result = resolve_intent(
+        "继续搜索",
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=prior,
+        scope=_scope(),
+        planner_model=planner_returning(people_query("上海 运营")),
     )
+    assert result.decision.action == "clarify"
+    assert result.planner_status == "context_overflow"
+    assert not _query_plan_would_run(result)
+
+
+def test_phase2_groups_query_without_member_words_still_uses_user_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
+        build_step_parameters,
+    )
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    message = "查看上海创业社群和第一个社群的报名名单"
+    result = resolve_intent(
+        message,
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(
+            community_query("上海创业社群", group_member_scope="first_verified")
+        ),
+    )
+    execution = prepare_intent_execution(
+        result,
+        original_message=message,
+        run_id=None,
+        request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
+    )
+    assert result.decision.group_member_scope == "first_verified"
+    assert build_step_parameters(execution, execution.plan.steps[0])["keyword"] == (
+        "上海创业社群"
+    )
+    # Without a groups receipt yet, event_id stays unset; after a verified group
+    # receipt the member step can resolve first_verified.
+    members_step = execution.plan.steps[1]
+    assert build_step_parameters(execution, members_step).get("event_id") is None
+    reservation = execution.reserve(
+        resource="groups", parameters={"page": 1}, tool_call_id="groups-1"
+    )
+    execution.commit_result(
+        reservation,
+        json.dumps(
+            {
+                "data": [{"id": 42, "name": "上海创业社群"}],
+                "_source_url": "https://www.aihehuo.com/ai/wechat_groups.json?page=1",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    assert build_step_parameters(execution, members_step)["event_id"] == "42"
+
+
+def test_phase2_legacy_snapshot_decision_migrates_constraints_to_query() -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.snapshot import (
+        migrate_legacy_intent_decision,
+        parse_routing_snapshot_payload,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.canonical import (
+        canonical_hash,
+    )
+
+    decision = {
+        "version": 1,
+        "primary_intent": "people_search",
+        "confidence": "high",
+        "decision_source": "rules",
+        "evidence_spans": ["有没有"],
+        "constraints": {
+            "location": ["上海"],
+            "industry": ["餐饮"],
+            "role": ["合伙人"],
+            "capability": [],
+            "time_range": None,
+        },
+        "negations": [],
+        "action": "execute",
+        "required_skill": "get-ai-cofounders",
+        "query_plan_ref": {"plan_version": 1, "plan_id": "people-search-v1"},
+        "requires_plan_receipts": True,
+        "policy_version": "intent-policy-v1",
+    }
+    migrated = migrate_legacy_intent_decision(decision)
+    assert migrated["resource_queries"]["users"] == "上海 餐饮 合伙人"
+    body = {
+        "routing_snapshot_version": 1,
+        "run_id": "legacy-run",
+        "intent_decision": decision,
+        "query_plan": None,
+        "policy_version": "intent-policy-v1",
+        "registry_version": "aihehuo-read-registry-v1",
+        "created_at": "2026-09-15T08:00:00Z",
+    }
+    # Attach a real plan so bindings validate after migration.
+    from apps.group_agent_api.agent_factory.intent_routing.registry import READ_REGISTRY
+
+    body["query_plan"] = READ_REGISTRY["people_search"].plan.model_dump(mode="json")
+    body["canonical_content_hash"] = canonical_hash(
+        {key: value for key, value in body.items() if key != "canonical_content_hash"}
+    )
+    snapshot = parse_routing_snapshot_payload(body)
+    assert snapshot.intent_decision.resource_queries.users == "上海 餐饮 合伙人"
+    assert snapshot.intent_decision.planner_version is None
+
+
+def test_phase2_recovered_execute_denied_when_search_revoked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+    from types import SimpleNamespace
+
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        QueryPlanError,
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.snapshot import (
+        build_routing_snapshot,
+    )
+    from apps.group_agent_api.execution.active_fence import (
+        ActiveAttemptFence,
+        clear_active_fence,
+        set_active_fence,
+    )
+    from apps.group_agent_api.execution.models import LeaseClaim
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    decision = resolve_intent(
+        "有没有上海餐饮合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(people_query("上海 餐饮 合伙人")),
+    ).decision
+    snapshot = build_routing_snapshot(run_id="perm-run", decision=decision)
+    claim = LeaseClaim(
+        run_id="perm-run",
+        attempt_id="attempt-1",
+        lease_token="token",
+        lease_owner="worker",
+        lease_expires_at=9_999_999_999.0,
+        fencing_token=1,
+    )
+
+    class _Store:
+        def get(self, run_id: str) -> Any:
+            return SimpleNamespace(
+                run_id=run_id,
+                request_fingerprint="fp",
+                routing_snapshot_hash=snapshot.canonical_content_hash,
+                routing_snapshot_version=1,
+                routing_snapshot_key_version="k1",
+                routing_snapshot_ciphertext=object(),
+                attempt_count=2,
+            )
+
+        def routing_crypto_material(self) -> tuple[dict[str, bytes], str]:
+            return {"k1": bytes(32)}, "k1"
+
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.intent_routing.execution.decrypt_routing_snapshot",
+        lambda record, keys: snapshot,
+    )
+    tokens = set_active_fence(
+        ActiveAttemptFence(
+            store=_Store(),
+            claim=claim,
+            conversation_id="conversation-perm-run",
+            cancel_event=threading.Event(),
+        ),
+        require=True,
+    )
+    try:
+        clarify = resolve_intent(
+            "有没有上海餐饮合伙人",
+            execution_mode="group_agent",
+            can_search=True,
+            planner_model=None,
+        )
+        assert clarify.decision.action == "clarify"
+        with pytest.raises(QueryPlanError, match="permission_denied"):
+            prepare_intent_execution(
+                clarify,
+                original_message="有没有上海餐饮合伙人",
+                run_id="perm-run",
+                request_fingerprint="fp",
+                execution_mode="group_agent",
+                can_search=False,
+            )
+    finally:
+        clear_active_fence(tokens)
 
 
 def test_phase2_planner_does_not_log_raw_prompt_in_prediction(

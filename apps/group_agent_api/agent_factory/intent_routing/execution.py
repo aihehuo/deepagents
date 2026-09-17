@@ -1026,13 +1026,28 @@ def prepare_intent_execution(
     original_message: str,
     run_id: str | None,
     request_fingerprint: str | None,
+    execution_mode: str | None = None,
+    can_search: bool | None = None,
 ) -> IntentExecution:
-    """Create or recover the run's immutable snapshot and receipt state."""
-    if resolution.decision.action == "execute":
-        from apps.group_agent_api.agent_factory.integrations.config import read_mode
+    """Create or recover the run's immutable snapshot and receipt state.
 
+    When a durable execute snapshot already exists, authorization is re-checked
+    from the current trusted session (`execution_mode` / `can_search` / read
+    mode), independent of this attempt's planner output. Planner timeout or
+    clarify must not revive a previously frozen execute after permission loss.
+    """
+    from apps.group_agent_api.agent_factory.integrations.config import read_mode
+
+    def assert_execute_authorized() -> None:
         if read_mode() != "public_skills":
             raise QueryPlanError("query_plan_invalid")
+        if execution_mode is not None and execution_mode != "group_agent":
+            raise QueryPlanError("permission_denied")
+        if can_search is False:
+            raise QueryPlanError("permission_denied")
+
+    if resolution.decision.action == "execute":
+        assert_execute_authorized()
     active = get_active_fence()
     if active is None:
         local_run = run_id or f"sync-{uuid.uuid4().hex}"
@@ -1057,10 +1072,10 @@ def prepare_intent_execution(
             snapshot = decrypt_routing_snapshot(record, keys=keys)
         except RoutingCryptoError as exc:
             raise QueryPlanError(exc.code) from exc
+        if snapshot.intent_decision.action == "execute":
+            assert_execute_authorized()
         if (
-            resolution.decision.primary_intent
-            == snapshot.intent_decision.primary_intent
-            and resolution.decision.action == "reject"
+            resolution.decision.action == "reject"
             and snapshot.intent_decision.action == "execute"
         ):
             raise QueryPlanError("permission_denied")

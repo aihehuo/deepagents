@@ -93,6 +93,8 @@ def build_decision_from_planner(
             query_plan_ref=QueryPlanRefV1(plan_id=plan_id),
             requires_plan_receipts=True,
             resource_queries=queries,
+            group_member_scope=proposal.group_member_scope,
+            group_event_id=proposal.group_event_id,
             planner_version=proposal.planner_version,
         )
 

@@ -84,6 +84,8 @@ def _decision() -> IntentDecisionV1:
                 "groups": None,
                 "faqs": None,
             },
+            "group_member_scope": "none",
+            "group_event_id": None,
             "planner_version": "intent-planner-v2",
             "policy_version": "intent-policy-v1",
         }

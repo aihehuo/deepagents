@@ -138,6 +138,25 @@ def _decision_from_planner(
     )
 
 
+_OVERFLOW_FAIL_CLOSED = "episode_context_overflow_fail_closed"
+
+
+def _overflow_clarification(
+    *,
+    started: float,
+    trusted: Any,
+    context_compressed: bool,
+) -> IntentResolution:
+    return _finalize(
+        started=started,
+        decision=clarification_decision(source="planner"),
+        planner=PlannerResult(None, "context_overflow", 0),
+        context_inherited=trusted is not None,
+        context_compressed=context_compressed,
+        signal_ids=("context_overflow",),
+    )
+
+
 def resolve_intent(
     message: str,
     *,
@@ -182,6 +201,12 @@ def resolve_intent(
         profile=profile,
         trusted=trusted,
     )
+    if context.compression_reason == _OVERFLOW_FAIL_CLOSED:
+        return _overflow_clarification(
+            started=started,
+            trusted=trusted,
+            context_compressed=context.context_compressed,
+        )
     planned = plan_intent(model=model, context=context)
     decision = _decision_from_planner(
         planned, execution_mode=execution_mode, can_search=can_search
@@ -224,6 +249,12 @@ async def aresolve_intent(
         profile=profile,
         trusted=trusted,
     )
+    if context.compression_reason == _OVERFLOW_FAIL_CLOSED:
+        return _overflow_clarification(
+            started=started,
+            trusted=trusted,
+            context_compressed=context.context_compressed,
+        )
     planned = await aplan_intent(
         model=model,
         context=context,

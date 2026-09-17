@@ -101,10 +101,13 @@ def _activate(store: ExecutionStore, claim):
 
 
 def _resolution(*, can_search: bool = True):
+    from tests.unit_tests.group_agent_api.planner_fixtures import planner_for_message
+
     return resolve_intent(
         "有没有上海餐饮合伙人",
         execution_mode="group_agent",
         can_search=can_search,
+        planner_model=planner_for_message("有没有上海餐饮合伙人"),
     )
 
 

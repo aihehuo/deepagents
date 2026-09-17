@@ -638,36 +638,29 @@ def _episode_turns(messages: list[Any] | None) -> list[PlannerTurnV2]:
 def _compress_episode_turns(
     turns: list[PlannerTurnV2],
 ) -> tuple[tuple[PlannerTurnV2, ...], bool, str | None]:
-    """Keep recent turns verbatim; compress older turns with an explicit reason."""
+    """Keep recent turns when they fit; otherwise fail closed without silent loss.
+
+    Lossy middle-history compression recreated the Phase-2 failure mode
+    (missing industry/object terms). When the retained episode exceeds the
+    bounded window, mark an explicit overflow reason so the resolver clarifies
+    instead of searching on incomplete context.
+    """
     if len(turns) <= _MAX_EPISODE_TURNS and sum(len(item.content) for item in turns) <= (
         _MAX_EPISODE_CHARS
     ):
         return tuple(turns), False, None
-
     retained: list[PlannerTurnV2] = []
     used = 0
     for turn in reversed(turns):
         cost = len(turn.content)
-        if retained and (len(retained) >= _MAX_EPISODE_TURNS or used + cost > _MAX_EPISODE_CHARS):
+        if retained and (
+            len(retained) >= _MAX_EPISODE_TURNS or used + cost > _MAX_EPISODE_CHARS
+        ):
             break
         retained.append(turn)
         used += cost
     retained.reverse()
-    omitted = len(turns) - len(retained)
-    if omitted <= 0:
-        return tuple(retained), False, None
-    older = turns[:omitted]
-    summary_parts = [
-        f"{item.role}:{item.content[:80]}" for item in older[:12]
-    ]
-    summary = (
-        f"[earlier_episode_turns_compressed count={omitted}] "
-        + " | ".join(summary_parts)
-    )[:_MAX_TURN_CHARS]
-    # Keep the compression marker plus as many recent turns as remain in budget.
-    recent_limit = max(0, _MAX_EPISODE_TURNS - 1)
-    compressed = (PlannerTurnV2(role="assistant", content=summary), *retained[-recent_limit:])
-    return tuple(compressed), True, "episode_context_window"
+    return tuple(retained), True, "episode_context_overflow_fail_closed"
 
 
 def queries_from_constraints(constraints: IntentConstraintsV1) -> ResourceQueriesV2:

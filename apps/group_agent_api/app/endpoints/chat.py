@@ -430,6 +430,8 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                             original_message=req.message,
                             run_id=None,
                             request_fingerprint=None,
+                            execution_mode="group_agent",
+                            can_search=session.capabilities.can_search,
                         )
                         intent_execution.restore_adopted_evidence()
                         if intent_execution.decision.action == "execute":

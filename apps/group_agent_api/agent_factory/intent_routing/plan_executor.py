@@ -15,6 +15,14 @@ from .execution import IntentExecution, QueryPlanError, active_intent_execution
 
 _LATIN_ALIAS = re.compile(r"^[a-z0-9][a-z0-9+.#'_\s-]*$", re.IGNORECASE)
 _NEGATION_PREFIX = rf"(?:{FIELD_EXCLUSION_PREFIX_PATTERN}|别|去掉|不看)"
+_SEARCH_PREFIX = re.compile(
+    r"^(?:(?:请|麻烦|能否|可以|能不能)\s*)?(?:(?:你|帮我|给我|替我)\s*)?"
+    r"(?:有没有|搜索|查找|查询|查一下|找一下|想认识|找|查|推荐|看看|看下)\s*"
+    r"|^(?:please\s+)?(?:help me\s+)?(?:find|search(?: for)?|look for|show me)\s+",
+    re.IGNORECASE,
+)
+_FOLLOWUP_PREFIX = re.compile(r"^(?:改成|改为|换成|换到)\s*")
+_QUERY_FILLER = re.compile(r"(?:行业|优先(?:有|具备)?|哪些|做|的|呢)")
 
 
 def _alias_pattern(alias: str) -> str:
@@ -48,8 +56,10 @@ def _remove_negated_constraints(execution: IntentExecution, message: str) -> str
 
 
 def _semantic_query(execution: IntentExecution) -> str:
-    """Merge current semantics with frozen constraints, retaining both when clipped."""
+    """Use a focused search phrase while preserving unmodeled user semantics."""
     current = _remove_negated_constraints(execution, execution.original_message)
+    current = _SEARCH_PREFIX.sub("", current, count=1).strip()
+    current = _FOLLOWUP_PREFIX.sub("", current, count=1).strip()
     constraints = execution.decision.constraints
     frozen = [
         *constraints.location,
@@ -57,6 +67,12 @@ def _semantic_query(execution: IntentExecution) -> str:
         *constraints.role,
         *constraints.capability,
     ]
+    if constraints.time_range in {"本周", "本月", "最近", "近期"}:
+        current = re.sub(
+            r"(?:本周|本月|最近|近期)的?(?=$|[，,。;；])", "", current
+        ).strip(" ，,。;；")
+    if len(current) <= 16 and any(value in current for value in constraints.location):
+        current = re.sub(r"(?:的呢|呢|的)$", "", current).strip()
     normalized_current = current.casefold()
     missing = list(
         dict.fromkeys(
@@ -70,6 +86,44 @@ def _semantic_query(execution: IntentExecution) -> str:
     suffix = " ".join(missing)[:80]
     current_limit = max(0, 160 - len(suffix) - 1)
     return f"{current[:current_limit]} {suffix}".strip()
+
+
+def _people_query(execution: IntentExecution) -> str:
+    """Lead with frozen search constraints and retain otherwise unmodeled details."""
+    constraints = execution.decision.constraints
+    roles = tuple(
+        value
+        for value in constraints.role
+        if not any(value != other and value in other for other in constraints.role)
+    )
+    fields = (
+        ("location", constraints.location),
+        ("industry", constraints.industry),
+        ("role", roles),
+        ("capability", constraints.capability),
+    )
+    positive = list(
+        dict.fromkeys(
+            value.strip() for _, values in fields for value in values if value.strip()
+        )
+    )
+    if not positive:
+        return _semantic_query(execution)
+
+    remainder = _semantic_query(execution)
+    for kind, values in fields:
+        for value in values:
+            for alias in sorted(
+                expand_constraint_token(kind, value), key=len, reverse=True
+            ):
+                remainder = re.sub(
+                    _alias_pattern(alias), " ", remainder, flags=re.IGNORECASE
+                )
+    remainder = _QUERY_FILLER.sub(" ", remainder)
+    remainder = re.sub(r"[，,。！？;；\s]+", " ", remainder).strip()
+    core = " ".join(positive)[:160]
+    remaining = 160 - len(core) - 1
+    return f"{core} {remainder[:remaining]}" if remainder and remaining > 0 else core
 
 
 def _keyword_text(execution: IntentExecution) -> str:
@@ -170,7 +224,9 @@ def build_step_parameters(
     created_since = _created_since(execution)
     if created_since is not None:
         parameters["created_since"] = created_since
-    if step.resource in {"users", "ideas"}:
+    if step.resource == "users":
+        parameters["q"] = _people_query(execution)
+    elif step.resource == "ideas":
         parameters["q"] = _semantic_query(execution)
     elif step.resource in {"projects", "groups", "faqs"}:
         parameters["keyword"] = _keyword_text(execution)

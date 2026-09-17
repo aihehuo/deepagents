@@ -53,6 +53,11 @@ def search_log_schema_enabled() -> bool:
     return os.environ.get("GROUP_AGENT_SEARCH_LOG_SCHEMA_VERSION", "0") == "1"
 
 
+def search_result_schema_enabled() -> bool:
+    """Keep result diagnostics off until Micro accepts the additive event."""
+    return os.environ.get("GROUP_AGENT_SEARCH_RESULT_SCHEMA_VERSION", "0") == "1"
+
+
 class QueryPlanError(RuntimeError):
     """Stable fail-closed QueryPlan error."""
 
@@ -222,6 +227,7 @@ class IntentExecution:
     _progress_loop: asyncio.AbstractEventLoop | None = None
     _progress_started_monotonic: float | None = None
     _emit_search_logs: bool = False
+    _emit_search_results: bool = False
 
     @property
     def decision(self) -> Any:
@@ -438,6 +444,66 @@ class IntentExecution:
             }
         }
 
+    def _search_result_payload(
+        self, reservation: QueryReservation, receipt: ToolReceiptV1
+    ) -> dict[str, Any]:
+        """Expose bounded public fields and the exact projection-filter outcome."""
+        from apps.group_agent_api.agent_factory.contact_scrub import (
+            scrub_contact_text,
+            scrub_display_name,
+        )
+
+        from .projection import projection_rejection_reasons
+
+        evidence = self.evidence_by_receipt.get(receipt.receipt_id)
+        records = evidence if isinstance(evidence, list) else [evidence]
+        if reservation.step.resource == "group-members" and len(records) == 1:
+            wrapper = records[0]
+            records = wrapper.get("members", []) if isinstance(wrapper, dict) else []
+
+        def public_text(record: dict[str, Any], keys: tuple[str, ...], limit: int) -> str:
+            for key in keys:
+                value = record.get(key)
+                if isinstance(value, (str, int, float)) and str(value).strip():
+                    return scrub_contact_text(str(value).strip())[:limit]
+            return ""
+
+        items: list[dict[str, Any]] = []
+        for record in records[:20]:
+            if not isinstance(record, dict):
+                continue
+            reasons = (
+                projection_rejection_reasons(self, record)
+                if reservation.step.resource in {"users", "group-members"}
+                else ()
+            )
+            identifier = public_text(record, ("id", "user_id", "event_id"), 64)
+            name = public_text(record, ("name", "display_name", "nickname", "title"), 80)
+            items.append(
+                {
+                    "id": identifier,
+                    "name": scrub_display_name(name, fallback_user_id=identifier),
+                    "city": public_text(record, ("city", "location"), 64),
+                    "industry": public_text(record, ("industry",), 64),
+                    "role": public_text(record, ("role", "status_role"), 64),
+                    "summary": public_text(record, ("summary", "bio", "description"), 200),
+                    "review_status": (
+                        "not_applicable"
+                        if reservation.step.resource not in {"users", "group-members"}
+                        else "filtered" if reasons else "eligible"
+                    ),
+                    "review_reasons": list(reasons),
+                }
+            )
+        return {
+            "search_result": {
+                **self._search_log_payload(reservation)["search_log"],
+                "result_count": len(records),
+                "items": items,
+                "truncated": len(records) > len(items),
+            }
+        }
+
     def record_search(self, reservation: QueryReservation) -> None:
         """Acknowledge the public query record immediately before the fetch."""
         if not self._emit_search_logs:
@@ -473,6 +539,40 @@ class IntentExecution:
         ) is not True:
             raise QueryPlanError("callback_ack_invalid")
 
+    def record_search_result(
+        self, reservation: QueryReservation, receipt: ToolReceiptV1
+    ) -> None:
+        """Publish a committed page after its tool-completed acknowledgement."""
+        if not self._emit_search_results or self._progress_emitter is None:
+            return
+        loop = self._progress_loop
+        if loop is None:
+            return
+        self._ensure_sync_progress_supported()
+        future = asyncio.run_coroutine_threadsafe(
+            self._deliver_search_result(reservation, receipt), loop
+        )
+        try:
+            future.result(timeout=10)
+        except Exception as exc:
+            raise QueryPlanError(str(getattr(exc, "code", "callback_ack_invalid"))) from exc
+
+    async def record_search_result_async(
+        self, reservation: QueryReservation, receipt: ToolReceiptV1
+    ) -> None:
+        if not self._emit_search_results or self._progress_emitter is None:
+            return
+        await self._deliver_search_result(reservation, receipt)
+
+    async def _deliver_search_result(
+        self, reservation: QueryReservation, receipt: ToolReceiptV1
+    ) -> None:
+        emitter = self._progress_emitter
+        if emitter is not None and await emitter(
+            "search_result", self._search_result_payload(reservation, receipt)
+        ) is not True:
+            raise QueryPlanError("callback_ack_invalid")
+
     def adopted_result(self, resource: str) -> str | None:
         """Return adopted evidence for a resource without another public request."""
         for receipt in self.receipts:
@@ -502,6 +602,7 @@ class IntentExecution:
             step_result_count=receipt.result_count,
             aggregate_result_count=self.unique_result_count(),
         )
+        self.record_search_result(reservation, receipt)
         return receipt
 
     async def commit_result_async(
@@ -515,6 +616,7 @@ class IntentExecution:
             step_result_count=receipt.result_count,
             aggregate_result_count=self.unique_result_count(),
         )
+        await self.record_search_result_async(reservation, receipt)
         return receipt
 
     def _commit_result(
@@ -586,12 +688,14 @@ class IntentExecution:
         *,
         started_monotonic: float,
         emit_search_logs: bool = False,
+        emit_search_results: bool = False,
     ) -> None:
         """Bind the durable progress transport used by LangChain tools."""
         self._progress_emitter = emitter
         self._progress_loop = asyncio.get_running_loop()
         self._progress_started_monotonic = started_monotonic
         self._emit_search_logs = emit_search_logs
+        self._emit_search_results = emit_search_results
 
     def _emit_tool_progress(
         self,

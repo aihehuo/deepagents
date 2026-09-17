@@ -27,6 +27,7 @@ from apps.group_agent_api.agent_factory.intent_routing.execution import (
     current_intent_execution,
     prepare_intent_execution,
     search_log_schema_enabled,
+    search_result_schema_enabled,
 )
 from apps.group_agent_api.agent_factory.intent_routing.registry import (
     READ_REGISTRY,
@@ -431,7 +432,7 @@ def test_server_parameters_preserve_semantics_and_map_time_range() -> None:
     assert execution.decision.primary_intent == "people_search"
     parameters = build_step_parameters(execution, execution.plan.steps[0])
 
-    assert parameters["q"] == message
+    assert parameters["q"] == "上海 餐饮 供应链经验 创业者"
     anchor = datetime.datetime.fromisoformat(
         execution.snapshot.created_at.replace("Z", "+00:00")
     )
@@ -444,6 +445,27 @@ def test_server_parameters_preserve_semantics_and_map_time_range() -> None:
     project_step = project_execution.plan.steps[1]
     assert build_step_parameters(project_execution, project_step)["keyword"] == (
         "上海 餐饮"
+    )
+
+
+def test_people_query_drops_request_scaffolding_but_keeps_search_details() -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
+        build_step_parameters,
+    )
+
+    basic = _execution()
+    assert build_step_parameters(basic, basic.plan.steps[0])["q"] == (
+        "上海 餐饮 合伙人"
+    )
+
+    simple = _execution("请帮我搜索上海餐饮行业的运营合伙人")
+    assert build_step_parameters(simple, simple.plan.steps[0])["q"] == (
+        "上海 餐饮 运营合伙人"
+    )
+
+    execution = _execution("请帮我搜索上海餐饮行业的全职运营合伙人")
+    assert build_step_parameters(execution, execution.plan.steps[0])["q"] == (
+        "上海 餐饮 运营合伙人 全职"
     )
 
 
@@ -495,9 +517,7 @@ def test_followup_query_merges_resolved_context_constraints() -> None:
     query = build_step_parameters(execution, execution.plan.steps[0])["q"]
 
     assert resolution.context_inherited is True
-    assert "上海" in query
-    assert "技术合伙人" in query
-    assert "北京" not in query
+    assert query == "上海 技术合伙人"
 
     negated_resolution = resolve_intent(
         "不要北京，改成上海的",
@@ -522,9 +542,7 @@ def test_followup_query_merges_resolved_context_constraints() -> None:
     )["q"]
 
     assert negated_resolution.decision.negations == ("location:北京",)
-    assert "北京" not in negated_query
-    assert "上海" in negated_query
-    assert "技术合伙人" in negated_query
+    assert negated_query == "上海 技术合伙人"
 
 
 @pytest.mark.parametrize(
@@ -904,6 +922,57 @@ async def test_public_tool_async_search_log_ack_precedes_fetch(
     assert events[1][1]["search_log"]["page"] == 2
 
 
+async def test_public_tool_emits_bounded_reviewed_search_results(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from skillpacks.aihehuo import integration
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    _install_route_skill(tmp_path)
+    monkeypatch.setattr(
+        integration,
+        "_catalog",
+        lambda: {"get-ai-cofounders": {"resources": ["users"]}},
+    )
+    monkeypatch.setattr(
+        integration,
+        "fetch",
+        lambda _path, **_kwargs: json.dumps(
+            {
+                "data": [
+                    {"id": "1", "name": "张三", "city": "上海", "industry": "餐饮", "bio": "餐饮合伙人", "phone": "13800138000"},
+                    {"id": "2", "name": "李四", "city": "北京", "industry": "餐饮", "bio": "餐饮合伙人"},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+    )
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    async def emitter(event: str, payload: dict[str, Any]) -> bool:
+        events.append((event, payload))
+        return True
+
+    execution = _execution("有没有上海餐饮合伙人")
+    execution.bind_progress_emitter(
+        emitter, started_monotonic=0.0, emit_search_logs=True, emit_search_results=True
+    )
+    tool = integration.create_aihehuo_tool(skills_dir=tmp_path / "skills" / "aihehuo")
+    with active_intent_execution(execution):
+        await tool.ainvoke({"resource": "users", "q": "上海 餐饮 合伙人", "page": 1})
+
+    assert [event for event, _ in events] == [
+        "progress", "search_log", "progress", "search_result"
+    ]
+    result = events[-1][1]["search_result"]
+    assert result["search_id"] == events[1][1]["search_log"]["search_id"]
+    assert result["result_count"] == 2
+    assert [item["review_status"] for item in result["items"]] == ["eligible", "filtered"]
+    assert result["items"][1]["review_reasons"] == ["location_mismatch"]
+    assert "phone" not in result["items"][0]
+    assert "13800138000" not in str(result)
+
+
 async def test_search_diagnostics_are_v3_only_and_redact_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -913,6 +982,10 @@ async def test_search_diagnostics_are_v3_only_and_redact_credentials(
     assert search_log_schema_enabled() is True
     monkeypatch.setenv("GROUP_AGENT_SEARCH_LOG_SCHEMA_VERSION", "invalid")
     assert search_log_schema_enabled() is False
+    monkeypatch.delenv("GROUP_AGENT_SEARCH_RESULT_SCHEMA_VERSION", raising=False)
+    assert search_result_schema_enabled() is False
+    monkeypatch.setenv("GROUP_AGENT_SEARCH_RESULT_SCHEMA_VERSION", "1")
+    assert search_result_schema_enabled() is True
     execution = _execution()
     events: list[str] = []
 

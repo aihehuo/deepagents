@@ -62,6 +62,7 @@ from apps.group_agent_api.agent_factory.intent_routing.execution import (
     active_intent_execution,
     prepare_intent_execution,
     search_log_schema_enabled,
+    search_result_schema_enabled,
 )
 from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
     execute_query_plan,
@@ -1006,6 +1007,11 @@ async def _execute_core_agent(
                             req.request_schema_version == 3
                             and execution_mode == "group_agent"
                             and search_log_schema_enabled()
+                        ),
+                        emit_search_results=(
+                            req.request_schema_version == 3
+                            and execution_mode == "group_agent"
+                            and search_result_schema_enabled()
                         ),
                     )
                     intent_execution.restore_adopted_evidence()

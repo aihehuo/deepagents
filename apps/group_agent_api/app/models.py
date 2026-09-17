@@ -484,7 +484,9 @@ class AsyncCallResponse(BaseModel):
         return result
 
 
-CallbackEventType = Literal["progress", "chunk", "final", "error", "heartbeat", "search_log"]
+CallbackEventType = Literal[
+    "progress", "chunk", "final", "error", "heartbeat", "search_log", "search_result"
+]
 
 
 class CallbackEnvelope(BaseModel):

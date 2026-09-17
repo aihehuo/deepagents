@@ -1141,8 +1141,7 @@ def test_phase1_excluding_ai_does_not_drop_shanghai_restaurant(
         request_fingerprint=None,
     )
     query = build_step_parameters(execution, execution.plan.steps[0])["q"]
-    assert "Shanghai" in query
-    assert "Shangh " not in query
+    assert query == "上海 餐饮 运营"
     reservation = execution.reserve(
         resource="users",
         parameters={"page": 1},

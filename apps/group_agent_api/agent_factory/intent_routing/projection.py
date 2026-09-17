@@ -83,9 +83,7 @@ def project_intent_search(
             continue
         filtered_items: list[Any] = []
         for item in candidate_items:
-            if not _matches_frozen_constraints(execution, item):
-                continue
-            if _violates_frozen_negations(execution, item):
+            if projection_rejection_reasons(execution, item):
                 continue
             filtered_items.append(item)
             candidate = _public_candidate(item)
@@ -199,9 +197,12 @@ def _location_haystack(raw: dict[str, Any]) -> str:
     return _dimension_haystack(raw, ("location", "province", "address"))
 
 
-def _matches_frozen_constraints(execution: IntentExecution, raw: Any) -> bool:
+def projection_rejection_reasons(
+    execution: IntentExecution, raw: Any
+) -> tuple[str, ...]:
+    """Explain why a public person cannot enter the constrained projection."""
     if not isinstance(raw, dict):
-        return False
+        return ("invalid_record",)
     constraints = execution.decision.constraints
     dimensions = (
         (constraints.location, "location", ("city", "province", "location", "address")),
@@ -238,6 +239,8 @@ def _matches_frozen_constraints(execution: IntentExecution, raw: Any) -> bool:
             ),
         ),
     )
+    reasons: list[str] = []
+    key_map = {kind: keys for _, kind, keys in dimensions}
     for expected, kind, keys in dimensions:
         if not expected:
             continue
@@ -254,37 +257,7 @@ def _matches_frozen_constraints(execution: IntentExecution, raw: Any) -> bool:
             if alias.strip()
         ]
         if not aliases or not any(phrase_in_text(haystack, alias) for alias in aliases):
-            return False
-    return True
-
-
-def _violates_frozen_negations(execution: IntentExecution, raw: Any) -> bool:
-    """Exclude candidates that match explicit field exclusions."""
-    if not isinstance(raw, dict):
-        return True
-    key_map = {
-        "location": ("city", "province", "location", "address"),
-        "industry": (
-            "industry",
-            "tags",
-            "bio",
-            "summary",
-            "description",
-            "job_descriptions",
-            "title",
-            "status_role",
-        ),
-        "role": ("role", "status_role", "title", "bio", "summary", "description"),
-        "capability": (
-            "capability",
-            "skills",
-            "tags",
-            "bio",
-            "summary",
-            "description",
-            "job_descriptions",
-        ),
-    }
+            reasons.append(f"{kind}_mismatch")
     for negation in execution.decision.negations:
         kind, separator, value = negation.partition(":")
         value = value.strip()
@@ -299,8 +272,8 @@ def _violates_frozen_negations(execution: IntentExecution, raw: Any) -> bool:
             alias for alias in expand_constraint_token(kind, value) if alias.strip()
         ]
         if any(phrase_in_text(haystack, alias) for alias in aliases):
-            return True
-    return False
+            reasons.append(f"{kind}_excluded")
+    return tuple(dict.fromkeys(reasons))
 
 
 def _search_text(raw: Any) -> str:

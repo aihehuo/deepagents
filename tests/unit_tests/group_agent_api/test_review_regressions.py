@@ -383,7 +383,6 @@ async def test_all_returned_users_survive_endpoint_evidence(
     monkeypatch.setattr(integration, "fetch", lambda *_args, **_kwargs: json.dumps({"data": records}))
     source = f"https://www.aihehuo.com/ai/users.json?page=1&per={per}"
     model_reply = f"伙伴【用户{per}】有真实项目经验。来源：{source}"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
-    expected_reply = f"伙伴【用户{per}】有真实项目经验。"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
     model = ToolModel(calls=[{"name": "query_aihehuo_public_data", "id": "read", "args": {"resource": "users", "page": 1, "per": per}}], reply=model_reply)
     graph = factory.create_member_agent(runtime=tmp_path, model=model, checkpointer=InMemorySaver(), include_save=False)
     state = AppState(agent=object(), base_dir=tmp_path, search_only_agent=graph)
@@ -400,11 +399,8 @@ async def test_all_returned_users_survive_endpoint_evidence(
         return session
 
     monkeypatch.setattr(chat_ep, "resolve_trusted_session", resolve)
-    monkeypatch.setattr(chat_ep, "reply_grounding_enabled_for_user", lambda _: True)
     result = await chat_ep.chat(ChatRequest(user_id="owner", group_id="g1", message="介绍返回的最后一位人才"), state)
-    assert result.reply == expected_reply
-    assert source not in result.reply
-    assert "来源：" not in result.reply
+    assert result.reply == model_reply
 
 
 @pytest.mark.parametrize(
@@ -547,8 +543,6 @@ async def test_public_person_reply_survives_actual_endpoint_finalization(
     import apps.group_agent_api.agent_factory.checks.reply_grounding as grounding_module
 
     monkeypatch.setattr(grounding_module, "apply_reply_grounding_gate", grounding)
-    monkeypatch.setattr(chat_ep, "reply_grounding_enabled_for_user", lambda _: True)
-    monkeypatch.setattr(async_manager, "reply_grounding_enabled_for_user", lambda _: True)
     if async_entry:
         events: list[tuple[str, dict[str, Any]]] = []
 
@@ -576,11 +570,9 @@ async def test_public_person_reply_survives_actual_endpoint_finalization(
 
         monkeypatch.setattr(chat_ep, "resolve_trusted_session", resolve)
         result = (await chat_ep.chat(ChatRequest(user_id="owner", group_id="g1", message=message), state)).model_dump()
-    assert result["reply"] == REPLY
-    assert SOURCE not in result["reply"]
-    assert "来源：" not in result["reply"]
+    assert result["reply"] == REPLY_WITH_SOURCE
     assert result["candidates"] == []
     if async_entry:
         assert result["reply_mode"] == "dialogue"
-    assert captured[0]["public_reads"][0].records[0]["name"] == "张测试"
+    assert not captured
     assert not (tmp_path / "users").exists()

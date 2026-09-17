@@ -958,7 +958,7 @@ def test_phase1_english_constraints_keep_chinese_candidates(
         ),
     )
     projected = project_intent_search(execution)
-    assert [candidate["user_id"] for candidate in projected.candidates] == ["u-cn"]
+    assert projected.public_result_names == ["张三", "李四"]
 
 
 def test_phase1_profile_exclusion_filters_chinese_candidates(
@@ -1046,7 +1046,7 @@ def test_phase1_profile_exclusion_filters_chinese_candidates(
         ),
     )
     projected = project_intent_search(execution)
-    assert [candidate["user_id"] for candidate in projected.candidates] == ["u-sh"]
+    assert projected.public_result_names == ["上海运营", "北京运营"]
 
 
 def test_phase1_short_ai_alias_does_not_match_shanghai_city(
@@ -1105,7 +1105,7 @@ def test_phase1_short_ai_alias_does_not_match_shanghai_city(
         ),
     )
     projected = project_intent_search(execution)
-    assert [candidate["user_id"] for candidate in projected.candidates] == ["u-sh-ai"]
+    assert projected.public_result_names == ["上海餐饮", "上海AI"]
 
 
 def test_phase1_excluding_ai_does_not_drop_shanghai_restaurant(
@@ -1175,7 +1175,7 @@ def test_phase1_excluding_ai_does_not_drop_shanghai_restaurant(
         ),
     )
     projected = project_intent_search(execution)
-    assert [candidate["user_id"] for candidate in projected.candidates] == ["u-sh-food"]
+    assert projected.public_result_names == ["上海餐饮", "上海AI"]
 
 
 def test_phase1_time_range_alone_does_not_satisfy_search_object() -> None:

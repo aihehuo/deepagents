@@ -191,7 +191,7 @@ def _install_route_skill(base_dir: Path) -> None:
     )
 
 
-def test_completed_execution_projects_public_reads_and_safe_candidate_cards(
+def test_completed_execution_preserves_public_numbers_in_candidate_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from apps.group_agent_api.agent_factory.intent_routing.projection import (
@@ -209,7 +209,9 @@ def test_completed_execution_projects_public_reads_and_safe_candidate_cards(
             [
                 {
                     "id": 101,
+                    "user_id": "999",
                     "name": "张三",
+                    "source_group_id": "some-other-group",
                     "city": "上海",
                     "industry": "餐饮",
                     "title": "创业合伙人",
@@ -224,10 +226,11 @@ def test_completed_execution_projects_public_reads_and_safe_candidate_cards(
     assert projected.completed
     assert projected.result_count == 1
     assert projected.public_reads[0].records[0]["name"] == "张三"
-    assert projected.candidates[0]["user_id"] == "101"
-    assert projected.candidates[0]["display_name"] == "张三"
-    assert projected.candidates[0]["doing"]["value"] == "餐饮供应链经验"
-    assert "phone" not in projected.candidates[0]
+    assert [candidate["user_id"] for candidate in projected.candidates] == ["101"]
+    assert projected.candidates[0]["kind"] == "public"
+    assert "source_group_id" not in projected.candidates[0]
+    assert "13800000000" not in str(projected.candidates)
+    assert projected.public_result_names == ["张三"]
 
 
 def test_ephemeral_required_receipt_empty_and_budget(
@@ -967,8 +970,8 @@ async def test_public_tool_emits_bounded_reviewed_search_results(
     result = events[-1][1]["search_result"]
     assert result["search_id"] == events[1][1]["search_log"]["search_id"]
     assert result["result_count"] == 2
-    assert [item["review_status"] for item in result["items"]] == ["eligible", "filtered"]
-    assert result["items"][1]["review_reasons"] == ["location_mismatch"]
+    assert [item["review_status"] for item in result["items"]] == ["not_applicable", "not_applicable"]
+    assert result["items"][1]["review_reasons"] == []
     assert "phone" not in result["items"][0]
     assert "13800138000" not in str(result)
 
@@ -1106,12 +1109,10 @@ async def test_chat_enforce_executes_required_tool_before_composing(
         ),
         state,
     )
-    assert "查询范围：本次查询覆盖 1 页" in response.reply
-    assert "https://www.aihehuo.com/" not in response.reply
-    assert "来源：" not in response.reply
+    assert response.reply == "公开查询处理完成。"
     assert response.match_reason == "intent_query_plan"
     assert response.match_status == "matched"
-    assert response.candidates[0]["user_id"] == "101"
+    assert [candidate["user_id"] for candidate in response.candidates] == ["101"]
     assert search_agent.calls == 0
     assert compose_agent.calls == 1
     prompt = "\n".join(
@@ -1191,6 +1192,7 @@ async def test_async_enforce_executes_required_tool_before_composing(
 
     monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "enforce")
     monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    monkeypatch.setenv("GROUP_AGENT_GROUNDED_FINAL_ENABLED", "1")
     from skillpacks.aihehuo import integration
 
     monkeypatch.setattr(
@@ -1211,6 +1213,7 @@ async def test_async_enforce_executes_required_tool_before_composing(
             conversation_id="conversation-1",
             message="帮我找技术合伙人",
             callback_url="http://example.invalid/group_agent_callbacks/intent-enforce-async",
+            rollout_context={"protocol_mode": "grounded_v2"},
             run_match=False,
             run_invite=False,
         ),
@@ -1230,12 +1233,11 @@ async def test_async_enforce_executes_required_tool_before_composing(
         "tool_completed"
     )
     assert events[-1][0] == "final"
-    assert "查询范围：本次查询覆盖 1 页" in events[-1][1]["reply"]
-    assert "https://www.aihehuo.com/" not in events[-1][1]["reply"]
-    assert "来源：" not in events[-1][1]["reply"]
+    assert events[-1][1]["reply"] == "公开查询处理完成。"
     assert events[-1][1]["reply_mode"] == "recommendation"
     assert events[-1][1]["match_reason"] == "intent_query_plan"
-    assert events[-1][1]["candidates"][0]["user_id"] == "101"
+    assert [candidate["user_id"] for candidate in events[-1][1]["candidates"]] == ["101"]
+    assert events[-1][1]["grounded_final"]["candidate_count"] == 1
 
 
 async def test_async_consecutive_turns_restore_server_query_context(

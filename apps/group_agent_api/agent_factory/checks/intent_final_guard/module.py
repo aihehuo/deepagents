@@ -491,9 +491,16 @@ def _append_scope(reply: str, receipts: list[Any], item_count: int) -> str:
 
 
 def _projected_candidate_names(projection: Any) -> tuple[str, ...]:
-    """Display names from constraint-filtered projection only (never raw evidence)."""
+    """Names from constraint-filtered public records, not actionable cards."""
     names: list[str] = []
     seen: set[str] = set()
+    for name in getattr(projection, "public_result_names", None) or []:
+        if not isinstance(name, str) or len(name.strip()) < 2 or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+        if len(names) >= 3:
+            return tuple(names)
     for candidate in getattr(projection, "candidates", None) or []:
         if not isinstance(candidate, dict):
             continue

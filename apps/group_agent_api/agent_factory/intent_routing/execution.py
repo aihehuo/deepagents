@@ -447,13 +447,11 @@ class IntentExecution:
     def _search_result_payload(
         self, reservation: QueryReservation, receipt: ToolReceiptV1
     ) -> dict[str, Any]:
-        """Expose bounded public fields and the exact projection-filter outcome."""
+        """Expose bounded public search fields without re-reviewing tool matches."""
         from apps.group_agent_api.agent_factory.contact_scrub import (
             scrub_contact_text,
             scrub_display_name,
         )
-
-        from .projection import projection_rejection_reasons
 
         evidence = self.evidence_by_receipt.get(receipt.receipt_id)
         records = evidence if isinstance(evidence, list) else [evidence]
@@ -472,11 +470,6 @@ class IntentExecution:
         for record in records[:20]:
             if not isinstance(record, dict):
                 continue
-            reasons = (
-                projection_rejection_reasons(self, record)
-                if reservation.step.resource in {"users", "group-members"}
-                else ()
-            )
             identifier = public_text(record, ("id", "user_id", "event_id"), 64)
             name = public_text(record, ("name", "display_name", "nickname", "title"), 80)
             items.append(
@@ -487,12 +480,8 @@ class IntentExecution:
                     "industry": public_text(record, ("industry",), 64),
                     "role": public_text(record, ("role", "status_role"), 64),
                     "summary": public_text(record, ("summary", "bio", "description"), 200),
-                    "review_status": (
-                        "not_applicable"
-                        if reservation.step.resource not in {"users", "group-members"}
-                        else "filtered" if reasons else "eligible"
-                    ),
-                    "review_reasons": list(reasons),
+                    "review_status": "not_applicable",
+                    "review_reasons": [],
                 }
             )
         return {

@@ -79,7 +79,6 @@ from apps.group_agent_api.agent_factory.invite import (
     should_emit_invite_artifact,
 )
 from apps.group_agent_api.agent_factory.module_config import (
-    reply_grounding_enabled_for_user,
     search_relax_enabled,
     search_relax_enabled_for_user,
 )
@@ -1406,16 +1405,8 @@ async def _execute_core_agent(
     search_completed = search_turn.called
     if intent_search.completed:
         search_completed = True
-        # Reply grounding / user-visible checks must only see constraint-filtered people.
-        public_reads = intent_search.grounding_public_reads
-        # ga-grounding-v1 currently accepts only authoritative profile-backed
-        # candidate facts. Public QueryPlan records remain valid reply ground,
-        # but must not be mislabeled as profile candidates in grounded_v2.
-        candidates = (
-            []
-            if run_protocol_mode == "grounded_v2"
-            else intent_search.candidates
-        )
+        public_reads = intent_search.public_reads
+        candidates = intent_search.candidates
         match_status = "matched" if candidates else "empty"
         match_reason = "intent_query_plan"
     quality_gaps: list[str] = []
@@ -1490,6 +1481,7 @@ async def _execute_core_agent(
 
     if (
         req.run_invite
+        and not intent_search.completed
         and profile_ok
         and unlocks_network(tier)
         and search_completed
@@ -1567,7 +1559,7 @@ async def _execute_core_agent(
     combined_guard_blocked = guarded.blocked or final_guarded.blocked
 
     out_candidates = invite_res.candidates if (req.run_invite and "invite_res" in locals() and invite_res.candidates) else final_guarded.candidates
-    if final_profile is not None and out_candidates:
+    if final_profile is not None and out_candidates and not intent_search.completed:
         from apps.group_agent_api.agent_factory.invite import (
             enrich_candidates_with_single_copy,
         )
@@ -1654,53 +1646,6 @@ async def _execute_core_agent(
         determined_reply_mode = ReplyMode.error
 
     visible_reply = final_guarded.reply
-    if not cafe_host and reply_grounding_enabled_for_user(user_id) and determined_reply_mode != ReplyMode.error:
-        from apps.group_agent_api.agent_factory.checks.reply_grounding import (
-            apply_reply_grounding_gate,
-            default_repair_fn,
-        )
-
-        judge_model = state.quality_model or state.polish_model
-        gated = apply_reply_grounding_gate(
-            reply=visible_reply,
-            reply_mode=determined_reply_mode.value,
-            candidates=out_candidates,
-            profile=final_profile,
-            candidate_count=len(out_candidates),
-            public_reads=public_reads,
-            model=judge_model,
-            repair_fn=default_repair_fn(judge_model),
-            user_id=user_id,
-            run_id=req.run_id,
-            thread_id=tid,
-        )
-        visible_reply = gated.reply
-
-    if not cafe_host:
-        from apps.group_agent_api.agent_factory.checks.intent_final_guard import (
-            apply_intent_final_guard,
-        )
-
-        intent_guarded = apply_intent_final_guard(
-            reply=visible_reply,
-            execution=intent_execution,
-            public_reads=public_reads,
-            profile_saved_this_turn=saved_this_turn,
-            profile_persisted=profile_ok,
-            legacy_search_completed=(
-                search_turn.called and match_status in {"matched", "weak", "empty"}
-            ),
-            legacy_result_count=len(out_candidates),
-        )
-        visible_reply = intent_guarded.reply
-        if intent_guarded.blocked:
-            combined_guard_blocked = True
-            combined_guard_violations = list(
-                dict.fromkeys(
-                    [*combined_guard_violations, *intent_guarded.violations]
-                )
-            )
-
     final_payload = {
         "reply": visible_reply,
         "reply_mode": determined_reply_mode.value,

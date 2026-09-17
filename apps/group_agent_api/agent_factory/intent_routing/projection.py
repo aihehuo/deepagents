@@ -18,9 +18,8 @@ from apps.group_agent_api.agent_factory.match_stub import MAX_CANDIDATES
 
 from .execution import IntentExecution
 from .canonical import canonical_hash
-from .constraint_lexicon import expand_constraint_token, phrase_in_text
 
-_STABLE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_PUBLIC_NUMBER = re.compile(r"^[1-9][0-9]*$")
 
 
 @dataclass(frozen=True)
@@ -30,9 +29,12 @@ class IntentSearchProjection:
     completed: bool = False
     result_count: int = 0
     candidates: list[dict[str, Any]] = field(default_factory=list)
+    # Public search hits are not contactable candidate cards. Their `id` is
+    # User.number, not the database User.id used by downstream actions.
+    public_result_names: list[str] = field(default_factory=list)
     # Full receipt evidence (debug / audit). May include constraint-mismatched people.
     public_reads: list[PublicReadGround] = field(default_factory=list)
-    # Users/group-members filtered by frozen constraints — for reply grounding only.
+    # Public reads are retained for compatibility with existing callers.
     grounding_public_reads: list[PublicReadGround] = field(default_factory=list)
     pages: int = 0
 
@@ -52,6 +54,7 @@ def project_intent_search(
     reads: list[PublicReadGround] = []
     grounding_reads: list[PublicReadGround] = []
     candidates: list[dict[str, Any]] = []
+    public_result_names: list[str] = []
     seen_ids: set[str] = set()
     steps = {step.step_id: step for step in execution.plan.steps}
     for receipt in execution.receipts:
@@ -83,9 +86,15 @@ def project_intent_search(
             continue
         filtered_items: list[Any] = []
         for item in candidate_items:
-            if projection_rejection_reasons(execution, item):
-                continue
             filtered_items.append(item)
+            if isinstance(item, dict) and len(public_result_names) < MAX_CANDIDATES:
+                raw_name = str(item.get("name") or item.get("display_name") or item.get("nickname") or "").strip()
+                if raw_name:
+                    name = scrub_display_name(
+                        raw_name, fallback_user_id=str(item.get("id") or "")
+                    )[:64]
+                    if name not in public_result_names:
+                        public_result_names.append(name)
             candidate = _public_candidate(item)
             if candidate is None or candidate["user_id"] in seen_ids:
                 continue
@@ -109,6 +118,7 @@ def project_intent_search(
         completed=True,
         result_count=execution.unique_result_count(),
         candidates=candidates,
+        public_result_names=public_result_names,
         public_reads=reads,
         grounding_public_reads=grounding_reads,
         pages=len(execution.receipts),
@@ -118,9 +128,11 @@ def project_intent_search(
 def _public_candidate(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
-    raw_id = raw.get("user_id", raw.get("id"))
+    # Public /ai/users.json `id` is User.number. It remains a public number
+    # throughout the search/display path, never a database User.id.
+    raw_id = raw.get("id", raw.get("user_id"))
     user_id = str(raw_id).strip() if raw_id is not None else ""
-    if not _STABLE_ID.fullmatch(user_id):
+    if not _PUBLIC_NUMBER.fullmatch(user_id):
         return None
 
     display = str(
@@ -128,6 +140,7 @@ def _public_candidate(raw: Any) -> dict[str, Any] | None:
     ).strip()[:64]
     display = scrub_display_name(display, fallback_user_id=user_id)
     candidate: dict[str, Any] = {
+        "kind": "public",
         "user_id": user_id,
         "display_name": display or f"用户{user_id}",
         "bound": bool(raw.get("bound", True)),
@@ -135,10 +148,6 @@ def _public_candidate(raw: Any) -> dict[str, Any] | None:
     profile_url = raw.get("profile_url") or raw.get("url")
     if isinstance(profile_url, str) and profile_url.strip():
         candidate["profile_url"] = profile_url.strip()
-    for key in ("group_id", "source_group_id", "is_reachable"):
-        if key in raw and raw[key] is not None:
-            candidate[key] = raw[key]
-
     facts: list[dict[str, str]] = []
     for dimension in ("doing", "need", "offer"):
         value = _public_text(raw.get(dimension))
@@ -183,105 +192,6 @@ def _public_text(raw: Any) -> str:
     if not isinstance(raw, (str, int, float)):
         return ""
     return scrub_contact_text(str(raw).strip())[:200]
-
-
-def _dimension_haystack(raw: dict[str, Any], keys: tuple[str, ...]) -> str:
-    return " ".join(_search_text(raw.get(key)) for key in keys).casefold()
-
-
-def _location_haystack(raw: dict[str, Any]) -> str:
-    """Trust an explicit city over broader location text such as street addresses."""
-    city = _search_text(raw.get("city")).strip()
-    if city:
-        return city.casefold()
-    return _dimension_haystack(raw, ("location", "province", "address"))
-
-
-def projection_rejection_reasons(
-    execution: IntentExecution, raw: Any
-) -> tuple[str, ...]:
-    """Explain why a public person cannot enter the constrained projection."""
-    if not isinstance(raw, dict):
-        return ("invalid_record",)
-    constraints = execution.decision.constraints
-    dimensions = (
-        (constraints.location, "location", ("city", "province", "location", "address")),
-        (
-            constraints.industry,
-            "industry",
-            (
-                "industry",
-                "tags",
-                "bio",
-                "summary",
-                "description",
-                "job_descriptions",
-                "title",
-                "status_role",
-            ),
-        ),
-        (
-            constraints.role,
-            "role",
-            ("role", "status_role", "title", "bio", "summary", "description"),
-        ),
-        (
-            constraints.capability,
-            "capability",
-            (
-                "capability",
-                "skills",
-                "tags",
-                "bio",
-                "summary",
-                "description",
-                "job_descriptions",
-            ),
-        ),
-    )
-    reasons: list[str] = []
-    key_map = {kind: keys for _, kind, keys in dimensions}
-    for expected, kind, keys in dimensions:
-        if not expected:
-            continue
-        haystack = (
-            _location_haystack(raw)
-            if kind == "location"
-            else _dimension_haystack(raw, keys)
-        )
-        aliases = [
-            alias
-            for value in expected
-            if value.strip()
-            for alias in expand_constraint_token(kind, value)
-            if alias.strip()
-        ]
-        if not aliases or not any(phrase_in_text(haystack, alias) for alias in aliases):
-            reasons.append(f"{kind}_mismatch")
-    for negation in execution.decision.negations:
-        kind, separator, value = negation.partition(":")
-        value = value.strip()
-        if separator != ":" or kind not in key_map or not value:
-            continue
-        haystack = (
-            _location_haystack(raw)
-            if kind == "location"
-            else _dimension_haystack(raw, key_map[kind])
-        )
-        aliases = [
-            alias for alias in expand_constraint_token(kind, value) if alias.strip()
-        ]
-        if any(phrase_in_text(haystack, alias) for alias in aliases):
-            reasons.append(f"{kind}_excluded")
-    return tuple(dict.fromkeys(reasons))
-
-
-def _search_text(raw: Any) -> str:
-    if isinstance(raw, dict):
-        return " ".join(_search_text(value) for value in raw.values())
-    if isinstance(raw, list):
-        return " ".join(_search_text(value) for value in raw)
-    return str(raw or "")
 
 
 def _valid_receipt(

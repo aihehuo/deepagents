@@ -29,7 +29,7 @@ checks:
   chk.action_claim: true
   chk.invented_candidate: true
   chk.reply_fact_grounding_llm: true
-  # Hard current-run receipt/action guard. Independent of intent routing and LLM judge.
+  # Retired from the active async/sync reply path; retained for legacy direct callers.
   chk.intent_final_guard: true
   # Off = skip enforce_capability_guard (debug only — network leaks unintercepted).
   chk.capability_guard: true
@@ -52,7 +52,7 @@ modules:
   # finalize_templates). Off skips those soft checks only — NOT capability_guard,
   # force_save, deterministic, match_v2, invite_*, or reply_grounding.
   mod.brain.check: true
-  # Semantic reply-vs-candidate-facts gate (TSD-14 §4.6). Default on.
+  # Retired from the active async/sync reply path; retained for legacy direct callers.
   mod.brain.reply_grounding: true
   # Multi-level search (TSD-14 §8.12). Default off ≡ today's single-shot.
   # When on, model may re-call search_candidates with relax_level (D-B03: no

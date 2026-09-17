@@ -215,10 +215,10 @@ def test_completed_people_query_must_not_end_with_ack_only(
     assert "公开查询已完成" in result.reply
 
 
-def test_safe_reply_does_not_list_unfiltered_raw_evidence_names(
+def test_fallback_lists_search_results_without_rechecking_constraints(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Fallback copy must use projected candidates only — never raw page names."""
+    """Public tool results are not rechecked against frozen constraints."""
     monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
     execution = _execution()
     _commit(
@@ -239,11 +239,7 @@ def test_safe_reply_does_not_list_unfiltered_raw_evidence_names(
     )
     assert result.blocked
     assert "execution_result_omitted" in result.violations
-    assert "chen富" not in result.reply
-    assert (
-        "没有找到完全满足当前条件的人选" in result.reply
-        or "没有返回符合条件的公开记录" in result.reply
-    )
+    assert "chen富" in result.reply
 
 
 def test_empty_query_must_explicitly_report_no_match(
@@ -396,7 +392,7 @@ def test_repair_scrub_removes_ground_jargon_from_user_text() -> None:
     assert "user_id" not in scrub_internal_context_leak("请核对 user_id=9659712")
 
 
-def test_shanghai_query_blocks_shenzhen_name_on_normal_reply_path(
+def test_shanghai_query_does_not_recheck_shenzhen_name_on_retired_guard_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
@@ -429,9 +425,8 @@ def test_shanghai_query_blocks_shenzhen_name_on_normal_reply_path(
             execution=execution,
             enabled=True,
         )
-        assert blocked.blocked, reply
-        assert "invented_public_entity" in blocked.violations
-        assert "chen富" not in blocked.reply
+        assert not blocked.blocked, reply
+        assert "chen富" in blocked.reply
 
     ok = apply_intent_final_guard(
         reply="已经搜索，候选人【张三】的公开资料符合地域条件。",

@@ -181,6 +181,8 @@ def _execution(message: str = "有没有上海餐饮合伙人"):
         original_message=message,
         run_id=None,
         request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
     )
 
 
@@ -539,6 +541,8 @@ def test_followup_query_merges_resolved_context_constraints() -> None:
         original_message="上海的呢",
         run_id=None,
         request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
     )
     query = build_step_parameters(execution, execution.plan.steps[0])["q"]
 
@@ -563,6 +567,8 @@ def test_followup_query_merges_resolved_context_constraints() -> None:
         original_message="不要北京，改成上海的",
         run_id=None,
         request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
     )
     negated_query = build_step_parameters(
         negated_execution, negated_execution.plan.steps[0]
@@ -708,6 +714,8 @@ def test_profile_update_delegates_without_query_plan(
         original_message="把我的所在地改成上海",
         run_id=None,
         request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
     )
     assert execution.decision.action == "delegate_existing_flow"
     assert execution.plan is None
@@ -772,6 +780,8 @@ def test_legacy_read_mode_cannot_satisfy_execute_plan(
             original_message="帮我找合伙人",
             run_id=None,
             request_fingerprint=None,
+            execution_mode="group_agent",
+            can_search=True,
         )
 
 

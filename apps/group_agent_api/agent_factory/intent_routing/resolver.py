@@ -138,7 +138,12 @@ def _decision_from_planner(
     )
 
 
-_OVERFLOW_FAIL_CLOSED = "episode_context_overflow_fail_closed"
+_OVERFLOW_FAIL_CLOSED = frozenset(
+    {
+        "episode_context_overflow_fail_closed",
+        "episode_turn_truncated_fail_closed",
+    }
+)
 
 
 def _overflow_clarification(
@@ -201,7 +206,7 @@ def resolve_intent(
         profile=profile,
         trusted=trusted,
     )
-    if context.compression_reason == _OVERFLOW_FAIL_CLOSED:
+    if context.compression_reason in _OVERFLOW_FAIL_CLOSED:
         return _overflow_clarification(
             started=started,
             trusted=trusted,
@@ -249,7 +254,7 @@ async def aresolve_intent(
         profile=profile,
         trusted=trusted,
     )
-    if context.compression_reason == _OVERFLOW_FAIL_CLOSED:
+    if context.compression_reason in _OVERFLOW_FAIL_CLOSED:
         return _overflow_clarification(
             started=started,
             trusted=trusted,

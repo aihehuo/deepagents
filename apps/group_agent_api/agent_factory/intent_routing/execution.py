@@ -1026,8 +1026,8 @@ def prepare_intent_execution(
     original_message: str,
     run_id: str | None,
     request_fingerprint: str | None,
-    execution_mode: str | None = None,
-    can_search: bool | None = None,
+    execution_mode: str,
+    can_search: bool,
 ) -> IntentExecution:
     """Create or recover the run's immutable snapshot and receipt state.
 
@@ -1041,9 +1041,9 @@ def prepare_intent_execution(
     def assert_execute_authorized() -> None:
         if read_mode() != "public_skills":
             raise QueryPlanError("query_plan_invalid")
-        if execution_mode is not None and execution_mode != "group_agent":
+        if execution_mode != "group_agent":
             raise QueryPlanError("permission_denied")
-        if can_search is False:
+        if not can_search:
             raise QueryPlanError("permission_denied")
 
     if resolution.decision.action == "execute":

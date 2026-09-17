@@ -260,9 +260,8 @@ class IntentDecisionV1(ClosedModel):
                 primary is not None
                 and self.resource_queries.for_resource(primary) is None
             )
-            # Phase-2 planner decisions must freeze queries. Legacy Phase-1
-            # snapshots (planner_version is None) may resume via constraint
-            # synthesis in the snapshot reader / plan_executor.
+            # Phase-2 planner decisions must freeze queries. Phase-1 execute
+            # snapshots without frozen queries are refused at snapshot restore.
             if missing_primary and self.planner_version is not None:
                 msg = "execute decisions must freeze the primary resource query"
                 raise ValueError(msg)

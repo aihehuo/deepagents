@@ -657,13 +657,15 @@ def test_phase2_groups_query_without_member_words_still_uses_user_request(
     assert build_step_parameters(execution, members_step)["event_id"] == "42"
 
 
-def test_phase2_legacy_snapshot_decision_migrates_constraints_to_query() -> None:
-    from apps.group_agent_api.agent_factory.intent_routing.snapshot import (
-        migrate_legacy_intent_decision,
-        parse_routing_snapshot_payload,
-    )
+def test_phase2_legacy_execute_snapshot_without_queries_is_refused() -> None:
     from apps.group_agent_api.agent_factory.intent_routing.canonical import (
+        RoutingCryptoError,
         canonical_hash,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.registry import READ_REGISTRY
+    from apps.group_agent_api.agent_factory.intent_routing.snapshot import (
+        normalize_intent_decision_payload,
+        parse_routing_snapshot_payload,
     )
 
     decision = {
@@ -686,27 +688,85 @@ def test_phase2_legacy_snapshot_decision_migrates_constraints_to_query() -> None
         "requires_plan_receipts": True,
         "policy_version": "intent-policy-v1",
     }
-    migrated = migrate_legacy_intent_decision(decision)
-    assert migrated["resource_queries"]["users"] == "上海 餐饮 合伙人"
+    with pytest.raises(RoutingCryptoError, match="routing_snapshot_invalid"):
+        normalize_intent_decision_payload(decision)
+
     body = {
         "routing_snapshot_version": 1,
         "run_id": "legacy-run",
         "intent_decision": decision,
-        "query_plan": None,
+        "query_plan": READ_REGISTRY["people_search"].plan.model_dump(mode="json"),
         "policy_version": "intent-policy-v1",
         "registry_version": "aihehuo-read-registry-v1",
         "created_at": "2026-09-15T08:00:00Z",
     }
-    # Attach a real plan so bindings validate after migration.
-    from apps.group_agent_api.agent_factory.intent_routing.registry import READ_REGISTRY
-
-    body["query_plan"] = READ_REGISTRY["people_search"].plan.model_dump(mode="json")
     body["canonical_content_hash"] = canonical_hash(
         {key: value for key, value in body.items() if key != "canonical_content_hash"}
     )
-    snapshot = parse_routing_snapshot_payload(body)
-    assert snapshot.intent_decision.resource_queries.users == "上海 餐饮 合伙人"
-    assert snapshot.intent_decision.planner_version is None
+    with pytest.raises(RoutingCryptoError, match="routing_snapshot_invalid"):
+        parse_routing_snapshot_payload(body)
+
+
+def test_phase2_single_turn_truncation_fail_closes_without_search() -> None:
+    long_prefix = "A" * 1000
+    prior = [HumanMessage(content=long_prefix + "餐饮合伙人")]
+    context = build_planner_context(
+        message="继续",
+        prior_messages=prior,
+        profile=None,
+        trusted=None,
+    )
+    assert context.context_compressed is True
+    assert context.compression_reason == "episode_turn_truncated_fail_closed"
+    assert "餐饮" not in "".join(turn.content for turn in context.episode_turns)
+    result = resolve_intent(
+        "继续",
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=prior,
+        scope=_scope(),
+        planner_model=planner_returning(people_query("上海 运营")),
+    )
+    assert result.decision.action == "clarify"
+    assert result.planner_status == "context_overflow"
+    assert not _query_plan_would_run(result)
+
+
+def test_phase2_guessed_group_event_id_is_ignored_without_request_or_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
+        build_step_parameters,
+    )
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    message = "查看社群详情"
+    result = resolve_intent(
+        message,
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(
+            community_query(
+                "社群详情",
+                group_member_scope="first_verified",
+                group_event_id="763",
+            )
+        ),
+    )
+    execution = prepare_intent_execution(
+        result,
+        original_message=message,
+        run_id=None,
+        request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
+    )
+    assert execution.decision.group_event_id == "763"
+    members_step = execution.plan.steps[1]
+    assert "event_id" not in build_step_parameters(execution, members_step)
 
 
 def test_phase2_recovered_execute_denied_when_search_revoked(
@@ -880,7 +940,7 @@ async def test_chat_observe_runs_before_first_agent_generation(
     assert calls[0] == "intent"
 
 
-def test_long_input_stays_bounded_and_linear() -> None:
+def test_long_input_stays_bounded_and_fail_closes() -> None:
     message = "找" + ("上海餐饮运营" * 5_000)
     started = time.perf_counter()
     result = resolve_intent(
@@ -890,7 +950,9 @@ def test_long_input_stays_bounded_and_linear() -> None:
         planner_model=planner_returning(people_query("上海 餐饮 运营")),
     )
     assert time.perf_counter() - started < 2.0
-    assert result.decision.action == "execute"
+    assert result.decision.action == "clarify"
+    assert result.planner_status == "context_overflow"
+    assert not _query_plan_would_run(result)
 
 
 def test_resource_queries_freeze_into_decision() -> None:

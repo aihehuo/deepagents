@@ -16,31 +16,10 @@ from .execution import IntentExecution, QueryPlanError, active_intent_execution
 def _frozen_query(execution: IntentExecution, resource: str) -> str:
     """Return the planner-frozen query for a resource; never invent terms."""
     queries = getattr(execution.decision, "resource_queries", None)
-    if queries is not None:
-        value = queries.for_resource(resource)
-        if value:
-            return value
-    # Narrow Phase-1 resume path: synthesize only when planner_version is absent.
-    if getattr(execution.decision, "planner_version", None) is not None:
+    if queries is None:
         return ""
-    constraints = execution.decision.constraints
-    parts = [
-        *constraints.location,
-        *constraints.industry,
-        *constraints.role,
-        *constraints.capability,
-    ]
-    text = " ".join(item.strip() for item in parts if item.strip())[:160]
-    primary_by_intent = {
-        "people_search": "users",
-        "opportunity_search": "ideas",
-        "project_partnership_search": "projects",
-        "community_search": "groups",
-        "platform_help": "faqs",
-    }
-    if primary_by_intent.get(execution.decision.primary_intent) != resource:
-        return ""
-    return text
+    value = queries.for_resource(resource)
+    return value or ""
 
 
 def _created_since(execution: IntentExecution) -> str | None:
@@ -73,37 +52,26 @@ def _created_since(execution: IntentExecution) -> str | None:
     )
 
 
-def _selected_group_event_id(execution: IntentExecution) -> str | None:
-    """Resolve event_id from frozen planner scope + user request, not groups query."""
-    explicit = getattr(execution.decision, "group_event_id", None)
-    if isinstance(explicit, str) and explicit.isascii() and explicit.isdecimal():
-        if 1 <= len(explicit) <= 18:
-            return explicit
+def _event_id_in_verified_groups(
+    execution: IntentExecution, event_id: str
+) -> bool:
+    for receipt in execution.receipts:
+        if receipt.resource != "groups" or receipt.status != "succeeded":
+            continue
+        evidence = execution.evidence_by_receipt.get(receipt.receipt_id)
+        if not isinstance(evidence, list):
+            continue
+        for item in evidence:
+            if not isinstance(item, dict):
+                continue
+            value = item.get("event_id", item.get("id"))
+            candidate = str(value) if value is not None else ""
+            if candidate == event_id:
+                return True
+    return False
 
-    request = execution.original_message or ""
-    request_l = request.lower()
-    requested_members = any(
-        marker in request_l
-        for marker in ("成员", "参与者", "报名名单", "member", "members")
-    )
-    requested_first = any(
-        marker in request_l
-        for marker in ("第一个群", "首个群", "第一个社群", "首个社群", "first group")
-    )
-    if requested_members:
-        explicit_in_request = re.search(
-            r"(?:event[_ -]?id|群(?:组)?\s*(?:id|ID|编号)|社群\s*(?:id|ID|编号))"
-            r"\s*[:：=#]?\s*([0-9]{1,18})(?![0-9])",
-            request,
-            flags=re.IGNORECASE,
-        )
-        if explicit_in_request is not None:
-            return explicit_in_request.group(1)
 
-    scope = getattr(execution.decision, "group_member_scope", "none")
-    allow_first = scope == "first_verified" or (requested_members and requested_first)
-    if not requested_members or not allow_first:
-        return None
+def _first_verified_group_event_id(execution: IntentExecution) -> str | None:
     for receipt in execution.receipts:
         if receipt.resource != "groups" or receipt.status != "succeeded":
             continue
@@ -118,6 +86,47 @@ def _selected_group_event_id(execution: IntentExecution) -> str | None:
             if candidate.isascii() and candidate.isdecimal() and len(candidate) <= 18:
                 return candidate
     return None
+
+
+def _selected_group_event_id(execution: IntentExecution) -> str | None:
+    """Resolve event_id only from the user request or verified groups receipts."""
+    request = execution.original_message or ""
+    request_l = request.lower()
+    requested_members = any(
+        marker in request_l
+        for marker in ("成员", "参与者", "报名名单", "member", "members")
+    )
+    if not requested_members:
+        return None
+
+    requested_first = any(
+        marker in request_l
+        for marker in ("第一个群", "首个群", "第一个社群", "首个社群", "first group")
+    )
+    explicit_in_request = re.search(
+        r"(?:event[_ -]?id|群(?:组)?\s*(?:id|ID|编号)|社群\s*(?:id|ID|编号))"
+        r"\s*[:：=#]?\s*([0-9]{1,18})(?![0-9])",
+        request,
+        flags=re.IGNORECASE,
+    )
+    if explicit_in_request is not None:
+        return explicit_in_request.group(1)
+
+    frozen = getattr(execution.decision, "group_event_id", None)
+    if (
+        isinstance(frozen, str)
+        and frozen.isascii()
+        and frozen.isdecimal()
+        and 1 <= len(frozen) <= 18
+        and (frozen in request or _event_id_in_verified_groups(execution, frozen))
+    ):
+        return frozen
+
+    scope = getattr(execution.decision, "group_member_scope", "none")
+    allow_first = scope == "first_verified" or requested_first
+    if not allow_first:
+        return None
+    return _first_verified_group_event_id(execution)
 
 
 def build_step_parameters(

@@ -617,8 +617,12 @@ def planner_profile_from_store(profile: Any | None) -> PlannerProfileV2:
     )
 
 
-def _episode_turns(messages: list[Any] | None) -> list[PlannerTurnV2]:
+def _episode_turns(
+    messages: list[Any] | None,
+) -> tuple[list[PlannerTurnV2], bool]:
+    """Build episode turns; flag when any message exceeds the hard char bound."""
     turns: list[PlannerTurnV2] = []
+    truncated = False
     for message in messages or []:
         if isinstance(message, HumanMessage):
             role = "human"
@@ -631,8 +635,11 @@ def _episode_turns(messages: list[Any] | None) -> list[PlannerTurnV2]:
         text = str(message.content or "").strip()
         if not text:
             continue
-        turns.append(PlannerTurnV2(role=role, content=text[:_MAX_TURN_CHARS]))
-    return turns
+        if len(text) > _MAX_TURN_CHARS:
+            truncated = True
+            text = text[:_MAX_TURN_CHARS]
+        turns.append(PlannerTurnV2(role=role, content=text))
+    return turns, truncated
 
 
 def _compress_episode_turns(
@@ -685,15 +692,33 @@ def build_planner_context(
     trusted: TrustedIntentContext | None,
 ) -> PlannerContextV2:
     """Assemble the Phase 2 planner context with full retained episode history."""
-    current = (message or "").strip()[:2000] or "(empty)"
-    turns, compressed, reason = _compress_episode_turns(_episode_turns(prior_messages))
+    current = (message or "").strip()
+    current_truncated = len(current) > 2000
+    current = (current[:2000] if current else "(empty)")
+    turns_list, turn_truncated = _episode_turns(prior_messages)
+    if current_truncated or turn_truncated:
+        prior_queries = ResourceQueriesV2()
+        prior_intent = None
+        if trusted is not None:
+            prior_intent = trusted.intent
+            prior_queries = queries_from_constraints(trusted.constraints)
+        return PlannerContextV2(
+            current_message=current or "(empty)",
+            episode_turns=tuple(turns_list[-_MAX_EPISODE_TURNS:]),
+            profile=planner_profile_from_store(profile),
+            prior_completed_intent=prior_intent,
+            prior_completed_queries=prior_queries,
+            context_compressed=True,
+            compression_reason="episode_turn_truncated_fail_closed",
+        )
+    turns, compressed, reason = _compress_episode_turns(turns_list)
     prior_queries = ResourceQueriesV2()
     prior_intent = None
     if trusted is not None:
         prior_intent = trusted.intent
         prior_queries = queries_from_constraints(trusted.constraints)
     return PlannerContextV2(
-        current_message=current,
+        current_message=current or "(empty)",
         episode_turns=turns,
         profile=planner_profile_from_store(profile),
         prior_completed_intent=prior_intent,

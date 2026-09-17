@@ -103,73 +103,38 @@ def encrypt_routing_snapshot(
     )
 
 
-def _legacy_query_from_constraints(decision_raw: dict[str, Any]) -> ResourceQueriesV2:
-    """Synthesize a primary query for Phase-1 snapshots that only froze constraints."""
-    constraints = decision_raw.get("constraints") or {}
-    if not isinstance(constraints, dict):
-        constraints = {}
-    parts: list[str] = []
-    for key in ("location", "industry", "role", "capability"):
-        values = constraints.get(key) or []
-        if not isinstance(values, list):
-            continue
-        for value in values:
-            text = str(value or "").strip()
-            if text and text not in parts:
-                parts.append(text)
-    joined = " ".join(parts)[:160]
-    primary = _INTENT_PRIMARY_QUERY_FIELD.get(str(decision_raw.get("primary_intent") or ""))
-    empty = ResourceQueriesV2()
-    if primary is None or not joined:
-        return empty
-    return ResourceQueriesV2.model_validate({primary: joined})
+def normalize_intent_decision_payload(decision_raw: Any) -> dict[str, Any]:
+    """Fill Phase-2 optional defaults for non-execute or complete execute decisions.
 
-
-def migrate_legacy_intent_decision(decision_raw: Any) -> dict[str, Any]:
-    """In-memory cutover helper for Phase-1 execute snapshots missing resource_queries.
-
-    The stored ciphertext and content hash remain unchanged. This only adapts the
-    decrypted decision object so durable retries can resume during deployment.
+    Phase-1 execute snapshots that lack frozen ``resource_queries`` are rejected.
+    Constraints-only synthesis is intentionally not performed: it would change
+    retry query semantics relative to the original Phase-1 parameter builder.
     """
     if not isinstance(decision_raw, dict):
-        msg = "routing_snapshot_invalid"
-        raise RoutingCryptoError(msg)
+        raise RoutingCryptoError("routing_snapshot_invalid")
     decision = dict(decision_raw)
+    decision.setdefault("resource_queries", {})
+    decision.setdefault("group_member_scope", "none")
+    decision.setdefault("group_event_id", None)
+
     if decision.get("action") != "execute":
-        decision.setdefault("resource_queries", {})
-        decision.setdefault("group_member_scope", "none")
-        decision.setdefault("group_event_id", None)
         return decision
 
     primary = _INTENT_PRIMARY_QUERY_FIELD.get(str(decision.get("primary_intent") or ""))
-    queries_raw = decision.get("resource_queries")
     queries = ResourceQueriesV2.model_validate(
-        queries_raw if isinstance(queries_raw, dict) else {}
+        decision["resource_queries"]
+        if isinstance(decision.get("resource_queries"), dict)
+        else {}
     )
-    has_primary = primary is None or queries.for_resource(primary) is not None
-    if has_primary:
-        decision["resource_queries"] = queries.model_dump(mode="json")
-        decision.setdefault("group_member_scope", "none")
-        decision.setdefault("group_event_id", None)
-        return decision
-
-    if decision.get("planner_version") is not None:
-        # New planner snapshot missing its frozen query cannot be repaired.
-        msg = "routing_snapshot_invalid"
-        raise RoutingCryptoError(msg)
-
-    synthesized = _legacy_query_from_constraints(decision)
-    if primary is not None and synthesized.for_resource(primary) is None:
-        msg = "routing_snapshot_invalid"
-        raise RoutingCryptoError(msg)
-    decision["resource_queries"] = synthesized.model_dump(mode="json")
-    decision.setdefault("group_member_scope", "none")
-    decision.setdefault("group_event_id", None)
+    decision["resource_queries"] = queries.model_dump(mode="json")
+    if primary is not None and queries.for_resource(primary) is None:
+        # Refuse resume rather than invent a different query from constraints.
+        raise RoutingCryptoError("routing_snapshot_invalid")
     return decision
 
 
 def parse_routing_snapshot_payload(raw: dict[str, Any]) -> RoutingSnapshotV1:
-    """Verify the stored hash, then adapt legacy decisions for in-memory execution."""
+    """Verify the stored hash, then load a Phase-2-compatible decision for execution."""
     stored_hash = raw.get("canonical_content_hash")
     if not isinstance(stored_hash, str):
         raise RoutingCryptoError()
@@ -178,14 +143,10 @@ def parse_routing_snapshot_payload(raw: dict[str, Any]) -> RoutingSnapshotV1:
         raise RoutingCryptoError()
     try:
         decision = IntentDecisionV1.model_validate(
-            migrate_legacy_intent_decision(body.get("intent_decision"))
+            normalize_intent_decision_payload(body.get("intent_decision"))
         )
         plan_raw = body.get("query_plan")
-        plan = (
-            QueryPlanV1.model_validate(plan_raw)
-            if plan_raw is not None
-            else None
-        )
+        plan = QueryPlanV1.model_validate(plan_raw) if plan_raw is not None else None
     except RoutingCryptoError:
         raise
     except Exception as exc:  # noqa: BLE001 - expose only the stable contract code.
@@ -202,6 +163,8 @@ def parse_routing_snapshot_payload(raw: dict[str, Any]) -> RoutingSnapshotV1:
             raise RoutingCryptoError("query_plan_invalid")
     elif plan is not None:
         raise RoutingCryptoError("query_plan_invalid")
+    # Keep the original content hash (verified above). model_construct avoids
+    # rehashing after optional-field defaults are filled for non-execute rows.
     return RoutingSnapshotV1.model_construct(
         routing_snapshot_version=1,
         run_id=str(body.get("run_id") or ""),

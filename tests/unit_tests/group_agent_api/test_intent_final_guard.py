@@ -35,6 +35,8 @@ def _execution(run_id: str = "guard-run"):
         original_message=message,
         run_id=run_id,
         request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
     )
 
 
@@ -511,6 +513,8 @@ def test_platform_help_faq_is_not_treated_as_people_zero_match(
         original_message="如何发布餐饮项目招合伙人",
         run_id="faq-run",
         request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
     )
     reservation = execution.reserve(
         resource="faqs", parameters={"page": 1}, tool_call_id="faq-tool"
@@ -553,6 +557,8 @@ def test_startup_digest_keeps_raw_result_scope(
         original_message="看看本周创业周报和文章",
         run_id="digest-run",
         request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
     )
     reservation = execution.reserve(
         resource="weekly", parameters={}, tool_call_id="weekly-tool"

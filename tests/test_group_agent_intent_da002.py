@@ -131,6 +131,8 @@ def test_snapshot_receipt_survive_attempt_and_are_adopted_without_new_budget(
             original_message="有没有上海餐饮合伙人",
             run_id=run_id,
             request_fingerprint=fingerprint,
+            execution_mode="group_agent",
+            can_search=True,
         )
         reservation = first.reserve(
             resource="users", parameters={"page": 1}, tool_call_id="tool-1"
@@ -165,6 +167,8 @@ def test_snapshot_receipt_survive_attempt_and_are_adopted_without_new_budget(
             original_message="有没有上海餐饮合伙人",
             run_id=run_id,
             request_fingerprint=fingerprint,
+            execution_mode="group_agent",
+            can_search=True,
         )
         assert recovered.required_steps_satisfied()
         assert recovered.adopted_result("users") is not None
@@ -216,6 +220,8 @@ def test_crashed_reservation_keeps_budget_and_revoked_permission_fails_closed(
             original_message="有没有上海餐饮合伙人",
             run_id=run_id,
             request_fingerprint=fingerprint,
+            execution_mode="group_agent",
+            can_search=True,
         )
         execution.reserve(resource="users", parameters={}, tool_call_id="lost-result")
     finally:
@@ -243,6 +249,8 @@ def test_crashed_reservation_keeps_budget_and_revoked_permission_fails_closed(
             original_message="有没有上海餐饮合伙人",
             run_id=run_id,
             request_fingerprint=fingerprint,
+            execution_mode="group_agent",
+            can_search=True,
         )
         with pytest.raises(QueryPlanError, match="query_budget_exhausted"):
             recovered.reserve(
@@ -254,6 +262,8 @@ def test_crashed_reservation_keeps_budget_and_revoked_permission_fails_closed(
                 original_message="有没有上海餐饮合伙人",
                 run_id=run_id,
                 request_fingerprint=fingerprint,
+                execution_mode="group_agent",
+                can_search=False,
             )
     finally:
         clear_active_fence(tokens)
@@ -272,6 +282,8 @@ def test_cross_run_snapshot_ciphertext_and_corrupt_ledger_fail_closed(
             original_message="有没有上海餐饮合伙人",
             run_id=first_run,
             request_fingerprint=first_fp,
+            execution_mode="group_agent",
+            can_search=True,
         )
         created_once = durable._r.hgetall(durable.run_key(first_run))  # noqa: SLF001
         prepare_intent_execution(
@@ -279,6 +291,8 @@ def test_cross_run_snapshot_ciphertext_and_corrupt_ledger_fail_closed(
             original_message="有没有上海餐饮合伙人",
             run_id=first_run,
             request_fingerprint=first_fp,
+            execution_mode="group_agent",
+            can_search=True,
         )
         recovered_once = durable._r.hgetall(durable.run_key(first_run))  # noqa: SLF001
         assert recovered_once["routing_snapshot_nonce_b64"] == created_once[
@@ -308,6 +322,8 @@ def test_cross_run_snapshot_ciphertext_and_corrupt_ledger_fail_closed(
                 original_message="有没有上海餐饮合伙人",
                 run_id=second_run,
                 request_fingerprint=second_fp,
+                execution_mode="group_agent",
+                can_search=True,
             )
     finally:
         clear_active_fence(tokens)
@@ -322,6 +338,8 @@ def test_cross_run_snapshot_ciphertext_and_corrupt_ledger_fail_closed(
                 original_message="有没有上海餐饮合伙人",
                 run_id=first_run,
                 request_fingerprint=first_fp,
+                execution_mode="group_agent",
+                can_search=True,
             )
     finally:
         clear_active_fence(tokens)
@@ -338,6 +356,8 @@ def test_durable_failure_commits_audit_only(durable: ExecutionStore) -> None:
             original_message="有没有上海餐饮合伙人",
             run_id=run_id,
             request_fingerprint=fingerprint,
+            execution_mode="group_agent",
+            can_search=True,
         )
         reservation = execution.reserve(
             resource="users", parameters={"page": 1}, tool_call_id="timed-out"
@@ -373,6 +393,8 @@ def test_durable_budget_counts_unique_items_across_pages(
             original_message="有没有上海餐饮合伙人",
             run_id=run_id,
             request_fingerprint=fingerprint,
+            execution_mode="group_agent",
+            can_search=True,
         )
         first = execution.reserve(
             resource="users", parameters={"page": 1}, tool_call_id="page-1"

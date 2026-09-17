@@ -109,6 +109,7 @@ MESSAGE_PROPOSALS: dict[str, dict[str, Any]] = {
     ),
     "查看社群 ID 763 的报名名单": community_query(
         "社群",
+        group_member_scope="first_verified",
         group_event_id="763",
     ),
     "查看社群 ID 763 的详情": community_query("社群 ID 763 详情"),

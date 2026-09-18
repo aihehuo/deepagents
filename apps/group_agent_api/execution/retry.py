@@ -27,6 +27,7 @@ _PERMANENT_CODES = frozenset(
         "greeting_duplicate",
         "greeting_reply_empty",
         "required_tool_not_called",
+        "intent_classifier_invalid",
         "query_plan_invalid",
         "query_budget_exhausted",
         "routing_snapshot_invalid",

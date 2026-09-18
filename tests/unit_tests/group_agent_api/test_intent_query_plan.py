@@ -54,6 +54,8 @@ from apps.group_agent_api.app.state import AppState
 from tests.unit_tests.group_agent_api.planner_fixtures import (
     AdaptivePlannerModel,
     planner_for_message,
+    planner_returning,
+    people_query,
 )
 
 
@@ -1109,6 +1111,102 @@ def _session() -> TrustedSession:
             can_write_profile=False,
         ),
     )
+
+
+def test_planner_failure_callback_does_not_claim_search() -> None:
+    from apps.group_agent_worker.tasks import _terminal_error_payload
+    from apps.group_agent_api.execution.models import RetryClass
+    from apps.group_agent_api.execution.retry import classify_error
+
+    payload = _terminal_error_payload("intent_classifier_invalid", timed_out=False)
+    assert payload["error_code"] == "intent_classifier_invalid"
+    assert "未执行搜索" in payload["message"]
+    assert classify_error("intent_classifier_invalid") == RetryClass.PERMANENT
+
+
+async def test_chat_planner_failure_stops_before_composing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from apps.group_agent_api.app.endpoints import chat as chat_endpoint
+
+    agent = _RetryAgent(complete_on_retry=False)
+    state = AppState(
+        agent=agent,
+        base_dir=tmp_path,
+        search_only_agent=agent,
+        write_only_agent=agent,
+        no_tool_agent=agent,
+        quality_model=planner_returning(people_query(""), people_query("")),
+    )
+
+    async def resolve(*_: Any, **__: Any) -> TrustedSession:
+        return _session()
+
+    monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "enforce")
+    monkeypatch.setattr(chat_endpoint, "resolve_trusted_session", resolve)
+    with pytest.raises(HTTPException) as raised:
+        await chat_endpoint.chat(
+            ChatRequest(
+                user_id="user-1",
+                group_id="group-1",
+                message="能先帮我找人吗",
+                run_match=False,
+                run_invite=False,
+            ),
+            state,
+        )
+    assert raised.value.status_code == 503
+    assert raised.value.detail["error"] == "intent_classifier_invalid"
+    assert "未执行搜索" in raised.value.detail["message"]
+    assert agent.calls == 0
+
+
+async def test_async_planner_failure_stops_before_composing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from apps.group_agent_api.app import async_manager
+
+    agent = _RetryAgent(complete_on_retry=False)
+    state = AppState(
+        agent=agent,
+        base_dir=tmp_path,
+        search_only_agent=agent,
+        write_only_agent=agent,
+        no_tool_agent=agent,
+        quality_model=planner_returning(people_query(""), people_query("")),
+    )
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    async def emit(event: str, payload: dict[str, Any]) -> bool:
+        events.append((event, payload))
+        return True
+
+    monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "enforce")
+    monkeypatch.setenv(
+        "GROUP_AGENT_CALLBACK_ALLOWED_BASE_URLS",
+        "http://example.invalid/callbacks",
+    )
+    with pytest.raises(QueryPlanError) as raised:
+        await async_manager._execute_core_agent(
+            req=AsyncCallRequest(
+                run_id="intent-planner-invalid",
+                idempotency_key="intent-planner-invalid-key",
+                user_id="user-1",
+                group_id="group-1",
+                conversation_id="conversation-1",
+                message="能先帮我找人吗",
+                callback_url="http://example.invalid/callbacks/intent-planner-invalid",
+                run_match=False,
+                run_invite=False,
+            ),
+            session=_session(),
+            state=state,
+            tid="intent-planner-invalid-thread",
+            emit_callback=emit,
+        )
+    assert raised.value.code == "intent_classifier_invalid"
+    assert agent.calls == 0
+    assert all(event != "final" for event, _payload in events)
 
 
 async def test_chat_enforce_executes_required_tool_before_composing(

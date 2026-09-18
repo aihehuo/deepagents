@@ -1011,6 +1011,17 @@ async def _execute_core_agent(
                         ),
                     )
                     intent_execution.restore_adopted_evidence()
+                    if (
+                        intent_resolution.planner_status
+                        in {"invalid", "error", "unavailable", "timed_out"}
+                        and intent_execution.decision.action != "execute"
+                    ):
+                        code = (
+                            "intent_classifier_timeout"
+                            if intent_resolution.planner_status == "timed_out"
+                            else "intent_classifier_invalid"
+                        )
+                        raise QueryPlanError(code)
                     await _intent_progress(
                         "intent_resolved",
                         intent=intent_execution.decision.primary_intent,

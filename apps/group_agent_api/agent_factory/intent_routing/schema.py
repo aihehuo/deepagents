@@ -139,8 +139,8 @@ class PlannerContextV2(ClosedModel):
     compression_reason: str | None = Field(default=None, max_length=64)
 
 
-class PlannerProposalV2(ClosedModel):
-    """Authoritative semantic and query proposal for one turn."""
+class PlannerDraftV2(ClosedModel):
+    """Bounded model output before action-specific fields are normalized."""
 
     version: Literal[2] = 2
     action: PlannerAction
@@ -153,6 +153,10 @@ class PlannerProposalV2(ClosedModel):
         default=None, max_length=18, pattern=r"^[0-9]{1,18}$"
     )
     planner_version: Literal["intent-planner-v2"] = "intent-planner-v2"
+
+
+class PlannerProposalV2(PlannerDraftV2):
+    """Strict server-accepted proposal for one turn."""
 
     @model_validator(mode="after")
     def validate_action_bindings(self) -> PlannerProposalV2:

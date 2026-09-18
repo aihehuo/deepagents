@@ -12,9 +12,16 @@ from langchain_core.exceptions import OutputParserException
 from pydantic import ValidationError
 
 from .prompts import PLANNER_SYSTEM_PROMPT, planner_user_prompt
-from .schema import PlannerContextV2, PlannerProposalV2
+from .schema import PlannerContextV2, PlannerDraftV2, PlannerProposalV2, ResourceQueriesV2
 
 _logger = logging.getLogger("uvicorn.error")
+_PRIMARY_RESOURCE = {
+    "people_search": "users",
+    "opportunity_search": "ideas",
+    "project_partnership_search": "projects",
+    "community_search": "groups",
+    "platform_help": "faqs",
+}
 _KNOWN_FIELDS = frozenset(
     {
         "version",
@@ -103,7 +110,7 @@ def _structured(model: Any) -> Any:
     candidate = model
     if hasattr(model, "model_copy") and hasattr(model, "temperature"):
         candidate = model.model_copy(update={"temperature": 0})
-    return candidate.with_structured_output(PlannerProposalV2)
+    return candidate.with_structured_output(PlannerDraftV2)
 
 
 def _prompts(context: PlannerContextV2) -> list[Any]:
@@ -111,6 +118,56 @@ def _prompts(context: PlannerContextV2) -> list[Any]:
         SystemMessage(content=PLANNER_SYSTEM_PROMPT),
         HumanMessage(content=planner_user_prompt(context)),
     ]
+
+
+def _proposal_from_raw(raw: Any) -> PlannerProposalV2:
+    """Discard only fields irrelevant to the model-selected action, then validate."""
+    if isinstance(raw, PlannerProposalV2):
+        return raw
+    draft = raw if isinstance(raw, PlannerDraftV2) else PlannerDraftV2.model_validate(raw)
+    fields = draft.model_dump()
+    if draft.action == "query":
+        fields["clarification"] = None
+        if draft.intent != "community_search":
+            fields["group_member_scope"] = "none"
+            fields["group_event_id"] = None
+    else:
+        fields["queries"] = ResourceQueriesV2().model_dump()
+        fields["group_member_scope"] = "none"
+        fields["group_event_id"] = None
+    return PlannerProposalV2.model_validate(fields)
+
+
+def _repair_prompts(
+    prompts: list[Any], diagnostic: dict[str, object], raw: Any = None
+) -> list[Any]:
+    """Provide safe validation feedback without reusing raw model output as instructions."""
+    reasons = [
+        str(error.get("reason") or error.get("type"))
+        for error in diagnostic.get("validation_errors", [])
+        if isinstance(error, dict)
+    ]
+    resource = None
+    try:
+        draft = raw if isinstance(raw, PlannerDraftV2) else PlannerDraftV2.model_validate(raw)
+        if draft.action == "query":
+            resource = _PRIMARY_RESOURCE.get(draft.intent or "")
+    except (ValidationError, TypeError, ValueError):
+        pass
+    requirement = (
+        f"若选择 query，必须生成非空的 queries.{resource} 检索词。"
+        if resource is not None
+        else "若选择 query，必须为所选意图生成非空的主要资源检索词。"
+    )
+    feedback = (
+        "上一次结构化草案未通过服务器校验，错误码："
+        + ", ".join(reasons[:8] or ["structured_output_invalid"])
+        + "。请结合最初的 planner_context 重新独立生成完整草案。"
+        + requirement
+        + "query 时 clarification 留空；非 query 时社群成员范围为 none。"
+        "不能从对话和画像形成明确检索对象时才选择 clarify；不要编造条件。"
+    )
+    return [*prompts, HumanMessage(content=feedback)]
 
 
 def plan_intent(
@@ -142,9 +199,10 @@ def plan_intent(
         return PlannerResult(None, "unavailable", 0, (diagnostic,))
     prompts = _prompts(context)
     diagnostics: list[dict[str, object]] = []
+    retry_prompts = prompts
     for attempt in (1, 2):
         try:
-            raw = structured.invoke(prompts)
+            raw = structured.invoke(retry_prompts)
         except (
             ValidationError,
             OutputParserException,
@@ -157,6 +215,7 @@ def plan_intent(
             )
             if attempt == 2:
                 return PlannerResult(None, "invalid", attempt, tuple(diagnostics))
+            retry_prompts = _repair_prompts(prompts, diagnostics[-1])
             continue
         except Exception as exc:  # noqa: BLE001 - provider errors become a safe status.
             diagnostics.append(
@@ -164,11 +223,7 @@ def plan_intent(
             )
             return PlannerResult(None, "error", attempt, tuple(diagnostics))
         try:
-            parsed = (
-                raw
-                if isinstance(raw, PlannerProposalV2)
-                else PlannerProposalV2.model_validate(raw)
-            )
+            parsed = _proposal_from_raw(raw)
             return PlannerResult(parsed, "ok", attempt, tuple(diagnostics))
         except (ValidationError, TypeError, ValueError, KeyError) as exc:
             diagnostics.append(
@@ -176,6 +231,7 @@ def plan_intent(
             )
             if attempt == 2:
                 return PlannerResult(None, "invalid", attempt, tuple(diagnostics))
+            retry_prompts = _repair_prompts(prompts, diagnostics[-1], raw)
     return PlannerResult(None, "invalid", 2, tuple(diagnostics))
 
 
@@ -201,11 +257,13 @@ async def aplan_intent(
         return PlannerResult(None, "unavailable", 0, (diagnostic,))
     prompts = _prompts(context)
     diagnostics: list[dict[str, object]] = []
+    retry_prompts = prompts
 
     async def run() -> PlannerResult:
+        nonlocal retry_prompts
         for attempt in (1, 2):
             try:
-                raw = await structured.ainvoke(prompts)
+                raw = await structured.ainvoke(retry_prompts)
             except (
                 ValidationError,
                 OutputParserException,
@@ -220,6 +278,7 @@ async def aplan_intent(
                 )
                 if attempt == 2:
                     return PlannerResult(None, "invalid", attempt, tuple(diagnostics))
+                retry_prompts = _repair_prompts(prompts, diagnostics[-1])
                 continue
             except Exception as exc:  # noqa: BLE001 - expose only the status.
                 diagnostics.append(
@@ -227,11 +286,7 @@ async def aplan_intent(
                 )
                 return PlannerResult(None, "error", attempt, tuple(diagnostics))
             try:
-                parsed = (
-                    raw
-                    if isinstance(raw, PlannerProposalV2)
-                    else PlannerProposalV2.model_validate(raw)
-                )
+                parsed = _proposal_from_raw(raw)
                 return PlannerResult(parsed, "ok", attempt, tuple(diagnostics))
             except (ValidationError, TypeError, ValueError, KeyError) as exc:
                 diagnostics.append(
@@ -241,6 +296,7 @@ async def aplan_intent(
                 )
                 if attempt == 2:
                     return PlannerResult(None, "invalid", attempt, tuple(diagnostics))
+                retry_prompts = _repair_prompts(prompts, diagnostics[-1], raw)
         return PlannerResult(None, "invalid", 2, tuple(diagnostics))
 
     try:

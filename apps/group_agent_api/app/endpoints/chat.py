@@ -434,6 +434,23 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                             can_search=session.capabilities.can_search,
                         )
                         intent_execution.restore_adopted_evidence()
+                        if (
+                            intent_resolution.planner_status
+                            in {"invalid", "error", "unavailable", "timed_out"}
+                            and intent_execution.decision.action != "execute"
+                        ):
+                            code = (
+                                "intent_classifier_timeout"
+                                if intent_resolution.planner_status == "timed_out"
+                                else "intent_classifier_invalid"
+                            )
+                            raise HTTPException(
+                                status_code=503,
+                                detail={
+                                    "error": code,
+                                    "message": "本轮意图规划失败，未执行搜索；请稍后重试。",
+                                },
+                            )
                         if intent_execution.decision.action == "execute":
                             await execute_query_plan(
                                 intent_execution,
@@ -679,6 +696,14 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                     profile_status_val = "stale_episode"
 
             except Exception as exc:
+                if (
+                    isinstance(exc, HTTPException)
+                    and exc.status_code == 503
+                    and isinstance(exc.detail, dict)
+                    and exc.detail.get("error")
+                    in {"intent_classifier_invalid", "intent_classifier_timeout"}
+                ):
+                    raise
                 import traceback
 
                 _logger.error("POST /chat failed thread_id=%s\n%s", tid, traceback.format_exc())

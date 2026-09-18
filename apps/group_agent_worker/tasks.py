@@ -121,10 +121,17 @@ _CALLBACK_ERROR_CODES = frozenset(
 
 def _terminal_error_payload(error_code: str, *, timed_out: bool) -> dict[str, Any]:
     code = error_code if error_code in _CALLBACK_ERROR_CODES else "agent_error"
+    planner_failed = code in {"intent_classifier_invalid", "intent_classifier_timeout"}
     return {
         "terminal_reason": "timed_out" if timed_out else "failed",
         "error_code": code,
-        "message": "智能体处理超时，请稍后重试" if timed_out else "智能体处理遇到异常，请稍后重试",
+        "message": (
+            "本轮意图规划失败，未执行搜索；请稍后重试。"
+            if planner_failed
+            else "智能体处理超时，请稍后重试"
+            if timed_out
+            else "智能体处理遇到异常，请稍后重试"
+        ),
     }
 
 
@@ -499,7 +506,11 @@ async def _run_attempt(
                 if strict_callbacks
                 else {
                     "error_code": error_code or "AsyncRunFailed",
-                    "message": "智能体处理遇到异常或超时，请稍后重试",
+                    "message": (
+                        "本轮意图规划失败，未执行搜索；请稍后重试。"
+                        if error_code in {"intent_classifier_invalid", "intent_classifier_timeout"}
+                        else "智能体处理遇到异常或超时，请稍后重试"
+                    ),
                 }
             )
             await _emit("error", payload)

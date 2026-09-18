@@ -32,6 +32,7 @@ from apps.group_agent_api.agent_factory.intent_routing.resolver import (
 )
 from apps.group_agent_api.agent_factory.intent_routing.schema import (
     IntentDecisionV1,
+    PlannerDraftV2,
     PlannerProposalV2,
     ResourceQueriesV2,
 )
@@ -321,6 +322,85 @@ def test_planner_schema_failure_retries_once_then_clarifies() -> None:
     assert structured.calls == 2
     assert result.planner_status == "invalid"
     assert result.decision.action == "clarify"
+
+
+def test_irrelevant_draft_fields_do_not_override_selected_action() -> None:
+    stray_scope = PlannerDraftV2.model_validate(
+        {**reply(), "group_member_scope": "first_verified"}
+    )
+    conversation = resolve_intent(
+        "你好",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(stray_scope),
+    )
+    assert conversation.planner_status == "ok"
+    assert conversation.decision.action == "conversation"
+
+    query_with_clarification = {
+        **people_query("上海 餐饮 运营合伙人"),
+        "clarification": "需要继续确认吗？",
+    }
+    search = resolve_intent(
+        "帮我找人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(query_with_clarification),
+    )
+    assert search.planner_status == "ok"
+    assert search.decision.action == "execute"
+    assert search.decision.resource_queries.users == "上海 餐饮 运营合伙人"
+
+    unrelated_group_scope = PlannerDraftV2.model_validate(
+        {
+            **people_query("上海 餐饮 运营合伙人"),
+            "group_member_scope": "first_verified",
+        }
+    )
+    search = resolve_intent(
+        "请找运营合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=PlannerModel(StructuredPlanner([unrelated_group_scope])),
+    )
+    assert search.planner_status == "ok"
+    assert search.decision.action == "execute"
+    assert search.decision.group_member_scope == "none"
+
+
+async def test_missing_primary_query_retries_with_targeted_feedback() -> None:
+    structured = StructuredPlanner(
+        [people_query(""), people_query("上海 餐饮 运营合伙人")]
+    )
+    result = await aresolve_intent(
+        "请找上海餐饮运营合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=PlannerModel(structured),
+    )
+    assert result.planner_status == "ok"
+    assert result.planner_attempts == 2
+    assert result.decision.action == "execute"
+    assert "queries.users" in structured.prompts[1][-1].content
+    assert len(structured.prompts[1]) == 3
+    assert result.decision.resource_queries.users == "上海 餐饮 运营合伙人"
+
+
+def test_missing_primary_query_twice_still_fails_closed() -> None:
+    structured = StructuredPlanner([people_query(""), people_query("")])
+    result = resolve_intent(
+        "请找上海餐饮运营合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=PlannerModel(structured),
+    )
+    assert result.planner_status == "invalid"
+    assert result.decision.action == "clarify"
+    assert result.decision.query_plan_ref is None
+    assert all(
+        item["validation_errors"][0]["reason"] == "query_missing_primary_resource"
+        for item in result.planner_diagnostics
+    )
 
 
 def test_planner_validation_logs_bounded_diagnostics_without_raw_content(

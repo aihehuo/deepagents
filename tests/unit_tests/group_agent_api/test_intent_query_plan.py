@@ -213,10 +213,11 @@ def _install_route_skill(base_dir: Path) -> None:
     )
 
 
-def test_completed_execution_preserves_public_numbers_in_candidate_ids(
+def test_completed_execution_uses_app_ids_and_rejects_public_number_as_route_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from apps.group_agent_api.agent_factory.intent_routing.projection import (
+        _public_candidate,
         project_intent_search,
     )
 
@@ -230,7 +231,8 @@ def test_completed_execution_preserves_public_numbers_in_candidate_ids(
         _result(
             [
                 {
-                    "id": 101,
+                    "id": 999,
+                    "number": 101,
                     "user_id": "999",
                     "name": "张三",
                     "source_group_id": "some-other-group",
@@ -248,11 +250,14 @@ def test_completed_execution_preserves_public_numbers_in_candidate_ids(
     assert projected.completed
     assert projected.result_count == 1
     assert projected.public_reads[0].records[0]["name"] == "张三"
-    assert [candidate["user_id"] for candidate in projected.candidates] == ["101"]
+    assert [candidate["user_id"] for candidate in projected.candidates] == ["999"]
     assert projected.candidates[0]["kind"] == "public"
+    assert projected.candidates[0]["identity_kind"] == "app_user_id"
     assert "source_group_id" not in projected.candidates[0]
     assert "13800000000" not in str(projected.candidates)
     assert projected.public_result_names == ["张三"]
+
+    assert _public_candidate({"id": "101", "number": 101, "name": "旧公网结果"}) is None
 
 
 def test_ephemeral_required_receipt_empty_and_budget(
@@ -1237,7 +1242,7 @@ async def test_chat_enforce_executes_required_tool_before_composing(
     monkeypatch.setattr(
         integration,
         "fetch",
-        lambda _path, **_kwargs: '{"data":[{"id":101,"name":"张三","bio":"技术合伙人"}],"meta":{"has_more":false}}',
+        lambda _path, **_kwargs: '{"data":[{"id":101,"user_id":101,"number":9659712,"name":"张三","bio":"技术合伙人"}],"meta":{"has_more":false}}',
     )
     monkeypatch.setattr(chat_endpoint, "resolve_trusted_session", resolve)
     response = await chat_endpoint.chat(
@@ -1389,7 +1394,7 @@ async def test_async_enforce_executes_required_tool_before_composing(
     monkeypatch.setattr(
         integration,
         "fetch",
-        lambda _path, **_kwargs: '{"data":[{"id":101,"name":"张三","bio":"技术合伙人"}],"meta":{"has_more":false}}',
+        lambda _path, **_kwargs: '{"data":[{"id":101,"user_id":101,"number":9659712,"name":"张三","bio":"技术合伙人"}],"meta":{"has_more":false}}',
     )
     monkeypatch.setenv(
         "GROUP_AGENT_CALLBACK_ALLOWED_BASE_URLS",

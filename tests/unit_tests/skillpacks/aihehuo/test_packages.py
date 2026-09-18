@@ -170,6 +170,8 @@ def test_fetch_uses_only_colocated_rails_when_configured(monkeypatch: pytest.Mon
     )
     assert json.loads(client.fetch("/ai/users.json?q=restaurant", timeout=12))["data"] == []
     assert targets == [("onepennyentreprerr-web", 3002, 12)]
+    assert "User-Agent" not in connection.headers
+    assert "X-Aihehuo-Internal-Read-Token" not in connection.headers
     assert connection.closed
 
 

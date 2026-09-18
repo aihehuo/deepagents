@@ -29,8 +29,7 @@ class IntentSearchProjection:
     completed: bool = False
     result_count: int = 0
     candidates: list[dict[str, Any]] = field(default_factory=list)
-    # Public search hits are not contactable candidate cards. Their `id` is
-    # User.number, not the database User.id used by downstream actions.
+    # Only internal reads with a real App user_id become actionable cards.
     public_result_names: list[str] = field(default_factory=list)
     # Full receipt evidence (debug / audit). May include constraint-mismatched people.
     public_reads: list[PublicReadGround] = field(default_factory=list)
@@ -138,9 +137,9 @@ def project_intent_search(
 def _public_candidate(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
-    # Public /ai/users.json `id` is User.number. It remains a public number
-    # throughout the search/display path, never a database User.id.
-    raw_id = raw.get("id", raw.get("user_id"))
+    # The public API's `id` is User.number. Never use it as an App route ID.
+    # The authenticated internal response adds the actual database user_id.
+    raw_id = raw.get("user_id")
     user_id = str(raw_id).strip() if raw_id is not None else ""
     if not _PUBLIC_NUMBER.fullmatch(user_id):
         return None
@@ -151,6 +150,7 @@ def _public_candidate(raw: Any) -> dict[str, Any] | None:
     display = scrub_display_name(display, fallback_user_id=user_id)
     candidate: dict[str, Any] = {
         "kind": "public",
+        "identity_kind": "app_user_id",
         "user_id": user_id,
         "display_name": display or f"用户{user_id}",
         "bound": bool(raw.get("bound", True)),

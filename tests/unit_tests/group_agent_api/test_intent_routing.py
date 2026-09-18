@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from pydantic import ValidationError
 
@@ -289,9 +290,7 @@ def test_server_context_requires_completion_hash_and_exact_scope() -> None:
         "找上海餐饮创业者，优先有供应链经验",
         execution_mode="group_agent",
         can_search=True,
-        planner_model=planner_for_message(
-            "找上海餐饮创业者，优先有供应链经验"
-        ),
+        planner_model=planner_for_message("找上海餐饮创业者，优先有供应链经验"),
     ).decision
     marker = completed_intent_context_message(
         decision=decision,
@@ -322,6 +321,81 @@ def test_planner_schema_failure_retries_once_then_clarifies() -> None:
     assert structured.calls == 2
     assert result.planner_status == "invalid"
     assert result.decision.action == "clarify"
+
+
+def test_planner_validation_logs_bounded_diagnostics_without_raw_content(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    captured: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "apps.group_agent_api.agent_factory.intent_routing.resolver.record_decision_point",
+        lambda **kwargs: captured.append(kwargs),
+    )
+    missing_query = people_query("PRIVATE_QUERY")
+    missing_query["queries"] = {"users": ""}
+    extra_field = {
+        **people_query("PRIVATE_QUERY"),
+        "PRIVATE_EXTRA_FIELD": "PRIVATE_VALUE",
+    }
+    structured = StructuredPlanner([missing_query, extra_field])
+    with caplog.at_level("WARNING", logger="uvicorn.error"):
+        result = resolve_intent(
+            "PRIVATE_USER_MESSAGE",
+            execution_mode="group_agent",
+            can_search=True,
+            planner_model=PlannerModel(structured),
+        )
+    record_intent_prediction(result, run_id="run-diagnostic", thread_id="thread")
+
+    assert result.planner_status == "invalid"
+    assert len(result.planner_diagnostics) == 2
+    assert [item["attempt"] for item in result.planner_diagnostics] == [1, 2]
+    assert all(
+        item["stage"] == "proposal_validation"
+        and item["exception_type"] == "ValidationError"
+        for item in result.planner_diagnostics
+    )
+    assert captured[0]["detail"]["planner_diagnostics"] == list(
+        result.planner_diagnostics
+    )
+    diagnostic_text = json.dumps(captured, ensure_ascii=False) + caplog.text
+    assert "query_missing_primary_resource" in diagnostic_text
+    assert "PRIVATE_USER_MESSAGE" not in diagnostic_text
+    assert "PRIVATE_EXTRA_FIELD" not in diagnostic_text
+    assert "PRIVATE_VALUE" not in diagnostic_text
+    assert "PRIVATE_QUERY" not in diagnostic_text
+
+
+async def test_async_planner_parser_failure_logs_exception_type_without_raw_output(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    structured = StructuredPlanner(
+        [],
+        raise_on_call=OutputParserException(
+            "PRIVATE_PARSER_MESSAGE", llm_output="PRIVATE_MODEL_OUTPUT"
+        ),
+    )
+    with caplog.at_level("WARNING", logger="uvicorn.error"):
+        result = await aresolve_intent(
+            "找上海运营合伙人",
+            execution_mode="group_agent",
+            can_search=True,
+            planner_model=PlannerModel(structured),
+        )
+
+    assert result.planner_status == "invalid"
+    assert structured.calls == 2
+    assert [item["stage"] for item in result.planner_diagnostics] == [
+        "model_invoke_or_parse",
+        "model_invoke_or_parse",
+    ]
+    assert all(
+        item["exception_type"] == "OutputParserException"
+        for item in result.planner_diagnostics
+    )
+    assert "PRIVATE_PARSER_MESSAGE" not in caplog.text
+    assert "PRIVATE_MODEL_OUTPUT" not in caplog.text
 
 
 def test_valid_planner_cannot_supply_policy_fields() -> None:
@@ -412,9 +486,7 @@ def test_observe_logs_have_confusion_fields_without_message_or_evidence(
         planner_model=planner_returning(people_query("上海 合伙人")),
     )
     record_intent_prediction(result, run_id="r1", thread_id="t1")
-    record_intent_outcome(
-        result, observed_route="search", run_id="r1", thread_id="t1"
-    )
+    record_intent_outcome(result, observed_route="search", run_id="r1", thread_id="t1")
     joined = json.dumps(captured, ensure_ascii=False)
     assert "找上海合伙人" not in joined
     assert captured[0]["detail"]["routing_class"] == "authoritative_planner"
@@ -494,9 +566,7 @@ def test_phase2_english_search_with_episode_history_executes() -> None:
         can_search=True,
         prior_messages=prior,
         scope=_scope(),
-        planner_model=planner_returning(
-            people_query("上海 餐饮 运营 经验")
-        ),
+        planner_model=planner_returning(people_query("上海 餐饮 运营 经验")),
     )
     assert result.decision.action == "execute"
     assert "餐饮" in (result.decision.resource_queries.users or "")
@@ -521,9 +591,7 @@ def test_phase2_new_episode_uses_legacy_profile_free_text() -> None:
         offer=SimpleNamespace(value="品牌与供应链"),
         match_constraints=[],
     )
-    structured = StructuredPlanner(
-        [people_query("上海 餐厅 餐饮 运营合伙人")]
-    )
+    structured = StructuredPlanner([people_query("上海 餐厅 餐饮 运营合伙人")])
     result = resolve_intent(
         "继续搜索",
         execution_mode="group_agent",
@@ -550,9 +618,7 @@ def test_phase2_new_episode_restaurant_query_includes_profile_industry() -> None
         "搜索上海的运营合伙人",
         execution_mode="group_agent",
         can_search=True,
-        planner_model=planner_returning(
-            people_query("上海 餐厅 运营合伙人")
-        ),
+        planner_model=planner_returning(people_query("上海 餐厅 运营合伙人")),
         profile=profile,
     )
     assert "餐厅" in (result.decision.resource_queries.users or "")
@@ -1015,6 +1081,4 @@ def test_resource_queries_freeze_into_decision() -> None:
         can_search=True,
         planner_model=planner_returning(people_query("全职 上海 运营")),
     )
-    assert result.decision.resource_queries == ResourceQueriesV2(
-        users="全职 上海 运营"
-    )
+    assert result.decision.resource_queries == ResourceQueriesV2(users="全职 上海 运营")

@@ -39,6 +39,7 @@ class IntentResolution:
     classifier_attempts: int
     context_inherited: bool
     context_compressed: bool = False
+    planner_diagnostics: tuple[dict[str, object], ...] = ()
 
     @property
     def planner_status(self) -> str:
@@ -120,6 +121,7 @@ def _finalize(
         classifier_attempts=planner.attempts,
         context_inherited=context_inherited,
         context_compressed=context_compressed,
+        planner_diagnostics=planner.diagnostics,
     )
 
 
@@ -300,6 +302,7 @@ def record_intent_prediction(
             "classifier_attempts": resolution.classifier_attempts,
             "planner_status": resolution.planner_status,
             "planner_attempts": resolution.planner_attempts,
+            "planner_diagnostics": list(resolution.planner_diagnostics),
             "context_inherited": resolution.context_inherited,
             "context_compressed": resolution.context_compressed,
             "routing_class": resolution.routing_class,

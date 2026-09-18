@@ -970,6 +970,12 @@ class IntentExecution:
             f"{skill_instructions}\n"
             "[/SERVER-SELECTED-SKILL]"
         )
+        if self.required_steps_satisfied() and self.unique_result_count() == 0:
+            prompt += (
+                "\n[SERVER-QUERY-RESULT]本轮公开查询已完成，原始召回为0条。"
+                "必须明确告知用户没有返回记录；不得承诺稍后继续查询或给出名单。"
+                "[/SERVER-QUERY-RESULT]"
+            )
         adopted, produced, evidence_truncated = _prompt_evidence_sections(
             self.receipts, self.evidence_by_receipt, self.adopted_receipt_ids
         )

@@ -120,6 +120,7 @@ def _assert_routing_diagnostics(
                 intent="opportunity_search",
                 ideas="AI 创业机会",
                 time_range="最近",
+                time_range_evidence="最近",
             ),
             "opportunity_search",
             "execute",
@@ -366,6 +367,78 @@ def test_irrelevant_draft_fields_do_not_override_selected_action() -> None:
     assert search.planner_status == "ok"
     assert search.decision.action == "execute"
     assert search.decision.group_member_scope == "none"
+
+
+def test_time_range_requires_a_user_quote_not_an_assistant_suggestion() -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.execution import (
+        prepare_intent_execution,
+    )
+    from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
+        build_step_parameters,
+    )
+
+    recent = {
+        **people_query("上海 餐饮 运营合伙人", time_range="最近"),
+        "time_range_evidence": "最近",
+    }
+    resolution = resolve_intent(
+        "上海本地优先",
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=[
+            HumanMessage(content="需要能负责运营的合伙人"),
+            AIMessage(content="最近的上海餐饮人才，我可以帮你查"),
+        ],
+        planner_model=planner_returning(recent),
+    )
+    execution = prepare_intent_execution(
+        resolution,
+        original_message="上海本地优先",
+        run_id=None,
+        request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
+    )
+    assert resolution.decision.action == "execute"
+    assert resolution.decision.constraints.time_range is None
+    assert "created_since" not in build_step_parameters(execution, execution.plan.steps[0])
+
+    unsupported = resolve_intent(
+        "上海本地优先",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning({
+            **people_query("上海 餐饮 运营合伙人", time_range="最近"),
+            "time_range_evidence": "上海本地优先",
+        }),
+    )
+    assert unsupported.decision.constraints.time_range is None
+
+    explicit = resolve_intent(
+        "帮我找这个月加入的上海运营合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning({
+            **people_query("上海 运营合伙人", time_range="本月"),
+            "time_range_evidence": "这个月加入的",
+        }),
+    )
+    assert explicit.decision.constraints.time_range == "本月"
+
+    inherited = resolve_intent(
+        "上海的呢",
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=[
+            HumanMessage(content="帮我找最近加入的运营合伙人"),
+            AIMessage(content="先看了一批人选。"),
+        ],
+        planner_model=planner_returning({
+            **people_query("上海 运营合伙人", time_range="最近"),
+            "time_range_evidence": "最近加入的",
+        }),
+    )
+    assert inherited.decision.constraints.time_range == "最近"
 
 
 async def test_missing_primary_query_retries_with_targeted_feedback() -> None:

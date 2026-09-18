@@ -17,6 +17,7 @@ def proposal(
     faqs: str | None = None,
     clarification: str | None = None,
     time_range: str | None = None,
+    time_range_evidence: str | None = None,
     group_member_scope: str = "none",
     group_event_id: str | None = None,
 ) -> dict[str, Any]:
@@ -34,6 +35,7 @@ def proposal(
         },
         "clarification": clarification,
         "time_range": time_range,
+        "time_range_evidence": time_range_evidence,
         "group_member_scope": group_member_scope,
         "group_event_id": group_event_id,
         "planner_version": "intent-planner-v2",
@@ -41,7 +43,12 @@ def proposal(
 
 
 def people_query(query: str, *, time_range: str | None = None) -> dict[str, Any]:
-    return proposal(intent="people_search", users=query, time_range=time_range)
+    return proposal(
+        intent="people_search",
+        users=query,
+        time_range=time_range,
+        time_range_evidence=time_range,
+    )
 
 
 def opportunity_query(
@@ -55,6 +62,7 @@ def opportunity_query(
         ideas=ideas,
         projects=projects,
         time_range=time_range,
+        time_range_evidence=time_range,
     )
 
 
@@ -116,7 +124,6 @@ MESSAGE_PROPOSALS: dict[str, dict[str, Any]] = {
     "帮我找技术合伙人": people_query("技术合伙人"),
     "帮我找合伙人": people_query("合伙人"),
     "帮我找上海的技术合伙人": people_query("上海 技术合伙人"),
-    "有没有上海餐饮合伙人": people_query("上海 餐饮 合伙人"),
     "找上海餐饮运营合伙人": people_query("上海 餐饮 运营合伙人"),
     "找上海餐饮创业者，优先有供应链经验": people_query(
         "上海 餐饮 创业者 供应链经验"

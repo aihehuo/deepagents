@@ -39,6 +39,16 @@ class IntentSearchProjection:
     pages: int = 0
 
 
+def empty_search_reply(projection: IntentSearchProjection) -> str | None:
+    """Return a truthful final reply when completed public reads returned nothing."""
+    if not projection.completed or projection.result_count != 0:
+        return None
+    return (
+        "本次公开检索已完成，但没有返回符合条件的公开记录。"
+        "你可以调整检索条件后再试。"
+    )
+
+
 def project_intent_search(
     execution: IntentExecution | None,
 ) -> IntentSearchProjection:

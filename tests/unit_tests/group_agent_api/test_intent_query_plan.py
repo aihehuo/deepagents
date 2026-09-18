@@ -1064,8 +1064,9 @@ async def test_sync_reserve_on_progress_loop_fails_closed() -> None:
 
 
 class _RetryAgent:
-    def __init__(self, *, complete_on_retry: bool) -> None:
+    def __init__(self, *, complete_on_retry: bool, reply: str = "公开查询处理完成。") -> None:
         self.complete_on_retry = complete_on_retry
+        self.reply = reply
         self.calls = 0
         self.inputs: list[Any] = []
 
@@ -1082,7 +1083,7 @@ class _RetryAgent:
                 resource="users", parameters={}, tool_call_id="retry-tool"
             )
             await execution.commit_result_async(reservation, _result([{"id": "u-1"}]))
-        return {"messages": [AIMessage(content="公开查询处理完成。")]}
+        return {"messages": [AIMessage(content=self.reply)]}
 
 
 class _PersistentAgent:
@@ -1265,6 +1266,54 @@ async def test_chat_enforce_executes_required_tool_before_composing(
     assert '\"name\":\"张三\"' in prompt
 
 
+async def test_chat_empty_receipt_cannot_promise_future_results(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from apps.group_agent_api.app.endpoints import chat as chat_endpoint
+    from skillpacks.aihehuo import integration
+
+    agent = _RetryAgent(
+        complete_on_retry=False,
+        reply="我马上查公开人才库，稍等给你名单。",
+    )
+    state = AppState(
+        agent=agent,
+        base_dir=tmp_path,
+        search_only_agent=agent,
+        write_only_agent=agent,
+        no_tool_agent=agent,
+        quality_model=planner_for_message("帮我找技术合伙人"),
+    )
+    _install_route_skill(tmp_path)
+
+    async def resolve(*_: Any, **__: Any) -> TrustedSession:
+        return _session()
+
+    monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "enforce")
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    paths: list[str] = []
+
+    def fetch(path: str, **_kwargs: Any) -> str:
+        paths.append(path)
+        return '{"data":[],"meta":{"has_more":false}}'
+
+    monkeypatch.setattr(integration, "fetch", fetch)
+    monkeypatch.setattr(chat_endpoint, "resolve_trusted_session", resolve)
+    response = await chat_endpoint.chat(
+        ChatRequest(
+            user_id="user-1", group_id="group-1", message="帮我找技术合伙人",
+            run_match=False, run_invite=False,
+        ),
+        state,
+    )
+    assert agent.calls == 1
+    assert len(paths) == 1
+    assert "原始召回为0条" in str(agent.inputs[0]["messages"])
+    assert response.reply.startswith("本次公开检索已完成，但没有返回")
+    assert "稍等" not in response.reply
+    assert response.match_status == "empty"
+
+
 async def test_chat_enforce_stops_before_model_when_public_query_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1380,6 +1429,66 @@ async def test_async_enforce_executes_required_tool_before_composing(
     assert events[-1][1]["match_reason"] == "intent_query_plan"
     assert [candidate["user_id"] for candidate in events[-1][1]["candidates"]] == ["101"]
     assert events[-1][1]["grounded_final"]["candidate_count"] == 1
+
+
+async def test_async_empty_receipt_cannot_promise_future_results(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from apps.group_agent_api.app import async_manager
+    from skillpacks.aihehuo import integration
+
+    agent = _RetryAgent(
+        complete_on_retry=False,
+        reply="我马上查公开人才库，稍等给你名单。",
+    )
+    state = AppState(
+        agent=agent,
+        base_dir=tmp_path,
+        search_only_agent=agent,
+        write_only_agent=agent,
+        no_tool_agent=agent,
+        quality_model=planner_for_message("帮我找技术合伙人"),
+    )
+    _install_route_skill(tmp_path)
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    async def emit(event: str, payload: dict[str, Any]) -> bool:
+        events.append((event, payload))
+        return True
+
+    monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "enforce")
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    monkeypatch.setenv("GROUP_AGENT_GROUNDED_FINAL_ENABLED", "1")
+    monkeypatch.setenv(
+        "GROUP_AGENT_CALLBACK_ALLOWED_BASE_URLS",
+        "http://example.invalid/group_agent_callbacks",
+    )
+    paths: list[str] = []
+
+    def fetch(path: str, **_kwargs: Any) -> str:
+        paths.append(path)
+        return '{"data":[],"meta":{"has_more":false}}'
+
+    monkeypatch.setattr(integration, "fetch", fetch)
+    await async_manager._execute_core_agent(
+        req=AsyncCallRequest(
+            run_id="intent-empty-async", idempotency_key="intent-empty-async-key",
+            user_id="user-1", group_id="group-1", conversation_id="conversation-1",
+            message="帮我找技术合伙人",
+            callback_url="http://example.invalid/group_agent_callbacks/intent-empty-async",
+            rollout_context={"protocol_mode": "grounded_v2"},
+            run_match=False, run_invite=False,
+        ),
+        session=_session(), state=state, tid="intent-empty-async-thread",
+        emit_callback=emit,
+    )
+    assert agent.calls == 1
+    assert len(paths) == 1
+    final = events[-1][1]
+    assert final["reply"].startswith("本次公开检索已完成，但没有返回")
+    assert "稍等" not in final["reply"]
+    assert final["reply_mode"] == "no_match"
+    assert final["grounded_final"]["reply"] == final["reply"]
 
 
 async def test_async_consecutive_turns_restore_server_query_context(

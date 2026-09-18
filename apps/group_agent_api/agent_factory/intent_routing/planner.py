@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,6 +23,12 @@ _PRIMARY_RESOURCE = {
     "community_search": "groups",
     "platform_help": "faqs",
 }
+_TEMPORAL_EVIDENCE = {
+    "本周": re.compile(r"本周|这周|这个星期|这一周"),
+    "本月": re.compile(r"本月|这个月|这一月"),
+    "最近": re.compile(r"最近|近期|新近|(?:近|过去)[一二三四五六七八九十\d]+[天周月年]"),
+    "近期": re.compile(r"最近|近期|新近|(?:近|过去)[一二三四五六七八九十\d]+[天周月年]"),
+}
 _KNOWN_FIELDS = frozenset(
     {
         "version",
@@ -35,6 +42,7 @@ _KNOWN_FIELDS = frozenset(
         "faqs",
         "clarification",
         "time_range",
+        "time_range_evidence",
         "group_member_scope",
         "group_event_id",
         "planner_version",
@@ -120,12 +128,27 @@ def _prompts(context: PlannerContextV2) -> list[Any]:
     ]
 
 
-def _proposal_from_raw(raw: Any) -> PlannerProposalV2:
+def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2:
     """Discard only fields irrelevant to the model-selected action, then validate."""
-    if isinstance(raw, PlannerProposalV2):
-        return raw
     draft = raw if isinstance(raw, PlannerDraftV2) else PlannerDraftV2.model_validate(raw)
     fields = draft.model_dump()
+    evidence = (draft.time_range_evidence or "").strip()
+    human_turns = [context.current_message, *(
+        turn.content for turn in context.episode_turns if turn.role == "human"
+    )]
+    if (
+        not draft.time_range
+        or not evidence
+        or not _TEMPORAL_EVIDENCE[draft.time_range].search(evidence)
+        or not any(evidence in message for message in human_turns)
+    ):
+        if draft.time_range:
+            _logger.info(
+                "intent_planner_time_filter_dropped range=%s reason=missing_user_temporal_evidence",
+                draft.time_range,
+            )
+        fields["time_range"] = None
+        fields["time_range_evidence"] = None
     if draft.action == "query":
         fields["clarification"] = None
         if draft.intent != "community_search":
@@ -223,7 +246,7 @@ def plan_intent(
             )
             return PlannerResult(None, "error", attempt, tuple(diagnostics))
         try:
-            parsed = _proposal_from_raw(raw)
+            parsed = _proposal_from_raw(raw, context)
             return PlannerResult(parsed, "ok", attempt, tuple(diagnostics))
         except (ValidationError, TypeError, ValueError, KeyError) as exc:
             diagnostics.append(
@@ -286,7 +309,7 @@ async def aplan_intent(
                 )
                 return PlannerResult(None, "error", attempt, tuple(diagnostics))
             try:
-                parsed = _proposal_from_raw(raw)
+                parsed = _proposal_from_raw(raw, context)
                 return PlannerResult(parsed, "ok", attempt, tuple(diagnostics))
             except (ValidationError, TypeError, ValueError, KeyError) as exc:
                 diagnostics.append(

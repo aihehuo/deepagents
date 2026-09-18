@@ -1408,8 +1408,18 @@ async def _execute_core_agent(
         else None
     )
     from apps.group_agent_api.agent_factory.intent_routing import project_intent_search
+    from apps.group_agent_api.agent_factory.intent_routing.projection import empty_search_reply
 
     intent_search = project_intent_search(intent_execution)
+    no_match_reply = (
+        empty_search_reply(intent_search)
+        if intent_execution is not None
+        and intent_execution.decision.primary_intent == "people_search"
+        else None
+    )
+    if no_match_reply is not None:
+        reply = no_match_reply
+        suggested_replies = []
     search_completed = search_turn.called
     if intent_search.completed:
         search_completed = True

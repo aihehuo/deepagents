@@ -148,6 +148,7 @@ class PlannerDraftV2(ClosedModel):
     queries: ResourceQueriesV2 = Field(default_factory=ResourceQueriesV2)
     clarification: str | None = Field(default=None, max_length=240)
     time_range: PlannerTimeRange | None = None
+    time_range_evidence: str | None = Field(default=None, max_length=120)
     group_member_scope: GroupMemberScope = "none"
     group_event_id: str | None = Field(
         default=None, max_length=18, pattern=r"^[0-9]{1,18}$"

@@ -3,11 +3,14 @@
 import argparse
 import http.client
 import json
+import os
 import sys
 from collections.abc import Sequence
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 HOST = "www.aihehuo.com"
+INTERNAL_API_BASE_URL_ENV = "AIHEHUO_PUBLIC_API_BASE_URL"
+INTERNAL_API_BASE_URL = "http://onepennyentreprerr-web:3002"
 TIMEOUT = 20
 MAX_BYTES = 4 * 1024 * 1024
 MAX_PER = 500
@@ -70,7 +73,10 @@ def build_path(endpoint: str, *, params: dict[str, str | int], output_format: st
 def fetch(
     path: str, *, output_format: str = "json", timeout: float = TIMEOUT
 ) -> str:
-    """Read a bounded response from the official HTTPS host.
+    """Read a bounded response from the official host or colocated Rails service.
+
+    The optional internal origin is restricted to the colocated Rails service;
+    arbitrary URLs are not accepted. Public source attribution stays on HOST.
 
     Args:
         path: Relative API path produced by `build_path`.
@@ -89,7 +95,16 @@ def fetch(
         raise ValueError(msg)
     if timeout <= 0 or timeout > TIMEOUT:
         raise ValueError("Invalid public query timeout")
-    connection = http.client.HTTPSConnection(HOST, timeout=timeout)
+    base_url = os.environ.get(INTERNAL_API_BASE_URL_ENV)
+    if base_url:
+        parsed = urlsplit(base_url)
+        if base_url != INTERNAL_API_BASE_URL:
+            raise ValueError("Unsupported internal public API base URL")
+        connection = http.client.HTTPConnection(
+            parsed.hostname, port=parsed.port, timeout=timeout
+        )
+    else:
+        connection = http.client.HTTPSConnection(HOST, timeout=timeout)
     try:
         connection.request("GET", path, headers={"Accept": "application/json" if output_format == "json" else "text/markdown"})
         response = connection.getresponse()

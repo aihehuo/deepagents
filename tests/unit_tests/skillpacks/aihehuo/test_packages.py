@@ -146,13 +146,45 @@ class Connection:
 
 
 def test_fetch_preserves_empty_results_and_closes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(client.INTERNAL_API_BASE_URL_ENV, raising=False)
     connection = Connection()
     monkeypatch.setattr(http.client, "HTTPSConnection", lambda _host, **_kwargs: connection)
     assert json.loads(client.fetch("/ai/users.json"))["data"] == []
     assert connection.closed
 
 
+def test_fetch_uses_only_colocated_rails_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    connection = Connection()
+    targets: list[tuple[str, int, float]] = []
+
+    def connect(host: str, *, port: int, timeout: float) -> Connection:
+        targets.append((host, port, timeout))
+        return connection
+
+    monkeypatch.setenv(client.INTERNAL_API_BASE_URL_ENV, client.INTERNAL_API_BASE_URL)
+    monkeypatch.setattr(http.client, "HTTPConnection", connect)
+    monkeypatch.setattr(
+        http.client,
+        "HTTPSConnection",
+        lambda *_args, **_kwargs: pytest.fail("public CDN must not be called"),
+    )
+    assert json.loads(client.fetch("/ai/users.json?q=restaurant", timeout=12))["data"] == []
+    assert targets == [("onepennyentreprerr-web", 3002, 12)]
+    assert connection.closed
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    ["http://evil.example:3002", "http://onepennyentreprerr-web:3002/ai/users.json", "https://www.aihehuo.com"],
+)
+def test_fetch_rejects_unapproved_internal_origin(monkeypatch: pytest.MonkeyPatch, base_url: str) -> None:
+    monkeypatch.setenv(client.INTERNAL_API_BASE_URL_ENV, base_url)
+    with pytest.raises(ValueError, match="Unsupported internal public API base URL"):
+        client.fetch("/ai/users.json")
+
+
 def test_weekly_cli_reads_markdown_and_reports_rate_limits(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.delenv(client.INTERNAL_API_BASE_URL_ENV, raising=False)
     connection = Connection(body=b"# Recent articles")
     monkeypatch.setattr(http.client, "HTTPSConnection", lambda _host, **_kwargs: connection)
     assert client.main(["weekly", "blog"], []) == 0
@@ -178,6 +210,7 @@ def test_weekly_cli_reads_markdown_and_reports_rate_limits(monkeypatch: pytest.M
     ],
 )
 def test_fetch_errors_close_connection(monkeypatch: pytest.MonkeyPatch, status: int, body: bytes, error: type[Exception]) -> None:
+    monkeypatch.delenv(client.INTERNAL_API_BASE_URL_ENV, raising=False)
     connection = Connection(status=status, body=body)
     monkeypatch.setattr(http.client, "HTTPSConnection", lambda _host, **_kwargs: connection)
     with pytest.raises(error):

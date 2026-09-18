@@ -79,6 +79,7 @@ agent = create_deep_agent(
 已显式添加 `SkillsMiddleware` 的智能体可继续使用原加载器，只增加查询工具。
 接入器名称为 `query_aihehuo_public_data`，技能可将其 `--resource/--keyword/--q/--page/--per/--created-since/--event-id/--format` 参数映射为同名下划线工具参数（--format 对应 output_format）。
 接入器在 JSON 中补充 `_source_url`，Markdown 前补充实际官方查询接口链接，作为条目缺少 url 时的来源；保留原 data、meta 和条目字段。这是工具添加的检索信息，不是接口原始字段；独立 CLI 仍返回原始响应。
+在同一 Docker 网络部署 Rails 公开接口与群智能体时，可在 `group-agent-api` 和 `group-agent-worker` 的环境文件中设置 `AIHEHUO_PUBLIC_API_BASE_URL=http://onepennyentreprerr-web:3002`。查询仍只允许 `/ai/` 路径，内网源地址仅接受这一固定服务，证据的 `_source_url` 继续使用 `https://www.aihehuo.com/ai/`；未设置时沿用公网 HTTPS。此设置绕开公网 CDN 对动态查询参数的错误缓存，不改变公开来源的身份；镜像及环境变量均需部署后生效。
 修改安装选择后重建工具及智能体，以刷新能力范围。
 
 ## 群智能体切换与回归（第四步）

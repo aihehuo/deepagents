@@ -260,6 +260,85 @@ def test_completed_execution_uses_app_ids_and_rejects_public_number_as_route_id(
     assert _public_candidate({"id": "101", "number": 101, "name": "旧公网结果"}) is None
 
 
+def test_frozen_recommendation_cards_drive_prompt_and_projection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.projection import (
+        freeze_intent_search_projection,
+        project_intent_search,
+    )
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    execution = _execution()
+    reservation = execution.reserve(
+        resource="users", parameters={"page": 1}, tool_call_id="cards"
+    )
+    execution.commit_result(
+        reservation,
+        _result(
+            [
+                {"user_id": str(index), "name": name, "bio": intro}
+                for index, name, intro in (
+                    (101, "张三", "餐饮供应链经验"),
+                    (102, "李四", "连锁门店运营经验"),
+                    (103, "王五", "成本控制经验"),
+                    (104, "赵六", "第四位原始召回"),
+                )
+            ]
+        ),
+    )
+    _install_route_skill(tmp_path)
+
+    frozen = freeze_intent_search_projection(execution)
+    prompt = execution.route_prompt(skills_dir=tmp_path / "skills" / "aihehuo")
+    projected_again = project_intent_search(execution)
+
+    assert [item["display_name"] for item in frozen.candidates] == [
+        "张三",
+        "李四",
+        "王五",
+    ]
+    assert projected_again.candidates == frozen.candidates
+    manifest_json = prompt.split("[CLIENT-RECOMMENDATION-CARDS]\n", 1)[1].split(
+        "\n[/CLIENT-RECOMMENDATION-CARDS]", 1
+    )[0]
+    manifest = json.loads(manifest_json)
+    assert [item["display_name"] for item in manifest] == ["张三", "李四", "王五"]
+    assert manifest[0]["short_intro"] == "餐饮供应链经验"
+    assert all("user_id" not in item for item in manifest)
+    assert "赵六" not in manifest_json
+
+    with pytest.raises(QueryPlanError, match="recommendation_candidates_changed"):
+        execution.freeze_recommendation_candidates([frozen.candidates[1]])
+
+
+def test_frozen_empty_card_manifest_hides_unusable_raw_people(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.projection import (
+        freeze_intent_search_projection,
+    )
+
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    execution = _execution()
+    reservation = execution.reserve(
+        resource="users", parameters={"page": 1}, tool_call_id="empty-cards"
+    )
+    execution.commit_result(
+        reservation,
+        _result([{"user_id": "101", "name": "只有姓名"}]),
+    )
+    _install_route_skill(tmp_path)
+
+    frozen = freeze_intent_search_projection(execution)
+    prompt = execution.route_prompt(skills_dir=tmp_path / "skills" / "aihehuo")
+
+    assert frozen.result_count == 1
+    assert frozen.candidates == []
+    assert "[CLIENT-RECOMMENDATION-CARDS]\n[]" in prompt
+    assert "不得从原始证据中另行点名" in prompt
+
+
 def test_ephemeral_required_receipt_empty_and_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1267,6 +1346,9 @@ async def test_chat_enforce_executes_required_tool_before_composing(
         if hasattr(message, "content")
     )
     assert "[SERVER-VERIFIED-EVIDENCE]" in prompt
+    assert "[CLIENT-RECOMMENDATION-CARDS]" in prompt
+    assert '"card_ref":"candidate_1"' in prompt
+    assert '"display_name":"张三"' in prompt
     assert '\"id\":101' in prompt
     assert '\"name\":\"张三\"' in prompt
 
@@ -1434,6 +1516,13 @@ async def test_async_enforce_executes_required_tool_before_composing(
     assert events[-1][1]["match_reason"] == "intent_query_plan"
     assert [candidate["user_id"] for candidate in events[-1][1]["candidates"]] == ["101"]
     assert events[-1][1]["grounded_final"]["candidate_count"] == 1
+    prompt = "\n".join(
+        str(message.content)
+        for message in compose_agent.inputs[0]["messages"]
+        if hasattr(message, "content")
+    )
+    assert '"display_name":"张三"' in prompt
+    assert "[CLIENT-RECOMMENDATION-CARDS]" in prompt
 
 
 async def test_async_empty_receipt_cannot_promise_future_results(

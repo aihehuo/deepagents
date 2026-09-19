@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
@@ -123,6 +124,15 @@ def project_intent_search(
             )
         )
 
+    frozen = execution.recommendation_candidates
+    if frozen is not None:
+        candidates = deepcopy(list(frozen))
+        public_result_names = [
+            str(candidate.get("display_name") or "").strip()
+            for candidate in candidates
+            if str(candidate.get("display_name") or "").strip()
+        ]
+
     return IntentSearchProjection(
         completed=True,
         result_count=execution.unique_result_count(),
@@ -183,7 +193,31 @@ def _public_candidate(raw: Any) -> dict[str, Any] | None:
     if facts:
         candidate["facts"] = facts
         candidate["match_evidence"] = [{"summary": facts[0]["value"][:1000]}]
-    return candidate
+        return candidate
+    return None
+
+
+def freeze_intent_search_projection(
+    execution: IntentExecution | None,
+    *,
+    allow_candidates: bool = True,
+) -> IntentSearchProjection:
+    """Freeze the exact candidate cards used by composition and delivery.
+
+    Args:
+        execution: Current receipt-backed execution, if any.
+        allow_candidates: Whether the trusted session may receive people cards.
+
+    Returns:
+        Projection whose candidates are frozen on `execution`.
+    """
+    projection = project_intent_search(execution)
+    if execution is None or not projection.completed:
+        return projection
+    execution.freeze_recommendation_candidates(
+        projection.candidates if allow_candidates else []
+    )
+    return project_intent_search(execution)
 
 
 def _first_public_text(raw: dict[str, Any], keys: tuple[str, ...]) -> str:

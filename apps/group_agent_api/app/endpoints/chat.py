@@ -39,6 +39,9 @@ from apps.group_agent_api.agent_factory.intent_routing.execution import (
 from apps.group_agent_api.agent_factory.intent_routing.plan_executor import (
     execute_query_plan,
 )
+from apps.group_agent_api.agent_factory.intent_routing.projection import (
+    freeze_intent_search_projection,
+)
 from apps.group_agent_api.agent_factory.intent_routing.resolver import (
     IntentResolution,
     aresolve_intent,
@@ -455,6 +458,10 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                             await execute_query_plan(
                                 intent_execution,
                                 skills_dir=state.base_dir / "skills" / "aihehuo",
+                            )
+                            freeze_intent_search_projection(
+                                intent_execution,
+                                allow_candidates=unlocks_network(tier),
                             )
                             agent = state.member_agent_for_capability(
                                 can_search=False,

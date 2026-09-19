@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import re
@@ -228,6 +229,9 @@ class IntentExecution:
     _progress_started_monotonic: float | None = None
     _emit_search_logs: bool = False
     _emit_search_results: bool = False
+    _recommendation_candidates: tuple[dict[str, Any], ...] | None = field(
+        default=None, init=False, repr=False
+    )
 
     @property
     def decision(self) -> Any:
@@ -236,6 +240,37 @@ class IntentExecution:
     @property
     def plan(self) -> Any:
         return self.snapshot.query_plan
+
+    @property
+    def recommendation_candidates(self) -> tuple[dict[str, Any], ...] | None:
+        """Return the frozen client cards selected before reply composition."""
+        if self._recommendation_candidates is None:
+            return None
+        return tuple(copy.deepcopy(self._recommendation_candidates))
+
+    def freeze_recommendation_candidates(
+        self, candidates: list[dict[str, Any]]
+    ) -> None:
+        """Freeze the cards shared by reply composition and final delivery.
+
+        Repeated calls are allowed only when they select identical cards. This
+        prevents retries or later post-processing from silently changing the
+        people discussed by the model.
+
+        Args:
+            candidates: Final public candidate cards in display order.
+
+        Raises:
+            QueryPlanError: If a different card set was already frozen.
+        """
+        frozen = tuple(copy.deepcopy(candidates))
+        if (
+            self._recommendation_candidates is not None
+            and canonical_hash(list(self._recommendation_candidates))
+            != canonical_hash(list(frozen))
+        ):
+            raise QueryPlanError("recommendation_candidates_changed")
+        self._recommendation_candidates = frozen
 
     def _step_for_resource(self, resource: str) -> QueryPlanStepV1:
         if self.plan is None:
@@ -1002,7 +1037,62 @@ class IntentExecution:
                 "\n[SERVER-EVIDENCE-LIMIT]证据已按统一安全预算裁剪；不得推断被裁剪内容，"
                 "必要时明确说明仅展示部分结果。[/SERVER-EVIDENCE-LIMIT]"
             )
+        if (
+            self.decision.primary_intent == "people_search"
+            and self._recommendation_candidates is not None
+        ):
+            manifest = _recommendation_prompt_manifest(
+                self._recommendation_candidates
+            )
+            prompt += (
+                "\n[CLIENT-RECOMMENDATION-CARDS]\n"
+                + json.dumps(
+                    manifest, ensure_ascii=False, separators=(",", ":")
+                )
+                + "\n[/CLIENT-RECOMMENDATION-CARDS]\n"
+            )
+            if manifest:
+                prompt += (
+                    "这些是将与本轮回复同时展示的全部候选卡片，顺序已经冻结。"
+                    "回复必须直接结合这些卡片，使用候选人的展示名称并依据卡片中的公开简介说明推荐理由；"
+                    "不得改选原始证据中的其他人，也不得只说正在查询、稍后返回或泛泛复述需求。"
+                    "用户可以通过卡片查看资料或进入现有联系页面。"
+                )
+            else:
+                prompt += (
+                    "本轮不会展示候选卡片。不得从原始证据中另行点名或推荐人员；"
+                    "应明确说明本轮没有可展示的候选人。"
+                )
         return prompt
+
+
+def _recommendation_prompt_manifest(
+    candidates: tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    """Build the bounded public card view supplied to the composing model."""
+    manifest: list[dict[str, Any]] = []
+    for index, candidate in enumerate(candidates, start=1):
+        item: dict[str, Any] = {
+            "card_ref": f"candidate_{index}",
+            "display_name": str(candidate.get("display_name") or "").strip()[:64],
+        }
+        for field_name in ("doing", "need", "offer"):
+            raw = candidate.get(field_name)
+            value = raw.get("value") if isinstance(raw, dict) else raw
+            text = str(value or "").strip()
+            if text:
+                item[field_name] = text[:200]
+        evidence = candidate.get("match_evidence")
+        if isinstance(evidence, list) and evidence:
+            first = evidence[0]
+            summary = (
+                first.get("summary") if isinstance(first, dict) else first
+            )
+            summary_text = str(summary or "").strip()
+            if summary_text:
+                item["short_intro"] = summary_text[:200]
+        manifest.append(item)
+    return manifest
 
 
 def _empty_budget(run_id: str, snapshot_hash: str) -> QueryBudgetUsageV1:

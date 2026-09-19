@@ -140,6 +140,8 @@ def apply_intent_final_guard(
         and execution.decision.primary_intent == "people_search"
     )
     projected_names: tuple[str, ...] = ()
+    projected_candidates: tuple[dict[str, Any], ...] = ()
+    recommendation_cards_frozen = False
     if execute:
         valid, receipt_violation = _validate_execution(execution)
         if not valid:
@@ -155,8 +157,11 @@ def apply_intent_final_guard(
                     project_intent_search,
                 )
 
-                projected_names = _projected_candidate_names(
-                    project_intent_search(execution)
+                projection = project_intent_search(execution)
+                projected_names = _projected_candidate_names(projection)
+                projected_candidates = tuple(projection.candidates)
+                recommendation_cards_frozen = (
+                    execution.recommendation_candidates is not None
                 )
 
     public_completed = bool(public_reads)
@@ -203,6 +208,8 @@ def apply_intent_final_guard(
             }
             if mentioned - supported_names:
                 violations.append("invented_public_entity")
+            if recommendation_cards_frozen and supported_names - mentioned:
+                violations.append("missing_recommendation_cards")
             mentioned_supported = any(
                 len(name) >= 2 and _name_appears_in_reply(name, claim_text)
                 for name in supported_names
@@ -243,6 +250,7 @@ def apply_intent_final_guard(
                 result_count=visible_result_count,
                 raw_result_count=raw_result_count,
                 projected_names=projected_names,
+                projected_candidates=projected_candidates,
                 is_people_search=is_people_search,
             )
         )
@@ -523,6 +531,7 @@ def _safe_reply(
     receipts: list[Any],
     result_count: int,
     projected_names: tuple[str, ...] = (),
+    projected_candidates: tuple[dict[str, Any], ...] = (),
     raw_result_count: int = 0,
     is_people_search: bool = False,
 ) -> str:
@@ -534,6 +543,19 @@ def _safe_reply(
     if invalid.intersection(violations):
         return "本次公开查询的执行凭证未通过校验，无法据此提供结果，请重新发起查询。"
     if execute and receipts:
+        card_mismatch = {
+            "invented_public_entity",
+            "missing_recommendation_cards",
+        }.intersection(violations)
+        if is_people_search and projected_candidates and card_mismatch:
+            lines = ["本次公开查询已完成，以下候选人与页面展示的卡片一致："]
+            for candidate in projected_candidates:
+                name = str(candidate.get("display_name") or "").strip()
+                intro = _candidate_intro(candidate)
+                lines.append(f"- {name}：{intro}" if intro else f"- {name}")
+            lines.append("你可以点击对应卡片查看公开资料或进入联系页面。")
+            body = "\n".join(lines)
+            return f"{body}\n\n{_scope(receipts, raw_result_count)}"
         if (
             is_people_search
             and "execution_result_omitted" in violations
@@ -561,6 +583,22 @@ def _safe_reply(
     if "future_execution_promise" in violations:
         return "当前回复不能以“正在处理”或“稍后返回”作为终态；本次没有可继续执行的后台任务。"
     return "本次没有可验证的查询凭证，无法确认已经查询或找到结果，请重新发起查询。"
+
+
+def _candidate_intro(candidate: dict[str, Any]) -> str:
+    """Return one bounded public introduction from a frozen card."""
+    for field_name in ("doing", "need", "offer"):
+        raw = candidate.get(field_name)
+        value = raw.get("value") if isinstance(raw, dict) else raw
+        text = str(value or "").strip()
+        if text:
+            return text[:200]
+    evidence = candidate.get("match_evidence")
+    if isinstance(evidence, list) and evidence:
+        first = evidence[0]
+        summary = first.get("summary") if isinstance(first, dict) else first
+        return str(summary or "").strip()[:200]
+    return ""
 
 
 def _log(violations: list[str], *, blocked: bool) -> None:

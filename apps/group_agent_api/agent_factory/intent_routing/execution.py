@@ -1014,6 +1014,48 @@ class IntentExecution:
         adopted, produced, evidence_truncated = _prompt_evidence_sections(
             self.receipts, self.evidence_by_receipt, self.adopted_receipt_ids
         )
+        cards_frozen = (
+            self.decision.primary_intent == "people_search"
+            and self._recommendation_candidates is not None
+        )
+        if cards_frozen:
+            people_resources = {"users", "group-members"}
+            people_records = [
+                record
+                for record in [*adopted, *produced]
+                if record.get("resource") in people_resources
+            ]
+            adopted = [
+                record
+                for record in adopted
+                if record.get("resource") not in people_resources
+            ]
+            produced = [
+                record
+                for record in produced
+                if record.get("resource") not in people_resources
+            ]
+            if people_records:
+                prompt += (
+                    "\n[SERVER-QUERY-SUMMARY]"
+                    + json.dumps(
+                        {
+                            "resources": [
+                                str(record.get("resource") or "")
+                                for record in people_records
+                            ],
+                            "raw_result_count": sum(
+                                max(0, int(record.get("result_count") or 0))
+                                for record in people_records
+                            ),
+                            "card_count": len(self._recommendation_candidates),
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    + "[/SERVER-QUERY-SUMMARY]\n"
+                    "人员原始召回仅用于服务器审计；回复不得从原始召回中另行选择人员。"
+                )
         if adopted:
             prompt += (
                 "\n[ADOPTED-DURABLE-EVIDENCE]\n"
@@ -1032,7 +1074,7 @@ class IntentExecution:
                 "逐项核对用户原始限定条件，不符合的结果不得推荐。"
                 "禁止声称已联系、已验证身份或属于当前群。"
             )
-        if evidence_truncated:
+        if evidence_truncated and (adopted or produced):
             prompt += (
                 "\n[SERVER-EVIDENCE-LIMIT]证据已按统一安全预算裁剪；不得推断被裁剪内容，"
                 "必要时明确说明仅展示部分结果。[/SERVER-EVIDENCE-LIMIT]"

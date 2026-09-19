@@ -308,6 +308,21 @@ def test_frozen_recommendation_cards_drive_prompt_and_projection(
     assert all("user_id" not in item for item in manifest)
     assert "赵六" not in manifest_json
 
+    from apps.group_agent_api.agent_factory.checks.intent_final_guard import (
+        apply_intent_final_guard,
+    )
+
+    guarded = apply_intent_final_guard(
+        reply="本次推荐杨杨和赵六。",
+        execution=execution,
+        enabled=True,
+    )
+    assert guarded.blocked
+    assert "invented_public_entity" in guarded.violations
+    assert "missing_recommendation_cards" in guarded.violations
+    assert all(name in guarded.reply for name in ("张三", "李四", "王五"))
+    assert "赵六" not in guarded.reply
+
     with pytest.raises(QueryPlanError, match="recommendation_candidates_changed"):
         execution.freeze_recommendation_candidates([frozen.candidates[1]])
 
@@ -1334,10 +1349,12 @@ async def test_chat_enforce_executes_required_tool_before_composing(
         ),
         state,
     )
-    assert response.reply == "公开查询处理完成。"
+    assert "- 张三：技术合伙人" in response.reply
     assert response.match_reason == "intent_query_plan"
     assert response.match_status == "matched"
     assert [candidate["user_id"] for candidate in response.candidates] == ["101"]
+    assert response.guard_blocked
+    assert "missing_recommendation_cards" in response.guard_violations
     assert search_agent.calls == 0
     assert compose_agent.calls == 1
     prompt = "\n".join(
@@ -1345,12 +1362,13 @@ async def test_chat_enforce_executes_required_tool_before_composing(
         for message in compose_agent.inputs[0]["messages"]
         if hasattr(message, "content")
     )
-    assert "[SERVER-VERIFIED-EVIDENCE]" in prompt
+    assert "[SERVER-VERIFIED-EVIDENCE]" not in prompt
+    assert "[SERVER-QUERY-SUMMARY]" in prompt
     assert "[CLIENT-RECOMMENDATION-CARDS]" in prompt
     assert '"card_ref":"candidate_1"' in prompt
     assert '"display_name":"张三"' in prompt
-    assert '\"id\":101' in prompt
-    assert '\"name\":\"张三\"' in prompt
+    assert '"raw_result_count":1' in prompt
+    assert '\"id\":101' not in prompt
 
 
 async def test_chat_empty_receipt_cannot_promise_future_results(
@@ -1511,11 +1529,13 @@ async def test_async_enforce_executes_required_tool_before_composing(
         "tool_completed"
     )
     assert events[-1][0] == "final"
-    assert events[-1][1]["reply"] == "公开查询处理完成。"
+    assert "- 张三：技术合伙人" in events[-1][1]["reply"]
     assert events[-1][1]["reply_mode"] == "recommendation"
     assert events[-1][1]["match_reason"] == "intent_query_plan"
     assert [candidate["user_id"] for candidate in events[-1][1]["candidates"]] == ["101"]
     assert events[-1][1]["grounded_final"]["candidate_count"] == 1
+    assert events[-1][1]["guard_blocked"] is True
+    assert "missing_recommendation_cards" in events[-1][1]["guard_violations"]
     prompt = "\n".join(
         str(message.content)
         for message in compose_agent.inputs[0]["messages"]
@@ -1523,6 +1543,7 @@ async def test_async_enforce_executes_required_tool_before_composing(
     )
     assert '"display_name":"张三"' in prompt
     assert "[CLIENT-RECOMMENDATION-CARDS]" in prompt
+    assert '\"id\":101' not in prompt
 
 
 async def test_async_empty_receipt_cannot_promise_future_results(

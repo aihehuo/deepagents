@@ -17,6 +17,9 @@ from apps.group_agent_api.agent_factory.capability import unlocks_network
 from apps.group_agent_api.agent_factory.content_quality import (
     finalize_and_guard_user_visible_reply,
 )
+from apps.group_agent_api.agent_factory.checks.intent_final_guard import (
+    apply_intent_final_guard,
+)
 from apps.group_agent_api.agent_factory.debug_trace import (
     debug_trace_enabled,
     end_decision_trace,
@@ -802,6 +805,24 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
             None,
         )
 
+    from apps.group_agent_api.app.async_manager import (
+        _profile_save_succeeded_this_turn,
+    )
+
+    saved_this_turn = _profile_save_succeeded_this_turn(
+        messages, msg_count_before
+    )
+    intent_guarded = apply_intent_final_guard(
+        reply=reply,
+        execution=intent_execution,
+        public_reads=public_reads,
+        profile_saved_this_turn=saved_this_turn,
+        profile_persisted=profile_ok,
+        legacy_search_completed=search_turn.called,
+        legacy_result_count=len(candidates),
+    )
+    reply = intent_guarded.reply
+
     guarded = enforce_capability_guard(
         tier=tier,
         reply=reply,
@@ -873,9 +894,6 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
     )
 
     final_profile = load_profile(state.base_dir, user_id, group_id) if profile_ok else None
-    from apps.group_agent_api.app.async_manager import _profile_save_succeeded_this_turn
-
-    saved_this_turn = _profile_save_succeeded_this_turn(messages, msg_count_before)
     final_guarded = finalize_and_guard_user_visible_reply(
         tier=tier,
         caller_group_id=group_id,
@@ -893,8 +911,18 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
         profile_saved_this_turn=saved_this_turn,
         public_reads=public_reads,
     )
-    combined_guard_violations = list(dict.fromkeys([*guarded.violations, *final_guarded.violations]))
-    combined_guard_blocked = guarded.blocked or final_guarded.blocked
+    combined_guard_violations = list(
+        dict.fromkeys(
+            [
+                *intent_guarded.violations,
+                *guarded.violations,
+                *final_guarded.violations,
+            ]
+        )
+    )
+    combined_guard_blocked = (
+        intent_guarded.blocked or guarded.blocked or final_guarded.blocked
+    )
 
     out_candidates = invite_res.candidates if (req.run_invite and "invite_res" in locals() and invite_res.candidates) else final_guarded.candidates
     if final_profile is not None and out_candidates and not intent_search.completed:

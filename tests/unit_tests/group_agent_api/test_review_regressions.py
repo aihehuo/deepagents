@@ -400,7 +400,8 @@ async def test_all_returned_users_survive_endpoint_evidence(
 
     monkeypatch.setattr(chat_ep, "resolve_trusted_session", resolve)
     result = await chat_ep.chat(ChatRequest(user_id="owner", group_id="g1", message="介绍返回的最后一位人才"), state)
-    assert result.reply == model_reply
+    assert result.reply == f"伙伴【用户{per}】有真实项目经验。"
+    assert source not in result.reply
 
 
 @pytest.mark.parametrize(
@@ -570,7 +571,8 @@ async def test_public_person_reply_survives_actual_endpoint_finalization(
 
         monkeypatch.setattr(chat_ep, "resolve_trusted_session", resolve)
         result = (await chat_ep.chat(ChatRequest(user_id="owner", group_id="g1", message=message), state)).model_dump()
-    assert result["reply"] == REPLY_WITH_SOURCE
+    assert result["reply"] == "公开人才资料：伙伴【张测试】有 Python 项目经验。"
+    assert SOURCE not in result["reply"]
     assert result["candidates"] == []
     if async_entry:
         assert result["reply_mode"] == "dialogue"

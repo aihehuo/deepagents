@@ -81,6 +81,7 @@ def test_default_on_system_prompt_matches_legacy_constant() -> None:
     assert "具体的 doing / need / offer" in assembled
     assert "search_candidates" in assembled
     assert "suggested_replies" in assembled
+    assert "禁止只在正文列举而不提供可点击选项" in assembled
     assert FORCE_SAVE_PROMPT == force_save_prompt(enabled=True)
 
 

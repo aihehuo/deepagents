@@ -141,6 +141,7 @@ def apply_intent_final_guard(
     )
     projected_names: tuple[str, ...] = ()
     projected_candidates: tuple[dict[str, Any], ...] = ()
+    projected_results: tuple[tuple[str, str], ...] = ()
     recommendation_cards_frozen = False
     if execute:
         valid, receipt_violation = _validate_execution(execution)
@@ -163,6 +164,8 @@ def apply_intent_final_guard(
                 recommendation_cards_frozen = (
                     execution.recommendation_candidates is not None
                 )
+            else:
+                projected_results = _evidence_result_summaries(evidence)
 
     public_completed = bool(public_reads)
     completed = bool(receipts) or public_completed or legacy_search_completed
@@ -251,6 +254,7 @@ def apply_intent_final_guard(
                 raw_result_count=raw_result_count,
                 projected_names=projected_names,
                 projected_candidates=projected_candidates,
+                projected_results=projected_results,
                 is_people_search=is_people_search,
             )
         )
@@ -452,6 +456,46 @@ def _evidence_resource_labels(evidence: list[Any]) -> set[str]:
     return labels
 
 
+def _evidence_result_summaries(
+    evidence: list[Any], *, limit: int = 3
+) -> tuple[tuple[str, str], ...]:
+    """Return a bounded, receipt-ordered view of non-person public results.
+
+    The public API owns relevance.  This projection deliberately does not
+    re-rank or re-filter its records; it only selects user-visible fields for a
+    deterministic fallback when the composing model omits the results.
+    """
+    results: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for item in _top_level_records(evidence):
+        label = next(
+            (
+                str(item[key]).strip()
+                for key in ("title", "question", "name")
+                if isinstance(item.get(key), str) and str(item[key]).strip()
+            ),
+            "",
+        )
+        if len(label) < 2 or label in seen:
+            continue
+        summary = next(
+            (
+                str(item[key]).strip()
+                for key in ("summary", "description", "answer", "bio")
+                if isinstance(item.get(key), str) and str(item[key]).strip()
+            ),
+            "",
+        )
+        # Keep untrusted public text on one bounded line in the fallback.
+        clean_label = re.sub(r"\s+", " ", label)[:100]
+        clean_summary = re.sub(r"\s+", " ", summary)[:240]
+        seen.add(label)
+        results.append((clean_label, clean_summary))
+        if len(results) >= max(1, limit):
+            break
+    return tuple(results)
+
+
 def _name_appears_in_reply(name: str, reply: str) -> bool:
     text = reply or ""
     token = (name or "").strip()
@@ -532,6 +576,7 @@ def _safe_reply(
     result_count: int,
     projected_names: tuple[str, ...] = (),
     projected_candidates: tuple[dict[str, Any], ...] = (),
+    projected_results: tuple[tuple[str, str], ...] = (),
     raw_result_count: int = 0,
     is_people_search: bool = False,
 ) -> str:
@@ -575,8 +620,14 @@ def _safe_reply(
                     f"{'、'.join(projected_names)}。"
                     "这些记录是查询候选，是否符合全部条件仍需依公开资料逐项核对。"
                 )
+            elif projected_results:
+                lines = ["本次公开查询已完成，返回的公开记录包括："]
+                for label, summary in projected_results:
+                    lines.append(f"- {label}：{summary}" if summary else f"- {label}")
+                lines.append("以上为本次 API 返回的公开记录摘要。")
+                lead = "\n".join(lines)
             else:
-                lead = "本次公开查询已完成，但当前回复未展示经核验的结果摘要。"
+                lead = "本次公开查询已完成，但返回记录缺少可展示的标题或名称。"
         else:
             lead = "本次公开查询已完成；具体结果仅以已返回的公开记录为准。"
         return f"{lead}\n\n{_scope(receipts, raw_result_count)}"

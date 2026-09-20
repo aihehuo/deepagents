@@ -14,6 +14,7 @@ from apps.group_agent_api.agent_factory.intent_routing.execution import (
 )
 from apps.group_agent_api.agent_factory.intent_routing.resolver import resolve_intent
 from tests.unit_tests.group_agent_api.planner_fixtures import (
+    opportunity_query,
     people_query,
     planner_for_message,
     planner_returning,
@@ -40,6 +41,26 @@ def _execution(run_id: str = "guard-run"):
     )
 
 
+def _opportunity_execution(run_id: str = "opportunity-guard-run"):
+    message = "看看最近有哪些AI教育创业机会"
+    resolution = resolve_intent(
+        message,
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(
+            opportunity_query("AI教育 创业机会", time_range="最近")
+        ),
+    )
+    return prepare_intent_execution(
+        resolution,
+        original_message=message,
+        run_id=run_id,
+        request_fingerprint=None,
+        execution_mode="group_agent",
+        can_search=True,
+    )
+
+
 def _commit(execution, items: list[dict[str, object]]):
     import json
 
@@ -52,6 +73,24 @@ def _commit(execution, items: list[dict[str, object]]):
             {
                 "data": items,
                 "_source_url": "https://www.aihehuo.com/ai/users.json?page=1",
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+
+def _commit_opportunities(execution, items: list[dict[str, object]]):
+    import json
+
+    reservation = execution.reserve(
+        resource="ideas", parameters={"page": 1}, tool_call_id="opportunity-tool"
+    )
+    return execution.commit_result(
+        reservation,
+        json.dumps(
+            {
+                "data": items,
+                "_source_url": "https://www.aihehuo.com/ai/ideas.json?page=1",
             },
             ensure_ascii=False,
         ),
@@ -251,6 +290,41 @@ def test_fallback_lists_search_results_without_rechecking_constraints(
     assert result.blocked
     assert "execution_result_omitted" in result.violations
     assert "chen富" in result.reply
+
+
+def test_non_people_fallback_summarizes_api_results_without_refiltering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GROUP_AGENT_READ_MODE", "public_skills")
+    execution = _opportunity_execution()
+    _commit_opportunities(
+        execution,
+        [
+            {
+                "id": "idea-1",
+                "name": "AI教育助手",
+                "summary": "面向学校提供个性化学习支持。",
+            },
+            {
+                "id": "idea-2",
+                "name": "API原样返回的第二个项目",
+                "summary": "保护器不重新判断相关性，只生成可信摘要。",
+            },
+        ],
+    )
+
+    result = apply_intent_final_guard(
+        reply="好的，查询完成。",
+        execution=execution,
+        enabled=True,
+    )
+
+    assert result.blocked
+    assert "execution_result_omitted" in result.violations
+    assert "AI教育助手：面向学校提供个性化学习支持。" in result.reply
+    assert "API原样返回的第二个项目：保护器不重新判断相关性" in result.reply
+    assert "当前回复未展示经核验的结果摘要" not in result.reply
+    assert "本次查询覆盖 1 页，检查 2 条去重公开记录" in result.reply
 
 
 def test_empty_query_must_explicitly_report_no_match(

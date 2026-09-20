@@ -1085,7 +1085,7 @@ async def test_public_tool_emits_bounded_reviewed_search_results(
         lambda _path, **_kwargs: json.dumps(
             {
                 "data": [
-                    {"id": "1", "name": "张三", "city": "上海", "industry": "餐饮", "bio": "餐饮合伙人", "phone": "13800138000"},
+                    {"id": "1", "url": "https://www.aihehuo.com/users/1", "name": "张三", "city": "上海", "industry": "餐饮", "bio": "餐饮合伙人", "phone": "13800138000"},
                     {"id": "2", "name": "李四", "city": "北京", "industry": "餐饮", "bio": "餐饮合伙人"},
                 ]
             },
@@ -1113,6 +1113,7 @@ async def test_public_tool_emits_bounded_reviewed_search_results(
     assert result["search_id"] == events[1][1]["search_log"]["search_id"]
     assert result["result_count"] == 2
     assert [item["review_status"] for item in result["items"]] == ["not_applicable", "not_applicable"]
+    assert result["items"][0]["url"] == "https://www.aihehuo.com/users/1"
     assert result["items"][1]["review_reasons"] == []
     assert "phone" not in result["items"][0]
     assert "13800138000" not in str(result)

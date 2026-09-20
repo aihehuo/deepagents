@@ -510,6 +510,7 @@ class IntentExecution:
             items.append(
                 {
                     "id": identifier,
+                    "url": public_text(record, ("url",), 512),
                     "name": scrub_display_name(name, fallback_user_id=identifier),
                     "city": public_text(record, ("city", "location"), 64),
                     "industry": public_text(record, ("industry",), 64),

@@ -12,6 +12,8 @@ PLANNER_SYSTEM_PROMPT = """你是群智能体的唯一语义与检索规划器�
   并为所选资源写出非空、完整的检索文本 queries（users/ideas/projects/groups/faqs）；clarification 留空。
   检索词只包含用户消息与画像中明确需要的核心条件；assistant 提出的备选项不是用户条件，
   不要把多个备选项或 OR 表达式拼进一条检索词。
+  用户寻找创业机会、商业机会、创业方向或创业想法时使用 opportunity_search/ideas；
+  只有用户明确寻找已有项目、项目招募、加盟、招商或合作席位时才使用 project_partnership_search/projects。
 - clarify：对象不足或指令冲突到无法安全检索；不要猜测检索词。
 - reply：普通对话、明确不要搜索、方法讨论，或应走画像更新（intent=profile_update）。
 clarify/reply 时不要填 queries，group_member_scope=none，group_event_id 留空。

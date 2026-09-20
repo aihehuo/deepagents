@@ -49,6 +49,7 @@ from apps.group_agent_api.execution.models import (
 from apps.group_agent_api.execution.redis_store import ExecutionStoreError
 from apps.group_agent_api.execution.retry import decide_retry
 from apps.group_agent_worker.runtime import get_worker_runtime
+from apps.group_agent_worker.event_loop import run_on_worker_event_loop
 
 _logger = logging.getLogger(__name__)
 
@@ -703,7 +704,7 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
 
     claim = outcome.claim
 
-    result = asyncio.run(
+    result = run_on_worker_event_loop(
         _run_attempt(
             claim=claim,
             req=req,

@@ -172,6 +172,28 @@ def test_planner_replays(
     assert result.routing_class == "authoritative_planner"
 
 
+def test_explicit_livestream_opportunity_cannot_become_project_recruitment() -> None:
+    result = resolve_intent(
+        "有没有直播创业机会",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(
+            proposal(
+                intent="project_partnership_search",
+                projects="餐饮 上海 招聘 运营负责人",
+            )
+        ),
+        prior_messages=_completed_people_search(),
+        scope=_scope(),
+    )
+
+    assert result.decision.primary_intent == "opportunity_search"
+    assert result.decision.resource_queries.ideas == "有没有直播创业机会"
+    assert result.decision.resource_queries.projects is None
+    assert result.decision.query_plan_ref is not None
+    assert result.decision.query_plan_ref.plan_id == "opportunity-search-v1"
+
+
 def test_planner_unavailable_fail_closes_to_clarify() -> None:
     result = resolve_intent(
         "你好，今天想聊聊创业", execution_mode="group_agent", can_search=True
@@ -285,6 +307,48 @@ def test_completed_context_is_data_for_planner_not_short_circuit() -> None:
     assert result.decision.primary_intent == "people_search"
     assert result.decision.resource_queries.users == "上海 技术合伙人"
     assert result.decision.decision_source == "planner"
+
+
+def test_punctuation_only_followup_cannot_replay_completed_search() -> None:
+    structured = StructuredPlanner(
+        [
+            proposal(
+                intent="project_partnership_search",
+                projects="餐饮 上海 招聘 运营负责人",
+            )
+        ]
+    )
+    result = resolve_intent(
+        "？",
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=_completed_people_search(),
+        scope=_scope(),
+        planner_model=PlannerModel(structured),
+    )
+
+    assert structured.calls == 0
+    assert result.decision.action == "clarify"
+    assert result.planner_status == "ambiguous_input"
+    assert result.signal_ids == ("ambiguous_input",)
+    assert not _query_plan_would_run(result)
+
+
+async def test_async_punctuation_only_followup_cannot_replay_completed_search() -> None:
+    structured = StructuredPlanner([people_query("北京 技术合伙人")])
+    result = await aresolve_intent(
+        "?",
+        execution_mode="group_agent",
+        can_search=True,
+        prior_messages=_completed_people_search(),
+        scope=_scope(),
+        planner_model=PlannerModel(structured),
+    )
+
+    assert structured.calls == 0
+    assert result.decision.action == "clarify"
+    assert result.planner_status == "ambiguous_input"
+    assert not _query_plan_would_run(result)
 
 
 def test_server_context_requires_completion_hash_and_exact_scope() -> None:

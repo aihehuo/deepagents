@@ -164,6 +164,28 @@ def _overflow_clarification(
     )
 
 
+def _input_has_semantic_content(message: str) -> bool:
+    """Return whether the current turn contains a letter or number."""
+    return any(character.isalnum() for character in str(message or ""))
+
+
+def _ambiguous_input_clarification(
+    *,
+    started: float,
+    trusted: Any,
+    context_compressed: bool,
+) -> IntentResolution:
+    """Fail closed before a planner can reuse an unrelated completed query."""
+    return _finalize(
+        started=started,
+        decision=clarification_decision(source="planner"),
+        planner=PlannerResult(None, "ambiguous_input", 0),
+        context_inherited=trusted is not None,
+        context_compressed=context_compressed,
+        signal_ids=("ambiguous_input",),
+    )
+
+
 def resolve_intent(
     message: str,
     *,
@@ -214,6 +236,12 @@ def resolve_intent(
             trusted=trusted,
             context_compressed=context.context_compressed,
         )
+    if not _input_has_semantic_content(message):
+        return _ambiguous_input_clarification(
+            started=started,
+            trusted=trusted,
+            context_compressed=context.context_compressed,
+        )
     planned = plan_intent(model=model, context=context)
     decision = _decision_from_planner(
         planned, execution_mode=execution_mode, can_search=can_search
@@ -258,6 +286,12 @@ async def aresolve_intent(
     )
     if context.compression_reason in _OVERFLOW_FAIL_CLOSED:
         return _overflow_clarification(
+            started=started,
+            trusted=trusted,
+            context_compressed=context.context_compressed,
+        )
+    if not _input_has_semantic_content(message):
+        return _ambiguous_input_clarification(
             started=started,
             trusted=trusted,
             context_compressed=context.context_compressed,

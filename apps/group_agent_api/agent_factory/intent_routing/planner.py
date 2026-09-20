@@ -29,6 +29,8 @@ _TEMPORAL_EVIDENCE = {
     "最近": re.compile(r"最近|近期|新近|(?:近|过去)[一二三四五六七八九十\d]+[天周月年]"),
     "近期": re.compile(r"最近|近期|新近|(?:近|过去)[一二三四五六七八九十\d]+[天周月年]"),
 }
+_EXPLICIT_OPPORTUNITY = re.compile(r"创业机会|商业机会|创业方向|创业想法")
+_EXPLICIT_PROJECT = re.compile(r"项目|招募|招聘|加盟|招商|合作席位")
 _KNOWN_FIELDS = frozenset(
     {
         "version",
@@ -151,6 +153,19 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
         fields["time_range_evidence"] = None
     if draft.action == "query":
         fields["clarification"] = None
+        if (
+            draft.intent == "project_partnership_search"
+            and _EXPLICIT_OPPORTUNITY.search(context.current_message)
+            and not _EXPLICIT_PROJECT.search(context.current_message)
+        ):
+            _logger.info(
+                "intent_planner_resource_corrected from=projects to=ideas "
+                "reason=explicit_opportunity_request"
+            )
+            fields["intent"] = "opportunity_search"
+            fields["queries"] = ResourceQueriesV2(
+                ideas=context.current_message[:160]
+            ).model_dump()
         if draft.intent != "community_search":
             fields["group_member_scope"] = "none"
             fields["group_event_id"] = None

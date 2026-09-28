@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import uuid
@@ -12,7 +13,12 @@ from typing import Any
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from apps.group_agent_api.app.execution_modes import execution_binding, validate_v3_request
+from apps.group_agent_api.app.execution_modes import (
+    execution_binding,
+    v4_queue_binding,
+    validate_v3_request,
+    validate_v4_request,
+)
 from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.venue_protocol import lease_scope, validate_v2_request
@@ -21,7 +27,12 @@ from apps.group_agent_api.execution.config import (
     DurableQueueConfig,
     validate_request_fingerprint,
 )
-from apps.group_agent_api.execution.crypto import digest_id, encrypt_envelope
+from apps.group_agent_api.execution.crypto import (
+    PayloadCryptoError,
+    decrypt_envelope,
+    digest_id,
+    encrypt_envelope,
+)
 from apps.group_agent_api.execution.models import (
     SUPPORTED_SCHEMA_PAIRS,
     BrokerDeliveryRef,
@@ -29,7 +40,10 @@ from apps.group_agent_api.execution.models import (
     ExecutionRecord,
     ExecutionStatus,
 )
-from apps.group_agent_api.execution.redis_store import ExecutionStore, ExecutionStoreError
+from apps.group_agent_api.execution.redis_store import (
+    ExecutionStore,
+    ExecutionStoreError,
+)
 
 _logger = logging.getLogger("uvicorn.error")
 
@@ -99,23 +113,152 @@ def validate_durable_request_fields(req: AsyncCallRequest) -> tuple[int, str]:
             "durable_fields_required",
             "request_schema_version, request_fingerprint, queue_schema_version required",
         )
-    if type(schema) is not int or type(queue_schema) is not int or (schema, queue_schema) not in SUPPORTED_SCHEMA_PAIRS:
+    if (
+        type(schema) is not int
+        or type(queue_schema) is not int
+        or (schema, queue_schema) not in SUPPORTED_SCHEMA_PAIRS
+    ):
         _error_response(400, "schema_invalid", "unsupported request/queue schema pair")
     if schema == 2:
         try:
             validate_v2_request(req.model_dump())
         except ValueError:
-            _error_response(400, "schema_invalid", "v2 request fingerprint or structure invalid")
+            _error_response(
+                400, "schema_invalid", "v2 request fingerprint or structure invalid"
+            )
     if schema == 3:
         try:
             validate_v3_request(req.model_dump())
         except ValueError:
             _error_response(400, "schema_invalid", "invalid v3 frozen request")
+    if schema == 4:
+        try:
+            validate_v4_request(req.model_dump())
+        except ValueError:
+            _error_response(400, "schema_invalid", "invalid v4 frozen request")
     try:
         fp = validate_request_fingerprint(str(fingerprint))
     except ValueError:
-        _error_response(400, "schema_invalid", "request_fingerprint must be 64-char lowercase sha256 hex")
+        _error_response(
+            400,
+            "schema_invalid",
+            "request_fingerprint must be 64-char lowercase sha256 hex",
+        )
     return int(schema), fp
+
+
+def _v4_admission_enabled(user_id: str) -> bool:
+    """Return whether server configuration allows a new v4 run.
+
+    Args:
+        user_id: Authenticated principal identifier.
+    """
+    enabled = os.environ.get("CAFE_HOST_V4_ADMISSION_ENABLED", "0").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return False
+    allowed = {
+        item.strip()
+        for item in os.environ.get("CAFE_HOST_V4_USER_ALLOWLIST", "").split(",")
+        if item.strip()
+    }
+    return "*" in allowed or user_id in allowed
+
+
+def _token_digest(token: str | None) -> str:
+    """Return the protocol digest sentinel for one trusted header token.
+
+    Args:
+        token: Authenticated header credential, if present.
+    """
+    value = (token or "").strip()
+    return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else "-"
+
+
+def _validate_v4_principal(req: AsyncCallRequest, session: TrustedSession) -> None:
+    """Bind signed header credentials to the frozen v4 body digests.
+
+    Args:
+        req: Strict v4 request with no bearer fields.
+        session: Principal resolved from signed headers.
+    """
+    binding = req.credential_binding or {}
+    user_digest = _token_digest(session.principal.user_token)
+    group_digest = _token_digest(session.group_token)
+    if binding != {
+        "user_token_sha256": user_digest,
+        "group_token_sha256": group_digest,
+    }:
+        _error_response(
+            400, "binding_mismatch", "credential digest differs from trusted principal"
+        )
+    mode = (req.chat_access or {}).get("mode")
+    if mode == "ordinary" and (session.principal.user_token or session.group_token):
+        _error_response(
+            400, "binding_mismatch", "ordinary run cannot carry search credentials"
+        )
+    if mode == "active" and not session.principal.user_token:
+        _error_response(
+            400, "binding_mismatch", "active run requires authenticated user credential"
+        )
+
+
+def _validate_v4_idempotent_envelope(
+    *,
+    req: AsyncCallRequest,
+    session: TrustedSession,
+    thread_id: str,
+    record: ExecutionRecord,
+    config: DurableQueueConfig,
+) -> None:
+    """Require an idempotent v4 hit to match the first encrypted request.
+
+    Args:
+        req: Canonical request being replayed.
+        session: Newly authenticated transport principal.
+        thread_id: Canonical checkpoint binding for this replay.
+        record: Existing immutable durable run.
+        config: Queue keys used to authenticate and decrypt the first envelope.
+
+    This comparison happens before returning the original ACK. It prevents a
+    partial ledger projection from becoming the authority for a replay: the
+    canonical request and authenticated credential identity must still equal
+    the first accepted encrypted envelope byte-for-byte in meaning.
+    """
+    try:
+        envelope = decrypt_envelope(
+            record.payload_ciphertext,
+            keys=config.payload_keys,
+            run_id=record.run_id,
+            idempotency_key=record.idempotency_key,
+            request_fingerprint=record.request_fingerprint,
+            schema_version=record.request_schema_version,
+            mode_binding=record.mode_binding,
+        )
+    except PayloadCryptoError:
+        _error_response(
+            409, "run_binding_conflict", "stored v4 envelope binding is invalid"
+        )
+    stored_session = envelope.get("session")
+    expected_identity = {
+        "user_id": session.principal.user_id,
+        "unionid": session.principal.unionid,
+        "user_token": session.principal.user_token,
+        "group_token": session.group_token,
+        "group_id": session.group_id,
+    }
+    if (
+        envelope.get("thread_id") != thread_id
+        or envelope.get("request") != req.model_dump()
+        or not isinstance(stored_session, dict)
+        or any(
+            stored_session.get(key) != value for key, value in expected_identity.items()
+        )
+    ):
+        _error_response(
+            409,
+            "idempotency_conflict",
+            "v4 replay differs from first accepted envelope",
+        )
 
 
 def admit_durable_async_call(
@@ -134,7 +277,13 @@ def admit_durable_async_call(
     Idempotent hits are not blocked by admission quota.
     """
     schema, fingerprint = validate_durable_request_fields(req)
-    if schema == 3:
+    if schema == 4:
+        if not _v4_admission_enabled(session.principal.user_id):
+            _error_response(
+                503, "execution_mode_unavailable", "Cafe Host v4 admission is disabled"
+            )
+        _validate_v4_principal(req, session)
+    if schema in {3, 4}:
         from apps.group_agent_api.app.utils import thread_id as canonical_thread_id
 
         expected_thread = canonical_thread_id(
@@ -146,15 +295,26 @@ def admit_durable_async_call(
         )
         if thread_id != expected_thread:
             _error_response(400, "schema_invalid", "invalid frozen thread binding")
-    if schema in {2, 3} and (
+    if schema in {2, 3, 4} and (
         req.user_id != session.principal.user_id
         or req.unionid != session.principal.unionid
         or req.group_id != session.group_id
-        or (req.user_token or "").strip() != (session.principal.user_token or "").strip()
-        or (req.group_token or "").strip() != (session.group_token or "").strip()
+        or (
+            schema != 4
+            and (
+                (req.user_token or "").strip()
+                != (session.principal.user_token or "").strip()
+                or (req.group_token or "").strip()
+                != (session.group_token or "").strip()
+            )
+        )
     ):
-        _error_response(400, "binding_mismatch", "frozen request must match trusted session")
-    provider = (os.environ.get("GROUP_AGENT_PROVIDER") or "default").strip() or "default"
+        _error_response(
+            400, "binding_mismatch", "frozen request must match trusted session"
+        )
+    provider = (
+        os.environ.get("GROUP_AGENT_PROVIDER") or "default"
+    ).strip() or "default"
 
     # FIX1 BLOCKER-4: binding hit before quota — saturated system still returns original ACK.
     existing = store.get_by_idempotency(req.idempotency_key)
@@ -165,15 +325,41 @@ def admit_durable_async_call(
             or existing.request_fingerprint != fingerprint
             or existing.run_id != req.run_id
             or (
-                schema == 3
+                schema in {3, 4}
                 and (
-                    existing.mode_binding != {key: getattr(req, key) for key in ("user_id", "execution_mode", "conversation_id", "episode_id")}
+                    existing.mode_binding
+                    != (
+                        v4_queue_binding(req)
+                        if schema == 4
+                        else {
+                            key: getattr(req, key)
+                            for key in (
+                                "user_id",
+                                "execution_mode",
+                                "conversation_id",
+                                "episode_id",
+                            )
+                        }
+                    )
                     or existing.conversation_id != lease_scope(req)
                 )
             )
         ):
-            _error_response(409, "idempotency_conflict", "idempotency or run binding conflict")
-        if existing.status in {ExecutionStatus.ENQUEUE_FAILED, ExecutionStatus.ACCEPTED}:
+            _error_response(
+                409, "idempotency_conflict", "idempotency or run binding conflict"
+            )
+        if schema == 4:
+            _validate_v4_idempotent_envelope(
+                req=req,
+                session=session,
+                thread_id=thread_id,
+                record=existing,
+                config=config,
+            )
+        if existing.status in {
+            ExecutionStatus.ENQUEUE_FAILED,
+            ExecutionStatus.ACCEPTED,
+        }:
             return _enqueue_and_ack(
                 req=req,
                 thread_id=thread_id,
@@ -194,7 +380,9 @@ def admit_durable_async_call(
 
     by_run = store.get(req.run_id)
     if by_run is not None and by_run.idempotency_key != req.idempotency_key:
-        _error_response(409, "run_binding_conflict", "run_id bound to different idempotency_key")
+        _error_response(
+            409, "run_binding_conflict", "run_id bound to different idempotency_key"
+        )
 
     bp = backpressure.check_and_reserve(
         user_id=session.principal.user_id,
@@ -221,7 +409,21 @@ def admit_durable_async_call(
             idempotency_key=req.idempotency_key,
             request_fingerprint=fingerprint,
             schema_version=schema,
-            mode_binding={key: getattr(req, key) for key in ("user_id", "execution_mode", "conversation_id", "episode_id")} if schema == 3 else None,
+            mode_binding=(
+                v4_queue_binding(req)
+                if schema == 4
+                else {
+                    key: getattr(req, key)
+                    for key in (
+                        "user_id",
+                        "execution_mode",
+                        "conversation_id",
+                        "episode_id",
+                    )
+                }
+            )
+            if schema in {3, 4}
+            else None,
         )
         now = store.redis_time()
         record = ExecutionRecord(
@@ -239,7 +441,21 @@ def admit_durable_async_call(
             group_id_digest=digest_id(session.group_id),
             provider=provider,
             input_kind=req.input_kind,
-            mode_binding={key: getattr(req, key) for key in ("user_id", "execution_mode", "conversation_id", "episode_id")} if schema == 3 else None,
+            mode_binding=(
+                v4_queue_binding(req)
+                if schema == 4
+                else {
+                    key: getattr(req, key)
+                    for key in (
+                        "user_id",
+                        "execution_mode",
+                        "conversation_id",
+                        "episode_id",
+                    )
+                }
+            )
+            if schema in {3, 4}
+            else None,
         )
         try:
             kind, loaded = store.create_or_get(record=record)
@@ -251,7 +467,9 @@ def admit_durable_async_call(
             reserved = False
             if exc.code in {"idempotency_conflict", "run_binding_conflict"}:
                 _error_response(409, exc.code, "idempotency or run binding conflict")
-            _error_response(503, "queue_unavailable", "execution ledger unavailable", retry_after=5)
+            _error_response(
+                503, "queue_unavailable", "execution ledger unavailable", retry_after=5
+            )
 
         if kind == "hit":
             backpressure.release_queued_reservation(
@@ -259,7 +477,18 @@ def admit_durable_async_call(
                 group_id=session.group_id,
             )
             reserved = False
-            if loaded.status in {ExecutionStatus.ENQUEUE_FAILED, ExecutionStatus.ACCEPTED}:
+            if schema == 4:
+                _validate_v4_idempotent_envelope(
+                    req=req,
+                    session=session,
+                    thread_id=thread_id,
+                    record=loaded,
+                    config=config,
+                )
+            if loaded.status in {
+                ExecutionStatus.ENQUEUE_FAILED,
+                ExecutionStatus.ACCEPTED,
+            }:
                 return _enqueue_and_ack(
                     req=req,
                     thread_id=thread_id,
@@ -317,7 +546,9 @@ def _ack(req: AsyncCallRequest, thread_id: str, status: str) -> AsyncCallRespons
         idempotency_key=req.idempotency_key,
         execution_status=status,
         queue_schema_version=req.queue_schema_version,
-        execution_binding=execution_binding(req) if req.request_schema_version == 3 else None,
+        execution_binding=execution_binding(req)
+        if req.request_schema_version in {3, 4}
+        else None,
     )
 
 
@@ -359,7 +590,9 @@ def _enqueue_and_ack(
             execution_status=loaded.status.value,
         )
     if ownership != "ok":
-        _error_response(503, "enqueue_failed", "publish ownership unavailable", retry_after=5)
+        _error_response(
+            503, "enqueue_failed", "publish ownership unavailable", retry_after=5
+        )
 
     try:
         enqueue(delivery)
@@ -374,7 +607,9 @@ def _enqueue_and_ack(
             store.mark_accepted_enqueue_failed(loaded.run_id, "enqueue_failed")
         except ExecutionStoreError:
             pass
-        _error_response(503, "enqueue_failed", "broker did not accept message", retry_after=5)
+        _error_response(
+            503, "enqueue_failed", "broker did not accept message", retry_after=5
+        )
 
     try:
         queued = store.mark_queued(
@@ -387,10 +622,14 @@ def _enqueue_and_ack(
         _logger.error("mark_queued_failed run_id=%s code=%s", loaded.run_id, exc.code)
         try:
             if loaded.status != ExecutionStatus.ENQUEUE_FAILED:
-                store.mark_accepted_enqueue_failed(loaded.run_id, "queued_transition_failed")
+                store.mark_accepted_enqueue_failed(
+                    loaded.run_id, "queued_transition_failed"
+                )
         except ExecutionStoreError:
             pass
-        _error_response(503, "enqueue_failed", "failed to persist queued evidence", retry_after=5)
+        _error_response(
+            503, "enqueue_failed", "failed to persist queued evidence", retry_after=5
+        )
 
     return AdmissionResult(
         response=_ack(req, thread_id, queued.status.value),
@@ -402,4 +641,6 @@ def _enqueue_and_ack(
 def http_exception_to_json(exc: HTTPException) -> JSONResponse:
     """Helper for tests — mirrors FastAPI error body + Retry-After."""
     headers = dict(exc.headers or {})
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=headers)
+    return JSONResponse(
+        status_code=exc.status_code, content={"detail": exc.detail}, headers=headers
+    )

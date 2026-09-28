@@ -6,9 +6,18 @@ import re
 from typing import Any, Literal
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field, field_validator, model_validator, model_serializer
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
-from apps.group_agent_api.app.venue_protocol import validate_v2_callback, validate_v2_request
+from apps.group_agent_api.app.venue_protocol import (
+    validate_v2_callback,
+    validate_v2_request,
+)
 
 MembershipSignal = Literal["in_group", "not_in_group", "unknown"]
 MatchStatus = Literal[
@@ -378,6 +387,10 @@ class AsyncCallRequest(BaseModel):
     event: dict[str, Any] | None = None
     venue_context: dict[str, Any] | None = None
     context_snapshot: dict[str, Any] | None = None
+    access_contract_version: int | None = None
+    credential_binding: dict[str, Any] | None = None
+    chat_access: dict[str, Any] | None = None
+    trusted_search: dict[str, Any] | None = None
     group_token: str | None = Field(None, max_length=1024, description="Group capability token")
     user_token: str | None = Field(None, max_length=1024, description="User bearer token")
     callback_url: str = Field(..., min_length=1, max_length=1024, description="Micro callback URL")
@@ -412,8 +425,16 @@ class AsyncCallRequest(BaseModel):
         from apps.group_agent_api.app.execution_modes import MODE_FIELDS
 
         result = handler(self)
-        if self.request_schema_version != 3:
+        if self.request_schema_version not in {3, 4}:
             for name in MODE_FIELDS:
+                result.pop(name, None)
+        if self.request_schema_version == 4:
+            result.pop("group_token", None)
+            result.pop("user_token", None)
+            if result.get("trusted_search") is None:
+                result.pop("trusted_search", None)
+        else:
+            for name in ("access_contract_version", "credential_binding", "chat_access", "trusted_search"):
                 result.pop(name, None)
         return result
 
@@ -430,6 +451,13 @@ class AsyncCallRequest(BaseModel):
                 return validate_v3_request(value)
             except (ValueError, TypeError) as exc:
                 raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "invalid execution mode request"}) from exc
+        if value.get("request_schema_version") == 4:
+            from apps.group_agent_api.app.execution_modes import validate_v4_request
+
+            try:
+                return validate_v4_request(value)
+            except (ValueError, TypeError) as exc:
+                raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "invalid Cafe Host v4 request"}) from exc
         from apps.group_agent_api.app.execution_modes import MODE_FIELDS
         if any(name in value for name in MODE_FIELDS):
             raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "execution fields require v3"})

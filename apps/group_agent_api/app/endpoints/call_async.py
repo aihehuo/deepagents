@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+
 from fastapi import HTTPException, Request
 
 from apps.group_agent_api.agent_factory.integrations.callback_client import (
@@ -32,10 +33,10 @@ async def call_async(
     """Async endpoint: validates principal & SSRF, then durable or legacy admission."""
     # 1. Validate and normalize callback_url against SSRF allowlist
     canonical_url = validate_and_normalize_callback_url(req.callback_url)
-    if req.request_schema_version in {2, 3} and canonical_url != req.callback_url:
-        raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "v2 callback_url must already be canonical"})
+    if req.request_schema_version in {2, 3, 4} and canonical_url != req.callback_url:
+        raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "typed callback_url must already be canonical"})
     req.callback_url = canonical_url
-    raw_body = await request.body() if req.request_schema_version in {2, 3} else None
+    raw_body = await request.body() if req.request_schema_version in {2, 3, 4} else None
     if raw_body is not None and len(raw_body) > 128 * 1024:
         raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "request budget exceeded"})
     if req.request_schema_version == 3:
@@ -45,6 +46,13 @@ async def call_async(
             validate_v3_wire(raw_body, req)
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "invalid v3 wire body"}) from exc
+    if req.request_schema_version == 4:
+        from apps.group_agent_api.app.execution_modes import validate_v4_wire
+
+        try:
+            validate_v4_wire(raw_body, req)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "invalid v4 wire body"}) from exc
 
     # 2. Resolve trusted session (validates GA-PRINCIPAL-V1 headers vs body fields)
     session = await resolve_trusted_session(
@@ -59,22 +67,22 @@ async def call_async(
         request_body=raw_body,
     )
 
-    # V3 is admitted only through the encrypted durable ledger. Never fall
+    # Typed execution modes are admitted only through the encrypted durable ledger. Never fall
     # back to the process-local legacy adapter when durable execution is off.
-    if req.request_schema_version == 3:
+    if req.request_schema_version in {3, 4}:
         try:
             calculate_request_fingerprint(req, session)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "frozen identity differs from principal"}) from exc
         if not durable_queue_enabled():
-            raise HTTPException(status_code=503, detail={"error": "execution_mode_unavailable", "message": "v3 requires durable execution"})
+            raise HTTPException(status_code=503, detail={"error": "execution_mode_unavailable", "message": "typed execution requires durable execution"})
 
     tid = thread_id(
         user_id=session.principal.user_id,
         group_id=session.group_id,
         conversation_id=req.conversation_id,
-        execution_mode=req.execution_mode if req.request_schema_version == 3 else None,
-        episode_id=req.episode_id if req.request_schema_version in {2, 3} else (
+        execution_mode=req.execution_mode if req.request_schema_version in {3, 4} else None,
+        episode_id=req.episode_id if req.request_schema_version in {2, 3, 4} else (
             str((req.metadata or {}).get("episode_id") or (req.metadata or {}).get("episodeId") or "").strip()
             or None
         ),
@@ -107,7 +115,7 @@ async def call_async(
         return result.response
 
     # --- Legacy process-local path (GROUP_AGENT_DURABLE_QUEUE_ENABLED=0) ---
-    if req.request_schema_version in {2, 3}:
+    if req.request_schema_version in {2, 3, 4}:
         raise HTTPException(status_code=503, detail={"error": "queue_unavailable", "message": "v2 requires durable execution"})
     status, cached, slot = await reserve_idempotency_slot(req, session)
 

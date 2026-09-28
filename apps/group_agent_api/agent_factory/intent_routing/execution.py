@@ -31,8 +31,8 @@ from .canonical import (
 from .contracts import (
     QueryBudgetUsageV1,
     QueryPlanStepV1,
-    ReceiptLedgerV1,
     ReceiptAdoptionV1,
+    ReceiptLedgerV1,
     ToolAttemptAuditV1,
     ToolReceiptV1,
 )
@@ -1180,9 +1180,15 @@ def prepare_intent_execution(
     def assert_execute_authorized() -> None:
         if read_mode() != "public_skills":
             raise QueryPlanError("query_plan_invalid")
-        if execution_mode != "group_agent":
-            raise QueryPlanError("permission_denied")
-        if not can_search:
+        if execution_mode == "cafe_host":
+            from apps.group_agent_api.app.chat_access import current_chat_access
+
+            access = current_chat_access()
+            intent = resolution.decision.primary_intent
+            if access is None or not access.paid_execution_open(intent):
+                raise QueryPlanError("permission_denied")
+            return
+        if execution_mode != "group_agent" or not can_search:
             raise QueryPlanError("permission_denied")
 
     if resolution.decision.action == "execute":

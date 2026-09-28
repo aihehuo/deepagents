@@ -45,6 +45,7 @@ def build_decision_from_planner(
     *,
     execution_mode: str,
     can_search: bool,
+    paid_execution_authorized: bool = False,
 ) -> IntentDecisionV1:
     """Map a validated planner proposal onto the server-owned decision contract.
 
@@ -69,7 +70,12 @@ def build_decision_from_planner(
                 action="clarify",
                 planner_version=proposal.planner_version,
             )
-        if execution_mode != "group_agent" or not can_search:
+        cafe_paid = execution_mode == "cafe_host" and paid_execution_authorized and intent in {
+            "people_search",
+            "opportunity_search",
+            "project_partnership_search",
+        }
+        if not ((execution_mode == "group_agent" and can_search) or cafe_paid):
             return IntentDecisionV1(
                 primary_intent=intent,
                 confidence="high",

@@ -15,11 +15,17 @@ import os
 import re
 import time
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 from apps.group_agent_api.agent_factory.admin_ops_tools import (
     is_admin_debug_source,
@@ -31,15 +37,19 @@ from apps.group_agent_api.agent_factory.agent import (
     save_group_profile,
 )
 from apps.group_agent_api.agent_factory.capability import unlocks_network
-from apps.group_agent_api.agent_factory.content_quality import (
-    finalize_and_guard_user_visible_reply,
-)
 from apps.group_agent_api.agent_factory.checks.intent_final_guard import (
     apply_intent_final_guard,
 )
+from apps.group_agent_api.agent_factory.content_quality import (
+    finalize_and_guard_user_visible_reply,
+)
 from apps.group_agent_api.agent_factory.context import (
     known_profile_system_message as _known_profile_system_message,
+)
+from apps.group_agent_api.agent_factory.context import (
     prior_recommendation_system_content,
+)
+from apps.group_agent_api.agent_factory.context import (
     referral_context_system_message as _referral_context_system_message,
 )
 from apps.group_agent_api.agent_factory.debug_trace import (
@@ -53,7 +63,10 @@ from apps.group_agent_api.agent_factory.integrations.callback_client import (
     send_callback_event,
     validate_and_normalize_callback_url,
 )
-from apps.group_agent_api.agent_factory.integrations.config import async_run_timeout_s, read_mode
+from apps.group_agent_api.agent_factory.integrations.config import (
+    async_run_timeout_s,
+    read_mode,
+)
 from apps.group_agent_api.agent_factory.intent_routing.context import (
     IntentContextScope,
     completed_intent_context_message,
@@ -90,7 +103,10 @@ from apps.group_agent_api.agent_factory.module_config import (
 from apps.group_agent_api.agent_factory.profile_quality import (
     looks_like_clarifying_reply,
 )
-from apps.group_agent_api.agent_factory.profile_store import assert_profile_persisted, load_profile
+from apps.group_agent_api.agent_factory.profile_store import (
+    assert_profile_persisted,
+    load_profile,
+)
 from apps.group_agent_api.agent_factory.revisit import (
     parse_revisit_from_metadata,
 )
@@ -99,7 +115,9 @@ from apps.group_agent_api.agent_factory.stream_buffer import StreamChunkBuffer
 from apps.group_agent_api.agent_factory.suggested_replies import (
     extract_suggested_replies,
 )
-from apps.group_agent_api.agent_factory.write_skills import profile_write_allowed_for_turn
+from apps.group_agent_api.agent_factory.write_skills import (
+    profile_write_allowed_for_turn,
+)
 from apps.group_agent_api.app.endpoints.chat import (
     MAX_PERSIST_ATTEMPTS,
     _extract_reply,
@@ -108,11 +126,19 @@ from apps.group_agent_api.app.endpoints.chat import (
     _profile_usable_this_turn,
     _should_force_profile_save,
 )
-from apps.group_agent_api.app.models import AsyncCallRequest, AsyncCallResponse, CallbackEnvelope, SearchLogEntry
+from apps.group_agent_api.app.models import (
+    AsyncCallRequest,
+    AsyncCallResponse,
+    CallbackEnvelope,
+    SearchLogEntry,
+)
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
 from apps.group_agent_api.app.utils import aget_agent_state, get_agent_checkpointer
-from apps.group_agent_api.app.venue_protocol import calculate_v2_fingerprint, callback_bindings
+from apps.group_agent_api.app.venue_protocol import (
+    calculate_v2_fingerprint,
+    callback_bindings,
+)
 from skillpacks.aihehuo.evidence import collect_public_evidence
 
 _logger = logging.getLogger("uvicorn.error")
@@ -440,7 +466,10 @@ async def _attempt_deterministic_profile_save(
 ) -> bool:
     """Invoke the real profile tool once for an explicitly complete statement or historical profile."""
     from apps.group_agent_api.agent_factory.agent import default_runtime_dir
-    from apps.group_agent_api.agent_factory.write_skills import member_write_configuration, profile_write_mode
+    from apps.group_agent_api.agent_factory.write_skills import (
+        member_write_configuration,
+        profile_write_mode,
+    )
 
     metadata = config.get("metadata") or {}
     try:
@@ -500,15 +529,26 @@ async def _attempt_deterministic_profile_save(
 
 def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession) -> str:
     """Construct complete canonical request fingerprint derived from TrustedSession & canonical callback URL."""
-    if req.request_schema_version in {2, 3}:
+    if req.request_schema_version in {2, 3, 4}:
         if (
             req.user_id != session.principal.user_id
             or req.unionid != session.principal.unionid
             or req.group_id != session.group_id
-            or (req.user_token or "").strip() != (session.principal.user_token or "").strip()
-            or (req.group_token or "").strip() != (session.group_token or "").strip()
+            or (
+                req.request_schema_version != 4
+                and (
+                    (req.user_token or "").strip() != (session.principal.user_token or "").strip()
+                    or (req.group_token or "").strip() != (session.group_token or "").strip()
+                )
+            )
         ):
             raise ValueError("binding_mismatch: request fingerprint requires trusted principal")
+        if req.request_schema_version == 4:
+            from apps.group_agent_api.app.execution_modes import (
+                calculate_v4_fingerprint,
+            )
+
+            return calculate_v4_fingerprint(req.model_dump())
         return calculate_v2_fingerprint(req.model_dump())
     canonical_url = validate_and_normalize_callback_url(req.callback_url)
     group_token_sha = hashlib.sha256((session.group_token or "").encode("utf-8")).hexdigest()
@@ -692,7 +732,11 @@ async def execute_async_run(
         env = CallbackEnvelope(
             version="GA-CALLBACK-V1",
             run_id=req.run_id,
-            **({"idempotency_key": req.idempotency_key} if req.request_schema_version not in {2, 3} else {}),
+            **(
+                {"idempotency_key": req.idempotency_key}
+                if req.request_schema_version not in {2, 3, 4}
+                else {}
+            ),
             seq=seq,
             event=event_type,  # type: ignore[arg-type]
             occurred_at=datetime.datetime.now(datetime.UTC).isoformat(timespec="microseconds").replace("+00:00", "Z"),
@@ -808,17 +852,25 @@ async def execute_async_run_core(
         side_effect_gate: Optional callable ``(action: str) -> None`` that raises
             when the attempt lost lease ownership (worker fence).
     """
-    from apps.group_agent_api.agent_factory.host_context import HostContext, active_host_context
+    from apps.group_agent_api.agent_factory.host_context import (
+        HostContext,
+        active_host_context,
+    )
     from apps.group_agent_api.agent_factory.venue_greeting import execute_venue_greeting
+    from apps.group_agent_api.app.chat_access import (
+        ChatAccessContext,
+        active_chat_access,
+    )
 
     if req.input_kind == "venue_event" and state.greeting_model is None:
         raise VenueEventExecutorUnavailable("venue_event_executor_unavailable")
     host = (
         HostContext.from_request(req, principal=session.principal, base_dir=state.base_dir)
-        if req.request_schema_version == 2 or (req.request_schema_version == 3 and req.execution_mode == "cafe_host")
+        if req.request_schema_version == 2 or (req.request_schema_version in {3, 4} and req.execution_mode == "cafe_host")
         else None
     )
-    with active_host_context(host):
+    access = ChatAccessContext.from_request(req)
+    with active_host_context(host), active_chat_access(access):
         if req.input_kind == "venue_event":
             await execute_venue_greeting(host=host, model=state.greeting_model, emit_callback=emit_callback, side_effect_gate=side_effect_gate)
             return
@@ -832,9 +884,9 @@ class VenueEventExecutorUnavailable(RuntimeError):
 def _execution_metadata(req: AsyncCallRequest) -> dict[str, Any]:
     """Derive trusted episode scope without changing the signed request body."""
     metadata = dict(req.metadata or {})
-    if req.request_schema_version in {2, 3}:
+    if req.request_schema_version in {2, 3, 4}:
         metadata["episode_id"] = req.episode_id
-    if req.request_schema_version == 3:
+    if req.request_schema_version in {3, 4}:
         from apps.group_agent_api.app.execution_modes import execution_binding
 
         metadata["execution_binding"] = execution_binding(req)
@@ -851,7 +903,14 @@ async def _execute_core_agent(
     emit_callback: Any,
     side_effect_gate: Any | None = None,
 ) -> None:
+    from apps.group_agent_api.app.chat_access import (
+        ChatAccessRejected,
+        current_chat_access,
+    )
+
     progress_started = time.monotonic()
+    access = current_chat_access()
+    access_control: str | None = None
 
     def _gate(action: str) -> None:
         if side_effect_gate is not None:
@@ -897,7 +956,9 @@ async def _execute_core_agent(
     user_token = session.principal.user_token
     can_write_profile = session.capabilities.can_write_profile and profile_write_allowed_for_turn(req.message)
     runtime_metadata = _execution_metadata(req)
-    admin_debug = req.request_schema_version != 3 and is_admin_debug_source(req.metadata or {})
+    admin_debug = req.request_schema_version not in {3, 4} and is_admin_debug_source(
+        req.metadata or {}
+    )
     from apps.group_agent_api.agent_factory.host_policy import is_readonly_host
 
     cafe_host = is_readonly_host()
@@ -937,8 +998,13 @@ async def _execute_core_agent(
             test_lvl = os.environ.get("GROUP_AGENT_TEST_LEVEL")
             if not cafe_host and test_lvl and load_profile(state.base_dir, user_id, group_id) is None:
                 try:
-                    from apps.group_agent_api.agent_factory.profile_schema import GroupProfile, ProfileField
-                    from apps.group_agent_api.agent_factory.profile_store import save_profile
+                    from apps.group_agent_api.agent_factory.profile_schema import (
+                        GroupProfile,
+                        ProfileField,
+                    )
+                    from apps.group_agent_api.agent_factory.profile_store import (
+                        save_profile,
+                    )
                     from apps.group_agent_api.fixtures.loader import load_fixture
 
                     ds = load_fixture(test_lvl)
@@ -962,22 +1028,28 @@ async def _execute_core_agent(
                 else []
             )
             msg_count_before = len(prior_messages)
-            routing_mode = intent_routing_mode()
+            routing_mode = "enforce" if access is not None else intent_routing_mode()
             if not admin_debug and routing_mode in {"observe", "enforce"}:
                 await _intent_progress(
                     "intent_resolving",
                     display_code="resolving_intent",
                 )
                 execution_mode = "cafe_host" if cafe_host else "group_agent"
+                # v4 must classify paid intent before applying access policy;
+                # capability filtering here would collapse a search request
+                # into conversation and bypass the typed control outcome.
+                intent_can_search = access is not None or (
+                    session.capabilities.can_search and not cafe_host
+                )
                 episode_id = (
                     req.episode_id
-                    if req.request_schema_version == 3
+                    if req.request_schema_version in {3, 4}
                     else runtime_metadata.get("episode_id")
                 )
                 intent_resolution = await aresolve_intent(
                     req.message,
                     execution_mode=execution_mode,
-                    can_search=session.capabilities.can_search and not cafe_host,
+                    can_search=intent_can_search,
                     prior_messages=prior_messages,
                     scope=IntentContextScope(
                         thread_id=tid,
@@ -993,6 +1065,24 @@ async def _execute_core_agent(
                     run_id=req.run_id,
                     thread_id=tid,
                 )
+                if access is not None:
+                    from apps.group_agent_api.app.cafe_host_search import (
+                        continuation_from_request,
+                    )
+
+                    block, frozen = continuation_from_request(req)
+                    if block is not None:
+                        access_control = block
+                    elif frozen is not None and access.paid_execution_open(
+                        frozen.primary_intent
+                    ):
+                        intent_resolution = replace(
+                            intent_resolution, decision=frozen
+                        )
+                    if access_control is None:
+                        access_control = access.control_for_intent(
+                            intent_resolution.decision.primary_intent
+                        )
                 if routing_mode == "enforce":
                     intent_execution = prepare_intent_execution(
                         intent_resolution,
@@ -1000,25 +1090,42 @@ async def _execute_core_agent(
                         run_id=req.run_id,
                         request_fingerprint=calculate_request_fingerprint(req, session),
                         execution_mode=execution_mode,
-                        can_search=session.capabilities.can_search and not cafe_host,
+                        can_search=intent_can_search,
+                    )
+                    from apps.group_agent_api.app.cafe_host_search import (
+                        v4_search_log_enabled,
+                        v4_search_result_enabled,
+                    )
+
+                    cafe_v4_search = (
+                        req.request_schema_version == 4
+                        and execution_mode == "cafe_host"
+                        and access_control is None
                     )
                     intent_execution.bind_progress_emitter(
                         emit_callback,
                         started_monotonic=progress_started,
                         emit_search_logs=(
-                            req.request_schema_version == 3
-                            and execution_mode == "group_agent"
-                            and search_log_schema_enabled()
+                            (
+                                req.request_schema_version == 3
+                                and execution_mode == "group_agent"
+                                and search_log_schema_enabled()
+                            )
+                            or (cafe_v4_search and v4_search_log_enabled())
                         ),
                         emit_search_results=(
-                            req.request_schema_version == 3
-                            and execution_mode == "group_agent"
-                            and search_result_schema_enabled()
+                            (
+                                req.request_schema_version == 3
+                                and execution_mode == "group_agent"
+                                and search_result_schema_enabled()
+                            )
+                            or (cafe_v4_search and v4_search_result_enabled())
                         ),
                     )
                     intent_execution.restore_adopted_evidence()
                     if (
-                        intent_resolution.planner_status
+                        access_control is None
+                        and intent_resolution.planner_status
                         in {"invalid", "error", "unavailable", "timed_out"}
                         and intent_execution.decision.action != "execute"
                     ):
@@ -1034,19 +1141,35 @@ async def _execute_core_agent(
                         routing_hash=intent_execution.snapshot.canonical_content_hash,
                         display_code="intent_ready",
                     )
-                    if intent_execution.decision.action == "execute":
-                        await execute_query_plan(
-                            intent_execution,
-                            skills_dir=state.base_dir / "skills" / "aihehuo",
+                    if (
+                        access_control is None
+                        and intent_execution.decision.action == "execute"
+                    ):
+                        from contextlib import nullcontext
+
+                        from apps.group_agent_api.app.cafe_host_search import (
+                            bound_search_credential,
                         )
+
+                        credential_scope = (
+                            bound_search_credential(session.principal.user_token)
+                            if cafe_host
+                            else nullcontext()
+                        )
+                        with credential_scope:
+                            await execute_query_plan(
+                                intent_execution,
+                                skills_dir=state.base_dir / "skills" / "aihehuo",
+                            )
                         freeze_intent_search_projection(
                             intent_execution,
-                            allow_candidates=unlocks_network(tier),
+                            allow_candidates=True if cafe_host else unlocks_network(tier),
                         )
-                        agent = state.member_agent_for_capability(
-                            can_search=False,
-                            can_write_profile=can_write_profile,
-                        )
+                        if not cafe_host:
+                            agent = state.member_agent_for_capability(
+                                can_search=False,
+                                can_write_profile=can_write_profile,
+                            )
                     if (
                         not cafe_host
                         and intent_execution.decision.action != "execute"
@@ -1095,7 +1218,9 @@ async def _execute_core_agent(
                 if ref_msg is not None:
                     turn_messages.append(ref_msg)
                 _, revisit_for_prompt = parse_revisit_from_metadata(req.metadata or {})
-                from apps.group_agent_api.agent_factory.revisit import parse_prior_recommendation
+                from apps.group_agent_api.agent_factory.revisit import (
+                    parse_prior_recommendation,
+                )
 
                 prior_rec = parse_prior_recommendation((req.metadata or {}).get("prior_recommendation"))
                 match_reminder = prior_recommendation_system_content(revisit_for_prompt, prior_rec=prior_rec)
@@ -1121,10 +1246,14 @@ async def _execute_core_agent(
                         )
                     )
                 )
-                if intent_execution.decision.action == "execute":
+                if (
+                    intent_execution.decision.action == "execute"
+                    and intent_execution.receipts
+                    and access_control is None
+                ):
                     episode_id = (
                         req.episode_id
-                        if req.request_schema_version == 3
+                        if req.request_schema_version in {3, 4}
                         else runtime_metadata.get("episode_id")
                     )
                     turn_messages.append(
@@ -1133,7 +1262,7 @@ async def _execute_core_agent(
                             scope=IntentContextScope(
                                 thread_id=tid,
                                 user_id=user_id,
-                                execution_mode="group_agent",
+                                execution_mode=execution_mode,
                                 episode_id=str(episode_id) if episode_id else None,
                             ),
                             routing_snapshot_hash=(
@@ -1210,6 +1339,7 @@ async def _execute_core_agent(
                 if (
                     intent_execution is not None
                     and intent_execution.decision.action == "execute"
+                    and access_control is None
                     and not intent_execution.required_steps_satisfied()
                 ):
                     raise QueryPlanError("required_tool_not_called")
@@ -1407,7 +1537,10 @@ async def _execute_core_agent(
     revisit_hint = None
     if not cafe_host:
         _, revisit_hint = parse_revisit_from_metadata(req.metadata or {})
-    from apps.group_agent_api.agent_factory.search_tool import SearchTurnResult, extract_search_this_turn
+    from apps.group_agent_api.agent_factory.search_tool import (
+        SearchTurnResult,
+        extract_search_this_turn,
+    )
 
     search_turn = SearchTurnResult(reason="host_read_only") if cafe_host else extract_search_this_turn(messages, msg_count_before)
     from apps.group_agent_api.agent_factory.public_evidence import extract_public_reads
@@ -1418,13 +1551,26 @@ async def _execute_core_agent(
         else None
     )
     from apps.group_agent_api.agent_factory.intent_routing import project_intent_search
-    from apps.group_agent_api.agent_factory.intent_routing.projection import empty_search_reply
+    from apps.group_agent_api.agent_factory.intent_routing.projection import (
+        empty_search_reply,
+    )
 
     intent_search = project_intent_search(intent_execution)
     no_match_reply = (
         empty_search_reply(intent_search)
         if intent_execution is not None
-        and intent_execution.decision.primary_intent == "people_search"
+        and (
+            intent_execution.decision.primary_intent == "people_search"
+            or (
+                cafe_host
+                and intent_execution.decision.primary_intent
+                in {
+                    "people_search",
+                    "opportunity_search",
+                    "project_partnership_search",
+                }
+            )
+        )
         else None
     )
     if no_match_reply is not None:
@@ -1624,6 +1770,16 @@ async def _execute_core_agent(
 
         out_candidates = enrich_candidates_with_single_copy(out_candidates, final_profile)
 
+    search_projection = None
+    if cafe_host and intent_search.completed and intent_execution is not None:
+        from apps.group_agent_api.app.cafe_host_search import build_search_projection
+
+        search_projection = build_search_projection(intent_execution, intent_search)
+        if search_projection is not None and search_projection["intent"] == "people_search":
+            out_candidates = list(intent_search.candidates)
+        elif search_projection is not None:
+            out_candidates = []
+
     # Determine reply_mode strictly in orchestrator code (TSD-13 §5.1)
     from apps.group_agent_api.agent_factory.grounding_protocol import (
         DialogueKind,
@@ -1639,7 +1795,9 @@ async def _execute_core_agent(
     from apps.group_agent_api.agent_factory.integrations.config import (
         grounded_final_enabled,
     )
-    from apps.group_agent_api.agent_factory.integrations.profile_client import canonical_profile_digest
+    from apps.group_agent_api.agent_factory.integrations.profile_client import (
+        canonical_profile_digest,
+    )
 
     if admin_debug:
         determined_reply_mode = ReplyMode.dialogue
@@ -1704,6 +1862,79 @@ async def _execute_core_agent(
         determined_reply_mode = ReplyMode.error
 
     visible_reply = final_guarded.reply
+    pending_offer = None
+    if access is not None:
+        if access_control is not None:
+            # A paid-intent denial is a server-owned control outcome. Discard
+            # model prose and projections so it cannot simulate search output.
+            visible_reply = {
+                "chat_session_required": "我还可以继续陪你聊；要找人、找项目或找创业机会，需要先开始畅聊。",
+                "search_confirmation_required": "这次搜索还需要你确认后才能开始，我现在没有查询公开数据。",
+                "confirmed_search_intent_mismatch": "你确认的搜索类型和这次请求不一致，我没有执行查询。",
+                "search_capability_unavailable": "这次搜索已经获得确认，但当前搜索能力尚未开放，我没有执行查询。",
+                "pending_search_unavailable": "上次记下的查找已经不能继续了。杯子还在，我们重新确认一次再查。",
+            }[access_control]
+            out_candidates = []
+            suggested_replies = []
+            search_projection = None
+        if (
+            access_control == "chat_session_required"
+            and intent_resolution is not None
+            and req.episode_id
+        ):
+            from apps.group_agent_api.app.cafe_host_search import (
+                build_pending_search_offer,
+            )
+
+            pending_offer = build_pending_search_offer(
+                proposal=intent_resolution.proposal,
+                decision_action=intent_resolution.decision.action,
+                confidence=intent_resolution.decision.confidence,
+                planner_status=intent_resolution.planner_status,
+                run_id=req.run_id,
+                message=req.message or "",
+                conversation_id=req.conversation_id,
+                episode_id=req.episode_id,
+            )
+            if pending_offer is not None:
+                visible_reply = "我可以先记下这次查找。要真正开始查，需要先开始畅聊并确认。"
+        elif search_projection is not None:
+            from apps.group_agent_api.app.cafe_host_search import search_suggestions
+
+            suggested_replies = search_suggestions(
+                empty=search_projection["result_count"] == 0
+            )
+        delivered_identities = (
+            tuple(search_projection["identities"]) if search_projection else ()
+        )
+        try:
+            access.guard_final(
+                reply=visible_reply,
+                receipt_intents=(
+                    (intent_execution.decision.primary_intent,)
+                    if intent_execution is not None and intent_search.completed
+                    else ()
+                ),
+                has_paid_results=bool(out_candidates)
+                or bool(search_projection and search_projection["cards"]),
+                projection_digest=(
+                    search_projection["digest"] if search_projection else None
+                ),
+                bound_projection_digest=(
+                    search_projection["digest"] if search_projection else None
+                ),
+                card_identities=delivered_identities,
+                projection_identities=delivered_identities,
+            )
+        except ChatAccessRejected:
+            access_control = access_control or "chat_session_required"
+            visible_reply = (
+                "这次还没有执行公开数据查询。我可以继续陪你聊；如果要找人、找项目或找创业机会，需要先开始畅聊并确认这次搜索。"
+            )
+            suggested_replies = []
+            out_candidates = []
+            search_projection = None
+            pending_offer = None
     final_payload = {
         "reply": visible_reply,
         "reply_mode": determined_reply_mode.value,
@@ -1721,10 +1952,18 @@ async def _execute_core_agent(
         "search_log": (
             search_log.model_dump()
             if search_log and not (
-                req.request_schema_version == 3
-                and req.execution_mode == "group_agent"
-                and intent_search.completed
-                and search_log_schema_enabled()
+                (
+                    req.request_schema_version == 3
+                    and req.execution_mode == "group_agent"
+                    and intent_search.completed
+                    and search_log_schema_enabled()
+                )
+                or (
+                    req.request_schema_version == 4
+                    and req.execution_mode == "cafe_host"
+                    and intent_search.completed
+                    and v4_search_log_enabled()
+                )
             )
             else None
         ),
@@ -1740,6 +1979,34 @@ async def _execute_core_agent(
         "protocol_mode": run_protocol_mode,
         "rollout_version": run_rollout_version,
     }
+    if access_control is not None:
+        final_payload["chat_access_control"] = {
+            "code": access_control,
+            "intent": (
+                intent_resolution.decision.primary_intent
+                if intent_resolution is not None
+                else None
+            ),
+        }
+    if pending_offer is not None:
+        final_payload["pending_search_offer"] = pending_offer
+    if search_projection is not None and access_control is None:
+        final_payload["search_projection"] = {
+            "version": 1,
+            "intent": search_projection["intent"],
+            "digest": search_projection["digest"],
+            "bar_entries": search_projection["bar_entries"],
+            "cards": search_projection["cards"],
+        }
+        final_payload["search_receipt"] = {
+            "intent": search_projection["intent"],
+            "projection_digest": search_projection["digest"],
+            "receipt_ids": search_projection["receipt_ids"],
+        }
+        if search_projection["intent"] == "opportunity_search":
+            final_payload["opportunities"] = search_projection["cards"]
+        elif search_projection["intent"] == "project_partnership_search":
+            final_payload["projects"] = search_projection["cards"]
 
     if is_v2_run:
         profile_summary = None
@@ -1859,7 +2126,9 @@ async def _execute_core_agent(
         final_payload["referral"] = ref_payload
 
     from apps.group_agent_api.agent_factory.debug_trace import write_turn_trace
-    from apps.group_agent_api.agent_factory.profile_quality import episode_key_from_metadata
+    from apps.group_agent_api.agent_factory.profile_quality import (
+        episode_key_from_metadata,
+    )
 
     meta = runtime_metadata
     trace_path = write_turn_trace(
@@ -1888,7 +2157,7 @@ async def _execute_core_agent(
                     "execution_mode": req.execution_mode,
                     "executor": "cafe_agent" if cafe_host else "member_agent",
                 }
-                if req.request_schema_version == 3
+                if req.request_schema_version in {3, 4}
                 else {}
             ),
         },

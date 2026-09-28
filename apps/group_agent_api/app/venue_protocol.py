@@ -200,7 +200,7 @@ def lease_scope(req: Any) -> str:
     Args:
         req: A validated async request.
     """
-    if req.request_schema_version == 3:
+    if req.request_schema_version in {3, 4}:
         return f"ga_greeting::{req.run_id}" if req.input_kind == "venue_event" else f"ga::{req.user_id}::global::{req.execution_mode}::{req.conversation_id}::{req.episode_id}"
     return f"ga_greeting::{req.run_id}" if req.input_kind == "venue_event" else req.conversation_id
 
@@ -211,7 +211,7 @@ def callback_bindings(req: Any) -> dict[str, Any]:
     Args:
         req: A validated async request.
     """
-    if req.request_schema_version == 3:
+    if req.request_schema_version in {3, 4}:
         from apps.group_agent_api.app.execution_modes import execution_binding
         return {"episode_id": req.episode_id, "execution_binding": execution_binding(req)}
     if req.request_schema_version != 2:
@@ -232,7 +232,10 @@ def validate_v2_callback(value: dict[str, Any]) -> dict[str, Any]:
         fields.update(
             {"callback_version", "deep_attempt_id", "deep_attempt_number", "routing_snapshot_hash"}
         )
-    _object(value, fields)
+    # User-message callbacks omit the two venue-event-only keys when their
+    # values are null. Accept the serialized wire form as well as the initial
+    # in-process model construction that still contains explicit nulls.
+    _object(value, fields, required=fields - {"event_name", "visit_id"})
     _equal(value["version"], None if strict else "GA-CALLBACK-V1")
     for key in ("run_id", "conversation_id", "episode_id"):
         _text(value[key])

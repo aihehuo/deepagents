@@ -30,7 +30,7 @@ TERMINAL_STATUSES = frozenset(
 
 QUEUE_SCHEMA_VERSION = 1
 REQUEST_SCHEMA_VERSION = 1
-SUPPORTED_SCHEMA_PAIRS = frozenset({(1, 1), (2, 2), (3, 3)})
+SUPPORTED_SCHEMA_PAIRS = frozenset({(1, 1), (2, 2), (3, 3), (4, 4)})
 
 
 class RetryClass(str, Enum):
@@ -112,7 +112,7 @@ class ExecutionRecord:
     terminal_fence: str | None = None
     fencing_token: int = 0
     replay_audit: list[dict[str, str]] = field(default_factory=list)
-    mode_binding: dict[str, str] | None = None
+    mode_binding: dict[str, Any] | None = None
     routing_snapshot_version: int | None = None
     routing_snapshot_hash: str | None = None
     routing_snapshot_created_at: str | None = None

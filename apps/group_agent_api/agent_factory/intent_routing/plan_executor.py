@@ -202,6 +202,14 @@ async def _execute_page(
     step: QueryPlanStepV1,
     page: int,
 ) -> int | None:
+    from apps.group_agent_api.app.chat_access import current_chat_access
+
+    access = current_chat_access()
+    if access is not None:
+        access.assert_resource_allowed(
+            intent=execution.decision.primary_intent,
+            resource=step.resource,
+        )
     parameters = build_step_parameters(execution, step, page=page)
     tool_call_id = f"server-{step.step_id}-{page}"
     before = {receipt.receipt_id for receipt in execution.receipts}

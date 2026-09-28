@@ -40,6 +40,7 @@ class IntentResolution:
     context_inherited: bool
     context_compressed: bool = False
     planner_diagnostics: tuple[dict[str, object], ...] = ()
+    proposal: Any = None
 
     @property
     def planner_status(self) -> str:
@@ -122,7 +123,25 @@ def _finalize(
         context_inherited=context_inherited,
         context_compressed=context_compressed,
         planner_diagnostics=planner.diagnostics,
+        proposal=planner.proposal,
     )
+
+
+def _paid_execution_authorized(execution_mode: str, proposal: Any) -> bool:
+    """Authorize Cafe Host paid execution only from the frozen access context."""
+    if execution_mode != "cafe_host" or proposal is None or proposal.action != "query":
+        return False
+    intent = proposal.intent
+    if intent not in {
+        "people_search",
+        "opportunity_search",
+        "project_partnership_search",
+    }:
+        return False
+    from apps.group_agent_api.app.chat_access import current_chat_access
+
+    access = current_chat_access()
+    return access is not None and access.paid_execution_open(intent)
 
 
 def _decision_from_planner(
@@ -137,6 +156,9 @@ def _decision_from_planner(
         planner.proposal,
         execution_mode=execution_mode,
         can_search=can_search,
+        paid_execution_authorized=_paid_execution_authorized(
+            execution_mode, planner.proposal
+        ),
     )
 
 

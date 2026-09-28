@@ -44,7 +44,7 @@ def build_aad(
         idempotency_key: Original request's opaque deduplication key.
         request_fingerprint: Original accepted body fingerprint.
         schema_version: Frozen request version; old encodings stay unchanged.
-        mode_binding: Experimental v3-only identity/mode/conversation/episode.
+        mode_binding: Typed execution binding; v4 includes frozen access fields.
     """
     canon = {
         "run_id": run_id,
@@ -57,6 +57,25 @@ def build_aad(
         if mode_binding is None or set(mode_binding) != fields or any(type(mode_binding[name]) is not str or not mode_binding[name] for name in fields):
             raise PayloadCryptoError("payload_binding_invalid")
         if mode_binding["execution_mode"] not in {"cafe_host", "group_agent"}:
+            raise PayloadCryptoError("payload_binding_invalid")
+        canon.update(mode_binding)
+    elif schema_version == 4:
+        fields = {
+            "user_id",
+            "execution_mode",
+            "conversation_id",
+            "episode_id",
+            "access_contract_version",
+            "chat_access_revision",
+            "chat_access_mode",
+            "drink_session_id",
+            "confirmed_search_intent",
+            "user_token_sha256",
+            "group_token_sha256",
+        }
+        if mode_binding is None or set(mode_binding) != fields:
+            raise PayloadCryptoError("payload_binding_invalid")
+        if mode_binding.get("execution_mode") != "cafe_host":
             raise PayloadCryptoError("payload_binding_invalid")
         canon.update(mode_binding)
     elif mode_binding is not None:
@@ -147,6 +166,24 @@ def decrypt_envelope(
     if schema_version == 3:
         request = data.get("request")
         if not isinstance(request, dict) or any(request.get(name) != value for name, value in {"run_id": run_id, "idempotency_key": idempotency_key, "request_fingerprint": request_fingerprint, "request_schema_version": schema_version, **dict(mode_binding or {})}.items()):
+            raise PayloadCryptoError("payload_decrypt_failed")
+    elif schema_version == 4:
+        request = data.get("request")
+        if not isinstance(request, dict):
+            raise PayloadCryptoError("payload_decrypt_failed")
+        try:
+            from apps.group_agent_api.app.execution_modes import v4_queue_binding
+
+            actual_binding = v4_queue_binding(request)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise PayloadCryptoError("payload_decrypt_failed") from exc
+        expected = {
+            "run_id": run_id,
+            "idempotency_key": idempotency_key,
+            "request_fingerprint": request_fingerprint,
+            "request_schema_version": schema_version,
+        }
+        if any(request.get(name) != value for name, value in expected.items()) or actual_binding != dict(mode_binding or {}):
             raise PayloadCryptoError("payload_decrypt_failed")
     return data
 

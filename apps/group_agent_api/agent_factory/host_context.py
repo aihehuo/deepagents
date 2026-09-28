@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
-from apps.group_agent_api.app.venue_protocol import validate_v2_request
+from apps.group_agent_api.agent_factory.contact_scrub import (
+    contains_contact_text,
+    scrub_contact_text,
+)
 from apps.group_agent_api.agent_factory.profile_store import load_profile
-from apps.group_agent_api.agent_factory.contact_scrub import contains_contact_text, scrub_contact_text
+from apps.group_agent_api.app.venue_protocol import validate_v2_request
 
 _ACTIVE_HOST: ContextVar[HostContext | None] = ContextVar("group_agent_venue_host", default=None)
 _SECRET = re.compile(r"\b(?:sk-[A-Za-z0-9_-]{8,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b|(?:api[_ -]?key|authorization|bearer|jwt|token|secret|签名|密钥)\s*[:=：]?\s*[A-Za-z0-9_./+\-=]{8,}", re.IGNORECASE)
@@ -70,10 +74,13 @@ class HostContext:
             principal: Trusted OAuth principal, never model-selected.
             base_dir: Existing local visitor-profile root.
         """
-        if req.request_schema_version == 3:
-            from apps.group_agent_api.app.execution_modes import validate_v3_request
+        if req.request_schema_version in {3, 4}:
+            from apps.group_agent_api.app.execution_modes import (
+                validate_v3_request,
+                validate_v4_request,
+            )
 
-            validate_v3_request(req.model_dump())
+            (validate_v4_request if req.request_schema_version == 4 else validate_v3_request)(req.model_dump())
             if req.execution_mode != "cafe_host":
                 raise ValueError("security_guard_failed: group execution is not host context")
             venue = {**req.venue_context, "memory_scope_id": req.memory_scope_id, "host_config_version": 2, "context_policy_version": 2}
@@ -98,12 +105,12 @@ class HostContext:
         snapshot = json.loads(json.dumps(req.context_snapshot, ensure_ascii=False))
         for message in snapshot["recent_messages"]:
             message["text"] = safe_context_text(message["text"])
-        if req.request_schema_version == 3 and snapshot["previous_greeting"] is not None:
+        if req.request_schema_version in {3, 4} and snapshot["previous_greeting"] is not None:
             snapshot["previous_greeting"] = {"message_id": "v3_previous_greeting", "text": safe_context_text(snapshot["previous_greeting"], limit=1000), "created_at": snapshot["previous_visit_at"]}
         elif snapshot["previous_greeting"] is not None:
             snapshot["previous_greeting"]["text"] = safe_context_text(snapshot["previous_greeting"]["text"], limit=1000)
         from apps.group_agent_api.app.execution_modes import execution_binding
-        return cls(visitor_user_id=req.user_id, host_agent_id=venue["host_agent_id"], effective_mode=venue["effective_mode"], space_id=venue["space_id"], memory_scope_id=venue["memory_scope_id"], episode_id=req.episode_id, profile=values, snapshot=snapshot, host_config_version=venue["host_config_version"], context_policy_version=venue["context_policy_version"], execution_binding=execution_binding(req) if req.request_schema_version == 3 else None)
+        return cls(visitor_user_id=req.user_id, host_agent_id=venue["host_agent_id"], effective_mode=venue["effective_mode"], space_id=venue["space_id"], memory_scope_id=venue["memory_scope_id"], episode_id=req.episode_id, profile=values, snapshot=snapshot, host_config_version=venue["host_config_version"], context_policy_version=venue["context_policy_version"], execution_binding=execution_binding(req) if req.request_schema_version in {3, 4} else None)
 
     def quoted_data(self, *, greeting: bool, existing_messages: list[Any] | None = None) -> str:
         """Render minimized evidence as JSON, never executable prompt fragments.

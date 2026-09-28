@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import hashlib
 import logging
 import os
 import threading
@@ -14,18 +15,28 @@ from celery import shared_task
 from celery.exceptions import Reject
 from fastapi import HTTPException
 
-from apps.group_agent_api.agent_factory.capability import CapabilityTier, SessionCapabilities, resolve_session_capabilities
+from apps.group_agent_api.agent_factory.capability import (
+    CapabilityTier,
+    SessionCapabilities,
+    resolve_session_capabilities,
+)
 from apps.group_agent_api.agent_factory.integrations.callback_client import (
     CallbackProtocolError,
     CallbackRunTerminal,
     send_callback_event,
 )
 from apps.group_agent_api.agent_factory.integrations.config import async_run_timeout_s
-from apps.group_agent_api.agent_factory.integrations.membership_client import MembershipResult
+from apps.group_agent_api.agent_factory.integrations.membership_client import (
+    MembershipResult,
+)
 from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
+from apps.group_agent_api.agent_factory.intent_routing.execution import QueryPlanError
 from apps.group_agent_api.agent_factory.venue_greeting import VenueGreetingError
 from apps.group_agent_api.agent_factory.write_skills import profile_write_mode
-from apps.group_agent_api.app.async_manager import VenueEventExecutorUnavailable, execute_async_run_core
+from apps.group_agent_api.app.async_manager import (
+    VenueEventExecutorUnavailable,
+    execute_async_run_core,
+)
 from apps.group_agent_api.app.models import AsyncCallRequest, CallbackEnvelope
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.utils import thread_id
@@ -39,7 +50,6 @@ from apps.group_agent_api.execution.active_fence import (
 from apps.group_agent_api.execution.crypto import PayloadCryptoError, decrypt_envelope
 from apps.group_agent_api.execution.dlq import push_dlq_index
 from apps.group_agent_api.execution.fence import LeaseLostError, SideEffectFence
-from apps.group_agent_api.agent_factory.intent_routing.execution import QueryPlanError
 from apps.group_agent_api.execution.models import (
     SUPPORTED_SCHEMA_PAIRS,
     BrokerDeliveryRef,
@@ -48,8 +58,8 @@ from apps.group_agent_api.execution.models import (
 )
 from apps.group_agent_api.execution.redis_store import ExecutionStoreError
 from apps.group_agent_api.execution.retry import decide_retry
-from apps.group_agent_worker.runtime import get_worker_runtime
 from apps.group_agent_worker.event_loop import run_on_worker_event_loop
+from apps.group_agent_worker.runtime import get_worker_runtime
 
 _logger = logging.getLogger(__name__)
 
@@ -137,6 +147,17 @@ def _terminal_error_payload(error_code: str, *, timed_out: bool) -> dict[str, An
 
 
 def _rebuild_session(envelope: dict[str, Any]) -> tuple[AsyncCallRequest, TrustedSession, str]:
+    """Restore one trusted request/session and recheck encrypted bindings.
+
+    Args:
+        envelope: Authenticated payload decrypted from the durable ledger.
+
+    Returns:
+        The request, trusted session, and canonical thread identifier.
+
+    Raises:
+        ValueError: If identity, thread, or v4 credential binding differs.
+    """
     sess = envelope["session"]
     req = AsyncCallRequest.model_validate(envelope["request"])
     principal = SessionPrincipal(
@@ -177,24 +198,41 @@ def _rebuild_session(envelope: dict[str, Any]) -> tuple[AsyncCallRequest, Truste
         group_token=sess.get("group_token"),
         capabilities=capabilities,
     )
-    if req.request_schema_version in {2, 3}:
+    if req.request_schema_version in {2, 3, 4}:
         expected_tid = thread_id(
             user_id=req.user_id,
             group_id=req.group_id,
             conversation_id=req.conversation_id,
             episode_id=req.episode_id,
-            execution_mode=req.execution_mode if req.request_schema_version == 3 else None,
+            execution_mode=req.execution_mode if req.request_schema_version in {3, 4} else None,
         )
         if (
             req.user_id != principal.user_id
             or req.unionid != principal.unionid
             or req.group_id != session.group_id
-            or (req.user_token or "").strip() != (principal.user_token or "").strip()
-            or (req.group_token or "").strip() != (session.group_token or "").strip()
+            or (
+                req.request_schema_version != 4
+                and (
+                    (req.user_token or "").strip() != (principal.user_token or "").strip()
+                    or (req.group_token or "").strip() != (session.group_token or "").strip()
+                )
+            )
             or str(envelope["thread_id"]) != expected_tid
         ):
             msg = "binding_mismatch: invalid trusted envelope"
             raise ValueError(msg)
+        if req.request_schema_version == 4:
+            def _digest(value: str | None) -> str:
+                text = (value or "").strip()
+                return hashlib.sha256(text.encode("utf-8")).hexdigest() if text else "-"
+
+            expected = {
+                "user_token_sha256": _digest(principal.user_token),
+                "group_token_sha256": _digest(session.group_token),
+            }
+            if req.credential_binding != expected:
+                msg = "binding_mismatch: invalid v4 credential binding"
+                raise ValueError(msg)
     return req, session, str(envelope["thread_id"])
 
 
@@ -299,18 +337,28 @@ async def _run_attempt(
         )
         env = CallbackEnvelope(
             version=None if strict_callbacks else "GA-CALLBACK-V1",
-            callback_version=1 if strict_callbacks else None,
+            **({"callback_version": 1} if strict_callbacks else {}),
             run_id=req.run_id,
-            **({"idempotency_key": req.idempotency_key} if req.request_schema_version not in {2, 3} else {}),
+            **(
+                {"idempotency_key": req.idempotency_key}
+                if req.request_schema_version not in {2, 3, 4}
+                else {}
+            ),
             seq=seq,
             event=event_type,  # type: ignore[arg-type]
             occurred_at=datetime.datetime.now(datetime.UTC).isoformat(timespec="microseconds").replace("+00:00", "Z"),
             user_id=session.principal.user_id,
             group_id=session.group_id,
             conversation_id=req.conversation_id,
-            deep_attempt_id=claim.attempt_id if strict_callbacks else None,
-            deep_attempt_number=(record.attempt_count if strict_callbacks and record else None),
-            routing_snapshot_hash=routing_hash if strict_callbacks else None,
+            **(
+                {
+                    "deep_attempt_id": claim.attempt_id,
+                    "deep_attempt_number": record.attempt_count if record else 1,
+                    "routing_snapshot_hash": routing_hash,
+                }
+                if strict_callbacks
+                else {}
+            ),
             payload=payload,
             **callback_bindings(req),
         )
@@ -319,7 +367,7 @@ async def _run_attempt(
             if req.request_schema_version == 2
             else (
                 {"idempotency_key", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"}
-                if req.request_schema_version == 3
+                if req.request_schema_version in {3, 4}
                 else {"episode_id", "space_id", "host_agent_id", "memory_scope_id", "input_kind", "event_name", "visit_id"}
             )
         )
@@ -672,7 +720,7 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
             or req.request_fingerprint != record.request_fingerprint
             or req.request_schema_version != record.request_schema_version
             or req.queue_schema_version != record.queue_schema_version
-            or (req.request_schema_version in {2, 3} and (req.input_kind != record.input_kind or lease_scope(req) != record.conversation_id))
+            or (req.request_schema_version in {2, 3, 4} and (req.input_kind != record.input_kind or lease_scope(req) != record.conversation_id))
         ):
             raise ValueError("binding_mismatch: ledger and request differ")
     except (ValueError, KeyError, TypeError, HTTPException):

@@ -26,6 +26,31 @@ class _CompatibleStructuredTool(StructuredTool):
         return super()._parse_input(tool_input, tool_call_id)
 
 
+def _enforce_chat_access(resource: str) -> None:
+    """Apply the run-scoped paid-resource gate below every tool registry.
+
+    Args:
+        resource: Public API resource requested by the tool caller.
+
+    Legacy runs have no `ChatAccessContext` and retain their existing behavior.
+    A v4 run is checked here even if a stale graph or direct tool invocation
+    bypasses the higher-level Cafe Host registry and QueryPlan executor.
+    """
+    from apps.group_agent_api.app.chat_access import current_chat_access
+
+    intent = {
+        "users": "people_search",
+        "group-members": "people_search",
+        "ideas": "opportunity_search",
+        "blog": "opportunity_search",
+        "weekly": "opportunity_search",
+        "projects": "project_partnership_search",
+    }.get(resource)
+    access = current_chat_access()
+    if access is not None and intent is not None:
+        access.assert_resource_allowed(intent=intent, resource=resource)
+
+
 def create_aihehuo_tool(*, skills_dir: Path) -> BaseTool:
     """Create a read-only tool restricted to installed catalog capabilities.
 
@@ -72,6 +97,7 @@ def create_aihehuo_tool(*, skills_dir: Path) -> BaseTool:
         tool_call_id: Annotated[str, InjectedToolCallId] = "",
     ) -> str:
         """Retrieve public AIHEHUO data for an installed skill resource."""
+        _enforce_chat_access(resource)
         if resource not in resources:
             return (
                 f"Resource is not installed. Available resources: {sorted(resources)}"
@@ -165,6 +191,7 @@ def create_aihehuo_tool(*, skills_dir: Path) -> BaseTool:
         tool_call_id: Annotated[str, InjectedToolCallId] = "",
     ) -> str:
         """Retrieve public data while awaiting every progress acknowledgement."""
+        _enforce_chat_access(resource)
         if resource not in resources:
             return (
                 f"Resource is not installed. Available resources: {sorted(resources)}"

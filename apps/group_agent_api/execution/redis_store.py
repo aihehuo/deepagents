@@ -15,12 +15,12 @@ from redis.exceptions import RedisError
 from apps.group_agent_api.execution.config import DurableQueueConfig
 from apps.group_agent_api.execution.crypto import digest_token
 from apps.group_agent_api.execution.models import (
+    TERMINAL_STATUSES,
     EncryptedPayload,
     ExecutionRecord,
     ExecutionStatus,
     LeaseClaim,
     PendingCallback,
-    TERMINAL_STATUSES,
 )
 
 _logger = logging.getLogger("uvicorn.error")
@@ -1287,7 +1287,7 @@ class ExecutionStore:
         del conversation_id
         if record is None:
             raise ExecutionStoreError("missing_record")
-        if record.request_schema_version == 3:
+        if record.request_schema_version in {3, 4}:
             if not record.mode_binding or record.mode_binding.get("execution_mode") not in {"cafe_host", "group_agent"}:
                 raise ExecutionStoreError("binding_conflict")
             if record.mode_binding["execution_mode"] == "cafe_host":

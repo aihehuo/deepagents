@@ -112,10 +112,10 @@ def sign_principal(
         method: Actual HTTP method.
         path: Actual HTTP path.
         secret: Test / caller secret override.
-        request_schema_version: Experimental v2/v3 additionally sign raw body.
-        request_body: Exact serialized HTTP body, mandatory for v2/v3.
+        request_schema_version: Typed versions additionally sign raw body.
+        request_body: Exact serialized HTTP body, mandatory for typed versions.
     """
-    if request_schema_version not in {1, 2, 3}:
+    if request_schema_version not in {1, 2, 3, 4}:
         raise ValueError("unsupported request schema version")
     key = (secret if secret is not None else principal_hmac_secret()).encode("utf-8")
     if not key:
@@ -131,7 +131,13 @@ def sign_principal(
         nonce=nonce_s,
         method=method,
         path=path,
-        version=f"GA-PRINCIPAL-V{request_schema_version}" if request_schema_version in {2, 3} else _CANON_VERSION,
+        version=(
+            "CAFE-HOST-PRINCIPAL-V4"
+            if request_schema_version == 4
+            else f"GA-PRINCIPAL-V{request_schema_version}"
+            if request_schema_version in {2, 3}
+            else _CANON_VERSION
+        ),
     )
     sig = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
     headers = {
@@ -145,10 +151,14 @@ def sign_principal(
         headers[HEADER_USER_TOKEN] = user_token
     if group_token:
         headers[HEADER_GROUP_TOKEN] = group_token
-    if request_schema_version in {2, 3}:
+    if request_schema_version in {2, 3, 4}:
         if request_body is None:
-            raise ValueError("v2 signing requires the exact HTTP request body")
-        headers["X-GA-Request-Version"] = f"GA-REQUEST-V{request_schema_version}"
+            raise ValueError("typed signing requires the exact HTTP request body")
+        headers["X-GA-Request-Version"] = (
+            "CAFE-HOST-REQUEST-V4"
+            if request_schema_version == 4
+            else f"GA-REQUEST-V{request_schema_version}"
+        )
         headers["X-GA-Request-Signature"] = hmac.new(key, canonical_request_payload(method=method, path=path, body=request_body, ts=ts_s, nonce=nonce_s, request_schema_version=request_schema_version).encode("utf-8"), hashlib.sha256).hexdigest()
     return headers
 
@@ -164,9 +174,14 @@ def canonical_request_payload(*, method: str, path: str, body: bytes, ts: str, n
         nonce: Principal nonce header.
         request_schema_version: Typed signature domain, v2 by default.
     """
-    if request_schema_version not in {2, 3}:
+    if request_schema_version not in {2, 3, 4}:
         raise ValueError("unsupported request signature domain")
-    return "\n".join([f"GA-REQUEST-V{request_schema_version}", f"method={method.upper()}", f"path={path}", f"body_sha256={hashlib.sha256(body).hexdigest()}", f"ts={ts}", f"nonce={nonce}"])
+    domain = (
+        "CAFE-HOST-REQUEST-V4"
+        if request_schema_version == 4
+        else f"GA-REQUEST-V{request_schema_version}"
+    )
+    return "\n".join([domain, f"method={method.upper()}", f"path={path}", f"body_sha256={hashlib.sha256(body).hexdigest()}", f"ts={ts}", f"nonce={nonce}"])
 
 
 def _remember_nonce(nonce: str, *, ttl_s: float) -> None:
@@ -294,8 +309,13 @@ def _verify_hmac_principal(
     path = request.url.path if request.url else "/"
     request_version = request.headers.get("X-GA-Request-Version")
     request_signature = request.headers.get("X-GA-Request-Signature") or ""
-    if request_schema_version in {2, 3}:
-        if request_version != f"GA-REQUEST-V{request_schema_version}" or request_body is None or re.fullmatch(r"[0-9a-f]{64}", request_signature) is None:
+    if request_schema_version in {2, 3, 4}:
+        expected_request_version = (
+            "CAFE-HOST-REQUEST-V4"
+            if request_schema_version == 4
+            else f"GA-REQUEST-V{request_schema_version}"
+        )
+        if request_version != expected_request_version or request_body is None or re.fullmatch(r"[0-9a-f]{64}", request_signature) is None:
             raise HTTPException(status_code=401, detail={"error": "request_signature_invalid"})
         request_payload = canonical_request_payload(method=method, path=path, body=request_body, ts=ts, nonce=nonce, request_schema_version=request_schema_version)
         body_expected = hmac.new(secret.encode("utf-8"), request_payload.encode("utf-8"), hashlib.sha256).hexdigest()
@@ -312,7 +332,13 @@ def _verify_hmac_principal(
         nonce=nonce,
         method=method,
         path=path,
-        version=f"GA-PRINCIPAL-V{request_schema_version}" if request_schema_version in {2, 3} else _CANON_VERSION,
+        version=(
+            "CAFE-HOST-PRINCIPAL-V4"
+            if request_schema_version == 4
+            else f"GA-PRINCIPAL-V{request_schema_version}"
+            if request_schema_version in {2, 3}
+            else _CANON_VERSION
+        ),
     )
     expected = hmac.new(
         secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256

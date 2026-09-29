@@ -36,6 +36,11 @@ _TEMPORAL_EVIDENCE = {
 }
 _EXPLICIT_OPPORTUNITY = re.compile(r"创业机会|商业机会|创业方向|创业想法")
 _EXPLICIT_PROJECT = re.compile(r"项目|招募|招聘|加盟|招商|合作席位")
+_EXPLICIT_PROJECT_REQUEST = re.compile(
+    r"(?:找|搜|搜索|查询|查找|看看|推荐|介绍|发现).{0,16}"
+    r"(?:项目|招募|加盟|招商|合作席位)"
+    r"|(?:项目|招募|加盟|招商|合作席位).{0,12}(?:找|搜|搜索|看看|推荐)"
+)
 _EXPLICIT_PEOPLE = re.compile(r"找人|找.{0,8}(?:合伙人|候选人|搭档|伙伴|人才)")
 _EXPLICIT_COMMUNITY = re.compile(r"社群|群组|社区|活动|群里|群成员|成员名单")
 _EXISTING_RESULT_REFERENCE = re.compile(
@@ -178,11 +183,32 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
     draft = raw if isinstance(raw, PlannerDraftV2) else PlannerDraftV2.model_validate(raw)
     fields = draft.model_dump()
     action = draft.action
-    if (
-        action == "query"
-        and context.prior_searches
+    existing_result_followup = bool(
+        context.prior_searches
         and _EXISTING_RESULT_REFERENCE.search(context.current_message)
         and not _NEW_SEARCH_REQUEST.search(context.current_message)
+    )
+    if (
+        action != "query"
+        and _EXPLICIT_PROJECT_REQUEST.search(context.current_message)
+        and not _EXPLICIT_OPPORTUNITY.search(context.current_message)
+        and not existing_result_followup
+    ):
+        _logger.info(
+            "intent_planner_action_corrected from=%s to=query "
+            "reason=explicit_project_search_request",
+            action,
+        )
+        action = "query"
+        fields["action"] = "query"
+        fields["intent"] = "project_partnership_search"
+        fields["queries"] = ResourceQueriesV2(
+            projects=context.current_message[:160]
+        ).model_dump()
+        fields["clarification"] = None
+    if (
+        action == "query"
+        and existing_result_followup
     ):
         _logger.info("intent_planner_existing_results_corrected from=query to=reply")
         action = "reply"
@@ -208,7 +234,7 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
     if action == "query":
         fields["clarification"] = None
         if (
-            draft.intent != "people_search"
+            fields["intent"] != "people_search"
             and _EXPLICIT_PEOPLE.search(context.current_message)
             and not _EXPLICIT_COMMUNITY.search(context.current_message)
         ):
@@ -222,7 +248,7 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
                 users=_profile_people_query(context)
             ).model_dump()
         elif (
-            draft.intent == "project_partnership_search"
+            fields["intent"] == "project_partnership_search"
             and _EXPLICIT_OPPORTUNITY.search(context.current_message)
             and not _EXPLICIT_PROJECT.search(context.current_message)
         ):

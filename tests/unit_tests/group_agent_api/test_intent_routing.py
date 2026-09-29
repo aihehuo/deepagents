@@ -973,6 +973,29 @@ def test_explicit_only_location_is_frozen_into_people_search() -> None:
     assert relevance_only.decision.constraints.location == ()
 
 
+def test_explicit_project_request_overrides_unnecessary_clarification() -> None:
+    result = resolve_intent(
+        "能否帮我找一些有意思的项目",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(clarify("你想找哪个方向的项目？")),
+    )
+    assert result.decision.primary_intent == "project_partnership_search"
+    assert result.decision.action == "execute"
+    assert result.decision.resource_queries.projects == "能否帮我找一些有意思的项目"
+    assert _query_plan_would_run(result)
+
+    existing = resolve_intent(
+        "介绍一下刚才找到的第一个项目",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(reply()),
+        prior_searches=[{"request": "找餐饮项目", "cards": [{"title": "项目甲"}]}],
+    )
+    assert existing.decision.action == "conversation"
+    assert not _query_plan_would_run(existing)
+
+
 def test_phase2_groups_query_without_member_words_still_uses_user_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

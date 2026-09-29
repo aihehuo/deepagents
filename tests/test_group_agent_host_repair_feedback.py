@@ -7,7 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from apps.group_agent_api.agent_factory.cafe_output import afinalize_host_output, finalize_host_output
+from apps.group_agent_api.agent_factory.cafe_output import (
+    afinalize_host_output,
+    finalize_host_output,
+)
 from apps.group_agent_api.agent_factory.context.host_prompts import HOST_INTERACTION
 from tests.test_group_agent_host_da001 import _host
 
@@ -77,6 +80,8 @@ def test_greeting_policy_does_not_infer_present_activity() -> None:
     assert "Hi、What up" in HOST_INTERACTION
     assert "不能从职业背景推断" in HOST_INTERACTION
     assert "粉水比" in HOST_INTERACTION and "当前菜单" in HOST_INTERACTION
+    assert "找人、找项目、找创业机会的能力由本轮服务端路由和权益决定" in HOST_INTERACTION
+    assert "本店目前不搜索" not in HOST_INTERACTION
 
 
 @pytest.mark.parametrize("text", ["当前未提供可信来源，我无法确认这杯的具体剂量。", "这会违反游戏规则，玩起来就没意思了。"])

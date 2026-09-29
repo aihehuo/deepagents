@@ -13,6 +13,14 @@ from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from pydantic import ValidationError
 
+from apps.group_agent_api.agent_factory.capability import (
+    CapabilityTier,
+    SessionCapabilities,
+)
+from apps.group_agent_api.agent_factory.integrations.membership_client import (
+    MembershipResult,
+)
+from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
 from apps.group_agent_api.agent_factory.intent_routing.context import (
     IntentContextScope,
     build_planner_context,
@@ -36,14 +44,6 @@ from apps.group_agent_api.agent_factory.intent_routing.schema import (
     PlannerProposalV2,
     ResourceQueriesV2,
 )
-from apps.group_agent_api.agent_factory.capability import (
-    CapabilityTier,
-    SessionCapabilities,
-)
-from apps.group_agent_api.agent_factory.integrations.membership_client import (
-    MembershipResult,
-)
-from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
 from apps.group_agent_api.app.models import ChatRequest
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
@@ -932,11 +932,14 @@ def test_explicit_find_people_cannot_drift_to_community_search() -> None:
         "你好，我要找人",
         execution_mode="group_agent",
         can_search=True,
-        planner_model=planner_returning(community_query("创业社群")),
+        planner_model=planner_returning(
+            community_query("创业社群", group_member_scope="first_verified")
+        ),
         profile=profile,
     )
     assert result.decision.primary_intent == "people_search"
     assert result.decision.action == "execute"
+    assert result.decision.group_member_scope == "none"
     query = result.decision.resource_queries.users or ""
     assert "上海" in query
     assert "餐厅运营负责人" in query

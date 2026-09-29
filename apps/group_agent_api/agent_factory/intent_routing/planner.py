@@ -8,12 +8,17 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.exceptions import OutputParserException
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
 from .prompts import PLANNER_SYSTEM_PROMPT, planner_user_prompt
-from .schema import PlannerContextV2, PlannerDraftV2, PlannerProposalV2, ResourceQueriesV2
+from .schema import (
+    PlannerContextV2,
+    PlannerDraftV2,
+    PlannerProposalV2,
+    ResourceQueriesV2,
+)
 
 _logger = logging.getLogger("uvicorn.error")
 _PRIMARY_RESOURCE = {
@@ -229,7 +234,11 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
             fields["queries"] = ResourceQueriesV2(
                 ideas=context.current_message[:160]
             ).model_dump()
-        if draft.intent != "community_search":
+        # Resource correction above may have changed a community draft into a
+        # people/opportunity proposal. Normalize bindings against the corrected
+        # intent, not the model's original intent, so stale group-only fields
+        # cannot make the repaired proposal fail closed.
+        if fields["intent"] != "community_search":
             fields["group_member_scope"] = "none"
             fields["group_event_id"] = None
     else:

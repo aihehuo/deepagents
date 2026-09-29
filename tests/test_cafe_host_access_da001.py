@@ -101,6 +101,13 @@ LEGAL_EXPECTED = {
 }
 
 
+def test_worker_preflight_accepts_v4_queue_schema() -> None:
+    """Guard the Cafe Host v4 delivery before it reaches durable record lookup."""
+    assert tasks._supported_queue_schema_version(4) is True
+    assert tasks._supported_queue_schema_version(5) is False
+    assert tasks._supported_queue_schema_version("4") is False
+
+
 def _v4_body(*, active: bool = False, confirmed: bool = False) -> dict[str, Any]:
     """Compose one strict request from the frozen local v3 Cafe Host vector."""
     body = copy.deepcopy(BASE)

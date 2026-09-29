@@ -64,6 +64,19 @@ from apps.group_agent_worker.runtime import get_worker_runtime
 _logger = logging.getLogger(__name__)
 
 
+def _supported_queue_schema_version(value: object) -> bool:
+    """Return whether a broker delivery version belongs to a supported pair.
+
+    Worker preflight calls this before loading the durable ledger record.  Keep
+    the accepted versions derived from ``SUPPORTED_SCHEMA_PAIRS`` so adding a
+    new request/queue contract cannot leave the broker consumer on an older
+    hard-coded allowlist.
+    """
+    return type(value) is int and any(
+        queue_version == value for _, queue_version in SUPPORTED_SCHEMA_PAIRS
+    )
+
+
 def _strict_callback_enabled(req: AsyncCallRequest) -> bool:
     return (
         req.input_kind != "venue_event"
@@ -641,7 +654,7 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
     cfg = rt["config"]
     record = store.get(ref.run_id)
 
-    if type(ref.queue_schema_version) is not int or ref.queue_schema_version not in {1, 2, 3}:
+    if not _supported_queue_schema_version(ref.queue_schema_version):
         # FIX4: schema/binding mismatch isolates the delivery only — never mutate ledger.
         publish_unmappable_poison(
             cfg,

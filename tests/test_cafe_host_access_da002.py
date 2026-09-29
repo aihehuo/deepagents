@@ -110,8 +110,10 @@ async def _run(
 
     calls: list[str] = []
     monkeypatch.setattr(integration, "fetch", _fake_fetch(calls))
+    # Reproduce the production failure: the conversational model returns an
+    # unrelated greeting even though the server-owned search has succeeded.
     model = ChatModel(
-        captured=[], bindings=[], output=AIMessage(content="周餐饮在做餐饮品牌。")
+        captured=[], bindings=[], output=AIMessage(content="你好呀，今天想喝点什么？")
     )
     state = _state(tmp_path, model)
     state.quality_model = planner
@@ -224,6 +226,8 @@ async def test_active_unconfirmed_search_executes_without_second_confirmation(
     assert "chat_access_control" not in final
     assert "pending_search_offer" not in final
     assert final["candidates"][0]["display_name"] == "周餐饮"
+    assert "周餐饮" in final["reply"]
+    assert "今天想喝点什么" not in final["reply"]
     assert any("/users" in path for path in _paths(emitted))
 
 
@@ -243,6 +247,7 @@ async def test_confirmed_people_opportunity_and_project_keep_primary_resources(
     people_final = _final(people)
     assert "chat_access_control" not in people_final
     assert people_final["candidates"][0]["display_name"] == "周餐饮"
+    assert "周餐饮" in people_final["reply"]
     assert people_final["search_projection"]["bar_entries"][0]["id"] == "101"
     assert len(people_final["search_projection"]["bar_entries"]) <= 3
     assert (
@@ -261,6 +266,7 @@ async def test_confirmed_people_opportunity_and_project_keep_primary_resources(
     )
     opp_final = _final(opportunity)
     assert opp_final["opportunities"][0]["kind"] == "ideas"
+    assert "餐饮新品牌" in opp_final["reply"]
     assert opp_final["candidates"] == []
     assert all("/projects" not in path for path in _paths(opportunity))
 
@@ -284,6 +290,7 @@ async def test_confirmed_people_opportunity_and_project_keep_primary_resources(
     )
     project_final = _final(projects)
     assert project_final["projects"][0]["id"] == "21"
+    assert "餐饮项目" in project_final["reply"]
     assert "opportunities" not in project_final
     assert all("/ideas" not in path for path in _paths(projects))
 

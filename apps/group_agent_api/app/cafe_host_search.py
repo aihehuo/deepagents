@@ -409,6 +409,47 @@ def build_search_projection(
     return body
 
 
+def grounded_search_reply(projection: dict[str, Any]) -> str:
+    """Compose the Cafe Host reply from the same frozen cards sent to clients.
+
+    The Cafe model runs after the server-owned QueryPlan, but it is not the
+    authority for paid-search results.  Building this text from the frozen
+    projection prevents an unrelated model greeting (or stale conversational
+    answer) from replacing a successful people, opportunity, or project search.
+    """
+    intent = str(projection.get("intent") or "")
+    result_count = max(int(projection.get("result_count") or 0), 0)
+    raw_entries = projection.get("bar_entries")
+    entries = raw_entries if isinstance(raw_entries, list) else []
+    titles = [
+        str(entry.get("title") or "").strip()
+        for entry in entries
+        if isinstance(entry, dict) and str(entry.get("title") or "").strip()
+    ]
+
+    if result_count == 0:
+        return (
+            "本次公开检索已完成，但没有返回符合条件的公开记录。"
+            "你可以调整检索条件后再试。"
+        )
+    if not titles:
+        return (
+            f"本次公开检索已完成，共返回 {result_count} 条记录，"
+            "但暂时没有可在应用内展示的结果卡片。你可以调整条件后再试。"
+        )
+
+    subject = {
+        "people_search": "合伙人候选",
+        "opportunity_search": "创业机会",
+        "project_partnership_search": "可合作项目",
+    }.get(intent, "结果")
+    return (
+        f"我按刚才的条件完成了公开搜索，共返回 {result_count} 条记录。"
+        f"先给你看这些{subject}：{'、'.join(titles)}。"
+        "结果已经放到杯垫里，点开可以查看详情。"
+    )
+
+
 def search_suggestions(*, empty: bool) -> list[dict[str, str]]:
     """Stable final replies that do not reuse a confirmation or start a search."""
     rows = (

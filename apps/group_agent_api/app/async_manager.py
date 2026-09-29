@@ -1904,8 +1904,15 @@ async def _execute_core_agent(
                     else "这次查找已经记下。你确认后，我就按刚才的条件开始查询。"
                 )
         elif search_projection is not None:
-            from apps.group_agent_api.app.cafe_host_search import search_suggestions
+            from apps.group_agent_api.app.cafe_host_search import (
+                grounded_search_reply,
+                search_suggestions,
+            )
 
+            # Paid-search prose and cards must come from one frozen projection.
+            # The Cafe model may have produced a conversational greeting before
+            # the orchestrator attached the server-owned search results.
+            visible_reply = grounded_search_reply(search_projection)
             suggested_replies = search_suggestions(
                 empty=search_projection["result_count"] == 0
             )

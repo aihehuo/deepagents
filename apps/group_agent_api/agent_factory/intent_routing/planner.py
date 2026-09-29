@@ -31,6 +31,8 @@ _TEMPORAL_EVIDENCE = {
 }
 _EXPLICIT_OPPORTUNITY = re.compile(r"创业机会|商业机会|创业方向|创业想法")
 _EXPLICIT_PROJECT = re.compile(r"项目|招募|招聘|加盟|招商|合作席位")
+_EXPLICIT_PEOPLE = re.compile(r"找人|找.{0,8}(?:合伙人|候选人|搭档|伙伴|人才)")
+_EXPLICIT_COMMUNITY = re.compile(r"社群|群组|社区|活动|群里|群成员|成员名单")
 _EXISTING_RESULT_REFERENCE = re.compile(
     r"刚才|之前|上次|已有|找到的|找到了|搜索结果|这些|这几个|这几位|他们|她们|前两个|第[\s一二三\d]*个"
 )
@@ -171,6 +173,20 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
     if action == "query":
         fields["clarification"] = None
         if (
+            draft.intent != "people_search"
+            and _EXPLICIT_PEOPLE.search(context.current_message)
+            and not _EXPLICIT_COMMUNITY.search(context.current_message)
+        ):
+            _logger.info(
+                "intent_planner_resource_corrected from=%s to=users "
+                "reason=explicit_people_request",
+                draft.intent,
+            )
+            fields["intent"] = "people_search"
+            fields["queries"] = ResourceQueriesV2(
+                users=context.current_message[:160]
+            ).model_dump()
+        elif (
             draft.intent == "project_partnership_search"
             and _EXPLICIT_OPPORTUNITY.search(context.current_message)
             and not _EXPLICIT_PROJECT.search(context.current_message)

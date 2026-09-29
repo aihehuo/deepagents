@@ -921,6 +921,26 @@ def test_existing_search_comparison_does_not_create_another_query_plan() -> None
     assert _query_plan_would_run(expanded)
 
 
+def test_explicit_find_people_cannot_drift_to_community_search() -> None:
+    result = resolve_intent(
+        "你好，我要找人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(community_query("创业社群")),
+    )
+    assert result.decision.primary_intent == "people_search"
+    assert result.decision.action == "execute"
+    assert result.decision.resource_queries.users == "你好，我要找人"
+
+    actual_community = resolve_intent(
+        "我想在社群里找人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(community_query("创业社群")),
+    )
+    assert actual_community.decision.primary_intent == "community_search"
+
+
 def test_phase2_groups_query_without_member_words_still_uses_user_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

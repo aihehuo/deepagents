@@ -1878,7 +1878,8 @@ async def _execute_core_agent(
             suggested_replies = []
             search_projection = None
         if (
-            access_control == "chat_session_required"
+            access_control
+            in {"chat_session_required", "search_confirmation_required"}
             and intent_resolution is not None
             and req.episode_id
         ):
@@ -1897,7 +1898,11 @@ async def _execute_core_agent(
                 episode_id=req.episode_id,
             )
             if pending_offer is not None:
-                visible_reply = "我可以先记下这次查找。要真正开始查，需要先开始畅聊并确认。"
+                visible_reply = (
+                    "我可以先记下这次查找。要真正开始查，需要先开始畅聊并确认。"
+                    if access_control == "chat_session_required"
+                    else "这次查找已经记下。你确认后，我就按刚才的条件开始查询。"
+                )
         elif search_projection is not None:
             from apps.group_agent_api.app.cafe_host_search import search_suggestions
 

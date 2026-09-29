@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -187,6 +189,41 @@ async def test_ordinary_offer_does_not_call_tools(
     assert offer["intent"] == "people_search"
     assert offer["query_plan_hash"] == canonical_hash(offer["query_plan"])
     assert offer["source_message_sha256"] == message_sha256(req.message or "")
+    assert final["candidates"] == []
+    assert _paths(emitted) == []
+
+
+@pytest.mark.asyncio
+async def test_active_unconfirmed_search_emits_offer_without_calling_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep the frozen plan available for confirmation during an active cup."""
+    body = _v4_body(active=True, confirmed=False)
+    body["credential_binding"] = {
+        "user_token_sha256": hashlib.sha256(TOKEN.encode()).hexdigest(),
+        "group_token_sha256": "-",
+    }
+    body["request_fingerprint"] = calculate_v4_fingerprint(body)
+    req = AsyncCallRequest.model_validate(body)
+    base_session = _session(req)
+    session = replace(
+        base_session,
+        principal=replace(base_session.principal, user_token=TOKEN, group_token=None),
+        group_token=None,
+    )
+    monkeypatch.setenv("CAFE_HOST_PENDING_SEARCH_OFFER_ENABLED", "1")
+    emitted = await _run(
+        req,
+        session,
+        tmp_path,
+        PlannerModel(StructuredPlanner([people_query("上海 餐饮 合伙人")])),
+        monkeypatch,
+    )
+
+    final = _final(emitted)
+    assert final["chat_access_control"]["code"] == "search_confirmation_required"
+    assert final["pending_search_offer"]["intent"] == "people_search"
+    assert "确认后" in final["reply"]
     assert final["candidates"] == []
     assert _paths(emitted) == []
 

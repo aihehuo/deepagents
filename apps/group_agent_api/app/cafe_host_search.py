@@ -221,9 +221,12 @@ def build_pending_search_offer(
 ) -> dict[str, Any] | None:
     """Return one immutable offer, or None when this turn must not create one.
 
-    Clarification, conversation, planner failure, and an already-executing
-    decision never produce an offer. The offer carries no token and no raw
-    client-editable copy of the message beyond the canonical plan queries.
+    Ordinary runs use the offer while opening a drink; active unconfirmed runs
+    use the same object for an independent confirmation without replacing the
+    current drink. Clarification, conversation, planner failure, and an
+    already-executing decision never produce an offer. The offer carries no
+    token and no raw client-editable copy of the message beyond canonical plan
+    queries.
     """
     if not pending_offer_enabled():
         return None

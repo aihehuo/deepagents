@@ -10,25 +10,27 @@ from langchain.agents import create_agent
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, SystemMessage
 
+from apps.group_agent_api.agent_factory.cafe_output import (
+    HostOutput,
+    finalize_host_output,
+    validated_search_history,
+)
+from apps.group_agent_api.agent_factory.cafe_shadow_review import (
+    schedule_cafe_shadow_review,
+)
 from apps.group_agent_api.agent_factory.context.venue import VenueHostMiddleware
+from apps.group_agent_api.agent_factory.host_context import current_host_context
 from apps.group_agent_api.agent_factory.host_policy import (
     HostActionRejected,
     is_readonly_host,
-)
-from apps.group_agent_api.agent_factory.host_context import current_host_context
-from apps.group_agent_api.agent_factory.cafe_output import (
-    HostOutput,
-    afinalize_host_output,
-    finalize_host_output,
-    validated_search_history,
 )
 
 
 class CafeHostMiddleware(VenueHostMiddleware):
     """Remove tools and fail closed if a provider still requests an action."""
 
-    def __init__(self, *, quality_model: Any | None = None) -> None:
-        self.quality_model = quality_model
+    def __init__(self, *, shadow_review_model: Any | None = None) -> None:
+        self.shadow_review_model = shadow_review_model
 
     def prepare(self, request: ModelRequest) -> ModelRequest:
         """Use only authenticated host context and the independent role prompt.
@@ -125,7 +127,13 @@ class CafeHostMiddleware(VenueHostMiddleware):
             )
         return str(content)
 
-    def _finish(self, response: ModelResponse, output: HostOutput) -> ModelResponse:
+    def _finish(
+        self,
+        response: ModelResponse,
+        output: HostOutput,
+        *,
+        shadow_review_scheduled: bool,
+    ) -> ModelResponse:
         from apps.group_agent_api.execution.active_fence import assert_write_allowed
         from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
 
@@ -135,8 +143,8 @@ class CafeHostMiddleware(VenueHostMiddleware):
             detail={
                 "violated_codes": output.violations,
                 "option_count": len(output.suggestions),
-                "semantic_review_enabled": self.quality_model is not None,
-                "semantic_review_passed": output.review_passed,
+                "guard_mode": "deterministic",
+                "shadow_review_scheduled": shadow_review_scheduled,
                 "final_text": output.reply,
             },
         )
@@ -162,13 +170,25 @@ class CafeHostMiddleware(VenueHostMiddleware):
         """
         prepared = self.prepare(request)
         response = handler(prepared)
+        host = current_host_context()
+        if host is None:
+            raise HostActionRejected("cafe_host_context_required")
         output = finalize_host_output(
             self._draft(response),
-            host=current_host_context(),
+            host=host,
             messages=request.messages,
-            model=self.quality_model,
         )
-        return self._finish(response, output)
+        scheduled = schedule_cafe_shadow_review(
+            model=self.shadow_review_model,
+            output=output,
+            host=host,
+            messages=request.messages,
+        )
+        return self._finish(
+            response,
+            output,
+            shadow_review_scheduled=scheduled,
+        )
 
     async def awrap_model_call(
         self,
@@ -183,30 +203,50 @@ class CafeHostMiddleware(VenueHostMiddleware):
         """
         prepared = self.prepare(request)
         response = await handler(prepared)
-        output = await afinalize_host_output(
+        host = current_host_context()
+        if host is None:
+            raise HostActionRejected("cafe_host_context_required")
+        output = finalize_host_output(
             self._draft(response),
-            host=current_host_context(),
+            host=host,
             messages=request.messages,
-            model=self.quality_model,
         )
-        return self._finish(response, output)
+        scheduled = schedule_cafe_shadow_review(
+            model=self.shadow_review_model,
+            output=output,
+            host=host,
+            messages=request.messages,
+        )
+        return self._finish(
+            response,
+            output,
+            shadow_review_scheduled=scheduled,
+        )
 
 
 def create_cafe_agent(
-    *, model: Any, checkpointer: Any, quality_model: Any | None = None
+    *,
+    model: Any,
+    checkpointer: Any,
+    shadow_review_model: Any | None = None,
+    quality_model: Any | None = None,
 ) -> Any:
     """Create a café graph without Deep Agent filesystem/subagent/todo tools.
 
     Args:
         model: Existing bare provider model; not the legacy compiled agent.
         checkpointer: Same saver as the original authorized conversation graph.
-        quality_model: Optional existing bare semantic reviewer; no tools.
+        shadow_review_model: Optional observer used only by non-blocking review.
+        quality_model: Deprecated test/caller alias for ``shadow_review_model``.
     """
     if model is None or checkpointer is None:
         raise HostActionRejected("cafe_host_executor_unavailable")
+    if shadow_review_model is not None and quality_model is not None:
+        raise HostActionRejected("cafe_host_shadow_reviewer_ambiguous")
+    observer = shadow_review_model or quality_model
     return create_agent(
         model=model,
         tools=[],
         checkpointer=checkpointer,
-        middleware=[CafeHostMiddleware(quality_model=quality_model)],
+        middleware=[CafeHostMiddleware(shadow_review_model=observer)],
     )

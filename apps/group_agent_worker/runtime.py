@@ -37,6 +37,7 @@ def get_worker_runtime() -> dict[str, Any]:
     polish_model = None
     quality_model = None
     greeting_model = None
+    cafe_shadow_review_model = None
     try:
         from apps.group_agent_api.agent_factory.integrations.config import llm_polish_enabled
         from apps.group_agent_api.agent_factory.model_builder import create_model
@@ -66,6 +67,16 @@ def get_worker_runtime() -> dict[str, Any]:
             timeout_s=core_timeout_s,
             max_retries=0,
         )
+        from apps.group_agent_api.agent_factory.cafe_shadow_review import (
+            shadow_review_enabled,
+        )
+
+        if shadow_review_enabled():
+            cafe_shadow_review_model = create_model(
+                log_prefix="[GroupAgentWorkerCafeShadowReview]",
+                timeout_s=review_timeout_s,
+                max_retries=0,
+            )
     except Exception as exc:  # noqa: BLE001
         _logger.warning("worker polish/quality model unavailable error_type=%s", type(exc).__name__)
 
@@ -78,6 +89,7 @@ def get_worker_runtime() -> dict[str, Any]:
         durable_store=store,
         backpressure=BackpressureController(store._r, cfg),
         greeting_model=greeting_model,
+        cafe_shadow_review_model=cafe_shadow_review_model,
     )
     _RUNTIME.update(
         {

@@ -979,7 +979,9 @@ async def _execute_core_agent(
 
         if getattr(state, "cafe_agent", None) is None:
             state.cafe_agent = create_cafe_agent(
-                model=state.greeting_model, checkpointer=get_agent_checkpointer(state.agent), quality_model=state.quality_model or state.polish_model
+                model=state.greeting_model,
+                checkpointer=get_agent_checkpointer(state.agent),
+                shadow_review_model=state.cafe_shadow_review_model,
             )
         agent = state.cafe_agent
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())

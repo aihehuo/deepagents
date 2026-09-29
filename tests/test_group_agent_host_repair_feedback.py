@@ -11,7 +11,10 @@ from apps.group_agent_api.agent_factory.cafe_output import (
     afinalize_host_output,
     finalize_host_output,
 )
-from apps.group_agent_api.agent_factory.context.host_prompts import HOST_INTERACTION
+from apps.group_agent_api.agent_factory.context.host_prompts import (
+    HOST_IDENTITY,
+    HOST_INTERACTION,
+)
 from tests.test_group_agent_host_da001 import _host
 
 
@@ -55,14 +58,38 @@ async def test_second_repair_receives_final_validation(tmp_path: Path, asynchron
 @pytest.mark.parametrize("asynchronous", [False, True])
 async def test_no_unvalidated_third_repair_escapes(tmp_path: Path, asynchronous: bool) -> None:
     model = MagicMock()
-    responses = [_response("fail", f"修正版{i}。") for i in range(3)]
+    responses = [_response("fail", f"修正版{i}。") for i in range(4)]
     model.invoke.side_effect = responses
     model.ainvoke = AsyncMock(side_effect=responses)
     kwargs = {"host": _host(tmp_path), "messages": [], "model": model}
     result = await afinalize_host_output("原回复。", **kwargs) if asynchronous else finalize_host_output("原回复。", **kwargs)
     assert not result.review_passed and "host_review_unavailable" in result.violations
     assert "修正版" not in result.reply
-    assert (model.ainvoke.call_count if asynchronous else model.invoke.call_count) == 3
+    assert (model.ainvoke.call_count if asynchronous else model.invoke.call_count) == 4
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_third_repair_receives_a_final_verification(
+    tmp_path: Path, asynchronous: bool
+) -> None:
+    model = MagicMock()
+    responses = [
+        _response("fail", "第一版修正。"),
+        _response("fail", "第二版修正。"),
+        _response("fail", "第三版修正。"),
+        _response("pass", "第三版修正。", "通过"),
+    ]
+    model.invoke.side_effect = responses
+    model.ainvoke = AsyncMock(side_effect=responses)
+    kwargs = {"host": _host(tmp_path), "messages": [], "model": model}
+    result = (
+        await afinalize_host_output("原回复。", **kwargs)
+        if asynchronous
+        else finalize_host_output("原回复。", **kwargs)
+    )
+    assert result.reply == "第三版修正。"
+    assert result.review_passed
+    assert (model.ainvoke.call_count if asynchronous else model.invoke.call_count) == 4
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
@@ -114,6 +141,9 @@ def test_greeting_policy_does_not_infer_present_activity() -> None:
     assert "粉水比" in HOST_INTERACTION and "当前菜单" in HOST_INTERACTION
     assert "找人、找项目、找创业机会的能力由本轮服务端路由和权益决定" in HOST_INTERACTION
     assert "本店目前不搜索" not in HOST_INTERACTION
+    assert "市场调研、赛道选择或品牌定位" in HOST_IDENTITY
+    assert "不得因“不是顾问”" in HOST_IDENTITY
+    assert "不得用旧 doing/need/offer 重定向回答" in HOST_INTERACTION
 
 
 @pytest.mark.parametrize("text", ["当前未提供可信来源，我无法确认这杯的具体剂量。", "这会违反游戏规则，玩起来就没意思了。"])

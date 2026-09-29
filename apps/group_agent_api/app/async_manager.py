@@ -1664,7 +1664,7 @@ async def _execute_core_agent(
     if not cafe_host and guarded.blocked and not unlocks_network(tier):
         match_status = "skipped"
         match_reason = f"capability_{tier.value}_guard_blocked"
-    elif match_status == "matched" and not guarded.candidates:
+    elif not cafe_host and match_status == "matched" and not guarded.candidates:
         match_status = "empty"
         match_reason = "no_auditable_public_match_basis"
 
@@ -1801,7 +1801,9 @@ async def _execute_core_agent(
 
     if admin_debug:
         determined_reply_mode = ReplyMode.dialogue
-    elif persistence_failure_reason or match_reason == "grounding_validation_failed":
+    elif not cafe_host and (
+        persistence_failure_reason or match_reason == "grounding_validation_failed"
+    ):
         determined_reply_mode = ReplyMode.error
     elif search_completed and out_candidates and match_status == "matched":
         determined_reply_mode = ReplyMode.recommendation

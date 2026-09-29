@@ -200,6 +200,7 @@ async def test_active_unconfirmed_search_executes_without_second_confirmation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Treat the active drink as authorization for an explicit paid search."""
+    monkeypatch.setenv("GROUP_AGENT_GROUNDED_FINAL_ENABLED", "1")
     body = _v4_body(active=True, confirmed=False)
     body["credential_binding"] = {
         "user_token_sha256": hashlib.sha256(TOKEN.encode()).hexdigest(),
@@ -225,6 +226,8 @@ async def test_active_unconfirmed_search_executes_without_second_confirmation(
     final = _final(emitted)
     assert "chat_access_control" not in final
     assert "pending_search_offer" not in final
+    assert final["reply_mode"] == "recommendation"
+    assert final["match_status"] == "matched"
     assert final["candidates"][0]["display_name"] == "周餐饮"
     assert "周餐饮" in final["reply"]
     assert "今天想喝点什么" not in final["reply"]

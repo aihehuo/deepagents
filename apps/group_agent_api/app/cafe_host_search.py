@@ -1,7 +1,7 @@
 """Cafe Host v4 paid-search execution, projection, and pending-search offers.
 
 The module reuses the existing read registry and QueryPlan. It does not copy
-search execution. Flags default closed so an active confirmation still returns
+search execution. Flags default closed, so an active drink still returns
 ``search_capability_unavailable`` until an operator opens the allowlist.
 """
 

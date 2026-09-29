@@ -103,10 +103,12 @@ class ChatAccessContext:
             return None
         if self.mode == "ordinary":
             return "chat_session_required"
-        if self.search_confirmation_id is None or self.confirmed_search_intent is None:
-            return "search_confirmation_required"
-        if self.confirmed_search_intent != intent:
-            return "confirmed_search_intent_mismatch"
+        # An active drink is the user's authorization for paid search. The
+        # intent must still be present in Micro's frozen allowlist, but a
+        # second search-confirmation click is no longer required. Confirmation
+        # fields remain in v4 for replaying offers created before a drink starts.
+        if intent not in self.allowed_search_intents:
+            return "search_capability_unavailable"
         from apps.group_agent_api.agent_factory.intent_routing.registry import (
             registry_entry,
         )
@@ -178,10 +180,11 @@ class ChatAccessContext:
         Raises:
             ChatAccessRejected: If no valid current-run receipt supports output.
         """
-        authorized = (
-            self.confirmed_search_intent is not None
-            and self.paid_execution_open(self.confirmed_search_intent)
-            and self.confirmed_search_intent in receipt_intents
+        # Final search claims are authorized by receipts created during this
+        # exact run. The active drink and frozen intent allowlist authorize the
+        # execution itself; legacy confirmation fields are not needed here.
+        authorized = bool(receipt_intents) and all(
+            self.paid_execution_open(intent) for intent in receipt_intents
         )
         if (
             projection_digest != bound_projection_digest

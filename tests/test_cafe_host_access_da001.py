@@ -450,7 +450,7 @@ def test_access_context_blocks_each_paid_intent_resource_and_false_final() -> No
     assert current_chat_access() is None
 
 
-def test_active_confirmation_is_frozen_but_da001_tools_remain_unavailable(
+def test_active_allowlist_is_frozen_but_da001_tools_remain_unavailable(
     tmp_path: Path,
 ) -> None:
     req = AsyncCallRequest.model_validate(_v4_body(active=True, confirmed=True))
@@ -459,7 +459,7 @@ def test_active_confirmation_is_frozen_but_da001_tools_remain_unavailable(
     assert access.control_for_intent("people_search") == "search_capability_unavailable"
     assert (
         access.control_for_intent("opportunity_search")
-        == "confirmed_search_intent_mismatch"
+        == "search_capability_unavailable"
     )
     host = HostContext.from_request(
         req, principal=_session(req).principal, base_dir=tmp_path

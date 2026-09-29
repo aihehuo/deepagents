@@ -194,10 +194,10 @@ async def test_ordinary_offer_does_not_call_tools(
 
 
 @pytest.mark.asyncio
-async def test_active_unconfirmed_search_emits_offer_without_calling_tools(
+async def test_active_unconfirmed_search_executes_without_second_confirmation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Keep the frozen plan available for confirmation during an active cup."""
+    """Treat the active drink as authorization for an explicit paid search."""
     body = _v4_body(active=True, confirmed=False)
     body["credential_binding"] = {
         "user_token_sha256": hashlib.sha256(TOKEN.encode()).hexdigest(),
@@ -211,7 +211,7 @@ async def test_active_unconfirmed_search_emits_offer_without_calling_tools(
         principal=replace(base_session.principal, user_token=TOKEN, group_token=None),
         group_token=None,
     )
-    monkeypatch.setenv("CAFE_HOST_PENDING_SEARCH_OFFER_ENABLED", "1")
+    _enable_search(monkeypatch, req.user_id)
     emitted = await _run(
         req,
         session,
@@ -221,11 +221,10 @@ async def test_active_unconfirmed_search_emits_offer_without_calling_tools(
     )
 
     final = _final(emitted)
-    assert final["chat_access_control"]["code"] == "search_confirmation_required"
-    assert final["pending_search_offer"]["intent"] == "people_search"
-    assert "确认后" in final["reply"]
-    assert final["candidates"] == []
-    assert _paths(emitted) == []
+    assert "chat_access_control" not in final
+    assert "pending_search_offer" not in final
+    assert final["candidates"][0]["display_name"] == "周餐饮"
+    assert any("/users" in path for path in _paths(emitted))
 
 
 @pytest.mark.asyncio

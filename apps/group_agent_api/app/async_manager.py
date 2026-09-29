@@ -1871,8 +1871,8 @@ async def _execute_core_agent(
                 "chat_session_required": "我还可以继续陪你聊；要找人、找项目或找创业机会，需要先开始畅聊。",
                 "search_confirmation_required": "这次搜索还需要你确认后才能开始，我现在没有查询公开数据。",
                 "confirmed_search_intent_mismatch": "你确认的搜索类型和这次请求不一致，我没有执行查询。",
-                "search_capability_unavailable": "这次搜索已经获得确认，但当前搜索能力尚未开放，我没有执行查询。",
-                "pending_search_unavailable": "上次记下的查找已经不能继续了。杯子还在，我们重新确认一次再查。",
+                "search_capability_unavailable": "当前搜索能力暂时不可用，我没有执行查询。",
+                "pending_search_unavailable": "上次记下的查找已经不能继续了。杯子还在，请重新告诉我想查什么。",
             }[access_control]
             out_candidates = []
             suggested_replies = []
@@ -1899,7 +1899,7 @@ async def _execute_core_agent(
             )
             if pending_offer is not None:
                 visible_reply = (
-                    "我可以先记下这次查找。要真正开始查，需要先开始畅聊并确认。"
+                    "我可以先记下这次查找。开始畅聊后就能查询。"
                     if access_control == "chat_session_required"
                     else "这次查找已经记下。你确认后，我就按刚才的条件开始查询。"
                 )
@@ -1934,7 +1934,9 @@ async def _execute_core_agent(
         except ChatAccessRejected:
             access_control = access_control or "chat_session_required"
             visible_reply = (
-                "这次还没有执行公开数据查询。我可以继续陪你聊；如果要找人、找项目或找创业机会，需要先开始畅聊并确认这次搜索。"
+                "这次还没有执行公开数据查询，请重新告诉我想查什么。"
+                if access.mode == "active"
+                else "这次还没有执行公开数据查询。我可以继续陪你聊；如果要找人、找项目或找创业机会，需要先开始畅聊。"
             )
             suggested_replies = []
             out_candidates = []

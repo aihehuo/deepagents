@@ -954,6 +954,25 @@ def test_explicit_find_people_cannot_drift_to_community_search() -> None:
     assert actual_community.decision.primary_intent == "community_search"
 
 
+def test_explicit_only_location_is_frozen_into_people_search() -> None:
+    result = resolve_intent(
+        "只找上海的餐饮候选人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(people_query("餐饮候选人")),
+    )
+    assert result.decision.constraints.location == ("上海",)
+    assert result.decision.resource_queries.users == "上海 餐饮候选人"
+
+    relevance_only = resolve_intent(
+        "找上海的餐饮候选人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(people_query("上海 餐饮候选人")),
+    )
+    assert relevance_only.decision.constraints.location == ()
+
+
 def test_phase2_groups_query_without_member_words_still_uses_user_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

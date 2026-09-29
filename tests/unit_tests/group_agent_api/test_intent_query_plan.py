@@ -14,6 +14,14 @@ import pytest
 from fastapi import HTTPException
 from langchain_core.messages import AIMessage, ToolMessage
 
+from apps.group_agent_api.agent_factory.capability import (
+    CapabilityTier,
+    SessionCapabilities,
+)
+from apps.group_agent_api.agent_factory.integrations.membership_client import (
+    MembershipResult,
+)
+from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
 from apps.group_agent_api.agent_factory.intent_routing.canonical import (
     RoutingCryptoError,
     canonical_hash,
@@ -40,22 +48,14 @@ from apps.group_agent_api.agent_factory.intent_routing.snapshot import (
     encrypt_routing_snapshot,
     routing_aad,
 )
-from apps.group_agent_api.agent_factory.capability import (
-    CapabilityTier,
-    SessionCapabilities,
-)
-from apps.group_agent_api.agent_factory.integrations.membership_client import (
-    MembershipResult,
-)
-from apps.group_agent_api.agent_factory.integrations.principal import SessionPrincipal
 from apps.group_agent_api.app.models import AsyncCallRequest, ChatRequest
 from apps.group_agent_api.app.session import TrustedSession
 from apps.group_agent_api.app.state import AppState
 from tests.unit_tests.group_agent_api.planner_fixtures import (
     AdaptivePlannerModel,
+    people_query,
     planner_for_message,
     planner_returning,
-    people_query,
 )
 
 
@@ -258,6 +258,34 @@ def test_completed_execution_uses_app_ids_and_rejects_public_number_as_route_id(
     assert projected.public_result_names == ["张三"]
 
     assert _public_candidate({"id": "101", "number": 101, "name": "旧公网结果"}) is None
+
+
+def test_explicit_only_location_excludes_other_and_unknown_city_candidates() -> None:
+    from apps.group_agent_api.agent_factory.intent_routing.projection import (
+        project_intent_search,
+    )
+
+    execution = _execution("只找上海的餐饮候选人")
+    assert execution.decision.constraints.location == ("上海",)
+    reservation = execution.reserve(
+        resource="users", parameters={"page": 1}, tool_call_id="hard-location"
+    )
+    execution.commit_result(
+        reservation,
+        _result(
+            [
+                {"user_id": "101", "name": "上海候选人", "city": "上海市", "bio": "餐饮运营"},
+                {"user_id": "102", "name": "北京候选人", "city": "北京", "bio": "餐饮运营"},
+                {"user_id": "103", "name": "城市未知", "bio": "餐饮运营"},
+            ]
+        ),
+    )
+
+    projected = project_intent_search(execution)
+    assert projected.result_count == 1
+    assert [candidate["user_id"] for candidate in projected.candidates] == ["101"]
+    assert len(projected.public_reads[0].records) == 3
+    assert len(projected.grounding_public_reads[0].records) == 1
 
 
 def test_frozen_recommendation_cards_drive_prompt_and_projection(
@@ -1215,9 +1243,9 @@ def _session() -> TrustedSession:
 
 
 def test_planner_failure_callback_does_not_claim_search() -> None:
-    from apps.group_agent_worker.tasks import _terminal_error_payload
     from apps.group_agent_api.execution.models import RetryClass
     from apps.group_agent_api.execution.retry import classify_error
+    from apps.group_agent_worker.tasks import _terminal_error_payload
 
     payload = _terminal_error_payload("intent_classifier_invalid", timed_out=False)
     assert payload["error_code"] == "intent_classifier_invalid"

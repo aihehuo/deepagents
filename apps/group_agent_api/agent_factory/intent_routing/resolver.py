@@ -9,6 +9,7 @@ from typing import Any
 
 from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
 
+from .constraint_lexicon import explicit_hard_locations
 from .context import (
     IntentContextScope,
     build_planner_context,
@@ -149,6 +150,7 @@ def _decision_from_planner(
     *,
     execution_mode: str,
     can_search: bool,
+    message: str,
 ) -> IntentDecisionV1:
     if planner.proposal is None or planner.status != "ok":
         return clarification_decision(source="planner")
@@ -159,6 +161,7 @@ def _decision_from_planner(
         paid_execution_authorized=_paid_execution_authorized(
             execution_mode, planner.proposal
         ),
+        hard_locations=explicit_hard_locations(message),
     )
 
 
@@ -269,7 +272,10 @@ def resolve_intent(
         )
     planned = plan_intent(model=model, context=context)
     decision = _decision_from_planner(
-        planned, execution_mode=execution_mode, can_search=can_search
+        planned,
+        execution_mode=execution_mode,
+        can_search=can_search,
+        message=message,
     )
     return _finalize(
         started=started,
@@ -329,7 +335,10 @@ async def aresolve_intent(
         timeout_s=intent_planner_timeout_s(),
     )
     decision = _decision_from_planner(
-        planned, execution_mode=execution_mode, can_search=can_search
+        planned,
+        execution_mode=execution_mode,
+        can_search=can_search,
+        message=message,
     )
     return _finalize(
         started=started,

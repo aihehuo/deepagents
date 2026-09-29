@@ -17,8 +17,9 @@ from apps.group_agent_api.agent_factory.contact_scrub import (
 )
 from apps.group_agent_api.agent_factory.match_stub import MAX_CANDIDATES
 
-from .execution import IntentExecution
 from .canonical import canonical_hash
+from .constraint_lexicon import expand_constraint_token, phrase_in_text
+from .execution import IntentExecution
 
 _PUBLIC_NUMBER = re.compile(r"^[1-9][0-9]*$")
 
@@ -66,6 +67,8 @@ def project_intent_search(
     candidates: list[dict[str, Any]] = []
     public_result_names: list[str] = []
     seen_ids: set[str] = set()
+    hard_locations = execution.decision.constraints.location
+    hard_location_result_count = 0
     steps = {step.step_id: step for step in execution.plan.steps}
     for receipt in execution.receipts:
         evidence = execution.evidence_by_receipt.get(receipt.receipt_id)
@@ -96,7 +99,15 @@ def project_intent_search(
             continue
         filtered_items: list[Any] = []
         for item in candidate_items:
+            if (
+                receipt.resource in {"users", "group-members"}
+                and hard_locations
+                and not _matches_public_location(item, hard_locations)
+            ):
+                continue
             filtered_items.append(item)
+            if receipt.resource in {"users", "group-members"}:
+                hard_location_result_count += 1
             if isinstance(item, dict) and len(public_result_names) < MAX_CANDIDATES:
                 raw_name = str(item.get("name") or item.get("display_name") or item.get("nickname") or "").strip()
                 if raw_name:
@@ -135,12 +146,31 @@ def project_intent_search(
 
     return IntentSearchProjection(
         completed=True,
-        result_count=execution.unique_result_count(),
+        result_count=(
+            hard_location_result_count
+            if hard_locations
+            and execution.decision.primary_intent == "people_search"
+            else execution.unique_result_count()
+        ),
         candidates=candidates,
         public_result_names=public_result_names,
         public_reads=reads,
         grounding_public_reads=grounding_reads,
         pages=len(execution.receipts),
+    )
+
+
+def _matches_public_location(raw: Any, allowed: tuple[str, ...]) -> bool:
+    """Require a public city/location field to satisfy an explicit hard boundary."""
+    if not isinstance(raw, dict):
+        return False
+    location = _first_public_text(raw, ("city", "location"))
+    if not location:
+        return False
+    return any(
+        phrase_in_text(location, alias)
+        for value in allowed
+        for alias in expand_constraint_token("location", value)
     )
 
 

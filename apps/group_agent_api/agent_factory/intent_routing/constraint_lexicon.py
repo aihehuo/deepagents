@@ -45,6 +45,11 @@ _KIND_GROUPS = {
 
 _LATIN_TOKEN = re.compile(r"^[a-z0-9][a-z0-9+.#'_\s-]*$", re.IGNORECASE)
 FIELD_EXCLUSION_PREFIX_PATTERN = r"(?:not\s+in|not|不要|排除|别去|别在|不含|除了)"
+_HARD_LOCATION_PREFIX = re.compile(
+    r"(?:只要|只找|只看|只推荐|只考虑|只搜索|仅限|仅找|仅看|只能|必须)"
+    r"[^，。！？,;；\n]{0,16}$",
+    flags=re.IGNORECASE,
+)
 
 
 def aliases_for(kind: str) -> tuple[str, ...]:
@@ -99,3 +104,34 @@ def phrase_in_text(text: str, phrase: str) -> bool:
 def match_phrases(text: str, phrases: tuple[str, ...]) -> tuple[str, ...]:
     """Return phrases present in text without expanding synonyms."""
     return tuple(phrase for phrase in phrases if phrase_in_text(text, phrase))
+
+
+def explicit_hard_locations(text: str) -> tuple[str, ...]:
+    """Extract only locations the user explicitly made an exclusive boundary.
+
+    A city merely appearing in a semantic search query remains a relevance hint.
+    Phrases such as ``只找上海`` or ``上海本地`` become hard constraints that
+    downstream projection may enforce against the candidate's public city field.
+    """
+    source = str(text or "")
+    selected: list[str] = []
+    for alias in aliases_for("location"):
+        for match in re.finditer(re.escape(alias), source, flags=re.IGNORECASE):
+            before = source[max(0, match.start() - 24) : match.start()]
+            after = source[match.end() : match.end() + 12]
+            prefixed = _HARD_LOCATION_PREFIX.search(before) is not None
+            suffixed = bool(after) and (
+                after.startswith(("本地", "当地"))
+                or re.match(
+                    r"^(?:的)?(?:候选人|人选|人)?(?:就行|即可|才行)",
+                    after,
+                )
+                is not None
+            )
+            if not (prefixed or suffixed):
+                continue
+            canonical = canonicalize_constraint_token("location", alias)
+            if canonical and canonical not in selected:
+                selected.append(canonical)
+            break
+    return tuple(selected[:10])

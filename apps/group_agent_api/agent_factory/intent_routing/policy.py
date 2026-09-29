@@ -46,6 +46,7 @@ def build_decision_from_planner(
     execution_mode: str,
     can_search: bool,
     paid_execution_authorized: bool = False,
+    hard_locations: tuple[str, ...] = (),
 ) -> IntentDecisionV1:
     """Map a validated planner proposal onto the server-owned decision contract.
 
@@ -54,10 +55,19 @@ def build_decision_from_planner(
     terms from lexicons.
     """
     queries = _clip_queries(proposal.queries)
-    constraints = IntentConstraintsV1(time_range=proposal.time_range)
+    constraints = IntentConstraintsV1(
+        location=hard_locations,
+        time_range=proposal.time_range,
+    )
 
     if proposal.action == "query":
         intent: IntentKind = proposal.intent or "clarification"
+        if intent == "people_search" and hard_locations and queries.users:
+            missing = [city for city in hard_locations if city not in queries.users]
+            if missing:
+                queries = queries.model_copy(
+                    update={"users": " ".join([*missing, queries.users])[:160]}
+                )
         route = _READ_ROUTES.get(intent)
         if route is None:
             return IntentDecisionV1(

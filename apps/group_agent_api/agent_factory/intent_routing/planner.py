@@ -41,6 +41,17 @@ _EXPLICIT_PROJECT_REQUEST = re.compile(
     r"(?:项目|招募|加盟|招商|合作席位)"
     r"|(?:项目|招募|加盟|招商|合作席位).{0,12}(?:找|搜|搜索|看看|推荐)"
 )
+_ADVICE_REQUEST = re.compile(
+    r"怎么|如何|怎样|该怎么|应该怎么|方法|步骤|策略|建议|思路|定位|规划|流程|怎么判断"
+)
+_EXPLICIT_SEARCH_EXECUTION = re.compile(
+    r"(?:帮我|请帮我|麻烦帮我|给我|能否|可以|可不可以).{0,10}"
+    r"(?:找|搜|搜索|查询|查找|推荐|列出|看看)"
+    r"|我想(?:要)?(?:找|搜|搜索|查询|查找|推荐|列出|看看)"
+    r"|我要(?:找|搜|搜索|查询|查找|推荐|列出|看看)"
+    r"|^(?:找|搜|搜索|查询|查找|推荐|列出|看看)"
+    r"|有哪些|有什么|有没有|哪里有"
+)
 _EXPLICIT_PEOPLE = re.compile(r"找人|找.{0,8}(?:合伙人|候选人|搭档|伙伴|人才)")
 _EXPLICIT_COMMUNITY = re.compile(r"社群|群组|社区|活动|群里|群成员|成员名单")
 _EXISTING_RESULT_REFERENCE = re.compile(
@@ -188,11 +199,29 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
         and _EXISTING_RESULT_REFERENCE.search(context.current_message)
         and not _NEW_SEARCH_REQUEST.search(context.current_message)
     )
+    advice_without_search_request = bool(
+        _ADVICE_REQUEST.search(context.current_message)
+        and not _EXPLICIT_SEARCH_EXECUTION.search(context.current_message)
+    )
+    if (
+        action == "query"
+        and fields["intent"]
+        in {"people_search", "opportunity_search", "project_partnership_search"}
+        and advice_without_search_request
+    ):
+        _logger.info(
+            "intent_planner_action_corrected from=query to=reply "
+            "reason=advice_without_search_request"
+        )
+        action = "reply"
+        fields["action"] = "reply"
+        fields["intent"] = "conversation"
     if (
         action != "query"
         and _EXPLICIT_PROJECT_REQUEST.search(context.current_message)
         and not _EXPLICIT_OPPORTUNITY.search(context.current_message)
         and not existing_result_followup
+        and not advice_without_search_request
     ):
         _logger.info(
             "intent_planner_action_corrected from=%s to=query "

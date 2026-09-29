@@ -52,6 +52,7 @@ from tests.unit_tests.group_agent_api.planner_fixtures import (
     StructuredPlanner,
     clarify,
     community_query,
+    opportunity_query,
     people_query,
     planner_for_message,
     planner_returning,
@@ -994,6 +995,47 @@ def test_explicit_project_request_overrides_unnecessary_clarification() -> None:
     )
     assert existing.decision.action == "conversation"
     assert not _query_plan_would_run(existing)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "我想入局餐饮行业应该怎么做市场调研和品牌定位",
+        "餐饮创业机会应该怎么判断",
+        "我该怎么找项目",
+    ],
+)
+def test_advice_question_does_not_start_search(message: str) -> None:
+    result = resolve_intent(
+        message,
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(
+            opportunity_query("餐饮创业机会 市场调研 品牌定位策略")
+        ),
+    )
+    assert result.decision.primary_intent == "conversation"
+    assert result.decision.action == "conversation"
+    assert not _query_plan_would_run(result)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "帮我搜索餐饮创业机会",
+        "最近有哪些AI教育创业机会",
+    ],
+)
+def test_explicit_opportunity_search_still_runs(message: str) -> None:
+    result = resolve_intent(
+        message,
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(opportunity_query("餐饮创业机会")),
+    )
+    assert result.decision.primary_intent == "opportunity_search"
+    assert result.decision.action == "execute"
+    assert _query_plan_would_run(result)
 
 
 def test_phase2_groups_query_without_member_words_still_uses_user_request(

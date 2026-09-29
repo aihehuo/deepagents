@@ -16,6 +16,7 @@ from apps.group_agent_api.app.cafe_host_search import (
     canonical_query_plan,
     message_sha256,
     routing_snapshot_hash,
+    search_user_allowed,
 )
 from apps.group_agent_api.app.chat_access import (
     ChatAccessContext,
@@ -46,6 +47,14 @@ def _enable_search(monkeypatch: pytest.MonkeyPatch, user_id: str) -> None:
     monkeypatch.setenv("CAFE_HOST_V4_SEARCH_USER_ALLOWLIST", user_id)
     monkeypatch.setenv("CAFE_HOST_V4_SEARCH_LOG_SCHEMA_VERSION", "1")
     monkeypatch.setenv("CAFE_HOST_V4_SEARCH_RESULT_SCHEMA_VERSION", "1")
+
+
+def test_search_allowlist_supports_explicit_full_rollout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CAFE_HOST_V4_SEARCH_USER_ALLOWLIST", "*")
+
+    assert search_user_allowed("101")
 
 
 def _ready(intent: str, message: str) -> tuple[AsyncCallRequest, Any]:

@@ -58,11 +58,13 @@ def search_execution_enabled() -> bool:
 def search_user_allowed(user_id: str) -> bool:
     """Return whether one user is on the internal search allowlist.
 
-    An empty allowlist allows nobody. The execution flag alone is not enough.
+    An empty allowlist allows nobody. ``*`` is an explicit full-rollout
+    operator choice, matching v4 admission and Micro's ChatAccess gates.
+    The execution flag alone is not enough.
     """
     raw = os.environ.get("CAFE_HOST_V4_SEARCH_USER_ALLOWLIST", "")
     allowed = {item.strip() for item in raw.split(",") if item.strip()}
-    return bool(user_id) and user_id in allowed
+    return bool(user_id) and ("*" in allowed or user_id in allowed)
 
 
 def pending_offer_enabled() -> bool:

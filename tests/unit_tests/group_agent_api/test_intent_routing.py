@@ -888,6 +888,39 @@ def test_phase2_context_overflow_fail_closes_without_search() -> None:
     assert not _query_plan_would_run(result)
 
 
+def test_existing_search_comparison_does_not_create_another_query_plan() -> None:
+    searches = [
+        {
+            "request": "找上海的餐饮合伙人",
+            "cards": [{"display_name": "上海甲"}, {"display_name": "上海乙"}],
+        },
+        {
+            "request": "换成深圳的餐饮合伙人",
+            "cards": [{"display_name": "深圳甲"}, {"display_name": "深圳乙"}],
+        },
+    ]
+    result = resolve_intent(
+        "对比一下刚才找到的上海和深圳候选人",
+        execution_mode="cafe_host",
+        can_search=True,
+        planner_model=planner_returning(people_query("上海 深圳 餐饮合伙人")),
+        prior_searches=searches,
+    )
+    assert result.decision.primary_intent == "conversation"
+    assert result.decision.action == "conversation"
+    assert not _query_plan_would_run(result)
+
+    expanded = resolve_intent(
+        "再找更多上海和深圳的餐饮合伙人",
+        execution_mode="group_agent",
+        can_search=True,
+        planner_model=planner_returning(people_query("上海 深圳 餐饮合伙人")),
+        prior_searches=searches,
+    )
+    assert expanded.decision.action == "execute"
+    assert _query_plan_would_run(expanded)
+
+
 def test_phase2_groups_query_without_member_words_still_uses_user_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

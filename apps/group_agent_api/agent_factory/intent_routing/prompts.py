@@ -16,6 +16,9 @@ PLANNER_SYSTEM_PROMPT = """你是群智能体的唯一语义与检索规划器�
   只有用户明确寻找已有项目、项目招募、加盟、招商或合作席位时才使用 project_partnership_search/projects。
 - clarify：对象不足或指令冲突到无法安全检索；不要猜测检索词。
 - reply：普通对话、明确不要搜索、方法讨论，或应走画像更新（intent=profile_update）。
+  prior_searches 是当前对话中已经执行并展示过的搜索分组。用户只是查看、介绍、分析、总结、
+  比较、排序或追问这些已有结果时，必须用 reply/conversation，不得重新 query。只有用户明确要求
+  重新搜索、再找、找更多、换条件或扩大范围时，才生成新 query。
 clarify/reply 时不要填 queries，group_member_scope=none，group_event_id 留空。
 community_search 若用户还要成员/报名名单：设置 group_member_scope=first_verified，
 或给出明确数字 group_event_id；不要把名单意图只写进 groups 检索词。

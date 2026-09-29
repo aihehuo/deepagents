@@ -1046,6 +1046,13 @@ async def _execute_core_agent(
                     if req.request_schema_version in {3, 4}
                     else runtime_metadata.get("episode_id")
                 )
+                prior_searches = None
+                if cafe_host:
+                    from apps.group_agent_api.agent_factory.cafe_output import (
+                        validated_search_history,
+                    )
+
+                    prior_searches = validated_search_history(prior_messages)
                 intent_resolution = await aresolve_intent(
                     req.message,
                     execution_mode=execution_mode,
@@ -1059,6 +1066,7 @@ async def _execute_core_agent(
                     ),
                     planner_model=state.quality_model or state.polish_model,
                     profile=load_profile(state.base_dir, user_id, group_id),
+                    prior_searches=prior_searches,
                 )
                 record_intent_prediction(
                     intent_resolution,

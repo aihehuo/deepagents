@@ -70,7 +70,7 @@ _REVIEW = """你是小馆回复的安全与事实校验者，不是候选人裁�
 当前用户明确话题优先；旧资料只是可能过期的背景，不能作为所有事实唯一来源或用它改写话题。用户引用/测试/假设不是本人事实。
 纠正未经证实的统计、履历、夸大数字和保证；用户要求夸大不构成事实证据。一般知识可用，但本店配方/咖啡因剂量/点单状态没有可信来源，不能断言。
 没有其他客人的获准故事源，不得转述私聊、匿名编客人或造人物主页链接。不得泄露凭证、联系方式、内部术语，不得声称搜索/保存/发送/报名等动作，或建议调用本店没有的工具。
-validated_search_cards 若非空，是服务器冻结的本对话最近一次公开搜索卡片。当前用户可按序号、姓名、特征、比较或任意自然表达继续讨论；只依据卡片字段回答，不得补充列表外的人物或字段。当前话题无关时不要强行引用。
+validated_search_history 若非空，是服务器冻结的本对话近期公开搜索分组，request 只是当时用户的查询标签，cards 才是可信的公开结果。当前用户可按城市、序号、姓名、特征、比较或任意自然表达继续讨论；只依据各组卡片字段回答，不得补充列表外的人物或字段。当前话题无关时不要强行引用。
 不要强行加建议、追问、选项、创业计划或匹配模板。快捷选项必须与 label 同一意图、是用户口吻、不预填个人事实或隐藏操作授权；无法确认就删掉，不猜测改写。
 仅输出 JSON：{\"verdict\":\"pass\"或\"fail\",\"reply\":\"完整正文\",\"option_indices\":[从0起的合法选项序号],\"reason\":\"简短说明触犯的规则与需改内容；通过则填通过\"}。reason仅是审查结论，不输出思维链。
 pass 时 reply 必须与原正文完全相同；fail 时只修正有问题的部分，保持原话题，option_indices 必须为空。不输出工具调用。
@@ -78,49 +78,66 @@ reply是客人直接看到的接待者聊天正文，不是审核报告。发现
 """
 
 
-def latest_validated_search_cards(messages: list[Any]) -> list[dict[str, str]]:
-    """Return the latest bounded server-authored card manifest in this thread.
+def _validated_cards(message: SystemMessage) -> list[dict[str, str]] | None:
+    """Parse one server-authored card marker, failing closed when malformed."""
+    match = _SEARCH_CARDS.search(str(message.content or ""))
+    if match is None:
+        return None
+    try:
+        raw_cards = json.loads(match.group(1))
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(raw_cards, list) or len(raw_cards) > 3:
+        return []
+    cards: list[dict[str, str]] = []
+    allowed = {"card_ref", "display_name", "doing", "need", "offer", "short_intro"}
+    for position, raw in enumerate(raw_cards, start=1):
+        if not isinstance(raw, dict) or set(raw) - allowed:
+            return []
+        if raw.get("card_ref") != f"candidate_{position}":
+            return []
+        card: dict[str, str] = {"card_ref": f"candidate_{position}"}
+        for field_name in allowed - {"card_ref"}:
+            value = raw.get(field_name)
+            if value is None:
+                continue
+            if not isinstance(value, str):
+                return []
+            text = safe_context_text(value).strip()
+            if text and not contains_sensitive_context_text(text):
+                card[field_name] = text[:200]
+        if not card.get("display_name"):
+            return []
+        cards.append(card)
+    return cards
 
-    A marker is trusted only when it arrived as a SystemMessage. User text that
-    imitates the marker is never parsed as card evidence. The graph checkpoint
-    scopes history to one conversation, and the newest marker replaces older
-    search context without making continuity depend on a fixed turn count.
+
+def validated_search_history(messages: list[Any]) -> list[dict[str, Any]]:
+    """Return up to four completed server-authored search result groups.
+
+    Each trusted SystemMessage marker is paired with the following user request
+    so separate searches (for example Shanghai and Shenzhen) remain distinct.
+    The request is quoted only as bounded data; card facts still come solely
+    from the server-frozen manifest. User-authored marker text is ignored.
     """
-    for index in range(len(messages) - 1, -1, -1):
-        message = messages[index]
+    searches: list[dict[str, Any]] = []
+    for index, message in enumerate(messages):
         if not isinstance(message, SystemMessage):
             continue
-        match = _SEARCH_CARDS.search(str(message.content or ""))
-        if match is None:
+        cards = _validated_cards(message)
+        if cards is None:
             continue
-        try:
-            raw_cards = json.loads(match.group(1))
-        except (TypeError, ValueError):
-            return []
-        if not isinstance(raw_cards, list) or len(raw_cards) > 3:
-            return []
-        cards: list[dict[str, str]] = []
-        allowed = {"card_ref", "display_name", "doing", "need", "offer", "short_intro"}
-        for position, raw in enumerate(raw_cards, start=1):
-            if not isinstance(raw, dict) or set(raw) - allowed:
-                return []
-            if raw.get("card_ref") != f"candidate_{position}":
-                return []
-            card: dict[str, str] = {"card_ref": f"candidate_{position}"}
-            for field_name in allowed - {"card_ref"}:
-                value = raw.get(field_name)
-                if value is None:
-                    continue
-                if not isinstance(value, str):
-                    return []
-                text = safe_context_text(value).strip()
-                if text and not contains_sensitive_context_text(text):
-                    card[field_name] = text[:200]
-            if not card.get("display_name"):
-                return []
-            cards.append(card)
-        return cards
-    return []
+        request = ""
+        for following in messages[index + 1 :]:
+            if isinstance(following, SystemMessage) and _SEARCH_CARDS.search(
+                str(following.content or "")
+            ):
+                break
+            if isinstance(following, HumanMessage):
+                request = safe_context_text(str(following.content or "")).strip()[:240]
+                break
+        searches.append({"request": request, "cards": cards})
+    return searches[-4:]
 
 
 @dataclass
@@ -276,7 +293,7 @@ def _review_messages(
         "reply": output.reply,
         "options": output.suggestions,
         "authorized_context": json.loads(host.quoted_data(greeting=True)),
-        "validated_search_cards": latest_validated_search_cards(messages),
+        "validated_search_history": validated_search_history(messages),
         "conversation": history,
         "mode": host.effective_mode,
     }

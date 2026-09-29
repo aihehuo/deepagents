@@ -18,6 +18,7 @@ from .schema import (
     IntentKind,
     PlannerContextV2,
     PlannerProfileV2,
+    PlannerSearchV2,
     PlannerTurnV2,
     ResourceQueriesV2,
 )
@@ -690,12 +691,31 @@ def build_planner_context(
     prior_messages: list[Any] | None,
     profile: Any | None,
     trusted: TrustedIntentContext | None,
+    prior_searches: list[dict[str, Any]] | None = None,
 ) -> PlannerContextV2:
     """Assemble the Phase 2 planner context with full retained episode history."""
     current = (message or "").strip()
     current_truncated = len(current) > 2000
     current = (current[:2000] if current else "(empty)")
     turns_list, turn_truncated = _episode_turns(prior_messages)
+    searches: list[PlannerSearchV2] = []
+    for raw in (prior_searches or [])[-4:]:
+        if not isinstance(raw, dict):
+            continue
+        cards = raw.get("cards")
+        if not isinstance(cards, list):
+            continue
+        names = tuple(
+            str(card.get("display_name") or "").strip()[:64]
+            for card in cards[:3]
+            if isinstance(card, dict) and str(card.get("display_name") or "").strip()
+        )
+        searches.append(
+            PlannerSearchV2(
+                request=str(raw.get("request") or "").strip()[:240],
+                result_names=names,
+            )
+        )
     if current_truncated or turn_truncated:
         prior_queries = ResourceQueriesV2()
         prior_intent = None
@@ -706,6 +726,7 @@ def build_planner_context(
             current_message=current or "(empty)",
             episode_turns=tuple(turns_list[-_MAX_EPISODE_TURNS:]),
             profile=planner_profile_from_store(profile),
+            prior_searches=tuple(searches),
             prior_completed_intent=prior_intent,
             prior_completed_queries=prior_queries,
             context_compressed=True,
@@ -721,6 +742,7 @@ def build_planner_context(
         current_message=current or "(empty)",
         episode_turns=turns,
         profile=planner_profile_from_store(profile),
+        prior_searches=tuple(searches),
         prior_completed_intent=prior_intent,
         prior_completed_queries=prior_queries,
         context_compressed=compressed,

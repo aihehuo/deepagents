@@ -220,6 +220,7 @@ def resolve_intent(
     profile: Any | None = None,
     profile_constraints: Any | None = None,
     profile_negations: tuple[str, ...] = (),
+    prior_searches: list[dict[str, Any]] | None = None,
 ) -> IntentResolution:
     """Resolve one turn via the authoritative planner on every turn.
 
@@ -234,6 +235,7 @@ def resolve_intent(
         profile: Persistent profile object including free-text doing/need/offer.
         profile_constraints: Ignored legacy Phase 1 argument.
         profile_negations: Ignored legacy Phase 1 argument.
+        prior_searches: Bounded completed search groups from this checkpoint.
 
     Returns:
         A contract-valid decision and bounded observe diagnostics.
@@ -251,6 +253,7 @@ def resolve_intent(
         prior_messages=prior_messages,
         profile=profile,
         trusted=trusted,
+        prior_searches=prior_searches,
     )
     if context.compression_reason in _OVERFLOW_FAIL_CLOSED:
         return _overflow_clarification(
@@ -290,6 +293,7 @@ async def aresolve_intent(
     profile: Any | None = None,
     profile_constraints: Any | None = None,
     profile_negations: tuple[str, ...] = (),
+    prior_searches: list[dict[str, Any]] | None = None,
 ) -> IntentResolution:
     """Async equivalent of `resolve_intent`, including a bounded planner timeout."""
     del profile_constraints, profile_negations
@@ -305,6 +309,7 @@ async def aresolve_intent(
         prior_messages=prior_messages,
         profile=profile,
         trusted=trusted,
+        prior_searches=prior_searches,
     )
     if context.compression_reason in _OVERFLOW_FAIL_CLOSED:
         return _overflow_clarification(

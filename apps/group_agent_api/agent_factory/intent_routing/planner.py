@@ -31,6 +31,12 @@ _TEMPORAL_EVIDENCE = {
 }
 _EXPLICIT_OPPORTUNITY = re.compile(r"创业机会|商业机会|创业方向|创业想法")
 _EXPLICIT_PROJECT = re.compile(r"项目|招募|招聘|加盟|招商|合作席位")
+_EXISTING_RESULT_REFERENCE = re.compile(
+    r"刚才|之前|上次|已有|找到的|找到了|搜索结果|这些|这几个|这几位|他们|她们|前两个|第[\s一二三\d]*个"
+)
+_NEW_SEARCH_REQUEST = re.compile(
+    r"重新搜|再搜|继续搜|重新找|再找|找更多|换一批|换条件|扩大范围|另外找"
+)
 _KNOWN_FIELDS = frozenset(
     {
         "version",
@@ -134,6 +140,17 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
     """Discard only fields irrelevant to the model-selected action, then validate."""
     draft = raw if isinstance(raw, PlannerDraftV2) else PlannerDraftV2.model_validate(raw)
     fields = draft.model_dump()
+    action = draft.action
+    if (
+        action == "query"
+        and context.prior_searches
+        and _EXISTING_RESULT_REFERENCE.search(context.current_message)
+        and not _NEW_SEARCH_REQUEST.search(context.current_message)
+    ):
+        _logger.info("intent_planner_existing_results_corrected from=query to=reply")
+        action = "reply"
+        fields["action"] = "reply"
+        fields["intent"] = "conversation"
     evidence = (draft.time_range_evidence or "").strip()
     human_turns = [context.current_message, *(
         turn.content for turn in context.episode_turns if turn.role == "human"
@@ -151,7 +168,7 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
             )
         fields["time_range"] = None
         fields["time_range_evidence"] = None
-    if draft.action == "query":
+    if action == "query":
         fields["clarification"] = None
         if (
             draft.intent == "project_partnership_search"

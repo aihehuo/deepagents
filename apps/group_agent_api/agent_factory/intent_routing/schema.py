@@ -127,12 +127,20 @@ class PlannerProfileV2(ClosedModel):
     match_constraints: tuple[str, ...] = Field(default=(), max_length=32)
 
 
+class PlannerSearchV2(ClosedModel):
+    """One completed search group already displayed in this conversation."""
+
+    request: str = Field(default="", max_length=240)
+    result_names: tuple[str, ...] = Field(default=(), max_length=3)
+
+
 class PlannerContextV2(ClosedModel):
     """Closed planner input: full retained episode, profile, and provenance flags."""
 
     current_message: str = Field(min_length=1, max_length=2000)
     episode_turns: tuple[PlannerTurnV2, ...] = Field(default=(), max_length=40)
     profile: PlannerProfileV2 = Field(default_factory=PlannerProfileV2)
+    prior_searches: tuple[PlannerSearchV2, ...] = Field(default=(), max_length=4)
     prior_completed_intent: IntentKind | None = None
     prior_completed_queries: ResourceQueriesV2 = Field(default_factory=ResourceQueriesV2)
     context_compressed: bool = False

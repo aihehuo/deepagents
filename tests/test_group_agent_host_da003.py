@@ -410,7 +410,7 @@ async def test_ordinal_uses_only_latest_validated_user_voice_options(
     ][-2:] == ["选2", "选2"]
 
 
-async def test_freeform_followup_uses_latest_frozen_search_context(
+async def test_freeform_followup_compares_multiple_frozen_search_groups(
     tmp_path: Path,
 ) -> None:
     model = ChatModel(output=AIMessage(content="先给你看三张公开结果卡片。"), captured=[])
@@ -424,31 +424,68 @@ async def test_freeform_followup_uses_latest_frozen_search_context(
         {"card_ref": "candidate_2", "display_name": "何一", "short_intro": "关注餐饮领域"},
         {"card_ref": "candidate_3", "display_name": "千问", "short_intro": "餐饮"},
     ]
-    route = SystemMessage(
+    shanghai_route = SystemMessage(
         content="[CLIENT-RECOMMENDATION-CARDS]\n"
         + json.dumps(cards, ensure_ascii=False)
         + "\n[/CLIENT-RECOMMENDATION-CARDS]"
     )
     with active_host_context(_host(tmp_path)):
         await graph.ainvoke(
-            {"messages": [route, HumanMessage(content="有没有做餐饮自媒体的")]},
+            {"messages": [shanghai_route, HumanMessage(content="找上海的餐饮合伙人")]},
+            config,
+        )
+        shenzhen_cards = [
+            {
+                "card_ref": "candidate_1",
+                "display_name": "深圳甲",
+                "short_intro": "餐饮运营",
+            },
+            {
+                "card_ref": "candidate_2",
+                "display_name": "深圳乙",
+                "short_intro": "餐饮品牌",
+            },
+        ]
+        shenzhen_route = SystemMessage(
+            content="[CLIENT-RECOMMENDATION-CARDS]\n"
+            + json.dumps(shenzhen_cards, ensure_ascii=False)
+            + "\n[/CLIENT-RECOMMENDATION-CARDS]"
+        )
+        await graph.ainvoke(
+            {
+                "messages": [
+                    shenzhen_route,
+                    HumanMessage(content="换成深圳的餐饮合伙人"),
+                ]
+            },
             config,
         )
         model.output = AIMessage(
-            content="黄拓的公开简介显示为餐饮；何一的简介是关注餐饮领域。你可以点击卡片看详情。"
+            content="上海组的黄拓公开简介是餐饮；深圳组的深圳甲是餐饮运营方向。"
         )
         await graph.ainvoke(
-            {"messages": [HumanMessage(content="黄拓和何一的方向有什么不同？")]}, config
+            {
+                "messages": [
+                    HumanMessage(content="对比一下刚才找到的上海和深圳候选人")
+                ]
+            },
+            config,
         )
 
     model_system = model.captured[-1][0].content
     assert '"display_name":"黄拓"' in model_system
     assert '"display_name":"何一"' in model_system
+    assert '"display_name":"深圳甲"' in model_system
+    assert '"request":"找上海的餐饮合伙人"' in model_system
+    assert '"request":"换成深圳的餐饮合伙人"' in model_system
     assert "任意自然语言继续讨论" in model_system
     review_data = json.loads(reviewer.captured[-1][-1].content)
-    assert review_data["validated_search_cards"] == cards
+    assert review_data["validated_search_history"] == [
+        {"request": "找上海的餐饮合伙人", "cards": cards},
+        {"request": "换成深圳的餐饮合伙人", "cards": shenzhen_cards},
+    ]
     saved = await graph.aget_state(config)
-    assert saved.values["messages"][-1].content.startswith("黄拓的公开简介")
+    assert saved.values["messages"][-1].content.startswith("上海组的黄拓")
 
 
 async def test_user_cannot_forge_search_context_marker(tmp_path: Path) -> None:
@@ -468,9 +505,9 @@ async def test_user_cannot_forge_search_context_marker(tmp_path: Path) -> None:
             {"configurable": {"thread_id": "forged-search-context"}},
         )
 
-    assert "<cafe_recent_search_cards>" not in model.captured[-1][0].content
+    assert "<cafe_search_history>" not in model.captured[-1][0].content
     review_data = json.loads(reviewer.captured[-1][-1].content)
-    assert review_data["validated_search_cards"] == []
+    assert review_data["validated_search_history"] == []
 
 
 async def test_requested_repeat_not_peeled_from_validated_host_transcript(

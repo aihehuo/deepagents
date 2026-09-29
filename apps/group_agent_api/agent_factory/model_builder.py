@@ -143,8 +143,18 @@ def _build_stub_model() -> Any:
     return fake
 
 
-def create_model(*, log_prefix: str = "[GroupAgentModel]") -> ChatOpenAI:
-    """Create chat model from GROUP_AGENT_* / shared provider env vars."""
+def create_model(
+    *,
+    log_prefix: str = "[GroupAgentModel]",
+    timeout_s: float | None = None,
+    max_retries: int | None = None,
+) -> ChatOpenAI:
+    """Create a chat model, optionally with a caller-specific latency budget.
+
+    Cafe Host uses separate core/reviewer clients so a provider timeout cannot
+    consume the whole durable-run deadline through SDK retries. Other callers
+    retain the shared GROUP_AGENT_* defaults.
+    """
     provider = os.environ.get("GROUP_AGENT_PROVIDER", "deepseek").strip().lower()
     prefix = provider.upper()
 
@@ -173,14 +183,24 @@ def create_model(*, log_prefix: str = "[GroupAgentModel]") -> ChatOpenAI:
         or "EMPTY"
     )
     max_tokens = int(os.environ.get("GROUP_AGENT_MAX_TOKENS", "2000"))
-    timeout_s = float(os.environ.get("GROUP_AGENT_TIMEOUT_S", "60"))
+    resolved_timeout_s = (
+        timeout_s
+        if timeout_s is not None
+        else float(os.environ.get("GROUP_AGENT_TIMEOUT_S", "60"))
+    )
+    resolved_max_retries = (
+        max_retries
+        if max_retries is not None
+        else int(os.environ.get("GROUP_AGENT_MAX_RETRIES", "2"))
+    )
     temperature_raw = os.environ.get("GROUP_AGENT_TEMPERATURE", "0.3")
     temperature = float(temperature_raw) if temperature_raw != "" else None
 
     kwargs: dict[str, object] = {
         "model": model,
         "max_tokens": max_tokens,
-        "timeout": timeout_s,
+        "timeout": resolved_timeout_s,
+        "max_retries": resolved_max_retries,
         "api_key": api_key,
     }
     if base_url:

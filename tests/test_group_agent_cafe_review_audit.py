@@ -37,11 +37,12 @@ async def test_original_text_repair_reasons_and_final(tmp_path: Path, monkeypatc
     reviews = [event for event in events if event["stage"] == "review"]
     assert "删除虚构点单状态" in reviews[0]["response"]
     assert reviews[1]["input_reply"] == "聊音乐就好。"
-    fallback = next(event for event in events if event["stage"] == "fallback")
-    assert fallback["reason"] == "review_budget_exhausted"
-    assert fallback["discarded_reply"] == "坐会儿就好。"
+    final_repair = next(
+        event for event in events if event["stage"] == "review_final_repair"
+    )
+    assert final_repair["reply"] == "坐会儿就好。"
     assert events[-1]["reply"] == output.reply
-    assert events[-1]["violations"] == ["host_semantic_repair"] * 3 + ["host_review_unavailable"]
+    assert events[-1]["violations"] == ["host_semantic_repair"] * 3 + ["host_review_final_repair"]
     assert files[0].stat().st_mode & 0o777 == 0o600
     assert files[0].parent.stat().st_mode & 0o777 == 0o700
 

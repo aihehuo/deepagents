@@ -41,10 +41,31 @@ def get_worker_runtime() -> dict[str, Any]:
         from apps.group_agent_api.agent_factory.integrations.config import llm_polish_enabled
         from apps.group_agent_api.agent_factory.model_builder import create_model
 
+        review_timeout_s = float(
+            os.environ.get("GROUP_AGENT_CAFE_REVIEW_TIMEOUT_S", "20")
+        )
+        core_timeout_s = float(
+            os.environ.get("GROUP_AGENT_CAFE_MODEL_TIMEOUT_S", "25")
+        )
+        # The durable worker already retries a failed run. Disable nested SDK
+        # retries for Cafe Host so one slow request cannot force a 120s attempt
+        # to repeat all planning and callback work.
         if llm_polish_enabled():
-            polish_model = create_model(log_prefix="[GroupAgentWorkerPolish]")
-        quality_model = polish_model or create_model(log_prefix="[GroupAgentWorkerQuality]")
-        greeting_model = create_model(log_prefix="[GroupAgentWorkerVenueGreeting]")
+            polish_model = create_model(
+                log_prefix="[GroupAgentWorkerPolish]",
+                timeout_s=review_timeout_s,
+                max_retries=0,
+            )
+        quality_model = polish_model or create_model(
+            log_prefix="[GroupAgentWorkerQuality]",
+            timeout_s=review_timeout_s,
+            max_retries=0,
+        )
+        greeting_model = create_model(
+            log_prefix="[GroupAgentWorkerVenueGreeting]",
+            timeout_s=core_timeout_s,
+            max_retries=0,
+        )
     except Exception as exc:  # noqa: BLE001
         _logger.warning("worker polish/quality model unavailable error_type=%s", type(exc).__name__)
 

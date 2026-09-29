@@ -57,11 +57,29 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
             llm_polish_enabled,
         )
 
+        review_timeout_s = float(
+            os.environ.get("GROUP_AGENT_CAFE_REVIEW_TIMEOUT_S", "20")
+        )
+        core_timeout_s = float(
+            os.environ.get("GROUP_AGENT_CAFE_MODEL_TIMEOUT_S", "25")
+        )
         if llm_polish_enabled():
-            polish_model = create_model(log_prefix="[GroupAgentPolish]")
+            polish_model = create_model(
+                log_prefix="[GroupAgentPolish]",
+                timeout_s=review_timeout_s,
+                max_retries=0,
+            )
         # Match-ready judge: reuse polish model when present, else dedicated instance.
-        quality_model = polish_model or create_model(log_prefix="[GroupAgentQuality]")
-        greeting_model = create_model(log_prefix="[GroupAgentVenueGreeting]")
+        quality_model = polish_model or create_model(
+            log_prefix="[GroupAgentQuality]",
+            timeout_s=review_timeout_s,
+            max_retries=0,
+        )
+        greeting_model = create_model(
+            log_prefix="[GroupAgentVenueGreeting]",
+            timeout_s=core_timeout_s,
+            max_retries=0,
+        )
     except Exception as exc:  # noqa: BLE001
         _logger.warning("polish/quality model unavailable: %s", exc)
 

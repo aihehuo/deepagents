@@ -56,40 +56,17 @@ async def test_second_repair_receives_final_validation(tmp_path: Path, asynchron
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
-async def test_no_unvalidated_third_repair_escapes(tmp_path: Path, asynchronous: bool) -> None:
+async def test_final_safe_repair_avoids_a_fourth_model_call(tmp_path: Path, asynchronous: bool) -> None:
     model = MagicMock()
-    responses = [_response("fail", f"修正版{i}。") for i in range(4)]
+    responses = [_response("fail", f"修正版{i}。") for i in range(3)]
     model.invoke.side_effect = responses
     model.ainvoke = AsyncMock(side_effect=responses)
     kwargs = {"host": _host(tmp_path), "messages": [], "model": model}
     result = await afinalize_host_output("原回复。", **kwargs) if asynchronous else finalize_host_output("原回复。", **kwargs)
-    assert not result.review_passed and "host_review_unavailable" in result.violations
-    assert "修正版" not in result.reply
-    assert (model.ainvoke.call_count if asynchronous else model.invoke.call_count) == 4
-
-
-@pytest.mark.parametrize("asynchronous", [False, True])
-async def test_third_repair_receives_a_final_verification(
-    tmp_path: Path, asynchronous: bool
-) -> None:
-    model = MagicMock()
-    responses = [
-        _response("fail", "第一版修正。"),
-        _response("fail", "第二版修正。"),
-        _response("fail", "第三版修正。"),
-        _response("pass", "第三版修正。", "通过"),
-    ]
-    model.invoke.side_effect = responses
-    model.ainvoke = AsyncMock(side_effect=responses)
-    kwargs = {"host": _host(tmp_path), "messages": [], "model": model}
-    result = (
-        await afinalize_host_output("原回复。", **kwargs)
-        if asynchronous
-        else finalize_host_output("原回复。", **kwargs)
-    )
-    assert result.reply == "第三版修正。"
-    assert result.review_passed
-    assert (model.ainvoke.call_count if asynchronous else model.invoke.call_count) == 4
+    assert result.reply == "修正版2。" and result.review_passed
+    assert "host_review_final_repair" in result.violations
+    assert "host_review_unavailable" not in result.violations
+    assert (model.ainvoke.call_count if asynchronous else model.invoke.call_count) == 3
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])

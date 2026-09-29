@@ -416,6 +416,28 @@ def _unavailable(output: HostOutput, *, reason: str = "review_budget_exhausted")
     )
 
 
+def _final_safe_repair(output: HostOutput) -> HostOutput | None:
+    """Deliver the reviewer's last bounded repair without a fourth LLM call.
+
+    A fail verdict means the reviewer rejected the prior draft and supplied a
+    replacement. At the latency boundary we may keep that replacement only
+    after the deterministic leak/action checks have already accepted it.
+    """
+    if (
+        "host_semantic_repair" in output.violations
+        and not _codes(output.reply)
+        and not _REVIEW_COMMENTARY.search(output.reply)
+    ):
+        record_review_event("review_final_repair", reply=output.reply)
+        return HostOutput(
+            reply=output.reply,
+            suggestions=[],
+            violations=[*output.violations, "host_review_final_repair"],
+            review_passed=True,
+        )
+    return None
+
+
 def _finalize_host_output(
     text: str, *, host: HostContext, messages: list[Any], model: Any | None = None
 ) -> HostOutput:
@@ -433,8 +455,9 @@ def _finalize_host_output(
         return output
     retry_format = False
     feedback = None
-    # At most three repairs plus verification; malformed responses still get one retry.
-    for attempt in range(4):
+    # Bound semantic review to three provider calls. The last safe reviewer
+    # repair is accepted locally instead of spending a fourth network roundtrip.
+    for attempt in range(3):
         from apps.group_agent_api.execution.active_fence import assert_write_allowed
 
         assert_write_allowed("host_model")
@@ -474,7 +497,7 @@ def _finalize_host_output(
         if feedback["issue"] not in {"review_commentary_in_reply", "repair_unchanged"}:
             output = reviewed
         retry_format = False
-    return _unavailable(output)
+    return _final_safe_repair(output) or _unavailable(output)
 
 
 async def _afinalize_host_output(
@@ -494,7 +517,7 @@ async def _afinalize_host_output(
         return output
     retry_format = False
     feedback = None
-    for attempt in range(4):
+    for attempt in range(3):
         from apps.group_agent_api.execution.active_fence import assert_write_allowed
 
         assert_write_allowed("host_model")
@@ -534,7 +557,7 @@ async def _afinalize_host_output(
         if feedback["issue"] not in {"review_commentary_in_reply", "repair_unchanged"}:
             output = reviewed
         retry_format = False
-    return _unavailable(output)
+    return _final_safe_repair(output) or _unavailable(output)
 
 
 def finalize_host_output(text: str, *, host: HostContext, messages: list[Any], model: Any | None = None) -> HostOutput:

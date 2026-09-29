@@ -120,8 +120,13 @@ def test_failure_cause_is_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         model.invoke.return_value = AIMessage(content="not JSON")
     finalize_host_output("安全正文。", host=_host(tmp_path), messages=[], model=model)
     record = json.loads(next((tmp_path / "cafe_review_audits").glob("review-*.json")).read_text())
-    fallback = next(event for event in record["events"] if event["stage"] == "fallback")
-    assert fallback["reason"] == ("review_exception" if failure == "exception" else "invalid_review")
+    terminal_stage = "review_degraded" if failure == "exception" else "fallback"
+    terminal = next(
+        event for event in record["events"] if event["stage"] == terminal_stage
+    )
+    assert terminal["reason"] == (
+        "review_exception" if failure == "exception" else "invalid_review"
+    )
     assert "private provider diagnostic" not in json.dumps(record)
 
 

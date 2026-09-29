@@ -69,6 +69,7 @@ _REVIEW = """你是小馆回复的安全与事实校验者，不是候选人裁�
 保留直接回答当前话题的内容：饮品一般常识、明确标为假设的案例、用户要的三个诚实标题、夜间创意联想都合法，不需要画像或候选证据。
 当前用户明确话题优先；旧资料只是可能过期的背景，不能作为所有事实唯一来源或用它改写话题。用户引用/测试/假设不是本人事实。
 用户明确请求方法、策略、市场调研、赛道选择或品牌定位建议时，相关的通用框架和条件式建议是合法回答，不需要画像或搜索证据。
+用户询问开店投入、成本或预算时，可以给出明确标注为粗估的区间、拆项和假设，并提示实际租金与报价需按选址核实；不得仅因没有实时本地报价而拒答或改成“不能确认”。
 不得因接待者“不是顾问”而要求删除普通帮助，也不得强制引用旧画像、找人需求或职业背景。
 纠正未经证实的统计、履历、夸大数字和保证；用户要求夸大不构成事实证据。一般知识可用，但本店配方/咖啡因剂量/点单状态没有可信来源，不能断言。
 没有其他客人的获准故事源，不得转述私聊、匿名编客人或造人物主页链接。不得泄露凭证、联系方式、内部术语，不得声称搜索/保存/发送/报名等动作，或建议调用本店没有的工具。
@@ -416,6 +417,27 @@ def _unavailable(output: HostOutput, *, reason: str = "review_budget_exhausted")
     )
 
 
+def _review_degraded(output: HostOutput, *, reason: str) -> HostOutput:
+    """Preserve deterministically safe prose when the private reviewer is down.
+
+    The semantic reviewer adds assurance but is not a source of user-facing
+    facts. Provider availability must not turn a valid answer into a refusal.
+    Suggestions are dropped because they have not received semantic review.
+    """
+    record_review_event(
+        "review_degraded",
+        reason=reason,
+        reply=output.reply,
+        violations=output.violations,
+    )
+    return HostOutput(
+        reply=output.reply,
+        suggestions=[],
+        violations=[*output.violations, "host_review_degraded"],
+        review_passed=False,
+    )
+
+
 def _final_safe_repair(output: HostOutput) -> HostOutput | None:
     """Deliver the reviewer's last bounded repair without a fourth LLM call.
 
@@ -479,7 +501,7 @@ def _finalize_host_output(
         except Exception as exc:
             record_review_event("review_exception", attempt=attempt + 1, exception_type=type(exc).__name__)
             _LOGGER.warning("host_review_exception exception_type=%s", type(exc).__name__)
-            return _unavailable(output, reason="review_exception")
+            return _review_degraded(output, reason="review_exception")
         if reviewed is None:
             _LOGGER.warning("host_review_invalid attempt=%s", attempt + 1)
             if attempt == 0:
@@ -539,7 +561,7 @@ async def _afinalize_host_output(
         except Exception as exc:
             record_review_event("review_exception", attempt=attempt + 1, exception_type=type(exc).__name__)
             _LOGGER.warning("host_review_exception exception_type=%s", type(exc).__name__)
-            return _unavailable(output, reason="review_exception")
+            return _review_degraded(output, reason="review_exception")
         if reviewed is None:
             _LOGGER.warning("host_review_invalid attempt=%s", attempt + 1)
             if attempt == 0:

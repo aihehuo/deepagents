@@ -120,7 +120,59 @@ def test_greeting_policy_does_not_infer_present_activity() -> None:
     assert "本店目前不搜索" not in HOST_INTERACTION
     assert "市场调研、赛道选择或品牌定位" in HOST_IDENTITY
     assert "不得因“不是顾问”" in HOST_IDENTITY
+    assert "开店大概需要多少投入" in HOST_IDENTITY
+    assert "禁止只回复“不能确认”" in HOST_IDENTITY
     assert "不得用旧 doing/need/offer 重定向回答" in HOST_INTERACTION
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_reviewer_timeout_preserves_safe_cost_estimate(
+    tmp_path: Path, asynchronous: bool
+) -> None:
+    text = (
+        "按80平方米社区咖啡店粗估，前期投入约35万到60万元："
+        "租押金、装修、设备、首批物料和三个月周转金都要算进去；"
+        "嘉兴具体租金仍需按商圈和铺位核实。"
+    )
+    model = MagicMock()
+    model.invoke.side_effect = TimeoutError("review timed out")
+    model.ainvoke = AsyncMock(side_effect=TimeoutError("review timed out"))
+    kwargs = {
+        "host": _host(tmp_path),
+        "messages": [HumanMessage(content="在嘉兴这样的城市大概需要多少投入？")],
+        "model": model,
+    }
+
+    result = (
+        await afinalize_host_output(text, **kwargs)
+        if asynchronous
+        else finalize_host_output(text, **kwargs)
+    )
+
+    assert result.reply == text
+    assert not result.review_passed
+    assert result.suggestions == []
+    assert "host_review_degraded" in result.violations
+    assert "host_review_unavailable" not in result.violations
+
+
+def test_reviewer_timeout_never_restores_deterministically_blocked_text(
+    tmp_path: Path,
+) -> None:
+    model = MagicMock()
+    model.invoke.side_effect = TimeoutError("review timed out")
+
+    result = finalize_host_output(
+        "请联系 founder@example.test，api_key=sk-TEST_SYNTHETIC_SECRET",
+        host=_host(tmp_path),
+        messages=[],
+        model=model,
+    )
+
+    assert "founder@example.test" not in result.reply
+    assert "sk-TEST_SYNTHETIC_SECRET" not in result.reply
+    assert "host_sensitive_text" in result.violations
+    assert "host_review_degraded" in result.violations
 
 
 @pytest.mark.parametrize("text", ["当前未提供可信来源，我无法确认这杯的具体剂量。", "这会违反游戏规则，玩起来就没意思了。"])

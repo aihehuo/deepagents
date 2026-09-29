@@ -71,6 +71,36 @@ _BINDING_REASONS = {
 }
 
 
+def _profile_people_query(context: PlannerContextV2) -> str:
+    """Build a bounded people query when the planner selected the wrong resource.
+
+    Explicit positive match constraints describe the desired candidate most
+    directly. The authorized need and doing fields provide semantic context
+    when structured constraints have not been saved yet. The user's generic
+    command (for example "I want to find someone") is deliberately excluded.
+    """
+    parts: list[str] = []
+    for line in context.profile.match_constraints:
+        field, separator, remainder = line.partition(":")
+        operator, value_separator, values = remainder.partition(":")
+        if (
+            separator
+            and value_separator
+            and field in {"city", "location", "industry", "role", "capability"}
+            and operator in {"eq", "in", "all", "any"}
+        ):
+            parts.extend(item.strip() for item in values.split(",") if item.strip())
+    for value in (context.profile.need, context.profile.doing):
+        text = str(value or "").strip()
+        if text:
+            parts.append(text)
+    unique: list[str] = []
+    for part in parts:
+        if part not in unique:
+            unique.append(part)
+    return (" ".join(unique) or "合伙人")[:160]
+
+
 def _validation_details(exc: ValidationError) -> list[dict[str, object]]:
     """Return bounded schema diagnostics without model-provided values or keys."""
     details: list[dict[str, object]] = []
@@ -184,7 +214,7 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
             )
             fields["intent"] = "people_search"
             fields["queries"] = ResourceQueriesV2(
-                users=context.current_message[:160]
+                users=_profile_people_query(context)
             ).model_dump()
         elif (
             draft.intent == "project_partnership_search"

@@ -922,15 +922,25 @@ def test_existing_search_comparison_does_not_create_another_query_plan() -> None
 
 
 def test_explicit_find_people_cannot_drift_to_community_search() -> None:
+    profile = SimpleNamespace(
+        doing="在上海筹备新型餐厅",
+        need="找有经验的餐厅运营负责人",
+        offer=None,
+        match_constraints=[],
+    )
     result = resolve_intent(
         "你好，我要找人",
         execution_mode="group_agent",
         can_search=True,
         planner_model=planner_returning(community_query("创业社群")),
+        profile=profile,
     )
     assert result.decision.primary_intent == "people_search"
     assert result.decision.action == "execute"
-    assert result.decision.resource_queries.users == "你好，我要找人"
+    query = result.decision.resource_queries.users or ""
+    assert "上海" in query
+    assert "餐厅运营负责人" in query
+    assert "你好，我要找人" not in query
 
     actual_community = resolve_intent(
         "我想在社群里找人",

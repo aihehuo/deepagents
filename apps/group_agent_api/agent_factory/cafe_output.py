@@ -75,6 +75,7 @@ validated_search_history 若非空，是服务器冻结的本对话近期公开�
 仅输出 JSON：{\"verdict\":\"pass\"或\"fail\",\"reply\":\"完整正文\",\"option_indices\":[从0起的合法选项序号],\"reason\":\"简短说明触犯的规则与需改内容；通过则填通过\"}。reason仅是审查结论，不输出思维链。
 pass 时 reply 必须与原正文完全相同；fail 时只修正有问题的部分，保持原话题，option_indices 必须为空。不输出工具调用。
 reply是客人直接看到的接待者聊天正文，不是审核报告。发现问题时实际删除或改写，不把“缺少可信来源、违反规则、需要删除”等审查解释放进reply；解释只放reason。fail必须改变正文，不重复待审内容。普通问候可以简短自然回应，不从旧职业画像推断当前经历；不能编造刚调好咖啡的精确参数或天气。客人使用英文时自然用英文接话。
+只审查当前 reply，不得在 reason 中重复已从当前 reply 删除的旧问题。当前 reply 已解决上轮问题时必须 pass，不得仅改空格或换行后继续 fail。
 """
 
 
@@ -367,10 +368,43 @@ def _repair_feedback(response: Any, output: HostOutput, reviewed: HostOutput) ->
     issue = ""
     if _REVIEW_COMMENTARY.search(reviewed.reply):
         issue = "review_commentary_in_reply"
-    elif not reviewed.review_passed and reviewed.reply.strip() == output.reply.strip():
+    elif not reviewed.review_passed and _review_text(reviewed.reply) == _review_text(
+        output.reply
+    ):
         issue = "repair_unchanged"
     record_review_event("repair_check", issue=issue or None)
     return {"issue": issue or "verify_repaired_reply", "reason": data.get("reason", ""), "instruction": "只在reason说明原因，reply实际改成自然聊天正文。"}
+
+
+def _review_text(text: str) -> str:
+    """Normalize formatting-only changes when checking reviewer convergence."""
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _converged_repair(
+    output: HostOutput, reviewed: HostOutput, *, attempt: int, issue: str
+) -> HostOutput | None:
+    """Keep a prior safe repair when the final review makes no real change.
+
+    The prior reply was authored by the reviewer and passed deterministic
+    leak/action checks. Distinct third rewrites still fail closed because they
+    have not received an independent verification.
+    """
+    if (
+        attempt == 2
+        and issue == "repair_unchanged"
+        and "host_semantic_repair" in output.violations
+        and not _codes(output.reply)
+        and not _REVIEW_COMMENTARY.search(output.reply)
+    ):
+        record_review_event("review_converged", discarded_noop_reply=reviewed.reply)
+        return HostOutput(
+            reply=output.reply,
+            suggestions=[],
+            violations=[*output.violations, "host_review_converged"],
+            review_passed=True,
+        )
+    return None
 
 
 def _unavailable(output: HostOutput, *, reason: str = "review_budget_exhausted") -> HostOutput:
@@ -430,6 +464,11 @@ def _finalize_host_output(
         feedback = _repair_feedback(response, output, reviewed)
         if reviewed.review_passed and not _REVIEW_COMMENTARY.search(reviewed.reply):
             return reviewed
+        converged = _converged_repair(
+            output, reviewed, attempt=attempt, issue=feedback["issue"]
+        )
+        if converged is not None:
+            return converged
         if feedback["issue"] not in {"review_commentary_in_reply", "repair_unchanged"}:
             output = reviewed
         retry_format = False
@@ -485,6 +524,11 @@ async def _afinalize_host_output(
         feedback = _repair_feedback(response, output, reviewed)
         if reviewed.review_passed and not _REVIEW_COMMENTARY.search(reviewed.reply):
             return reviewed
+        converged = _converged_repair(
+            output, reviewed, attempt=attempt, issue=feedback["issue"]
+        )
+        if converged is not None:
+            return converged
         if feedback["issue"] not in {"review_commentary_in_reply", "repair_unchanged"}:
             output = reviewed
         retry_format = False

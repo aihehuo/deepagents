@@ -66,6 +66,38 @@ async def test_no_unvalidated_third_repair_escapes(tmp_path: Path, asynchronous:
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
+async def test_final_noop_failure_preserves_verified_repair(
+    tmp_path: Path, asynchronous: bool
+) -> None:
+    """A stale final fail must not erase an already reviewed safe rewrite."""
+    draft = "建议草稿。"
+    repaired = "先明确目标顾客和消费场景，再对比周边门店与价格带。"
+    model = MagicMock()
+    responses = [
+        _response("fail", draft, "需要实际修正"),
+        _response("fail", repaired, "已删除未经证实的细节"),
+        _response("fail", repaired + "  \n", "重复上轮已删除的问题"),
+    ]
+    model.invoke.side_effect = responses
+    model.ainvoke = AsyncMock(side_effect=responses)
+    kwargs = {
+        "host": _host(tmp_path),
+        "messages": [HumanMessage(content="餐饮品牌定位应该怎么做？")],
+        "model": model,
+    }
+    result = (
+        await afinalize_host_output(draft, **kwargs)
+        if asynchronous
+        else finalize_host_output(draft, **kwargs)
+    )
+    assert result.reply == repaired
+    assert result.review_passed
+    assert "host_review_converged" in result.violations
+    assert "host_review_unavailable" not in result.violations
+    assert (model.ainvoke.call_count if asynchronous else model.invoke.call_count) == 3
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
 async def test_pass_does_not_allow_review_commentary(tmp_path: Path, asynchronous: bool) -> None:
     text = "当前未提供可信来源，需删除该推断。"
     model = MagicMock()

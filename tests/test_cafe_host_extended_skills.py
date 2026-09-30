@@ -7,8 +7,12 @@ from types import SimpleNamespace
 import pytest
 
 from apps.group_agent_api.agent_factory.intent_routing.resolver import resolve_intent
+from apps.group_agent_api.agent_factory.intent_routing.projection import (
+    IntentSearchProjection,
+)
 from apps.group_agent_api.app.cafe_host_search import (
     build_pending_search_offer,
+    build_search_projection,
     canonical_query_plan,
 )
 from apps.group_agent_api.app.chat_access import (
@@ -136,3 +140,58 @@ def test_ordinary_community_offer_preserves_group_query(
     assert offer is not None
     assert offer["intent"] == "community_search"
     assert offer["query_plan"]["queries"] == {"groups": "上海 创业社群"}
+
+
+@pytest.mark.parametrize("draft", (community_query("爱合伙 社群 新闻"), proposal(intent="conversation")))
+def test_news_about_the_community_routes_to_startup_digest(
+    monkeypatch: pytest.MonkeyPatch, draft: dict[str, object]
+) -> None:
+    monkeypatch.setenv("CAFE_HOST_V4_SEARCH_EXECUTION_ENABLED", "1")
+    monkeypatch.setenv("CAFE_HOST_V4_SEARCH_USER_ALLOWLIST", "1")
+    with active_chat_access(_access("active")):
+        result = resolve_intent(
+            "最近爱合伙社群有什么新闻",
+            execution_mode="cafe_host",
+            can_search=False,
+            planner_model=planner_returning(draft),
+        )
+    assert result.decision.action == "execute"
+    assert result.decision.primary_intent == "startup_digest"
+    assert result.decision.resource_queries.model_dump(exclude_none=True) == {}
+
+
+def test_community_projection_keeps_opaque_group_ids_and_public_urls() -> None:
+    receipt = SimpleNamespace(
+        resource="groups",
+        status="succeeded",
+        receipt_id="receipt-1",
+        source_urls=("https://www.aihehuo.com/ai/groups?q=%E7%88%B1%E5%90%88%E4%BC%99",),
+    )
+    execution = SimpleNamespace(
+        decision=SimpleNamespace(action="execute", primary_intent="community_search"),
+        receipts=[receipt],
+        evidence_by_receipt={
+            "receipt-1": [
+                {
+                    "id": "e763",
+                    "name": "上海地域群",
+                    "summary": "上海创业者交流社群",
+                    "url": "https://www.aihehuo.com/groups/e763",
+                }
+            ]
+        },
+    )
+    projection = build_search_projection(
+        execution,
+        IntentSearchProjection(completed=True, result_count=1),
+    )
+    assert projection is not None
+    assert projection["bar_entries"] == [
+        {
+            "kind": "groups",
+            "id": "e763",
+            "title": "上海地域群",
+            "summary": "上海创业者交流社群",
+            "source_url": "https://www.aihehuo.com/groups/e763",
+        }
+    ]

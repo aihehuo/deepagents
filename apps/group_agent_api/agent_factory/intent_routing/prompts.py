@@ -14,6 +14,8 @@ PLANNER_SYSTEM_PROMPT = """你是群智能体的唯一语义与检索规划器�
   不要把多个备选项或 OR 表达式拼进一条检索词。
   用户寻找创业机会、商业机会、创业方向或创业想法时使用 opportunity_search/ideas；
   只有用户明确寻找已有项目、项目招募、加盟、招商或合作席位时才使用 project_partnership_search/projects。
+  用户询问新闻、资讯、周报、简报、博客文章、最新消息或新动态时使用 startup_digest；
+  “社群”只是新闻主题时不使用 community_search。只有用户要查找社群实体、活动或成员时才使用 community_search/groups。
 - clarify：对象不足或指令冲突到无法安全检索；不要猜测检索词。
 - reply：普通对话、明确不要搜索、方法讨论，或应走画像更新（intent=profile_update）。
   用户询问“怎么做”“如何判断”“方法”“策略”“建议”“步骤”或“定位”时，必须作为

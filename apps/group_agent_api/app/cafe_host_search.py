@@ -310,12 +310,20 @@ def continuation_from_request(req: Any) -> tuple[str | None, IntentDecisionV1 | 
 
 
 def _public_id(raw: dict[str, Any], *keys: str) -> str:
+    """Return a bounded public record identity, including opaque group IDs.
+
+    Community records use event-style identifiers such as ``e763`` rather
+    than database integers. They are still stable public identities and must
+    not disappear while the same records remain visible in search evidence.
+    """
     for key in keys:
         value = raw.get(key)
         if isinstance(value, int) and not isinstance(value, bool) and value > 0:
             return str(value)
-        if isinstance(value, str) and value.strip().isdigit():
-            return value.strip()
+        if isinstance(value, str):
+            candidate = value.strip()
+            if candidate and len(candidate) <= 80 and re.fullmatch(r"[A-Za-z0-9_-]+", candidate):
+                return candidate
     return ""
 
 
@@ -347,11 +355,16 @@ def _cards_for_resource(
                     or ""
                 ).strip()
             )[:200]
+            item_url = str(item.get("url") or "").strip()
             card: dict[str, Any] = {
                 "kind": resource,
                 "id": identity,
                 "title": title,
-                "source_url": receipt.source_urls[0] if receipt.source_urls else "",
+                "source_url": (
+                    item_url
+                    if item_url.startswith(("https://www.aihehuo.com/", "http://www.aihehuo.com/"))
+                    else (receipt.source_urls[0] if receipt.source_urls else "")
+                ),
             }
             if summary:
                 card["summary"] = summary

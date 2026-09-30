@@ -54,6 +54,7 @@ _EXPLICIT_SEARCH_EXECUTION = re.compile(
 )
 _EXPLICIT_PEOPLE = re.compile(r"找人|找.{0,8}(?:合伙人|候选人|搭档|伙伴|人才)")
 _EXPLICIT_COMMUNITY = re.compile(r"社群|群组|社区|活动|群里|群成员|成员名单")
+_NEWS_CONTENT_REQUEST = re.compile(r"新闻|资讯|周报|简报|博客|文章|最新消息|新动态")
 _EXISTING_RESULT_REFERENCE = re.compile(
     r"刚才|之前|上次|已有|找到的|找到了|搜索结果|这些|这几个|这几位|他们|她们|前两个|第[\s一二三\d]*个"
 )
@@ -251,6 +252,21 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
         fields["queries"] = ResourceQueriesV2(
             projects=context.current_message[:160]
         ).model_dump()
+        fields["clarification"] = None
+    if (
+        _NEWS_CONTENT_REQUEST.search(context.current_message)
+        and _EXPLICIT_SEARCH_EXECUTION.search(context.current_message)
+        and not existing_result_followup
+    ):
+        _logger.info(
+            "intent_planner_resource_corrected from=%s to=startup_digest "
+            "reason=explicit_news_content_request",
+            fields.get("intent"),
+        )
+        action = "query"
+        fields["action"] = "query"
+        fields["intent"] = "startup_digest"
+        fields["queries"] = ResourceQueriesV2().model_dump()
         fields["clarification"] = None
     if (
         action == "query"

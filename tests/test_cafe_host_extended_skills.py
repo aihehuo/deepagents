@@ -18,6 +18,7 @@ from apps.group_agent_api.app.cafe_host_search import (
     canonical_query_plan,
     grounded_digest_reply,
     grounded_platform_help_reply,
+    soft_location_hint,
 )
 from apps.group_agent_api.app.chat_access import (
     ChatAccessContext,
@@ -53,6 +54,44 @@ def _access(mode: str) -> ChatAccessContext:
         user_token_sha256="-",
         group_token_sha256="-",
         user_id="1",
+    )
+
+
+def _location_hint_execution(
+    message: str,
+    query: str,
+    *,
+    hard_locations: tuple[str, ...] = (),
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        original_message=message,
+        decision=SimpleNamespace(
+            primary_intent="people_search",
+            constraints=SimpleNamespace(location=hard_locations),
+            resource_queries=SimpleNamespace(users=query),
+        ),
+    )
+
+
+def test_soft_people_location_hint_only_for_unfiltered_single_target_city() -> None:
+    hint = soft_location_hint(
+        _location_hint_execution("帮我找上海的餐饮合伙人", "上海 餐饮 合伙人")
+    )
+    assert "结果可能包含其他城市" in hint
+    assert "只找上海的候选人" in hint
+    assert not soft_location_hint(
+        _location_hint_execution(
+            "只找上海的餐饮合伙人", "上海 餐饮 合伙人", hard_locations=("上海",)
+        )
+    )
+    assert not soft_location_hint(
+        _location_hint_execution("找上海或深圳的合伙人", "上海 深圳 合伙人")
+    )
+    assert not soft_location_hint(
+        _location_hint_execution("我在上海，想找餐饮合伙人", "餐饮 合伙人")
+    )
+    assert not soft_location_hint(
+        _location_hint_execution("不要上海的候选人", "上海 候选人")
     )
 
 

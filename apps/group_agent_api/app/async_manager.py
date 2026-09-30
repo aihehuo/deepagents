@@ -1921,12 +1921,17 @@ async def _execute_core_agent(
             from apps.group_agent_api.app.cafe_host_search import (
                 grounded_search_reply,
                 search_suggestions,
+                soft_location_hint,
             )
 
             # Paid-search prose and cards must come from one frozen projection.
             # The Cafe model may have produced a conversational greeting before
             # the orchestrator attached the server-owned search results.
             visible_reply = grounded_search_reply(search_projection)
+            if search_projection["result_count"] > 0:
+                location_hint = soft_location_hint(intent_execution)
+                if location_hint:
+                    visible_reply = f"{visible_reply}\n\n{location_hint}"
             suggested_replies = search_suggestions(
                 empty=search_projection["result_count"] == 0
             )

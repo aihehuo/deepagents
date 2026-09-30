@@ -135,3 +135,16 @@ def explicit_hard_locations(text: str) -> tuple[str, ...]:
                 selected.append(canonical)
             break
     return tuple(selected[:10])
+
+
+def mentioned_locations(text: str) -> tuple[str, ...]:
+    """Return supported cities mentioned by the user, without making them hard filters."""
+    source = str(text or "")
+    selected: list[str] = []
+    for alias in aliases_for("location"):
+        if not phrase_in_text(source, alias):
+            continue
+        canonical = canonicalize_constraint_token("location", alias)
+        if canonical and canonical not in selected:
+            selected.append(canonical)
+    return tuple(selected)

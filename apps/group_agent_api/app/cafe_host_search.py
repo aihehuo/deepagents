@@ -17,6 +17,10 @@ from typing import Any, Iterator
 from apps.group_agent_api.agent_factory.contact_scrub import scrub_contact_text
 from apps.group_agent_api.agent_factory.intent_routing.canonical import canonical_hash
 from apps.group_agent_api.agent_factory.intent_routing.blog_articles import weekly_articles
+from apps.group_agent_api.agent_factory.intent_routing.constraint_lexicon import (
+    mentioned_locations,
+    phrase_in_text,
+)
 from apps.group_agent_api.agent_factory.intent_routing.execution import IntentExecution
 from apps.group_agent_api.agent_factory.intent_routing.projection import (
     IntentSearchProjection,
@@ -478,6 +482,37 @@ def grounded_search_reply(projection: dict[str, Any]) -> str:
         f"我按刚才的条件完成了公开搜索，共返回 {result_count} 条记录。"
         f"先给你看这些{subject}：{'、'.join(titles)}。"
         "结果已经放到杯垫里，点开可以查看详情。"
+    )
+
+
+def soft_location_hint(execution: IntentExecution | None) -> str:
+    """Explain how to request a strict city filter after a soft people search.
+
+    Called only for a completed Cafe Host search. The city must be present in
+    both the user's current request and the frozen people query, so a city
+    mentioned merely as background does not become a misleading suggestion.
+    """
+    if execution is None or execution.decision.primary_intent != "people_search":
+        return ""
+    if execution.decision.constraints.location:
+        return ""
+    cities = mentioned_locations(execution.original_message)
+    if len(cities) != 1:
+        return ""
+    city = cities[0]
+    query = execution.decision.resource_queries.users or ""
+    if not phrase_in_text(query, city):
+        return ""
+    excluded_city = re.search(
+        rf"(?:不要|不找|排除|除了|不限|非).{{0,8}}{re.escape(city)}"
+        rf"|{re.escape(city)}以外",
+        execution.original_message,
+    )
+    if excluded_city:
+        return ""
+    return (
+        f"这次按{city}相关条件查找，结果可能包含其他城市。"
+        f"如果只想看{city}的候选人，可以说“只找{city}的候选人”。"
     )
 
 

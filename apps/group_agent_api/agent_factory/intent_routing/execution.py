@@ -490,6 +490,36 @@ class IntentExecution:
 
         evidence = self.evidence_by_receipt.get(receipt.receipt_id)
         records = evidence if isinstance(evidence, list) else [evidence]
+        if reservation.step.resource == "weekly":
+            from .blog_articles import weekly_articles
+
+            # The weekly API returns one Markdown wrapper. Expand its article
+            # headings into the same bounded search_result item contract used
+            # by other public resources, so Micro can persist and restore
+            # tappable blog cards without storing the full article bodies.
+            articles: list[dict[str, str]] = []
+            for record in records:
+                if isinstance(record, dict) and isinstance(record.get("content"), str):
+                    articles.extend(weekly_articles(record["content"], limit=21))
+            items = [
+                {
+                    **article,
+                    "city": "",
+                    "industry": "",
+                    "role": "",
+                    "review_status": "not_applicable",
+                    "review_reasons": [],
+                }
+                for article in articles[:20]
+            ]
+            return {
+                "search_result": {
+                    **self._search_log_payload(reservation)["search_log"],
+                    "result_count": len(articles),
+                    "items": items,
+                    "truncated": len(articles) > len(items),
+                }
+            }
         if reservation.step.resource == "group-members" and len(records) == 1:
             wrapper = records[0]
             records = wrapper.get("members", []) if isinstance(wrapper, dict) else []

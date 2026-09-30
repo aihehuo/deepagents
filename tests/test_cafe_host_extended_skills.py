@@ -7,6 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 from apps.group_agent_api.agent_factory.intent_routing.resolver import resolve_intent
+from apps.group_agent_api.agent_factory.intent_routing.blog_articles import weekly_articles
+from apps.group_agent_api.agent_factory.intent_routing.execution import IntentExecution
 from apps.group_agent_api.agent_factory.intent_routing.projection import (
     IntentSearchProjection,
 )
@@ -188,8 +190,46 @@ def test_platform_news_uses_verified_weekly_articles_not_model_denial() -> None:
     assert "爱合伙博客近 7 天有更新" in reply
     assert "每日AI创业快讯 — 2026年9月30日" in reply
     assert "社群新动态" in reply
-    assert "https://www.aihehuo.com/blog/9437-news-2026-09-30" in reply
+    assert "博客杯垫" in reply
+    assert "https://www.aihehuo.com/blog/9437-news-2026-09-30" not in reply
     assert "没有平台" not in reply
+
+
+def test_weekly_markdown_projects_real_articles_into_search_result() -> None:
+    markdown = (
+        "# 爱合伙博客 · 近 7 日文章汇总\n\n"
+        "## 1. 每日AI创业快讯 — 2026年9月30日\n\n"
+        "- **链接**：https://www.aihehuo.com/blog/9437-news-2026-09-30\n"
+        "- **摘要**：今日 AI 新闻。\n\n"
+        "## 2. 项目优选\n\n"
+        "- **链接**：https://www.aihehuo.com/blog/9436-projects\n"
+        "- **摘要**：可合作项目。\n\n"
+        "## 3. 外部伪造链接\n\n"
+        "- **链接**：https://example.com/blog/evil\n"
+    )
+    articles = weekly_articles(markdown)
+    assert [article["id"] for article in articles] == ["9437-news-2026-09-30", "9436-projects"]
+    assert articles[0]["summary"] == "今日 AI 新闻。"
+
+    execution = SimpleNamespace(
+        evidence_by_receipt={"weekly-1": [{"content": markdown}]},
+        _search_log_payload=lambda _reservation: {"search_log": {
+            "search_id": "run:weekly-primary:1", "query": "（无关键词）",
+            "resource": "weekly", "plan_step_id": "weekly-primary",
+            "request_index": 1, "page": None,
+        }},
+    )
+    reservation = SimpleNamespace(step=SimpleNamespace(resource="weekly"))
+    receipt = SimpleNamespace(receipt_id="weekly-1")
+    result = IntentExecution._search_result_payload(execution, reservation, receipt)["search_result"]
+    assert result["result_count"] == 2
+    assert result["items"][0] == {
+        "id": "9437-news-2026-09-30",
+        "url": "https://www.aihehuo.com/blog/9437-news-2026-09-30",
+        "name": "每日AI创业快讯 — 2026年9月30日",
+        "city": "", "industry": "", "role": "", "summary": "今日 AI 新闻。",
+        "review_status": "not_applicable", "review_reasons": [],
+    }
 
 
 def test_weekly_read_without_extractable_posts_does_not_claim_no_news() -> None:

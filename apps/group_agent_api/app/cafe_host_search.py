@@ -16,6 +16,7 @@ from typing import Any, Iterator
 
 from apps.group_agent_api.agent_factory.contact_scrub import scrub_contact_text
 from apps.group_agent_api.agent_factory.intent_routing.canonical import canonical_hash
+from apps.group_agent_api.agent_factory.intent_routing.blog_articles import weekly_articles
 from apps.group_agent_api.agent_factory.intent_routing.execution import IntentExecution
 from apps.group_agent_api.agent_factory.intent_routing.projection import (
     IntentSearchProjection,
@@ -46,12 +47,6 @@ _BOUND_DIGEST: ContextVar[str | None] = ContextVar(
     default=None,
 )
 _HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
-_WEEKLY_ARTICLE = re.compile(
-    r"^##\s+\d+\.\s+(.+?)\s*$\n"
-    r"(?:(?!^##\s+\d+\.).*?)*?"
-    r"^-\s+\*\*链接\*\*：\s*(https://www\.aihehuo\.com/blog/[^\s]+)",
-    re.MULTILINE | re.DOTALL,
-)
 
 
 def _enabled(name: str) -> bool:
@@ -505,10 +500,9 @@ def grounded_digest_reply(execution: IntentExecution) -> str:
         for record in evidence:
             if not isinstance(record, dict) or not isinstance(record.get("content"), str):
                 continue
-            for match in _WEEKLY_ARTICLE.finditer(record["content"]):
-                title = scrub_contact_text(re.sub(r"\s+", " ", match.group(1)).strip())[:100]
-                url = match.group(2).rstrip(".,，。)")
-                if len(title) < 2 or url in seen:
+            for article in weekly_articles(record["content"], limit=3):
+                title, url = article["name"], article["url"]
+                if url in seen:
                     continue
                 seen.add(url)
                 articles.append((title, url))
@@ -524,7 +518,8 @@ def grounded_digest_reply(execution: IntentExecution) -> str:
             "不能据此判断没有新闻，请稍后再试。"
         )
     lines = ["爱合伙博客近 7 天有更新。最近的文章包括："]
-    lines.extend(f"{index}. [{title}]({url})" for index, (title, url) in enumerate(articles, start=1))
+    lines.extend(f"{index}. {title}" for index, (title, _url) in enumerate(articles, start=1))
+    lines.append("点开对应的博客杯垫，就能阅读文章详情。")
     return "\n".join(lines)
 
 

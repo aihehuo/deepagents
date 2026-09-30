@@ -35,9 +35,11 @@ _PRIMARY_QUERY = {
     "people_search": "users",
     "opportunity_search": "ideas",
     "project_partnership_search": "projects",
+    "community_search": "groups",
+    "startup_digest": None,
 }
-_PRIMARY_RESOURCE = dict(_PRIMARY_QUERY)
-_QUERY_FIELDS = ("users", "ideas", "projects")
+_PRIMARY_RESOURCE = {**_PRIMARY_QUERY, "startup_digest": "weekly"}
+_QUERY_FIELDS = ("users", "ideas", "projects", "groups", "faqs")
 _BAR_LIMIT = 3
 _BOUND_DIGEST: ContextVar[str | None] = ContextVar(
     "cafe_host_search_credential_digest",
@@ -122,7 +124,7 @@ def _clean_queries(intent: str, raw: dict[str, Any]) -> dict[str, str]:
             raise ValueError("query_plan_invalid")
         queries[field] = value.strip()[:160]
     primary = _PRIMARY_QUERY[intent]
-    if primary not in queries:
+    if primary is not None and primary not in queries:
         raise ValueError("query_plan_invalid")
     return queries
 
@@ -203,6 +205,8 @@ def decision_from_canonical_plan(query_plan: dict[str, Any]) -> IntentDecisionV1
             users=queries.get("users"),
             ideas=queries.get("ideas"),
             projects=queries.get("projects"),
+            groups=queries.get("groups"),
+            faqs=queries.get("faqs"),
         ),
         planner_version="intent-planner-v2",
     )
@@ -372,6 +376,10 @@ def build_search_projection(
     intent = execution.decision.primary_intent
     if intent not in PAID_SEARCH_INTENTS:
         return None
+    # A digest is a sourced narrative rather than a selectable entity list.
+    # Keep it in the normal grounded reply path instead of manufacturing cards.
+    if intent == "startup_digest":
+        return None
     primary = _PRIMARY_RESOURCE[intent]
     if intent == "people_search":
         cards = [
@@ -442,7 +450,14 @@ def grounded_search_reply(projection: dict[str, Any]) -> str:
         "people_search": "合伙人候选",
         "opportunity_search": "创业机会",
         "project_partnership_search": "可合作项目",
+        "community_search": "创业社群",
     }.get(intent, "结果")
+    if intent == "community_search":
+        return (
+            f"我按刚才的条件完成了公开社群搜索，共返回 {result_count} 条记录。"
+            f"先给你看这些{subject}：{'、'.join(titles)}。"
+            "你可以继续问我某个社群的公开信息或成员情况。"
+        )
     return (
         f"我按刚才的条件完成了公开搜索，共返回 {result_count} 条记录。"
         f"先给你看这些{subject}：{'、'.join(titles)}。"

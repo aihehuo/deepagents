@@ -75,28 +75,34 @@ BASE = next(
 KEY = "synthetic-cafe-access-contract-key-not-live"
 TIMESTAMP = "1790000000"
 NONCE = "synthetic-cafe-access-nonce"
-PAID = ["opportunity_search", "people_search", "project_partnership_search"]
+PAID = [
+    "community_search",
+    "opportunity_search",
+    "people_search",
+    "project_partnership_search",
+    "startup_digest",
+]
 LEGAL_EXPECTED = {
     "ordinary": {
-        "fingerprint": "429c75d695a125f02ec038180edde1edafe3c991e66d8f8973acc0254c26e64b",
-        "body_sha256": "63d0a3782c5507419e78b8d4a5c98dc3f1f57a96064ddfefc6232e1faa9cd4a4",
+        "fingerprint": "b024efe4eae48a2d7e37dd932ddd82dd870d77abb9e5c862d5cae0252d9a373b",
+        "body_sha256": "3f3996fe5af6f62e1f921770fcb95500997734f386c626bf59e63ba4350f37c9",
         "principal_hmac": "82694b7c4e47ab7f6351f483dc5b2677a074e80b0c1d3a6d8e37b7f1fa6f5a9f",
-        "body_hmac": "fccc33064d513eb3f1f146b837fcacb4b49080cf94abc8165aad53a7b055070a",
-        "aad_sha256": "a3ad1a4d6aef091abdf54a56f7035429a92a032003ccbd9707b3384589205f5d",
+        "body_hmac": "7d962f3c19fd7869734ec8457f889025da7421b77a952d9e3f39cf1638b05115",
+        "aad_sha256": "874afdd453a49f2252b4244f45195f8b1e09106852a3f6aed10c31fcc83a81d9",
     },
     "active_people": {
-        "fingerprint": "6b81dbab922d7991ee905c84a92b10e06f2149b3c40f50fae42d772b5d9b0951",
-        "body_sha256": "a75c89aef3add3cb6d6c70bffc2d837dd37df048830eb4613c7ea434a8f04676",
+        "fingerprint": "c25baa0fbef5cfb86c1030673c4d608fa86fb8f1c2a8ba839e2b12e602ac59ba",
+        "body_sha256": "c435478bdecb7c86bc2c0f396a9a67b9eaa250e75659b10bf442200d48c1cbd8",
         "principal_hmac": "9c265ca7fabab4bb9f9b2c37a192596ee381ea7f4d170501b4b8fdc5b17fd95d",
-        "body_hmac": "937b4b653d419572bc4376dbe0753a8f15b9ba6cc8fef6eeb49f6cb25ff665d3",
-        "aad_sha256": "74dd17017f1e7b2b6b3963b9faf779197287c58522402ce5d83e52d42a12743f",
+        "body_hmac": "8d3c7e4bac290b856e81a8469a870233bdf7647bc1c27ddf338ec5c5bb3dc4b9",
+        "aad_sha256": "3bea1b2775d2999077edb00eaf36fb70868fbfb088cd8f4bb97b66a9e37f83d9",
     },
     "active_global": {
-        "fingerprint": "a19f7e7fb52bbb7d16fce8321730759e8cd4f27520a8b49c8a064f19910513fc",
-        "body_sha256": "e119756cf03b8e06b74363aa22f1ca35d6597fe22b425b2bb11a8f37475432a6",
+        "fingerprint": "0e8006d7f6527c8b10e36b0055c2463b448a44194b1eedf3bdb8d607793652bb",
+        "body_sha256": "23636237fcb6335a321b6443ab032361fec145405b9ae48176434ff6e528430e",
         "principal_hmac": "3a0ec7efdd81724b6f30c90a1e17766d80699f8028044bf9ccfd866603cfc730",
-        "body_hmac": "3692b97b40c377ba6858d7b9e45148a36f57b4ed5d24b22246b6395500061bc1",
-        "aad_sha256": "c1877c752e977e0598249ea4c545506706e91ea5b4e97b1839eb0b747d942b7d",
+        "body_hmac": "a7eea5828d818d55122cd895a3d73de1c1363eca1b7ffbbbbdc5ade90948d1cc",
+        "aad_sha256": "4554215a2003be0fe2c3a156f101b29d9863f882fb7da1da90d7e987d7a74fb2",
     },
 }
 
@@ -244,12 +250,12 @@ def test_ordinary_vector_matches_frozen_fingerprint_hmac_and_aad() -> None:
     assert req.model_dump() == body
     assert (
         body["request_fingerprint"]
-        == "429c75d695a125f02ec038180edde1edafe3c991e66d8f8973acc0254c26e64b"
+        == "b024efe4eae48a2d7e37dd932ddd82dd870d77abb9e5c862d5cae0252d9a373b"
     )
     wire = canonical_json(body).encode()
     assert (
         hashlib.sha256(wire).hexdigest()
-        == "63d0a3782c5507419e78b8d4a5c98dc3f1f57a96064ddfefc6232e1faa9cd4a4"
+        == "3f3996fe5af6f62e1f921770fcb95500997734f386c626bf59e63ba4350f37c9"
     )
     headers = sign_principal(
         user_id=req.user_id,
@@ -268,7 +274,7 @@ def test_ordinary_vector_matches_frozen_fingerprint_hmac_and_aad() -> None:
     )
     assert (
         headers["X-GA-Request-Signature"]
-        == "fccc33064d513eb3f1f146b837fcacb4b49080cf94abc8165aad53a7b055070a"
+        == "7d962f3c19fd7869734ec8457f889025da7421b77a952d9e3f39cf1638b05115"
     )
     aad = build_aad(
         run_id=req.run_id,
@@ -279,7 +285,7 @@ def test_ordinary_vector_matches_frozen_fingerprint_hmac_and_aad() -> None:
     )
     assert (
         hashlib.sha256(aad).hexdigest()
-        == "a3ad1a4d6aef091abdf54a56f7035429a92a032003ccbd9707b3384589205f5d"
+        == "874afdd453a49f2252b4244f45195f8b1e09106852a3f6aed10c31fcc83a81d9"
     )
 
 
@@ -305,6 +311,20 @@ def test_v4_invalid_access_mutations_fail_closed(
     body["request_fingerprint"] = calculate_v4_fingerprint(body)
     with pytest.raises((HTTPException, ValueError)):
         AsyncCallRequest.model_validate(body)
+
+
+def test_v4_accepts_legacy_paid_partition_for_rolling_deploy_replay() -> None:
+    body = _v4_body()
+    body["chat_access"]["restricted_search_intents"] = [
+        "opportunity_search",
+        "people_search",
+        "project_partnership_search",
+    ]
+    body["request_fingerprint"] = calculate_v4_fingerprint(body)
+    req = AsyncCallRequest.model_validate(body)
+    assert req.chat_access["restricted_search_intents"] == body["chat_access"][
+        "restricted_search_intents"
+    ]
 
 
 def test_v4_wire_rejects_duplicate_keys_and_model_drift() -> None:
@@ -437,6 +457,8 @@ def test_access_context_blocks_each_paid_intent_resource_and_false_final() -> No
             ("people_search", "users"),
             ("opportunity_search", "ideas"),
             ("project_partnership_search", "projects"),
+            ("community_search", "groups"),
+            ("startup_digest", "weekly"),
         ):
             assert access.control_for_intent(intent) == "chat_session_required"
             with pytest.raises(ChatAccessRejected, match="chat_session_required"):

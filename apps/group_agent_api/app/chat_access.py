@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Iterator, Literal
 
 from apps.group_agent_api.app.execution_modes import (
+    FREE_SEARCH_INTENTS,
     PAID_SEARCH_INTENTS,
     validate_v4_request,
 )
@@ -22,16 +23,23 @@ AccessCode = Literal[
 ]
 
 _INTENT_RESOURCES = {
-    "people_search": frozenset({"users", "group-members"}),
-    "opportunity_search": frozenset({"ideas", "blog", "weekly"}),
+    "people_search": frozenset({"users"}),
+    "opportunity_search": frozenset({"ideas", "projects"}),
     "project_partnership_search": frozenset({"projects"}),
+    "community_search": frozenset({"groups", "group-members"}),
+    "startup_digest": frozenset({"weekly", "blog"}),
+    "platform_help": frozenset({"faqs"}),
 }
-# Resources a confirmed Cafe Host plan may actually call. Conditional steps stay
-# inside the frozen registry plan; blog/weekly remain denied.
+# Resources each Cafe Host plan may actually call. Conditional steps stay
+# inside the frozen registry plan; the scoped credential fence still applies
+# to every paid resource.
 _AUTHORIZED_RESOURCES = {
-    "people_search": frozenset({"users", "group-members"}),
+    "people_search": frozenset({"users"}),
     "opportunity_search": frozenset({"ideas", "projects"}),
     "project_partnership_search": frozenset({"projects", "ideas"}),
+    "community_search": frozenset({"groups", "group-members"}),
+    "startup_digest": frozenset({"weekly", "blog"}),
+    "platform_help": frozenset({"faqs"}),
 }
 _SEARCH_CLAIM = re.compile(
     r"(?:正在|已经|刚刚|后台|马上).{0,8}(?:搜索|查询|查找)|(?:搜索|查询).{0,8}(?:完成|结果)|(?:找到了|查到了)",
@@ -129,6 +137,10 @@ class ChatAccessContext:
         """Return whether this frozen run may execute one paid intent now."""
         return intent in PAID_SEARCH_INTENTS and self.control_for_intent(intent) is None
 
+    def execution_open(self, intent: str) -> bool:
+        """Return whether this run may execute a paid or explicitly free read."""
+        return intent in FREE_SEARCH_INTENTS or self.paid_execution_open(intent)
+
     def assert_resource_allowed(self, *, intent: str, resource: str) -> None:
         """Fail closed at the scoped wrapper even if registry policy was bypassed.
 
@@ -139,9 +151,11 @@ class ChatAccessContext:
         Raises:
             ChatAccessRejected: The run has no matching paid authorization.
         """
-        if self.paid_execution_open(intent) and resource in _AUTHORIZED_RESOURCES.get(
+        if self.execution_open(intent) and resource in _AUTHORIZED_RESOURCES.get(
             intent, frozenset()
         ):
+            if intent in FREE_SEARCH_INTENTS:
+                return
             from apps.group_agent_api.app.cafe_host_search import (
                 current_bound_credential_digest,
             )
@@ -149,7 +163,7 @@ class ChatAccessContext:
             if current_bound_credential_digest() != self.user_token_sha256:
                 raise ChatAccessRejected("search_capability_unavailable")
             return
-        if intent in PAID_SEARCH_INTENTS or any(
+        if intent in (*PAID_SEARCH_INTENTS, *FREE_SEARCH_INTENTS) or any(
             resource in resources for resources in _INTENT_RESOURCES.values()
         ):
             code = self.control_for_intent(intent) or "chat_session_required"
@@ -184,7 +198,7 @@ class ChatAccessContext:
         # exact run. The active drink and frozen intent allowlist authorize the
         # execution itself; legacy confirmation fields are not needed here.
         authorized = bool(receipt_intents) and all(
-            self.paid_execution_open(intent) for intent in receipt_intents
+            self.execution_open(intent) for intent in receipt_intents
         )
         if (
             projection_digest != bound_projection_digest

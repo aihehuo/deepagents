@@ -40,11 +40,13 @@ def _enforce_chat_access(resource: str) -> None:
 
     intent = {
         "users": "people_search",
-        "group-members": "people_search",
         "ideas": "opportunity_search",
-        "blog": "opportunity_search",
-        "weekly": "opportunity_search",
         "projects": "project_partnership_search",
+        "groups": "community_search",
+        "group-members": "community_search",
+        "blog": "startup_digest",
+        "weekly": "startup_digest",
+        "faqs": "platform_help",
     }.get(resource)
     access = current_chat_access()
     if access is not None and intent is not None:

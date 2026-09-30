@@ -35,11 +35,19 @@ MODE_FIELDS = {
     "memory_scope_id",
 }
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-PAID_SEARCH_INTENTS = (
+LEGACY_PAID_SEARCH_INTENTS = (
     "opportunity_search",
     "people_search",
     "project_partnership_search",
 )
+PAID_SEARCH_INTENTS = (
+    "community_search",
+    "opportunity_search",
+    "people_search",
+    "project_partnership_search",
+    "startup_digest",
+)
+FREE_SEARCH_INTENTS = ("platform_help",)
 
 
 def _time(value: Any) -> datetime:
@@ -282,6 +290,14 @@ def validate_v4_request(value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("schema_invalid: invalid search intent partition")
         if any(item not in PAID_SEARCH_INTENTS for item in values):
             raise ValueError("schema_invalid: invalid search intent partition")
+    partition = access["allowed_search_intents"] + access["restricted_search_intents"]
+    supported_partitions = {
+        LEGACY_PAID_SEARCH_INTENTS,
+        PAID_SEARCH_INTENTS,
+    }
+    if tuple(sorted(partition)) not in supported_partitions:
+        raise ValueError("schema_invalid: invalid search intent partition")
+    frozen_paid_intents = list(sorted(partition))
 
     if access["mode"] == "ordinary":
         _equal(binding, {"user_token_sha256": "-", "group_token_sha256": "-"})
@@ -289,13 +305,13 @@ def validate_v4_request(value: dict[str, Any]) -> dict[str, Any]:
         _equal(access["search_confirmation_id"], None)
         _equal(access["confirmed_search_intent"], None)
         _equal(access["allowed_search_intents"], [])
-        _equal(access["restricted_search_intents"], list(PAID_SEARCH_INTENTS))
+        _equal(access["restricted_search_intents"], frozen_paid_intents)
     else:
         if binding["user_token_sha256"] == "-":
             raise ValueError("schema_invalid: active user credential missing")
         if access["drink_session_id"] is None:
             raise ValueError("schema_invalid: active drink session missing")
-        _equal(access["allowed_search_intents"], list(PAID_SEARCH_INTENTS))
+        _equal(access["allowed_search_intents"], frozen_paid_intents)
         _equal(access["restricted_search_intents"], [])
         confirmed = access["search_confirmation_id"]
         intent = access["confirmed_search_intent"]

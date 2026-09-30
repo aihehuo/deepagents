@@ -206,7 +206,13 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
     if (
         action == "query"
         and fields["intent"]
-        in {"people_search", "opportunity_search", "project_partnership_search"}
+        in {
+            "people_search",
+            "opportunity_search",
+            "project_partnership_search",
+            "community_search",
+            "startup_digest",
+        }
         and advice_without_search_request
     ):
         _logger.info(

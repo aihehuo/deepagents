@@ -1931,6 +1931,18 @@ async def _execute_core_agent(
         elif (
             intent_search.completed
             and intent_execution is not None
+            and intent_execution.decision.primary_intent == "platform_help"
+        ):
+            from apps.group_agent_api.app.cafe_host_search import grounded_platform_help_reply
+
+            # The model's Cafe Host prompt is intentionally tool-free. Reply
+            # from the current verified FAQ receipt, never from its guess about
+            # whether the platform or a particular certification step exists.
+            visible_reply = grounded_platform_help_reply(intent_execution)
+            suggested_replies = []
+        elif (
+            intent_search.completed
+            and intent_execution is not None
             and intent_execution.decision.primary_intent == "startup_digest"
         ):
             from apps.group_agent_api.app.cafe_host_search import grounded_digest_reply

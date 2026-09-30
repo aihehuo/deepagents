@@ -17,6 +17,7 @@ from apps.group_agent_api.app.cafe_host_search import (
     build_search_projection,
     canonical_query_plan,
     grounded_digest_reply,
+    grounded_platform_help_reply,
 )
 from apps.group_agent_api.app.chat_access import (
     ChatAccessContext,
@@ -27,6 +28,7 @@ from tests.unit_tests.group_agent_api.planner_fixtures import (
     community_query,
     planner_returning,
     proposal,
+    reply,
 )
 
 
@@ -87,6 +89,61 @@ def test_platform_help_is_free_in_ordinary_mode() -> None:
         reply="本次平台 FAQ 查询已经完成。",
         receipt_intents=("platform_help",),
     )
+
+
+def test_cafe_real_name_verification_routes_to_free_faq_even_if_planner_says_chat() -> None:
+    with active_chat_access(_access("ordinary")):
+        result = resolve_intent(
+            "爱合伙平台如何完成实名认证",
+            execution_mode="cafe_host",
+            can_search=True,
+            planner_model=planner_returning(reply()),
+        )
+    assert result.decision.action == "execute"
+    assert result.decision.primary_intent == "platform_help"
+    assert result.decision.resource_queries.faqs == "实名认证"
+
+    # A legacy/unfrozen Cafe run must not gain a free read just by naming it.
+    legacy = resolve_intent(
+        "爱合伙平台如何完成实名认证",
+        execution_mode="cafe_host",
+        can_search=False,
+        planner_model=planner_returning(reply()),
+    )
+    assert legacy.decision.action == "reject"
+
+
+def test_general_advice_and_explicit_no_search_stay_in_conversation() -> None:
+    with active_chat_access(_access("ordinary")):
+        for message in (
+            "我想入局餐饮行业，应该怎么做品牌定位？",
+            "不要查询，直接聊聊爱合伙实名认证为什么重要",
+        ):
+            result = resolve_intent(
+                message,
+                execution_mode="cafe_host",
+                can_search=True,
+                planner_model=planner_returning(reply()),
+            )
+            assert result.decision.action == "conversation"
+
+
+def test_real_name_faq_reply_uses_only_verified_current_receipt() -> None:
+    execution = SimpleNamespace(
+        receipts=[SimpleNamespace(resource="faqs", status="succeeded", receipt_id="faq-1")],
+        evidence_by_receipt={"faq-1": [
+            {"question": "如何完成实名认证", "answer": "在 App 的认证页面提交资料并等待审核。"}
+        ]},
+    )
+    answer = grounded_platform_help_reply(execution)
+    assert "如何完成实名认证" in answer
+    assert "在 App 的认证页面提交资料并等待审核" in answer
+    assert "没有平台" not in answer
+
+    execution.evidence_by_receipt = {}
+    unavailable = grounded_platform_help_reply(execution)
+    assert "没有返回足以核实具体操作的答案" in unavailable
+    assert "没有平台" not in unavailable
 
 
 @pytest.mark.parametrize(

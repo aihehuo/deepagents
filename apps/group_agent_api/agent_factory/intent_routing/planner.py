@@ -55,6 +55,10 @@ _EXPLICIT_SEARCH_EXECUTION = re.compile(
 _EXPLICIT_PEOPLE = re.compile(r"找人|找.{0,8}(?:合伙人|候选人|搭档|伙伴|人才)")
 _EXPLICIT_COMMUNITY = re.compile(r"社群|群组|社区|活动|群里|群成员|成员名单")
 _NEWS_CONTENT_REQUEST = re.compile(r"新闻|资讯|周报|简报|博客|文章|最新消息|新动态")
+_AIHEHUO_REAL_NAME_HELP = re.compile(
+    r"爱合伙.{0,24}(?:实名认证|实名验证)|(?:实名认证|实名验证).{0,24}爱合伙"
+)
+_NO_PLATFORM_READ = re.compile(r"不要(?:搜索|查询|查)|不用(?:搜索|查询|查)|别(?:搜索|查询|查)")
 _EXISTING_RESULT_REFERENCE = re.compile(
     r"刚才|之前|上次|已有|找到的|找到了|搜索结果|这些|这几个|这几位|他们|她们|前两个|第[\s一二三\d]*个"
 )
@@ -215,6 +219,19 @@ def _proposal_from_raw(raw: Any, context: PlannerContextV2) -> PlannerProposalV2
         _ADVICE_REQUEST.search(context.current_message)
         and not _EXPLICIT_SEARCH_EXECUTION.search(context.current_message)
     )
+    # The model sometimes mistakes a concrete App workflow for generic
+    # entrepreneurial advice. This narrow repair covers the platform's own
+    # identity-verification help without expanding paid search routing.
+    if (
+        _AIHEHUO_REAL_NAME_HELP.search(context.current_message)
+        and not _NO_PLATFORM_READ.search(context.current_message)
+        and not existing_result_followup
+    ):
+        fields["action"] = "query"
+        fields["intent"] = "platform_help"
+        fields["queries"] = ResourceQueriesV2(faqs="实名认证").model_dump()
+        fields["clarification"] = None
+        action = "query"
     if (
         action == "query"
         and fields["intent"]

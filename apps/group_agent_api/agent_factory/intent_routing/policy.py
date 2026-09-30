@@ -86,7 +86,10 @@ def build_decision_from_planner(
             and paid_execution_authorized
             and intent in _CAFE_PAID_INTENTS
         )
-        if not ((execution_mode == "group_agent" and can_search) or cafe_paid):
+        # v4 Cafe Host freezes a ChatAccess context before planning. Its FAQ
+        # read is explicitly free; do not apply the paid-drink gate to it.
+        cafe_free = execution_mode == "cafe_host" and can_search and intent == "platform_help"
+        if not ((execution_mode == "group_agent" and can_search) or cafe_paid or cafe_free):
             return IntentDecisionV1(
                 primary_intent=intent,
                 confidence="high",

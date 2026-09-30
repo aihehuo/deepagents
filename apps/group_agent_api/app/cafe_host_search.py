@@ -481,6 +481,37 @@ def grounded_search_reply(projection: dict[str, Any]) -> str:
     )
 
 
+def grounded_platform_help_reply(execution: IntentExecution) -> str:
+    """Answer platform operations only from this run's completed FAQ receipts.
+
+    The host model has no direct tool access. A server-owned answer prevents an
+    evidence-blind draft from denying that the App exists or inventing steps.
+    """
+    answers: list[str] = []
+    for receipt in execution.receipts:
+        if receipt.resource != "faqs" or receipt.status not in {"succeeded", "empty"}:
+            continue
+        evidence = execution.evidence_by_receipt.get(receipt.receipt_id)
+        for item in evidence if isinstance(evidence, list) else []:
+            if not isinstance(item, dict):
+                continue
+            question = scrub_contact_text(str(item.get("question") or item.get("title") or "").strip())[:100]
+            answer = scrub_contact_text(str(item.get("answer") or item.get("body") or "").strip())[:600]
+            if answer:
+                answers.append(f"{question}：{answer}" if question else answer)
+            if len(answers) >= 2:
+                break
+        if len(answers) >= 2:
+            break
+    if not answers:
+        return (
+            "爱合伙有 App 和网站，也提供实名认证功能；"
+            "但这次公开 FAQ 没有返回足以核实具体操作的答案。"
+            "请在 App 的个人资料或认证页面查看当前入口，或联系平台客服确认。"
+        )
+    return "我查到了爱合伙公开 FAQ 中的相关说明：\n" + "\n".join(answers)
+
+
 def grounded_digest_reply(execution: IntentExecution) -> str:
     """Answer a completed Cafe Host blog read from its verified weekly receipt.
 

@@ -1066,7 +1066,9 @@ async def _execute_core_agent(
                         execution_mode=execution_mode,
                         episode_id=str(episode_id) if episode_id else None,
                     ),
-                    planner_model=state.quality_model or state.polish_model,
+                    planner_model=(
+                        state.planner_model or state.quality_model or state.polish_model
+                    ),
                     profile=load_profile(state.base_dir, user_id, group_id),
                     prior_searches=prior_searches,
                 )

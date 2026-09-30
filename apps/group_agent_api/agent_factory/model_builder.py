@@ -274,3 +274,31 @@ def create_model(
             os.environ.get("GROUP_AGENT_MAX_INPUT_TOKENS", "32000")
         )
     return chat
+
+
+def create_planner_model() -> Any:
+    """Build the bounded, non-thinking client used only for intent planning.
+
+    The planner emits one small structured decision, not a user-facing answer.
+    Keeping its output budget separate from the general/review clients prevents
+    a long hidden generation from consuming the entire durable-run deadline.
+    """
+    chat = create_model(
+        log_prefix="[GroupAgentIntentPlanner]",
+        timeout_s=25,
+        max_retries=0,
+    )
+    if not isinstance(chat, ChatOpenAI):
+        return chat
+    if os.environ.get("GROUP_AGENT_PROVIDER", "deepseek").strip().lower() in {
+        "qwen",
+        "dashscope",
+    }:
+        chat = chat.model_copy(
+            update={
+                "extra_body": {**(chat.extra_body or {}), "enable_thinking": False},
+                "max_tokens": 512,
+                "temperature": 0,
+            }
+        )
+    return chat

@@ -27,6 +27,7 @@ class AppState:
     admin_agent: Any | None = None  # ops-brain persona (source=group_agent_admin_debug)
     polish_model: Any | None = None  # optional LLM for invite polish
     quality_model: Any | None = None  # optional LLM for profile match-ready (REQ-029)
+    planner_model: Any | None = None  # bounded model for intent/query planning
     cafe_shadow_review_model: Any | None = None  # observer only; never gates replies
     thread_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
     active_agent_runs: dict[str, str] = field(default_factory=dict)

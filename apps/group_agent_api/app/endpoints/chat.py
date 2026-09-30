@@ -422,7 +422,9 @@ async def chat(req: ChatRequest, state: AppState, request: Request | None = None
                             execution_mode="group_agent",
                             episode_id=_episode_id_from_metadata(req.metadata),
                         ),
-                        planner_model=state.quality_model or state.polish_model,
+                        planner_model=(
+                            state.planner_model or state.quality_model or state.polish_model
+                        ),
                         profile=load_profile(state.base_dir, user_id, group_id),
                     )
                     record_intent_prediction(

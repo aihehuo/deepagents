@@ -28,7 +28,11 @@ from apps.group_agent_api.agent_factory.intent_routing.context import (
     extract_completed_context,
     planner_profile_from_store,
 )
-from apps.group_agent_api.agent_factory.intent_routing.planner import aplan_intent
+from apps.group_agent_api.agent_factory.intent_routing.planner import (
+    _structured,
+    aplan_intent,
+)
+from apps.group_agent_api.agent_factory.model_builder import create_planner_model
 from apps.group_agent_api.agent_factory.intent_routing.resolver import (
     IntentResolution,
     aresolve_intent,
@@ -75,6 +79,32 @@ def _query_plan_would_run(result: Any) -> bool:
         result.decision.action == "execute"
         and result.decision.query_plan_ref is not None
     )
+
+
+def test_qwen_planner_uses_bounded_non_thinking_tool_decision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep the production planner off the slow JSON-schema/thinking request path."""
+    monkeypatch.setenv("GROUP_AGENT_PROVIDER", "qwen")
+    monkeypatch.setenv("GROUP_AGENT_MODEL", "qwen-plus")
+    monkeypatch.setenv("GROUP_AGENT_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-only-key")
+    monkeypatch.setenv("GROUP_AGENT_MODEL_MODE", "real")
+    model = create_planner_model()
+
+    assert model.request_timeout == 25
+    assert model.max_tokens == 512
+    assert model.max_retries == 0
+    assert model.temperature == 0
+    assert model.extra_body == {"enable_thinking": False}
+    payload = model._get_request_payload([HumanMessage(content="test")])
+    assert payload["extra_body"] == {"enable_thinking": False}
+    assert payload["max_completion_tokens"] == 512
+    structured = _structured(model)
+    kwargs = structured.first.kwargs
+    assert "response_format" not in kwargs
+    assert kwargs["tool_choice"]["function"]["name"] == "PlannerDraftV2"
+    assert kwargs["parallel_tool_calls"] is False
 
 
 def _assert_routing_diagnostics(

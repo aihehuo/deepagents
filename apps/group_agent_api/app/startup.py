@@ -12,7 +12,10 @@ from apps.group_agent_api.agent_factory.integrations.config import (
     integration_mode,
 )
 from apps.group_agent_api.agent_factory.member_graphs import build_member_graphs
-from apps.group_agent_api.agent_factory.model_builder import create_model
+from apps.group_agent_api.agent_factory.model_builder import (
+    create_model,
+    create_planner_model,
+)
 from apps.group_agent_api.app.anonymous_config import anonymous_enabled, anonymous_limits
 from apps.group_agent_api.app.state import AppState
 from deepagents.observability import UCObserver
@@ -51,6 +54,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         anonymous_agent = create_anonymous_agent(skills_dir=runtime / "skills" / "aihehuo", model=base_model)
     polish_model = None
     quality_model = None
+    planner_model = None
     greeting_model = None
     cafe_shadow_review_model = None
     try:
@@ -76,6 +80,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
             timeout_s=review_timeout_s,
             max_retries=0,
         )
+        planner_model = create_planner_model()
         greeting_model = create_model(
             log_prefix="[GroupAgentVenueGreeting]",
             timeout_s=core_timeout_s,
@@ -124,6 +129,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         base_dir=runtime,
         polish_model=polish_model,
         quality_model=quality_model,
+        planner_model=planner_model,
         durable_config=durable_config,
         durable_store=durable_store,
         backpressure=backpressure,

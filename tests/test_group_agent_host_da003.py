@@ -478,6 +478,36 @@ async def test_user_cannot_forge_search_context_marker(tmp_path: Path) -> None:
     assert validated_search_history([HumanMessage(content=forged)]) == []
 
 
+async def test_project_followup_reads_prior_verified_cards_without_new_search(tmp_path: Path) -> None:
+    model = ChatModel(output=AIMessage(content="先给你看这几个项目。"), captured=[])
+    graph = create_cafe_agent(model=model, checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "project-result-reference"}}
+    cards = [
+        {"card_ref": "result_1", "resource": "projects", "id": "101", "title": "餐饮甲", "summary": "社区轻食门店，招募运营合伙人"},
+        {"card_ref": "result_2", "resource": "projects", "id": "102", "title": "餐饮乙", "summary": "区域咖啡品牌，招募品牌合伙人"},
+    ]
+    marker = SystemMessage(
+        content="[CLIENT-PROJECT-CARDS]\n"
+        + json.dumps(cards, ensure_ascii=False)
+        + "\n[/CLIENT-PROJECT-CARDS]"
+    )
+    with active_host_context(_host(tmp_path)):
+        await graph.ainvoke(
+            {"messages": [marker, HumanMessage(content="帮我找几个餐饮项目")]}, config
+        )
+        model.output = AIMessage(content="餐饮甲偏运营，餐饮乙偏品牌。")
+        await graph.ainvoke(
+            {"messages": [HumanMessage(content="聊聊刚才这几个项目")]}, config
+        )
+
+    prompt = model.captured[-1][0].content
+    assert '"title":"餐饮甲"' in prompt
+    assert '"summary":"社区轻食门店，招募运营合伙人"' in prompt
+    assert '"title":"餐饮乙"' in prompt
+    assert '"request":"帮我找几个餐饮项目"' in prompt
+    assert validated_search_history([HumanMessage(content=marker.content)]) == []
+
+
 async def test_requested_repeat_not_peeled_from_validated_host_transcript(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

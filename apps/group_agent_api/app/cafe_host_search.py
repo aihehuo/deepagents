@@ -8,11 +8,14 @@ search execution. Flags default closed, so an active drink still returns
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Iterator
+
+from langchain_core.messages import SystemMessage
 
 from apps.group_agent_api.agent_factory.contact_scrub import scrub_contact_text
 from apps.group_agent_api.agent_factory.intent_routing.canonical import canonical_hash
@@ -435,6 +438,45 @@ def build_search_projection(
     )
     body["bar_entries"] = cards[:_BAR_LIMIT]
     return body
+
+
+def project_search_context_message(execution: IntentExecution) -> SystemMessage | None:
+    """Checkpoint the three verified project/idea coasters for later follow-ups.
+
+    Called before the Cafe Host graph invocation. Only receipt-backed public
+    fields from the cards actually shown on the bar enter this typed marker;
+    subsequent turns can discuss them without a fresh public search.
+    """
+    if execution.decision.action != "execute" or not execution.required_steps_satisfied():
+        return None
+    intent = execution.decision.primary_intent
+    if intent not in {"opportunity_search", "project_partnership_search"}:
+        return None
+    resource = _PRIMARY_RESOURCE[intent]
+    cards = [
+        card for card in _cards_for_resource(execution, resource)[:_BAR_LIMIT]
+        if card["title"]
+    ]
+    manifest = [
+        {
+            "card_ref": f"result_{index}",
+            "resource": resource,
+            "id": card["id"],
+            "title": card["title"],
+            "summary": card.get("summary", ""),
+        }
+        for index, card in enumerate(cards, start=1)
+    ]
+    if not manifest:
+        return None
+    return SystemMessage(
+        content=(
+            "[CLIENT-PROJECT-CARDS]\n"
+            + json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
+            + "\n[/CLIENT-PROJECT-CARDS]"
+        ),
+        name="server_search_cards",
+    )
 
 
 def grounded_search_reply(projection: dict[str, Any]) -> str:

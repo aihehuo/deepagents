@@ -25,6 +25,10 @@ _SEARCH_CARDS = re.compile(
     r"\[CLIENT-RECOMMENDATION-CARDS\]\s*(.*?)\s*\[/CLIENT-RECOMMENDATION-CARDS\]",
     re.S,
 )
+_PROJECT_CARDS = re.compile(
+    r"\[CLIENT-PROJECT-CARDS\]\s*(.*?)\s*\[/CLIENT-PROJECT-CARDS\]",
+    re.S,
+)
 _INTERNAL = re.compile(
     r"\b(?:ground|initiator|candidate_count|user_id|group_id|space_id|host_agent_id|memory_scope_id|check_deny|repairable_by|suggested_replies)\b|ga_global_|community_(?:barista|bartender|cafe_host)",
     re.I,
@@ -73,7 +77,7 @@ _REVIEW = """你是小馆回复的安全与事实校验者，不是候选人裁�
 不得因接待者“不是顾问”而要求删除普通帮助，也不得强制引用旧画像、找人需求或职业背景。
 纠正未经证实的统计、履历、夸大数字和保证；用户要求夸大不构成事实证据。一般知识可用，但本店配方/咖啡因剂量/点单状态没有可信来源，不能断言。
 没有其他客人的获准故事源，不得转述私聊、匿名编客人或造人物主页链接。不得泄露凭证、联系方式、内部术语，不得声称搜索/保存/发送/报名等动作，或建议调用本店没有的工具。
-validated_search_history 若非空，是服务器冻结的本对话近期公开搜索分组，request 只是当时用户的查询标签，cards 才是可信的公开结果。当前用户可按城市、序号、姓名、特征、比较或任意自然表达继续讨论；只依据各组卡片字段回答，不得补充列表外的人物或字段。当前话题无关时不要强行引用。
+validated_search_history 若非空，是服务器冻结的本对话近期公开搜索分组，request 只是当时用户的查询标签，cards 才是可信的公开结果。当前用户可按城市、序号、姓名或项目标题、特征、比较或任意自然表达继续讨论；只依据各组卡片字段回答，不得补充列表外的人物、项目或字段。当前话题无关时不要强行引用。
 不要强行加建议、追问、选项、创业计划或匹配模板。快捷选项必须与 label 同一意图、是用户口吻、不预填个人事实或隐藏操作授权；无法确认就删掉，不猜测改写。
 仅输出 JSON：{\"verdict\":\"pass\"或\"fail\",\"reply\":\"完整正文\",\"option_indices\":[从0起的合法选项序号],\"reason\":\"简短说明触犯的规则与需改内容；通过则填通过\"}。reason仅是审查结论，不输出思维链。
 pass 时 reply 必须与原正文完全相同；fail 时只修正有问题的部分，保持原话题，option_indices 必须为空。不输出工具调用。
@@ -116,6 +120,41 @@ def _validated_cards(message: SystemMessage) -> list[dict[str, str]] | None:
     return cards
 
 
+def _validated_project_cards(message: SystemMessage) -> list[dict[str, str]] | None:
+    """Read only a bounded, server-authored project/idea coaster manifest."""
+    match = _PROJECT_CARDS.search(str(message.content or ""))
+    if match is None:
+        return None
+    try:
+        raw_cards = json.loads(match.group(1))
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(raw_cards, list) or not 1 <= len(raw_cards) <= 3:
+        return None
+    cards: list[dict[str, str]] = []
+    for position, raw in enumerate(raw_cards, start=1):
+        if not isinstance(raw, dict) or set(raw) != {"card_ref", "resource", "id", "title", "summary"}:
+            return None
+        if raw.get("card_ref") != f"result_{position}" or raw.get("resource") not in {"ideas", "projects"}:
+            return None
+        if not isinstance(raw.get("id"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", raw["id"]):
+            return None
+        if not isinstance(raw.get("title"), str) or not isinstance(raw.get("summary"), str):
+            return None
+        title = safe_context_text(raw["title"]).strip()[:80]
+        summary = safe_context_text(raw["summary"]).strip()[:200]
+        if not title or contains_sensitive_context_text(title) or contains_sensitive_context_text(summary):
+            return None
+        cards.append({
+            "card_ref": f"result_{position}",
+            "resource": raw["resource"],
+            "id": raw["id"],
+            "title": title,
+            "summary": summary,
+        })
+    return cards
+
+
 def validated_search_history(messages: list[Any]) -> list[dict[str, Any]]:
     """Return up to four completed server-authored search result groups.
 
@@ -129,18 +168,26 @@ def validated_search_history(messages: list[Any]) -> list[dict[str, Any]]:
         if not isinstance(message, SystemMessage):
             continue
         cards = _validated_cards(message)
+        resource = None
         if cards is None:
-            continue
+            cards = _validated_project_cards(message)
+            if cards is None:
+                continue
+            resource = cards[0]["resource"]
         request = ""
         for following in messages[index + 1 :]:
-            if isinstance(following, SystemMessage) and _SEARCH_CARDS.search(
-                str(following.content or "")
+            if isinstance(following, SystemMessage) and (
+                _SEARCH_CARDS.search(str(following.content or ""))
+                or _PROJECT_CARDS.search(str(following.content or ""))
             ):
                 break
             if isinstance(following, HumanMessage):
                 request = safe_context_text(str(following.content or "")).strip()[:240]
                 break
-        searches.append({"request": request, "cards": cards})
+        group: dict[str, Any] = {"request": request, "cards": cards}
+        if resource is not None:
+            group["resource"] = resource
+        searches.append(group)
     return searches[-4:]
 
 

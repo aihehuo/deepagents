@@ -1052,6 +1052,14 @@ def test_explicit_project_request_overrides_unnecessary_clarification() -> None:
     assert existing.decision.action == "conversation"
     assert not _query_plan_would_run(existing)
 
+    from apps.group_agent_api.agent_factory.intent_routing.context import build_planner_context
+
+    context = build_planner_context(
+        message="聊聊这几个项目", prior_messages=[], profile=None, trusted=None,
+        prior_searches=[{"request": "找餐饮项目", "cards": [{"title": "项目甲"}]}],
+    )
+    assert context.prior_searches[0].result_names == ("项目甲",)
+
 
 @pytest.mark.parametrize(
     "message",

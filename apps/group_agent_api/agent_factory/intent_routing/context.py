@@ -706,9 +706,9 @@ def build_planner_context(
         if not isinstance(cards, list):
             continue
         names = tuple(
-            str(card.get("display_name") or "").strip()[:64]
+            str(card.get("display_name") or card.get("title") or "").strip()[:64]
             for card in cards[:3]
-            if isinstance(card, dict) and str(card.get("display_name") or "").strip()
+            if isinstance(card, dict) and str(card.get("display_name") or card.get("title") or "").strip()
         )
         searches.append(
             PlannerSearchV2(

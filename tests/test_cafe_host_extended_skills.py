@@ -5,7 +5,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.messages import HumanMessage
 
+from apps.group_agent_api.agent_factory.cafe_output import validated_search_history
 from apps.group_agent_api.agent_factory.intent_routing.resolver import resolve_intent
 from apps.group_agent_api.agent_factory.intent_routing.blog_articles import weekly_articles
 from apps.group_agent_api.agent_factory.intent_routing.execution import IntentExecution
@@ -18,6 +20,7 @@ from apps.group_agent_api.app.cafe_host_search import (
     canonical_query_plan,
     grounded_digest_reply,
     grounded_platform_help_reply,
+    project_search_context_message,
     soft_location_hint,
 )
 from apps.group_agent_api.app.chat_access import (
@@ -93,6 +96,34 @@ def test_soft_people_location_hint_only_for_unfiltered_single_target_city() -> N
     assert not soft_location_hint(
         _location_hint_execution("不要上海的候选人", "上海 候选人")
     )
+
+
+def test_project_cards_are_checkpointed_from_verified_displayed_results() -> None:
+    receipt = SimpleNamespace(resource="projects", status="succeeded", receipt_id="receipt-1", source_urls=())
+    execution = SimpleNamespace(
+        decision=SimpleNamespace(action="execute", primary_intent="project_partnership_search"),
+        required_steps_satisfied=lambda: True,
+        receipts=[receipt],
+        evidence_by_receipt={"receipt-1": [
+            {"id": index, "title": f"项目{index}", "summary": f"公开简介{index}"}
+            for index in range(1, 5)
+        ]},
+    )
+    marker = project_search_context_message(execution)
+    assert marker is not None
+    history = validated_search_history([marker, HumanMessage(content="找几个餐饮项目")])
+    assert history == [{
+        "request": "找几个餐饮项目", "resource": "projects",
+        "cards": [
+            {"card_ref": f"result_{index}", "resource": "projects", "id": str(index),
+             "title": f"项目{index}", "summary": f"公开简介{index}"}
+            for index in range(1, 4)
+        ],
+    }]
+    assert project_search_context_message(SimpleNamespace(
+        decision=SimpleNamespace(action="reply", primary_intent="conversation"),
+        required_steps_satisfied=lambda: True,
+    )) is None
 
 
 def test_new_paid_plans_use_existing_registry_shapes() -> None:

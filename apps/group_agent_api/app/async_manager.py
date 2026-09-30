@@ -1258,6 +1258,17 @@ async def _execute_core_agent(
                         )
                     )
                 )
+                if cafe_host and access_control is None:
+                    from apps.group_agent_api.app.cafe_host_search import (
+                        project_search_context_message,
+                    )
+
+                    # Persist the same receipt-backed project cards shown on
+                    # the bar, so later natural-language follow-ups can refer
+                    # to their actual public summaries without re-searching.
+                    project_context = project_search_context_message(intent_execution)
+                    if project_context is not None:
+                        turn_messages.append(project_context)
                 if (
                     intent_execution.decision.action == "execute"
                     and intent_execution.receipts

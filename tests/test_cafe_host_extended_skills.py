@@ -14,6 +14,7 @@ from apps.group_agent_api.app.cafe_host_search import (
     build_pending_search_offer,
     build_search_projection,
     canonical_query_plan,
+    grounded_digest_reply,
 )
 from apps.group_agent_api.app.chat_access import (
     ChatAccessContext,
@@ -158,6 +159,47 @@ def test_news_about_the_community_routes_to_startup_digest(
     assert result.decision.action == "execute"
     assert result.decision.primary_intent == "startup_digest"
     assert result.decision.resource_queries.model_dump(exclude_none=True) == {}
+
+
+def test_platform_news_uses_verified_weekly_articles_not_model_denial() -> None:
+    """A completed blog read must answer with actual recent posts."""
+    receipt = SimpleNamespace(
+        resource="weekly", status="succeeded", receipt_id="weekly-1"
+    )
+    execution = SimpleNamespace(
+        receipts=[receipt],
+        evidence_by_receipt={
+            "weekly-1": [
+                {
+                    "source_url": "https://www.aihehuo.com/ai/blog/weekly_markdown",
+                    "content": (
+                        "# 爱合伙博客 · 近 7 日文章汇总\n\n"
+                        "## 1. 每日AI创业快讯 — 2026年9月30日\n\n"
+                        "- **链接**：https://www.aihehuo.com/blog/9437-news-2026-09-30\n"
+                        "- **摘要**：今日新闻。\n\n"
+                        "## 2. 社群新动态\n\n"
+                        "- **链接**：https://www.aihehuo.com/blog/9438-community\n"
+                    ),
+                }
+            ]
+        },
+    )
+    reply = grounded_digest_reply(execution)
+    assert "爱合伙博客近 7 天有更新" in reply
+    assert "每日AI创业快讯 — 2026年9月30日" in reply
+    assert "社群新动态" in reply
+    assert "https://www.aihehuo.com/blog/9437-news-2026-09-30" in reply
+    assert "没有平台" not in reply
+
+
+def test_weekly_read_without_extractable_posts_does_not_claim_no_news() -> None:
+    execution = SimpleNamespace(
+        receipts=[SimpleNamespace(resource="weekly", status="succeeded", receipt_id="weekly-1")],
+        evidence_by_receipt={"weekly-1": [{"content": "# 爱合伙博客 · 近 7 日文章汇总"}]},
+    )
+    reply = grounded_digest_reply(execution)
+    assert "没能提取出可展示的文章" in reply
+    assert "不能据此判断没有新闻" in reply
 
 
 def test_community_projection_keeps_opaque_group_ids_and_public_urls() -> None:

@@ -46,6 +46,12 @@ _BOUND_DIGEST: ContextVar[str | None] = ContextVar(
     default=None,
 )
 _HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
+_WEEKLY_ARTICLE = re.compile(
+    r"^##\s+\d+\.\s+(.+?)\s*$\n"
+    r"(?:(?!^##\s+\d+\.).*?)*?"
+    r"^-\s+\*\*链接\*\*：\s*(https://www\.aihehuo\.com/blog/[^\s]+)",
+    re.MULTILINE | re.DOTALL,
+)
 
 
 def _enabled(name: str) -> bool:
@@ -478,6 +484,48 @@ def grounded_search_reply(projection: dict[str, Any]) -> str:
         f"先给你看这些{subject}：{'、'.join(titles)}。"
         "结果已经放到杯垫里，点开可以查看详情。"
     )
+
+
+def grounded_digest_reply(execution: IntentExecution) -> str:
+    """Answer a completed Cafe Host blog read from its verified weekly receipt.
+
+    The Cafe model's venue middleware intentionally drops SystemMessages,
+    including current QueryPlan evidence. Build this prose from the receipt so
+    an unsupported model claim cannot replace successful blog results. Blog
+    posts are narrative content and do not create bar coaster cards.
+    """
+    articles: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for receipt in execution.receipts:
+        if receipt.resource != "weekly" or receipt.status not in {"succeeded", "empty"}:
+            continue
+        evidence = execution.evidence_by_receipt.get(receipt.receipt_id)
+        if not isinstance(evidence, list):
+            continue
+        for record in evidence:
+            if not isinstance(record, dict) or not isinstance(record.get("content"), str):
+                continue
+            for match in _WEEKLY_ARTICLE.finditer(record["content"]):
+                title = scrub_contact_text(re.sub(r"\s+", " ", match.group(1)).strip())[:100]
+                url = match.group(2).rstrip(".,，。)")
+                if len(title) < 2 or url in seen:
+                    continue
+                seen.add(url)
+                articles.append((title, url))
+                if len(articles) == 3:
+                    break
+            if len(articles) == 3:
+                break
+        if len(articles) == 3:
+            break
+    if not articles:
+        return (
+            "我读取了爱合伙博客的近期汇总，但这次没能提取出可展示的文章。"
+            "不能据此判断没有新闻，请稍后再试。"
+        )
+    lines = ["爱合伙博客近 7 天有更新。最近的文章包括："]
+    lines.extend(f"{index}. [{title}]({url})" for index, (title, url) in enumerate(articles, start=1))
+    return "\n".join(lines)
 
 
 def search_suggestions(*, empty: bool) -> list[dict[str, str]]:

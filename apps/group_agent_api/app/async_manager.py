@@ -1928,6 +1928,19 @@ async def _execute_core_agent(
             suggested_replies = search_suggestions(
                 empty=search_projection["result_count"] == 0
             )
+        elif (
+            intent_search.completed
+            and intent_execution is not None
+            and intent_execution.decision.primary_intent == "startup_digest"
+        ):
+            from apps.group_agent_api.app.cafe_host_search import grounded_digest_reply
+
+            # The Cafe middleware strips current-turn SystemMessages along with
+            # stale checkpoint instructions. Use the verified weekly receipt
+            # here instead of allowing an evidence-blind model draft to claim
+            # that the public blog or its recent articles do not exist.
+            visible_reply = grounded_digest_reply(intent_execution)
+            suggested_replies = []
         delivered_identities = (
             tuple(search_projection["identities"]) if search_projection else ()
         )

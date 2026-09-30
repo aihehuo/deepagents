@@ -6,6 +6,7 @@ import asyncio
 import copy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -15,7 +16,9 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from apps.group_agent_api.agent_factory.context.host_prompts import HOST_DAY, HOST_IDENTITY, HOST_NIGHT, HOST_SAFETY
 from apps.group_agent_api.agent_factory.context.venue import VenueHostMiddleware
+from apps.group_agent_api.agent_factory.cafe_agent import CafeHostMiddleware
 from apps.group_agent_api.agent_factory.host_context import HostContext, active_host_context
+from apps.group_agent_api.agent_factory.intent_routing.execution import active_intent_execution
 from apps.group_agent_api.agent_factory.venue_greeting import execute_venue_greeting
 from apps.group_agent_api.app.models import AsyncCallRequest
 from tests.test_group_agent_venue_da001 import REQUESTS, _refingerprint, _session
@@ -107,6 +110,34 @@ def test_complete_model_input_replaces_conflicting_base_and_checkpoint_systems(t
         assert forbidden not in rendered
     assert request.messages == [old, pending, tool, user]
     assert request.system_message.text == "LEGACY_ADVISOR_BASE"
+
+
+def test_cafe_model_sees_only_current_verified_blog_read(tmp_path: Path) -> None:
+    host = _host(tmp_path)
+    old = SystemMessage(content="博客没有新闻", name="old_route")
+    request = ModelRequest(
+        model=MagicMock(),
+        messages=[old, HumanMessage(content="爱合伙平台最近有什么新闻")],
+        system_message=SystemMessage(content="OLD_BASE"),
+        tools=[],
+    )
+    receipt = SimpleNamespace(resource="weekly", status="succeeded", receipt_id="weekly-1")
+    execution = SimpleNamespace(
+        decision=SimpleNamespace(action="execute", primary_intent="startup_digest"),
+        required_steps_satisfied=lambda: True,
+        receipts=[receipt],
+        evidence_by_receipt={
+            "weekly-1": [{
+                "content": "## 1. 最新博客文章\n\n- **链接**：https://www.aihehuo.com/blog/123-news\n"
+            }]
+        },
+    )
+    with active_host_context(host), active_intent_execution(execution):
+        prepared = CafeHostMiddleware().prepare(request)
+    assert "最新博客文章" in prepared.system_message.text
+    assert "博客没有新闻" not in prepared.system_message.text
+    assert "OLD_BASE" not in prepared.system_message.text
+    assert prepared.messages == [request.messages[-1]]
 
 
 async def test_full_greeting_model_request_is_host_not_advice_menu(tmp_path: Path) -> None:

@@ -253,6 +253,8 @@ def build_pending_search_offer(
                 "users": raw_queries.users,
                 "ideas": raw_queries.ideas,
                 "projects": raw_queries.projects,
+                "groups": raw_queries.groups,
+                "faqs": raw_queries.faqs,
             },
         )
     except ValueError:

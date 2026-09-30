@@ -51,6 +51,7 @@ _TRANSIENT_CODES = frozenset(
     {
         "llm_rate_limited",
         "llm_unavailable",
+        "intent_classifier_timeout",
         "network_timeout",
         "redis_transient",
         "celery_transient",

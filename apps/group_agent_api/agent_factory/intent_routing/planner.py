@@ -163,6 +163,17 @@ def _failure_diagnostic(
     return diagnostic
 
 
+def _provider_failure_status(exc: Exception) -> str:
+    """Map provider timeout classes to the planner's retryable timeout status.
+
+    OpenAI-compatible clients expose different timeout exception classes, so
+    importing one SDK-specific type would miss other configured providers.
+    The bounded class-name check keeps exception messages and model output out
+    of routing decisions and diagnostics.
+    """
+    return "timed_out" if isinstance(exc, TimeoutError) or type(exc).__name__.endswith("TimeoutError") else "error"
+
+
 @dataclass(frozen=True)
 class PlannerResult:
     """Validated planner proposal plus a non-sensitive execution status."""
@@ -392,7 +403,9 @@ def plan_intent(
             diagnostics.append(
                 _failure_diagnostic(exc, stage="model_invoke", attempt=attempt)
             )
-            return PlannerResult(None, "error", attempt, tuple(diagnostics))
+            return PlannerResult(
+                None, _provider_failure_status(exc), attempt, tuple(diagnostics)
+            )
         try:
             parsed = _proposal_from_raw(raw, context)
             return PlannerResult(parsed, "ok", attempt, tuple(diagnostics))
@@ -455,7 +468,9 @@ async def aplan_intent(
                 diagnostics.append(
                     _failure_diagnostic(exc, stage="model_invoke", attempt=attempt)
                 )
-                return PlannerResult(None, "error", attempt, tuple(diagnostics))
+                return PlannerResult(
+                    None, _provider_failure_status(exc), attempt, tuple(diagnostics)
+                )
             try:
                 parsed = _proposal_from_raw(raw, context)
                 return PlannerResult(parsed, "ok", attempt, tuple(diagnostics))

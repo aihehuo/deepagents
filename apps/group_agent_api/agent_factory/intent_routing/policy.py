@@ -22,6 +22,7 @@ _READ_ROUTES: dict[str, tuple[str, str]] = {
     "startup_digest": ("get-ai-startup-digest", "startup-digest-v1"),
     "platform_help": ("get-ai-platform-help", "platform-help-v1"),
 }
+_CAFE_PAID_INTENTS = frozenset(_READ_ROUTES).difference({"platform_help"})
 
 
 def _clip_queries(queries: ResourceQueriesV2) -> ResourceQueriesV2:
@@ -80,11 +81,11 @@ def build_decision_from_planner(
                 action="clarify",
                 planner_version=proposal.planner_version,
             )
-        cafe_paid = execution_mode == "cafe_host" and paid_execution_authorized and intent in {
-            "people_search",
-            "opportunity_search",
-            "project_partnership_search",
-        }
+        cafe_paid = (
+            execution_mode == "cafe_host"
+            and paid_execution_authorized
+            and intent in _CAFE_PAID_INTENTS
+        )
         if not ((execution_mode == "group_agent" and can_search) or cafe_paid):
             return IntentDecisionV1(
                 primary_intent=intent,

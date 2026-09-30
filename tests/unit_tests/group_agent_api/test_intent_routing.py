@@ -667,6 +667,32 @@ async def test_planner_helper_reports_timeout_without_raw_exception(
     assert result.proposal is None
 
 
+async def test_provider_timeout_uses_retryable_planner_status() -> None:
+    class OpenAITimeoutError(Exception):
+        pass
+
+    class TimeoutStructured:
+        async def ainvoke(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise OpenAITimeoutError("private provider detail")
+
+    class TimeoutModel:
+        def with_structured_output(self, *_args: Any, **_kwargs: Any) -> Any:
+            return TimeoutStructured()
+
+    result = await aplan_intent(
+        model=TimeoutModel(),
+        context=build_planner_context(
+            message="爱合伙最新的社群新闻有哪些",
+            prior_messages=None,
+            profile=None,
+            trusted=None,
+        ),
+        timeout_s=1,
+    )
+    assert result.status == "timed_out"
+    assert result.diagnostics[0]["exception_type"] == "OpenAITimeoutError"
+
+
 async def test_sync_async_planner_paths_are_identical() -> None:
     payload = people_query("上海 餐饮 运营")
     sync = resolve_intent(

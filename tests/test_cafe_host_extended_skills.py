@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from apps.group_agent_api.app.cafe_host_search import canonical_query_plan
+from apps.group_agent_api.agent_factory.intent_routing.resolver import resolve_intent
+from apps.group_agent_api.app.cafe_host_search import (
+    build_pending_search_offer,
+    canonical_query_plan,
+)
 from apps.group_agent_api.app.chat_access import (
     ChatAccessContext,
     ChatAccessRejected,
+    active_chat_access,
+)
+from tests.unit_tests.group_agent_api.planner_fixtures import (
+    community_query,
+    planner_returning,
+    proposal,
 )
 
 
@@ -68,3 +80,59 @@ def test_platform_help_is_free_in_ordinary_mode() -> None:
         reply="本次平台 FAQ 查询已经完成。",
         receipt_intents=("platform_help",),
     )
+
+
+@pytest.mark.parametrize(
+    ("message", "draft", "intent"),
+    (
+        ("查找上海创业社群", community_query("上海 创业社群"), "community_search"),
+        ("看看最新创业简报", proposal(intent="startup_digest"), "startup_digest"),
+    ),
+)
+def test_active_drink_authorizes_new_paid_planner_decisions(
+    monkeypatch: pytest.MonkeyPatch,
+    message: str,
+    draft: dict[str, object],
+    intent: str,
+) -> None:
+    monkeypatch.setenv("CAFE_HOST_V4_SEARCH_EXECUTION_ENABLED", "1")
+    monkeypatch.setenv("CAFE_HOST_V4_SEARCH_USER_ALLOWLIST", "1")
+    with active_chat_access(_access("active")):
+        result = resolve_intent(
+            message,
+            execution_mode="cafe_host",
+            can_search=False,
+            planner_model=planner_returning(draft),
+        )
+    assert result.decision.primary_intent == intent
+    assert result.decision.action == "execute"
+
+
+def test_ordinary_community_offer_preserves_group_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CAFE_HOST_PENDING_SEARCH_OFFER_ENABLED", "1")
+    draft = SimpleNamespace(
+        action="query",
+        intent="community_search",
+        queries=SimpleNamespace(
+            users=None,
+            ideas=None,
+            projects=None,
+            groups="上海 创业社群",
+            faqs=None,
+        ),
+    )
+    offer = build_pending_search_offer(
+        proposal=draft,
+        decision_action="offer",
+        confidence="high",
+        planner_status="ok",
+        run_id="run-1",
+        message="查找上海创业社群",
+        conversation_id="conversation-1",
+        episode_id="episode-1",
+    )
+    assert offer is not None
+    assert offer["intent"] == "community_search"
+    assert offer["query_plan"]["queries"] == {"groups": "上海 创业社群"}

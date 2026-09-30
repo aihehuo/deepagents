@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
-
 from .constraint_lexicon import explicit_hard_locations
 from .context import (
     IntentContextScope,
@@ -132,12 +131,12 @@ def _paid_execution_authorized(execution_mode: str, proposal: Any) -> bool:
     """Authorize Cafe Host paid execution only from the frozen access context."""
     if execution_mode != "cafe_host" or proposal is None or proposal.action != "query":
         return False
+    # App initialization imports this resolver through the execution package;
+    # keep policy imports lazy to avoid re-entering async_manager at module load.
+    from apps.group_agent_api.app.execution_modes import PAID_SEARCH_INTENTS
+
     intent = proposal.intent
-    if intent not in {
-        "people_search",
-        "opportunity_search",
-        "project_partnership_search",
-    }:
+    if intent not in PAID_SEARCH_INTENTS:
         return False
     from apps.group_agent_api.app.chat_access import current_chat_access
 

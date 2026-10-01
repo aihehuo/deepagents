@@ -1211,11 +1211,19 @@ def prepare_intent_execution(
         if read_mode() != "public_skills":
             raise QueryPlanError("query_plan_invalid")
         if execution_mode == "cafe_host":
+            from apps.group_agent_api.app.cafe_host_model_tools import (
+                is_model_tool_free_read,
+                model_tools_link_active,
+            )
             from apps.group_agent_api.app.chat_access import current_chat_access
 
             access = current_chat_access()
             intent = resolution.decision.primary_intent
-            if access is None or not access.paid_execution_open(intent):
+            if access is None:
+                raise QueryPlanError("permission_denied")
+            if model_tools_link_active() and is_model_tool_free_read(intent):
+                return
+            if not access.paid_execution_open(intent):
                 raise QueryPlanError("permission_denied")
             return
         if execution_mode != "group_agent" or not can_search:

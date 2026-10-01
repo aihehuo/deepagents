@@ -64,7 +64,9 @@ def build_trusted_envelope(
     thread_id: str,
 ) -> dict[str, Any]:
     """Serialize trusted request + session for encrypted ledger storage."""
-    return {
+    from apps.group_agent_api.app.cafe_host_model_tools import cafe_host_link_for_admission
+
+    envelope: dict[str, Any] = {
         "thread_id": thread_id,
         "request": req.model_dump(),
         "session": {
@@ -82,6 +84,10 @@ def build_trusted_envelope(
             },
         },
     }
+    link = cafe_host_link_for_admission(req)
+    if link is not None:
+        envelope["cafe_host_link"] = link
+    return envelope
 
 
 def _error_response(

@@ -41,6 +41,35 @@ def venue_system_content(host: HostContext, *, greeting: bool, existing_messages
     return "\n".join([VENUE_POLICY, identity, tone, "<venue_data>" + host.quoted_data(greeting=greeting, existing_messages=existing_messages) + "</venue_data>"])
 
 
+def cafe_model_visible_messages(messages: list[Any], *, tool_names: frozenset[str]) -> list[Any]:
+    """Keep ordinary chat plus this turn's whitelisted read-tool exchange.
+
+    Older tool messages stay out of the model input. Historical cards are
+    restored from server markers, not from those tool transcripts.
+    """
+    last_human = -1
+    for index, message in enumerate(messages):
+        if getattr(message, "type", "") == "human":
+            last_human = index
+    visible: list[Any] = []
+    allowed_ids: set[str] = set()
+    for index, message in enumerate(messages):
+        kind = getattr(message, "type", "")
+        if kind in {"human", "ai"} and not getattr(message, "tool_calls", None):
+            visible.append(message)
+            continue
+        if index <= last_human or last_human < 0:
+            continue
+        if kind == "ai" and getattr(message, "tool_calls", None):
+            calls = list(message.tool_calls or [])
+            if calls and all(str(call.get("name") or "") in tool_names for call in calls):
+                visible.append(message)
+                allowed_ids.update(str(call.get("id") or "") for call in calls)
+        elif kind == "tool" and str(getattr(message, "tool_call_id", "") or "") in allowed_ids:
+            visible.append(message)
+    return visible
+
+
 class VenueHostMiddleware(AgentMiddleware):
     """Apply mode to model requests only; do not write persona into checkpoint."""
 

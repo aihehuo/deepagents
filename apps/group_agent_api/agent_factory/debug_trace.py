@@ -52,6 +52,7 @@ def record_decision_point(
     run_id: str | None = None,
     thread_id: str | None = None,
     turn: str | int | None = None,
+    attempt_id: str | None = None,
     collector: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Log structured DECISION_POINT and record into active turn trace."""
@@ -67,6 +68,8 @@ def record_decision_point(
         point["thread_id"] = thread_id
     if turn is not None:
         point["turn"] = turn
+    if attempt_id:
+        point["attempt_id"] = attempt_id
 
     detail_str = json.dumps(scrubbed, ensure_ascii=False, default=str)
     _logger.info(

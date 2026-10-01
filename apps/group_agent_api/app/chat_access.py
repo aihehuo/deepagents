@@ -139,6 +139,13 @@ class ChatAccessContext:
 
     def execution_open(self, intent: str) -> bool:
         """Return whether this run may execute a paid or explicitly free read."""
+        from apps.group_agent_api.app.cafe_host_model_tools import (
+            is_model_tool_free_read,
+            model_tools_link_active,
+        )
+
+        if model_tools_link_active() and is_model_tool_free_read(intent):
+            return True
         return intent in FREE_SEARCH_INTENTS or self.paid_execution_open(intent)
 
     def assert_resource_allowed(self, *, intent: str, resource: str) -> None:
@@ -151,6 +158,17 @@ class ChatAccessContext:
         Raises:
             ChatAccessRejected: The run has no matching paid authorization.
         """
+        from apps.group_agent_api.app.cafe_host_model_tools import (
+            is_model_tool_free_read,
+            model_tools_link_active,
+        )
+
+        if (
+            model_tools_link_active()
+            and is_model_tool_free_read(intent)
+            and resource in _AUTHORIZED_RESOURCES.get(intent, frozenset())
+        ):
+            return
         if self.execution_open(intent) and resource in _AUTHORIZED_RESOURCES.get(
             intent, frozenset()
         ):

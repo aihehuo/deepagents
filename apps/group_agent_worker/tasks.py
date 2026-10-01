@@ -765,12 +765,16 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
 
     claim = outcome.claim
 
-    result = run_on_worker_event_loop(
-        _run_attempt(
-            claim=claim,
-            req=req,
-            session=session,
-            tid=tid,
+    from apps.group_agent_api.app.cafe_host_model_tools import active_cafe_host_link
+
+    link = envelope.get("cafe_host_link")
+    with active_cafe_host_link(link if isinstance(link, str) else None):
+        result = run_on_worker_event_loop(
+            _run_attempt(
+                claim=claim,
+                req=req,
+                session=session,
+                tid=tid,
+            )
         )
-    )
     return {"status": result, "run_id": ref.run_id, "attempt_id": claim.attempt_id}

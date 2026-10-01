@@ -881,6 +881,25 @@ class VenueEventExecutorUnavailable(RuntimeError):
     """Permanent explicit hold until the DA-002 greeting executor is ready."""
 
 
+def _cafe_guest_reply(messages: list[Any]) -> str:
+    """Return the latest assistant text, never a trailing server marker."""
+    for message in reversed(messages or []):
+        if getattr(message, "type", "") != "ai":
+            continue
+        content = getattr(message, "content", "")
+        if isinstance(content, list):
+            text = "".join(
+                item if isinstance(item, str) else str(item.get("text", ""))
+                for item in content
+                if isinstance(item, str) or (isinstance(item, dict) and item.get("type") == "text")
+            )
+        else:
+            text = str(content or "")
+        if text.strip():
+            return text
+    return ""
+
+
 def _execution_metadata(req: AsyncCallRequest) -> dict[str, Any]:
     """Derive trusted episode scope without changing the signed request body."""
     metadata = dict(req.metadata or {})
@@ -1030,13 +1049,101 @@ async def _execute_core_agent(
                 else []
             )
             msg_count_before = len(prior_messages)
+            execution_mode = "cafe_host" if cafe_host else "group_agent"
             routing_mode = "enforce" if access is not None else intent_routing_mode()
-            if not admin_debug and routing_mode in {"observe", "enforce"}:
+            skip_planner = False
+            use_tool_agent = False
+            model_tool_state: Any = None
+            if cafe_host and access is not None and not admin_debug:
+                from apps.group_agent_api.app.cafe_host_model_tools import (
+                    DRINK_PAID_INTENTS,
+                    _resolution,
+                    model_tools_link_active,
+                    peek_frozen_decision,
+                    proposal_from_decision,
+                )
+
+                if model_tools_link_active():
+                    from apps.group_agent_api.app.cafe_host_search import (
+                        continuation_from_request,
+                    )
+
+                    skip_planner = True
+                    block, frozen = continuation_from_request(req)
+                    peeked = peek_frozen_decision()
+                    if block is not None:
+                        access_control = block
+                    elif frozen is not None:
+                        intent_resolution = _resolution(frozen, signal="trusted_search")
+                        if not access.paid_execution_open(frozen.primary_intent):
+                            access_control = (
+                                access.control_for_intent(frozen.primary_intent)
+                                or "pending_search_unavailable"
+                            )
+                    elif peeked is not None and peeked.action == "execute":
+                        intent_resolution = _resolution(peeked, signal="frozen_snapshot")
+                    elif (
+                        peeked is not None
+                        and peeked.action == "reject"
+                        and peeked.primary_intent in DRINK_PAID_INTENTS
+                    ):
+                        intent_resolution = _resolution(
+                            peeked,
+                            proposal=proposal_from_decision(peeked),
+                            signal="frozen_denial",
+                        )
+                        access_control = access.control_for_intent(peeked.primary_intent)
+                    elif peeked is not None and peeked.action == "conversation":
+                        intent_resolution = _resolution(peeked, signal="frozen_chat")
+                    else:
+                        use_tool_agent = True
+                    if (
+                        intent_resolution is not None
+                        and access_control is None
+                        and intent_resolution.decision.action == "execute"
+                    ):
+                        from apps.group_agent_api.app.cafe_host_search import (
+                            bound_search_credential,
+                            v4_search_log_enabled,
+                            v4_search_result_enabled,
+                        )
+
+                        intent_execution = prepare_intent_execution(
+                            intent_resolution,
+                            original_message=req.message,
+                            run_id=req.run_id,
+                            request_fingerprint=calculate_request_fingerprint(req, session),
+                            execution_mode="cafe_host",
+                            can_search=True,
+                        )
+                        intent_execution.bind_progress_emitter(
+                            emit_callback,
+                            started_monotonic=progress_started,
+                            emit_search_logs=v4_search_log_enabled(),
+                            emit_search_results=v4_search_result_enabled(),
+                        )
+                        await _intent_progress(
+                            "intent_resolved",
+                            intent=intent_execution.decision.primary_intent,
+                            routing_hash=intent_execution.snapshot.canonical_content_hash,
+                            display_code="intent_ready",
+                        )
+                        from contextlib import nullcontext
+
+                        with bound_search_credential(session.principal.user_token):
+                            await execute_query_plan(
+                                intent_execution,
+                                skills_dir=state.base_dir / "skills" / "aihehuo",
+                            )
+                        freeze_intent_search_projection(
+                            intent_execution,
+                            allow_candidates=True,
+                        )
+            if not skip_planner and not admin_debug and routing_mode in {"observe", "enforce"}:
                 await _intent_progress(
                     "intent_resolving",
                     display_code="resolving_intent",
                 )
-                execution_mode = "cafe_host" if cafe_host else "group_agent"
                 # v4 must classify paid intent before applying access policy;
                 # capability filtering here would collapse a search request
                 # into conversation and bypass the typed control outcome.
@@ -1317,6 +1424,68 @@ async def _execute_core_agent(
             try:
                 if cafe_host:
                     _gate("host_model")
+                if use_tool_agent:
+                    from apps.group_agent_api.agent_factory.cafe_agent import create_cafe_agent
+                    from apps.group_agent_api.app.cafe_host_model_tools import (
+                        ModelToolRuntime,
+                        model_tool_runtime,
+                    )
+                    from apps.group_agent_api.app.cafe_host_search import (
+                        v4_search_log_enabled,
+                        v4_search_result_enabled,
+                    )
+
+                    await _intent_progress(
+                        "intent_resolving",
+                        display_code="resolving_intent",
+                    )
+                    if getattr(state, "cafe_model_tool_agent", None) is None:
+                        state.cafe_model_tool_agent = create_cafe_agent(
+                            model=state.greeting_model,
+                            checkpointer=get_agent_checkpointer(state.agent),
+                            shadow_review_model=state.cafe_shadow_review_model,
+                            model_tools=True,
+                        )
+                    agent = state.cafe_model_tool_agent
+                    from apps.group_agent_api.app.cafe_host_model_tools import (
+                        should_reuse_shown_results,
+                    )
+                    from apps.group_agent_api.execution.active_fence import (
+                        get_active_fence,
+                    )
+
+                    shown_messages = list(prior_messages)
+                    previous_tool_agent = getattr(state, "cafe_model_tool_agent", None)
+                    if previous_tool_agent is not None:
+                        previous_state = await aget_agent_state(
+                            previous_tool_agent,
+                            {"configurable": {"thread_id": tid}},
+                        )
+                        if previous_state and previous_state.values:
+                            shown_messages = list(
+                                previous_state.values.get("messages", [])
+                            ) or shown_messages
+                    active_fence = get_active_fence()
+                    model_tool_state = ModelToolRuntime(
+                        original_message=req.message or "",
+                        run_id=req.run_id,
+                        request_fingerprint=calculate_request_fingerprint(req, session),
+                        skills_dir=state.base_dir / "skills" / "aihehuo",
+                        user_token=session.principal.user_token,
+                        emit=emit_callback,
+                        progress_started=progress_started,
+                        emit_search_logs=v4_search_log_enabled(),
+                        emit_search_results=v4_search_result_enabled(),
+                        allow_candidates=True,
+                        reuse_shown_results=should_reuse_shown_results(
+                            shown_messages, req.message or ""
+                        ),
+                        attempt_id=(
+                            active_fence.claim.attempt_id
+                            if active_fence is not None
+                            else None
+                        ),
+                    )
                 if streaming_enabled and not cafe_host:
                     buffer = StreamChunkBuffer(emit_callback=emit_callback, min_interval_s=0.1)
                     tool_triggered_this_turn = False
@@ -1353,12 +1522,73 @@ async def _execute_core_agent(
                     agent_state = await aget_agent_state(agent, {"configurable": {"thread_id": tid}})
                     messages = agent_state.values.get("messages", []) if agent_state and agent_state.values else []
                 else:
-                    with active_intent_execution(intent_execution):
-                        result = await agent.ainvoke(
-                            {"messages": turn_messages},
-                            config,
+                    if model_tool_state is not None:
+                        from apps.group_agent_api.app.cafe_host_model_tools import (
+                            model_tool_runtime,
                         )
+
+                        with model_tool_runtime(model_tool_state):
+                            result = await agent.ainvoke(
+                                {"messages": turn_messages},
+                                config,
+                            )
+                    else:
+                        with active_intent_execution(intent_execution):
+                            result = await agent.ainvoke(
+                                {"messages": turn_messages},
+                                config,
+                            )
                     messages = result.get("messages", [])
+                    if model_tool_state is not None:
+                        if model_tool_state.execution is not None:
+                            intent_execution = model_tool_state.execution
+                        if model_tool_state.resolution is not None:
+                            intent_resolution = model_tool_state.resolution
+                        if model_tool_state.access_control is not None:
+                            access_control = model_tool_state.access_control
+                        if intent_resolution is None and intent_execution is None:
+                            from apps.group_agent_api.app.cafe_host_model_tools import (
+                                conversation_resolution,
+                            )
+
+                            intent_resolution = conversation_resolution()
+                            try:
+                                prepare_intent_execution(
+                                    intent_resolution,
+                                    original_message=req.message,
+                                    run_id=req.run_id,
+                                    request_fingerprint=calculate_request_fingerprint(
+                                        req, session
+                                    ),
+                                    execution_mode="cafe_host",
+                                    can_search=True,
+                                )
+                            except QueryPlanError:
+                                pass
+                        if (
+                            intent_execution is not None
+                            and intent_execution.decision.action == "execute"
+                            and intent_execution.receipts
+                        ):
+                            from apps.group_agent_api.app.cafe_host_search import (
+                                project_search_context_message,
+                            )
+
+                            markers = [
+                                SystemMessage(
+                                    content=intent_execution.route_prompt(
+                                        skills_dir=state.base_dir / "skills" / "aihehuo"
+                                    )
+                                )
+                            ]
+                            project_context = project_search_context_message(
+                                intent_execution
+                            )
+                            if project_context is not None:
+                                markers.append(project_context)
+                            await agent.aupdate_state(
+                                config, {"messages": markers}, as_node="model"
+                            )
                 if (
                     intent_execution is not None
                     and intent_execution.decision.action == "execute"
@@ -1384,7 +1614,11 @@ async def _execute_core_agent(
             )
             # Host middleware already produced the complete validated
             # message. Legacy prefix-peeling would diverge from its saver.
-            reply = str(messages[-1].content) if cafe_host else _extract_reply(messages, msg_count_before)
+            reply = (
+                _cafe_guest_reply(messages)
+                if cafe_host
+                else _extract_reply(messages, msg_count_before)
+            )
 
             # chk.action_claim (YAML): unauthorized group-send / @ / admin claims.
             from apps.group_agent_api.agent_factory.checks.action_claim import (
@@ -1609,11 +1843,20 @@ async def _execute_core_agent(
     quality_gaps: list[str] = []
     search_log: SearchLogEntry | None = None
     if intent_search.completed:
+        logged_query = intent_execution.original_message if intent_execution else ""
+        if cafe_host and intent_execution is not None:
+            from apps.group_agent_api.app.cafe_host_model_tools import (
+                frozen_public_query,
+                model_tools_link_active,
+            )
+
+            if model_tools_link_active():
+                logged_query = frozen_public_query(intent_execution)
         search_log = SearchLogEntry(
             search_id=f"search_{int(time.time() * 1000)}",
             timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
-            query=intent_execution.original_message if intent_execution else "",
-            rank_query=intent_execution.original_message if intent_execution else "",
+            query=logged_query,
+            rank_query=logged_query,
             match_status=match_status,
             match_reason=match_reason,
             candidate_count=len(candidates),
@@ -1893,7 +2136,7 @@ async def _execute_core_agent(
             # A paid-intent denial is a server-owned control outcome. Discard
             # model prose and projections so it cannot simulate search output.
             visible_reply = {
-                "chat_session_required": "我还可以继续陪你聊；要找人、找项目或找创业机会，需要先开始畅聊。",
+                "chat_session_required": "我还可以继续陪你聊；要找人、找项目、找创业机会、查社群或看近期创业资讯，需要先开始畅聊。",
                 "search_confirmation_required": "这次搜索还需要你确认后才能开始，我现在没有查询公开数据。",
                 "confirmed_search_intent_mismatch": "你确认的搜索类型和这次请求不一致，我没有执行查询。",
                 "search_capability_unavailable": "当前搜索能力暂时不可用，我没有执行查询。",
@@ -1929,23 +2172,38 @@ async def _execute_core_agent(
                     else "这次查找已经记下。你确认后，我就按刚才的条件开始查询。"
                 )
         elif search_projection is not None:
+            from apps.group_agent_api.app.cafe_host_model_tools import (
+                model_tools_link_active,
+                reply_conflicts_with_results,
+            )
             from apps.group_agent_api.app.cafe_host_search import (
                 grounded_search_reply,
                 search_suggestions,
                 soft_location_hint,
             )
 
-            # Paid-search prose and cards must come from one frozen projection.
-            # The Cafe model may have produced a conversational greeting before
-            # the orchestrator attached the server-owned search results.
-            visible_reply = grounded_search_reply(search_projection)
-            if search_projection["result_count"] > 0:
+            titles = tuple(
+                str(card.get("title") or "")
+                for card in search_projection.get("cards") or []
+            )
+            keep_model_reply = (
+                model_tools_link_active()
+                and visible_reply.strip()
+                and "这句话我还不能确认" not in visible_reply
+                and not reply_conflicts_with_results(visible_reply, titles)
+            )
+            # Paid-search cards still come from one frozen projection. The
+            # planner path replaces prose because that model never saw results.
+            if not keep_model_reply:
+                visible_reply = grounded_search_reply(search_projection)
+            if not keep_model_reply and search_projection["result_count"] > 0:
                 location_hint = soft_location_hint(intent_execution)
                 if location_hint:
                     visible_reply = f"{visible_reply}\n\n{location_hint}"
-            suggested_replies = search_suggestions(
-                empty=search_projection["result_count"] == 0
-            )
+            if not keep_model_reply:
+                suggested_replies = search_suggestions(
+                    empty=search_projection["result_count"] == 0
+                )
         elif (
             intent_search.completed
             and intent_execution is not None

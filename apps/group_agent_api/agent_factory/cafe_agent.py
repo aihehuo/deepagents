@@ -8,7 +8,7 @@ from typing import Any, Awaitable, Callable
 
 from langchain.agents import create_agent
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
 from apps.group_agent_api.agent_factory.cafe_output import (
     HostOutput,
@@ -27,10 +27,20 @@ from apps.group_agent_api.agent_factory.host_policy import (
 
 
 class CafeHostMiddleware(VenueHostMiddleware):
-    """Remove tools and fail closed if a provider still requests an action."""
+    """Remove tools and fail closed if a provider still requests an action.
 
-    def __init__(self, *, shadow_review_model: Any | None = None) -> None:
+    The model-selected read path may pass one whitelisted public read into the
+    server tool. A final answer is still checked by the deterministic guards.
+    """
+
+    def __init__(
+        self,
+        *,
+        shadow_review_model: Any | None = None,
+        read_tools: list[Any] | None = None,
+    ) -> None:
         self.shadow_review_model = shadow_review_model
+        self.read_tools = list(read_tools or [])
 
     def prepare(self, request: ModelRequest) -> ModelRequest:
         """Use only authenticated host context and the independent role prompt.
@@ -49,7 +59,7 @@ class CafeHostMiddleware(VenueHostMiddleware):
         # lets any natural follow-up continue the search conversation instead of
         # coupling continuity to one suggested-reply sentence or keyword regex.
         search_history = validated_search_history(request.messages)
-        prepared = super().prepare(request).override(tools=[], tool_choice="none")
+        prepared = self._prepare_tools(request)
         from apps.group_agent_api.agent_factory.intent_routing.execution import (
             current_intent_execution,
         )
@@ -129,13 +139,68 @@ class CafeHostMiddleware(VenueHostMiddleware):
             )
         return prepared
 
-    def _draft(self, response: ModelResponse) -> str:
+    def _prepare_tools(self, request: ModelRequest) -> ModelRequest:
+        """Hide tools unless this frozen link is allowed to propose one read."""
+        from apps.group_agent_api.agent_factory.context.host_prompts import (
+            HOST_MODEL_TOOL_RESULT_RULES,
+            HOST_MODEL_TOOL_RULES,
+        )
+        from apps.group_agent_api.agent_factory.context.venue import (
+            cafe_model_visible_messages,
+        )
+        from apps.group_agent_api.app.cafe_host_model_tools import (
+            TOOL_NAMES,
+            model_tools_link_active,
+        )
+
+        if not self.read_tools or not model_tools_link_active():
+            return super().prepare(request).override(tools=[], tool_choice="none")
+        visible = cafe_model_visible_messages(request.messages, tool_names=TOOL_NAMES)
+        exchange = any(getattr(message, "type", "") == "tool" for message in visible)
+        prepared = super().prepare(request)
+        rules = HOST_MODEL_TOOL_RESULT_RULES if exchange else HOST_MODEL_TOOL_RULES
+        content = str(prepared.system_message.content if prepared.system_message else "")
+        return prepared.override(
+            system_message=SystemMessage(content=content + "\n" + rules, name="venue_host"),
+            messages=visible,
+            tools=[] if exchange else list(self.read_tools),
+            tool_choice="none" if exchange else "auto",
+        )
+
+    def _single_read_call(self, response: ModelResponse) -> bool:
+        from apps.group_agent_api.app.cafe_host_model_tools import TOOL_NAMES
+
+        if len(response.result) != 1 or not isinstance(response.result[0], AIMessage):
+            return False
+        message = response.result[0]
+        if getattr(message, "invalid_tool_calls", None):
+            return False
+        calls = list(getattr(message, "tool_calls", None) or [])
+        extra = getattr(message, "additional_kwargs", {}) or {}
+        if extra.get("function_call"):
+            return False
+        return len(calls) == 1 and str(calls[0].get("name") or "") in TOOL_NAMES
+
+    def _needs_refusal(self, response: ModelResponse) -> bool:
+        """Return whether this model message must not reach the tool node."""
+        if len(response.result) != 1 or not isinstance(response.result[0], AIMessage):
+            return False
+        message = response.result[0]
+        extra = getattr(message, "additional_kwargs", {}) or {}
+        return bool(
+            getattr(message, "tool_calls", None)
+            or getattr(message, "invalid_tool_calls", None)
+            or extra.get("tool_calls")
+            or extra.get("function_call")
+        )
+
+    def _draft(self, response: ModelResponse, *, allow_tool_calls: bool = False) -> str:
         from apps.group_agent_api.execution.active_fence import assert_write_allowed
 
         assert_write_allowed("host_checkpoint")
         for message in response.result:
             extra = getattr(message, "additional_kwargs", {}) or {}
-            if (
+            if not allow_tool_calls and (
                 getattr(message, "tool_calls", None)
                 or getattr(message, "invalid_tool_calls", None)
                 or extra.get("tool_calls")
@@ -179,6 +244,8 @@ class CafeHostMiddleware(VenueHostMiddleware):
         message = response.result[0].model_copy(
             update={
                 "content": output.reply,
+                "tool_calls": [],
+                "invalid_tool_calls": [],
                 "additional_kwargs": {
                     "cafe_suggested_replies": output.suggestions,
                     "cafe_guard_violations": output.violations,
@@ -187,22 +254,103 @@ class CafeHostMiddleware(VenueHostMiddleware):
         )
         return ModelResponse(result=[message])
 
-    def wrap_model_call(
-        self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
-    ) -> ModelResponse:
-        """Validate a synchronous tool-free model response.
+    def _limit_payload(self, code: str) -> str:
+        from apps.group_agent_api.app.cafe_host_model_tools import _REASONS, _safe_result
 
-        Args:
-            request: Current model invocation.
-            handler: Underlying model execution.
-        """
-        prepared = self.prepare(request)
-        response = handler(prepared)
+        return _safe_result(
+            {
+                "status": "rejected",
+                "code": code,
+                "reason": _REASONS.get(code, "这个动作不能执行。"),
+            }
+        )
+
+    def _refused_tool_notes(self, message: AIMessage) -> tuple[str, list[ToolMessage]]:
+        """Build a stable refusal for a batch that must not reach the tool node."""
+        from apps.group_agent_api.app.cafe_host_model_tools import TOOL_NAMES
+
+        calls = list(getattr(message, "tool_calls", None) or [])
+        invalid = list(getattr(message, "invalid_tool_calls", None) or [])
+        unknown = any(str(call.get("name") or "") not in TOOL_NAMES for call in calls)
+        if invalid:
+            code = "invalid_arguments"
+        elif unknown or not calls:
+            code = "tool_not_allowed"
+        else:
+            code = "read_limited"
+        targets = calls or invalid or [{"name": "rejected", "id": "rejected-0"}]
+        notes = [
+            ToolMessage(
+                content=self._limit_payload(code),
+                tool_call_id=str(call.get("id") or f"rejected-{index}"),
+                name=str(call.get("name") or "rejected"),
+            )
+            for index, call in enumerate(targets)
+        ]
+        return code, notes
+
+    def _without_tool_calls(self, response: ModelResponse) -> ModelResponse:
+        """Drop tool calls so a finalized answer cannot enter the tool node."""
+        cleaned: list[Any] = []
+        for message in response.result:
+            if isinstance(message, AIMessage):
+                extra = dict(getattr(message, "additional_kwargs", {}) or {})
+                extra.pop("tool_calls", None)
+                extra.pop("function_call", None)
+                message = message.model_copy(
+                    update={
+                        "tool_calls": [],
+                        "invalid_tool_calls": [],
+                        "additional_kwargs": extra,
+                    }
+                )
+            cleaned.append(message)
+        return ModelResponse(result=cleaned)
+
+    def _reject_tool_batch(
+        self,
+        prepared: ModelRequest,
+        response: ModelResponse,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        """Ask the model to explain a refused tool batch without executing it."""
+        message = response.result[0] if response.result else AIMessage(content="")
+        _code, notes = self._refused_tool_notes(message)
+        follow = prepared.override(
+            messages=[*prepared.messages, message, *notes],
+            tools=[],
+            tool_choice="none",
+        )
+        revised = handler(follow)
+        return self._finish_response(
+            self._without_tool_calls(revised),
+            prepared,
+            allow_tool_calls=False,
+        )
+
+    def _finish_response(
+        self,
+        response: ModelResponse,
+        request: ModelRequest,
+        *,
+        allow_tool_calls: bool = False,
+    ) -> ModelResponse:
         host = current_host_context()
         if host is None:
             raise HostActionRejected("cafe_host_context_required")
+        # The default café graph still fails closed on any tool call. Only the
+        # model-tools link may turn a leftover call into ordinary text.
+        from apps.group_agent_api.app.cafe_host_model_tools import (
+            model_tools_link_active,
+        )
+
+        # A finalized answer on this link must not enter a tool node. The
+        # planner graph stays closed and still rejects provider tool calls.
+        if model_tools_link_active():
+            response = self._without_tool_calls(response)
+            allow_tool_calls = False
         output = finalize_host_output(
-            self._draft(response),
+            self._draft(response, allow_tool_calls=allow_tool_calls),
             host=host,
             messages=request.messages,
         )
@@ -216,6 +364,52 @@ class CafeHostMiddleware(VenueHostMiddleware):
             response,
             output,
             shadow_review_scheduled=scheduled,
+        )
+
+    def wrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
+    ) -> ModelResponse:
+        """Validate a model response, allowing one whitelisted read on the new link.
+
+        Args:
+            request: Current model invocation.
+            handler: Underlying model execution.
+        """
+        from apps.group_agent_api.app.cafe_host_model_tools import model_tools_link_active
+
+        prepared = self.prepare(request)
+        response = handler(prepared)
+        tool_mode = bool(self.read_tools) and model_tools_link_active()
+        exchanged = any(getattr(message, "type", "") == "tool" for message in prepared.messages)
+        if tool_mode and not exchanged and self._single_read_call(response):
+            return response
+        if tool_mode and not exchanged and self._needs_refusal(response):
+            return self._reject_tool_batch(prepared, response, handler)
+        return self._finish_response(
+            response,
+            request,
+            allow_tool_calls=False,
+        )
+
+    async def _areject_tool_batch(
+        self,
+        prepared: ModelRequest,
+        response: ModelResponse,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        """Explain a refused async tool batch without executing it."""
+        message = response.result[0] if response.result else AIMessage(content="")
+        _code, notes = self._refused_tool_notes(message)
+        follow = prepared.override(
+            messages=[*prepared.messages, message, *notes],
+            tools=[],
+            tool_choice="none",
+        )
+        revised = await handler(follow)
+        return self._finish_response(
+            self._without_tool_calls(revised),
+            prepared,
+            allow_tool_calls=False,
         )
 
     async def awrap_model_call(
@@ -223,32 +417,26 @@ class CafeHostMiddleware(VenueHostMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
-        """Validate an asynchronous tool-free model response.
+        """Validate an asynchronous model response on the same tool boundary.
 
         Args:
             request: Current model invocation.
             handler: Underlying model execution.
         """
+        from apps.group_agent_api.app.cafe_host_model_tools import model_tools_link_active
+
         prepared = self.prepare(request)
         response = await handler(prepared)
-        host = current_host_context()
-        if host is None:
-            raise HostActionRejected("cafe_host_context_required")
-        output = finalize_host_output(
-            self._draft(response),
-            host=host,
-            messages=request.messages,
-        )
-        scheduled = schedule_cafe_shadow_review(
-            model=self.shadow_review_model,
-            output=output,
-            host=host,
-            messages=request.messages,
-        )
-        return self._finish(
+        tool_mode = bool(self.read_tools) and model_tools_link_active()
+        exchanged = any(getattr(message, "type", "") == "tool" for message in prepared.messages)
+        if tool_mode and not exchanged and self._single_read_call(response):
+            return response
+        if tool_mode and not exchanged and self._needs_refusal(response):
+            return await self._areject_tool_batch(prepared, response, handler)
+        return self._finish_response(
             response,
-            output,
-            shadow_review_scheduled=scheduled,
+            request,
+            allow_tool_calls=False,
         )
 
 
@@ -258,6 +446,7 @@ def create_cafe_agent(
     checkpointer: Any,
     shadow_review_model: Any | None = None,
     quality_model: Any | None = None,
+    model_tools: bool = False,
 ) -> Any:
     """Create a café graph without Deep Agent filesystem/subagent/todo tools.
 
@@ -272,9 +461,14 @@ def create_cafe_agent(
     if shadow_review_model is not None and quality_model is not None:
         raise HostActionRejected("cafe_host_shadow_reviewer_ambiguous")
     observer = shadow_review_model or quality_model
+    tools: list[Any] = []
+    if model_tools:
+        from apps.group_agent_api.app.cafe_host_model_tools import cafe_read_tools
+
+        tools = cafe_read_tools()
     return create_agent(
         model=model,
-        tools=[],
+        tools=tools,
         checkpointer=checkpointer,
-        middleware=[CafeHostMiddleware(shadow_review_model=observer)],
+        middleware=[CafeHostMiddleware(shadow_review_model=observer, read_tools=tools)],
     )

@@ -201,15 +201,25 @@ class HostOutput:
     review_passed: bool = False
 
 
+_WRITE_ACTION = re.compile(
+    r"(?:我(?:会|来|可以|正在|已|已经)|(?:已|已经)(?:替你|帮你|为你)?).{0,10}(?:保存|更新画像|发送|通知|联系|邀请|报名|关注|扣款|付款|端上|送到)|(?:I(?:'ve| have| will)|already).{0,12}(?:sent|saved|send|save|contact|invite|paid|ordered)",
+    re.I,
+)
+
+
 def _codes(text: str) -> list[str]:
+    from apps.group_agent_api.app.cafe_host_model_tools import verified_model_read
+
+    verified = verified_model_read()
     codes = []
     if contains_sensitive_context_text(text):
         codes.append("host_sensitive_text")
     if _INTERNAL.search(text):
         codes.append("host_internal_text")
-    if _positive_match(_ACTION, text) or _positive_match(_COMPLETED, text):
+    action = _WRITE_ACTION if verified else _ACTION
+    if _positive_match(action, text) or _positive_match(_COMPLETED, text):
         codes.append("host_unverified_action")
-    if _positive_match(_CANDIDATE, text):
+    if _positive_match(_CANDIDATE, text) and not verified:
         codes.append("host_invented_candidate")
     if _positive_match(_STORY, text) or _PROFILE_LINK.search(text):
         codes.append("host_unauthorized_story")
@@ -340,18 +350,28 @@ def _review_messages(
         for item in messages[-12:]
         if item.type in {"human", "ai"} and not getattr(item, "tool_calls", None)
     ]
+    from apps.group_agent_api.app.cafe_host_model_tools import verified_model_read
+
+    verified = verified_model_read()
     data = {
         "reply": output.reply,
         "options": output.suggestions,
         "authorized_context": json.loads(host.quoted_data(greeting=True)),
         "validated_search_history": validated_search_history(messages),
+        "verified_read": verified,
         "conversation": history,
         "mode": host.effective_mode,
     }
     if feedback:
         data["repair_feedback"] = feedback
+    review = _REVIEW
+    if verified:
+        review += (
+            "\nverified_read 为真时，可以依据本轮回执说明已经查找或结果为空；"
+            "不得编造回执之外的人物、项目或联系方式。没有回执时仍不得声称已搜索。"
+        )
     return [
-        SystemMessage(content=_REVIEW),
+        SystemMessage(content=review),
         HumanMessage(content=json.dumps(data, ensure_ascii=False)),
     ]
 

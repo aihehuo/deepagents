@@ -59,11 +59,15 @@ def _time(value: Any) -> datetime:
     return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
 
 
-def validate_v3_request(value: dict[str, Any]) -> dict[str, Any]:
+def validate_v3_request(
+    value: dict[str, Any], *, allow_cafe_host_without_unionid: bool = False
+) -> dict[str, Any]:
     """Validate the full trusted body without coercion or fallback.
 
     Args:
         value: Raw parsed request or restored frozen envelope.
+        allow_cafe_host_without_unionid: Only the v4 adapter may permit its
+            signed App user principal to omit unionid; direct v3 stays strict.
     """
     body = _object(value, V3_FIELDS)
     for name, expected in {
@@ -80,7 +84,8 @@ def validate_v3_request(value: dict[str, Any]) -> dict[str, Any]:
     cafe = body["execution_mode"] == "cafe_host"
     suffix = "cafe" if cafe else "group"
     _text(body["user_id"], maximum=64, pattern=r"[1-9][0-9]*")
-    _text(body["unionid"])
+    if not (allow_cafe_host_without_unionid and cafe and body["unionid"] is None):
+        _text(body["unionid"])
     _equal(body["conversation_id"], f"ga_mode_{suffix}_{body['user_id']}")
     _equal(body["memory_scope_id"], f"community_cafe_mode_{suffix}")
     _text(body["episode_id"])
@@ -239,7 +244,7 @@ def validate_v4_request(value: dict[str, Any]) -> dict[str, Any]:
         user_token=None,
     )
     common["request_fingerprint"] = calculate_v2_fingerprint(common)
-    validate_v3_request(common)
+    validate_v3_request(common, allow_cafe_host_without_unionid=True)
 
     for name, expected in {
         "request_schema_version": 4,

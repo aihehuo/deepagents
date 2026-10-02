@@ -1,10 +1,9 @@
 """Trusted session principal for HTTP mode (REQ-007 FIX2).
 
-HTTP mode does NOT trust bare X-GA-* headers. Calendar/BFF must send an
-HMAC-SHA256 signature over a canonical principal (user_id, unionid,
-token digest, ts, nonce, method, path). Verification proves the pair came
-from an OAuth session holder of the shared secret — that is the
-authoritative unionid ↔ user_id bind.
+HTTP mode does NOT trust bare X-GA-* headers. Micro signs the canonical
+principal (user_id, optional v4 unionid, token digests, ts, nonce, method,
+path) and exact typed request body. V1-v3 still require an OAuth unionid;
+Cafe Host v4 may use the signed App user_id without one.
 """
 
 from __future__ import annotations
@@ -62,7 +61,7 @@ def _token_digest(user_token: str | None) -> str:
 def canonical_principal_payload(
     *,
     user_id: str,
-    unionid: str,
+    unionid: str | None,
     user_token: str | None,
     group_token: str | None,
     ts: str,
@@ -75,7 +74,7 @@ def canonical_principal_payload(
         [
             version,
             f"user_id={user_id}",
-            f"unionid={unionid}",
+            f"unionid={unionid or ''}",
             f"token_sha256={_token_digest(user_token)}",
             f"group_token_sha256={_token_digest(group_token)}",
             f"ts={ts}",
@@ -89,7 +88,7 @@ def canonical_principal_payload(
 def sign_principal(
     *,
     user_id: str,
-    unionid: str,
+    unionid: str | None,
     user_token: str | None = None,
     group_token: str | None = None,
     ts: str | int | None = None,
@@ -104,7 +103,7 @@ def sign_principal(
 
     Args:
         user_id: Trusted OAuth user identifier.
-        unionid: Trusted OAuth union identifier.
+        unionid: Trusted OAuth union identifier, or None for Cafe Host v4.
         user_token: Optional signed user token.
         group_token: Optional signed group capability token.
         ts: Timestamp header; defaults to server time.
@@ -117,6 +116,8 @@ def sign_principal(
     """
     if request_schema_version not in {1, 2, 3, 4}:
         raise ValueError("unsupported request schema version")
+    if not unionid and request_schema_version != 4:
+        raise ValueError("unionid required for request schema v1-v3")
     key = (secret if secret is not None else principal_hmac_secret()).encode("utf-8")
     if not key:
         raise ValueError("missing principal HMAC secret")
@@ -142,11 +143,12 @@ def sign_principal(
     sig = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
     headers = {
         HEADER_USER_ID: user_id,
-        HEADER_UNIONID: unionid,
         HEADER_TS: ts_s,
         HEADER_NONCE: nonce_s,
         HEADER_SIGNATURE: sig,
     }
+    if unionid:
+        headers[HEADER_UNIONID] = unionid
     if user_token:
         headers[HEADER_USER_TOKEN] = user_token
     if group_token:
@@ -258,7 +260,7 @@ def assert_unionid_user_bind(*, unionid: str, user_id: str) -> None:
 def _verify_hmac_principal(
     request: Request,
     *, request_schema_version: int = 1, request_body: bytes | None = None,
-) -> tuple[str, str, str | None, str | None]:
+) -> tuple[str, str | None, str | None, str | None]:
     secret = principal_hmac_secret()
     if not secret:
         raise HTTPException(
@@ -277,7 +279,7 @@ def _verify_hmac_principal(
     nonce = (request.headers.get(HEADER_NONCE) or "").strip()
     signature = (request.headers.get(HEADER_SIGNATURE) or "").strip()
 
-    if not hdr_uid or not hdr_union or not ts or not nonce or not signature:
+    if not hdr_uid or (not hdr_union and request_schema_version != 4) or not ts or not nonce or not signature:
         raise HTTPException(
             status_code=401,
             detail={
@@ -350,7 +352,7 @@ def _verify_hmac_principal(
         )
 
     _remember_nonce(nonce, ttl_s=float(skew * 2))
-    return hdr_uid, hdr_union, hdr_tok, hdr_group
+    return hdr_uid, hdr_union or None, hdr_tok, hdr_group
 
 
 def resolve_session_principal(
@@ -407,8 +409,10 @@ def resolve_session_principal(
             detail={"error": "identity_injection_forbidden", "field": "user_token"},
         )
 
-    # Signed pair is authoritative OAuth bind; optional table is extra fail-closed.
-    assert_unionid_user_bind(unionid=hdr_union, user_id=hdr_uid)
+    # Only a present OAuth unionid participates in the optional bind table.
+    # For v4 App users the HMAC binds the user_id and the empty unionid instead.
+    if hdr_union:
+        assert_unionid_user_bind(unionid=hdr_union, user_id=hdr_uid)
     return SessionPrincipal(
         user_id=hdr_uid,
         unionid=hdr_union,

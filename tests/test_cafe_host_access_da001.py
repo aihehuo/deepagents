@@ -34,9 +34,11 @@ from apps.group_agent_api.app.chat_access import (
 from apps.group_agent_api.app.execution_modes import (
     calculate_v4_fingerprint,
     v4_queue_binding,
+    validate_v3_request,
     validate_v4_wire,
 )
 from apps.group_agent_api.app.models import AsyncCallRequest
+from apps.group_agent_api.app.session import resolve_trusted_session
 from apps.group_agent_api.app.utils import thread_id
 from apps.group_agent_api.app.venue_protocol import callback_bindings, canonical_json
 from apps.group_agent_api.execution.admission import (
@@ -164,6 +166,14 @@ def _active_with_token(token: str) -> tuple[AsyncCallRequest, Any]:
     session = _session(req)
     principal = replace(session.principal, user_token=token, group_token=None)
     return req, replace(session, principal=principal, group_token=None)
+
+
+def _phone_only_body(*, active: bool = False) -> dict[str, Any]:
+    """Represent one Micro-signed App account with no WeChat unionid."""
+    body = _v4_body(active=active)
+    body["unionid"] = None
+    body["request_fingerprint"] = calculate_v4_fingerprint(body)
+    return body
 
 
 def _legal_body(name: str) -> dict[str, Any]:
@@ -385,6 +395,162 @@ def test_v4_hmac_verification_binds_raw_body_and_active_token(
             request_body=wire + b" ",
         )
     assert error.value.detail["error"] == "request_signature_invalid"
+
+
+@pytest.mark.parametrize("active", (False, True))
+def test_phone_only_v4_signed_principal_and_frozen_request(
+    active: bool, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A signed App user_id authenticates v4; active still binds its token."""
+    body = _phone_only_body(active=active)
+    token = "synthetic-phone-user-token" if active else None
+    if token:
+        body["credential_binding"]["user_token_sha256"] = hashlib.sha256(
+            token.encode()
+        ).hexdigest()
+        body["credential_binding"]["group_token_sha256"] = "-"
+        body["request_fingerprint"] = calculate_v4_fingerprint(body)
+    req = AsyncCallRequest.model_validate(body)
+    wire = canonical_json(body).encode()
+    validate_v4_wire(wire, req)
+    headers = sign_principal(
+        user_id=req.user_id,
+        unionid=None,
+        user_token=token,
+        ts=int(time.time()),
+        nonce=f"synthetic-phone-v4-{active}",
+        method="POST",
+        path="/call_async",
+        secret=KEY,
+        request_schema_version=4,
+        request_body=wire,
+    )
+    assert "X-GA-Unionid" not in headers
+    monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", KEY)
+    clear_nonce_cache()
+    principal = resolve_session_principal(
+        _request(headers),
+        body_user_id=req.user_id,
+        body_unionid=None,
+        force_mode="http",
+        request_schema_version=4,
+        request_body=wire,
+    )
+    assert principal.user_id == req.user_id
+    assert principal.unionid is None
+    assert principal.user_token == token
+    session = replace(
+        _session(req),
+        principal=principal,
+    )
+    _validate_v4_principal(req, session)
+    canonical_thread = thread_id(
+        user_id=req.user_id,
+        group_id=req.group_id,
+        conversation_id=req.conversation_id,
+        episode_id=req.episode_id,
+        execution_mode=req.execution_mode,
+    )
+    envelope = build_trusted_envelope(
+        req=req, session=session, thread_id=canonical_thread
+    )
+    assert envelope["session"]["unionid"] is None
+    restored_req, restored_session, restored_thread = tasks._rebuild_session(envelope)
+    assert restored_req == req
+    assert restored_session.principal.unionid is None
+    assert restored_thread == canonical_thread
+    assert HostContext.from_request(
+        restored_req, principal=restored_session.principal, base_dir=tmp_path
+    ).visitor_user_id == req.user_id
+
+
+def test_phone_only_principal_rejects_legacy_schema_and_identity_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The v4 exception must not weaken v3 or accept another signed user."""
+    with pytest.raises(ValueError, match="unionid required"):
+        sign_principal(user_id="123", unionid=None, secret=KEY, request_schema_version=3)
+    legacy = copy.deepcopy(BASE)
+    legacy["unionid"] = None
+    with pytest.raises(ValueError):
+        validate_v3_request(legacy)
+
+    body = _phone_only_body()
+    wire = canonical_json(body).encode()
+    headers = sign_principal(
+        user_id="999",
+        unionid=None,
+        ts=int(time.time()),
+        nonce="synthetic-phone-wrong-user",
+        method="POST",
+        path="/call_async",
+        secret=KEY,
+        request_schema_version=4,
+        request_body=wire,
+    )
+    monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", KEY)
+    clear_nonce_cache()
+    with pytest.raises(HTTPException) as error:
+        resolve_session_principal(
+            _request(headers),
+            body_user_id=body["user_id"],
+            body_unionid=None,
+            force_mode="http",
+            request_schema_version=4,
+            request_body=wire,
+        )
+    assert error.value.detail == {
+        "error": "identity_injection_forbidden",
+        "field": "user_id",
+    }
+
+
+@pytest.mark.parametrize("active", (False, True))
+async def test_phone_only_v4_http_session_resolves_without_group_membership(
+    active: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The HTTP path uses signed App identity even without a WeChat bind."""
+    body = _phone_only_body(active=active)
+    token = "synthetic-phone-active-token" if active else None
+    if token:
+        body["credential_binding"]["user_token_sha256"] = hashlib.sha256(
+            token.encode()
+        ).hexdigest()
+        body["credential_binding"]["group_token_sha256"] = "-"
+        body["request_fingerprint"] = calculate_v4_fingerprint(body)
+    req = AsyncCallRequest.model_validate(body)
+    wire = canonical_json(body).encode()
+    headers = sign_principal(
+        user_id=req.user_id,
+        unionid=None,
+        user_token=token,
+        ts=int(time.time()),
+        nonce=f"synthetic-phone-session-{active}",
+        method="POST",
+        path="/call_async",
+        secret=KEY,
+        request_schema_version=4,
+        request_body=wire,
+    )
+    monkeypatch.setenv("GROUP_AGENT_INTEGRATION", "http")
+    monkeypatch.setenv("GROUP_AGENT_PRINCIPAL_HMAC_SECRET", KEY)
+    clear_nonce_cache()
+    session = await resolve_trusted_session(
+        _request(headers),
+        body_user_id=req.user_id,
+        body_group_id=req.group_id,
+        body_membership=req.membership,
+        body_unionid=req.unionid,
+        body_group_token=req.group_token,
+        body_user_token=req.user_token,
+        request_schema_version=4,
+        request_body=wire,
+    )
+    assert session.principal.user_id == req.user_id
+    assert session.principal.unionid is None
+    assert session.group_id == "global"
+    assert session.capabilities.can_write_profile is False
+    _validate_v4_principal(req, session)
 
 
 def test_active_header_digest_binding_and_default_off_gate(

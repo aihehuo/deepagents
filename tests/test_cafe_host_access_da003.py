@@ -475,6 +475,15 @@ async def test_active_community_and_digest_can_read(
         final = _final(emitted)
         assert "chat_access_control" not in final
         assert any(expected_path in path for path in _paths(emitted))
+        resolved = [payload for event, payload in emitted if event == "progress" and payload.get("phase") == "intent_resolved"]
+        assert len(resolved) == 1
+        assert resolved[0]["intent"] in {"community_search", "startup_digest"}
+        assert resolved[0]["routing_snapshot_hash"].startswith("sha256:")
+        assert resolved[0]["plan_id"] is None
+        assert resolved[0]["plan_step_id"] is None
+        assert resolved[0]["request_index"] is None
+        tool_progress = [payload for event, payload in emitted if event == "progress" and payload.get("phase") == "tool_started"]
+        assert tool_progress and tool_progress[0]["plan_id"] is not None
 
 
 @pytest.mark.asyncio

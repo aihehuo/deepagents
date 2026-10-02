@@ -540,7 +540,9 @@ async def _emit_ready(runtime: ModelToolRuntime, execution: Any) -> None:
         "intent": execution.decision.primary_intent,
         "display_code": "intent_ready",
         "routing_snapshot_hash": execution.snapshot.canonical_content_hash,
-        "plan_id": execution.plan.plan_id if execution.plan is not None else None,
+        # ProgressEventV1 reserves plan_id for tool_started/tool_completed.
+        # intent_resolved carries only the frozen routing hash.
+        "plan_id": None,
         "plan_step_id": None,
         "request_index": None,
         "elapsed_ms": max(0, min(int((time.monotonic() - runtime.progress_started) * 1000), 600_000)),

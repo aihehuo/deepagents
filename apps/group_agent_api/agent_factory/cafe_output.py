@@ -21,6 +21,9 @@ from apps.group_agent_api.agent_factory.host_context import (
 _MARKER = re.compile(
     r"<\s*suggested_replies\s*>\s*(.*?)\s*<\s*/\s*suggested_replies\s*>", re.I | re.S
 )
+_TOPIC_MARKER = re.compile(
+    r"<\s*conversation_topic\s*>\s*(.*?)\s*<\s*/\s*conversation_topic\s*>", re.I | re.S
+)
 _SEARCH_CARDS = re.compile(
     r"\[CLIENT-RECOMMENDATION-CARDS\]\s*(.*?)\s*\[/CLIENT-RECOMMENDATION-CARDS\]",
     re.S,
@@ -196,6 +199,7 @@ class HostOutput:
     """Public text and optional user-voice replies, safe to checkpoint."""
 
     reply: str
+    topic_summary: str | None = None
     suggestions: list[dict[str, str]] = field(default_factory=list)
     violations: list[str] = field(default_factory=list)
     review_passed: bool = False
@@ -269,13 +273,21 @@ def extract_host_suggestions(text: str) -> HostOutput:
     Args:
         text: Model-authored output including an optional private marker.
     """
-    matches = list(_MARKER.finditer(text))
-    visible = _MARKER.sub("", text)
+    topic_matches = list(_TOPIC_MARKER.finditer(text))
+    topic = topic_matches[-1].group(1).strip() if topic_matches else None
+    if topic and (len(topic) > 24 or re.search(r"[\r\n<>@]|https?://|\d{7,}", topic, re.I)
+                  or contains_sensitive_context_text(topic)):
+        topic = None
+    without_topic = _TOPIC_MARKER.sub("", text)
+    # Never let malformed private markup leak into the visible reply.
+    without_topic = re.sub(r"<\s*/?\s*conversation_topic\b.*", "", without_topic, flags=re.I | re.S)
+    matches = list(_MARKER.finditer(without_topic))
+    visible = _MARKER.sub("", without_topic)
     # Incomplete/malformed markup must not leak JSON into a public transcript.
     visible = re.sub(
         r"<\s*/?\s*suggested_replies\b.*", "", visible, flags=re.I | re.S
     ).strip()
-    output = HostOutput(reply=visible)
+    output = HostOutput(reply=visible, topic_summary=topic)
     if not matches:
         return output
     try:
@@ -418,6 +430,7 @@ def _reviewed(response: Any, output: HostOutput) -> HostOutput | None:
     if data["verdict"] == "pass" and reply == output.reply:
         return HostOutput(
             reply=reply,
+            topic_summary=output.topic_summary,
             suggestions=[
                 item
                 for index, item in enumerate(output.suggestions)
@@ -499,6 +512,7 @@ def _review_degraded(output: HostOutput, *, reason: str) -> HostOutput:
     )
     return HostOutput(
         reply=output.reply,
+        topic_summary=output.topic_summary,
         suggestions=[],
         violations=[*output.violations, "host_review_degraded"],
         review_passed=False,

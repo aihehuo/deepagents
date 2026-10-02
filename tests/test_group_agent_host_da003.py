@@ -125,6 +125,18 @@ def test_options_zero_one_three_and_bad_intents() -> None:
     ]
 
 
+def test_conversation_topic_is_bounded_metadata_not_visible_reply() -> None:
+    output = extract_host_suggestions(
+        "聊聊上海的餐饮品牌。<conversation_topic>上海餐饮创业与品牌定位</conversation_topic>"
+    )
+    assert output.reply == "聊聊上海的餐饮品牌。"
+    assert output.topic_summary == "上海餐饮创业与品牌定位"
+    assert extract_host_suggestions(
+        "正文。<conversation_topic>联系电话13800138000</conversation_topic>"
+    ).topic_summary is None
+    assert extract_host_suggestions("正文。<conversation_topic>未闭合").reply == "正文。"
+
+
 @pytest.mark.parametrize(
     "option",
     [
@@ -151,7 +163,7 @@ async def test_sync_async_review_policy_and_checkpoint_are_identical(
 ) -> None:
     text = "冷萃通常更柔和。" + _marker(
         [{"label": "聊风味", "reply": "我想聊聊这杯的风味。"}]
-    )
+    ) + "<conversation_topic>咖啡风味与冷萃</conversation_topic>"
     host = _host(tmp_path)
     sync = finalize_host_output(
         text, host=host, messages=[], model=Reviewer(captured=[])
@@ -171,6 +183,7 @@ async def test_sync_async_review_policy_and_checkpoint_are_identical(
             {"configurable": {"thread_id": "sync"}},
         )
     assert result["messages"][-1].content == sync.reply
+    assert result["messages"][-1].additional_kwargs["cafe_conversation_topic"] == "咖啡风味与冷萃"
     assert (
         result["messages"][-1].additional_kwargs["cafe_suggested_replies"]
         == sync.suggestions

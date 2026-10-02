@@ -249,6 +249,7 @@ class CafeHostMiddleware(VenueHostMiddleware):
                 "additional_kwargs": {
                     "cafe_suggested_replies": output.suggestions,
                     "cafe_guard_violations": output.violations,
+                    "cafe_conversation_topic": output.topic_summary,
                 },
             }
         )

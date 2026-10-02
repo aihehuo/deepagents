@@ -1783,8 +1783,10 @@ async def _execute_core_agent(
         latest = messages[-1].additional_kwargs
         suggested_replies = latest.get("cafe_suggested_replies", [])
         host_violations = latest.get("cafe_guard_violations", [])
+        conversation_topic = latest.get("cafe_conversation_topic")
     else:
         reply, suggested_replies = extract_suggested_replies(reply)
+        conversation_topic = None
 
     revisit_hint = None
     if not cafe_host:
@@ -2301,6 +2303,8 @@ async def _execute_core_agent(
         "protocol_mode": run_protocol_mode,
         "rollout_version": run_rollout_version,
     }
+    if cafe_host and isinstance(conversation_topic, str) and conversation_topic:
+        final_payload["conversation_topic"] = conversation_topic
     if access_control is not None:
         final_payload["chat_access_control"] = {
             "code": access_control,

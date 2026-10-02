@@ -1447,9 +1447,6 @@ async def _execute_core_agent(
                             model_tools=True,
                         )
                     agent = state.cafe_model_tool_agent
-                    from apps.group_agent_api.app.cafe_host_model_tools import (
-                        should_reuse_shown_results,
-                    )
                     from apps.group_agent_api.execution.active_fence import (
                         get_active_fence,
                     )
@@ -1477,9 +1474,7 @@ async def _execute_core_agent(
                         emit_search_logs=v4_search_log_enabled(),
                         emit_search_results=v4_search_result_enabled(),
                         allow_candidates=True,
-                        reuse_shown_results=should_reuse_shown_results(
-                            shown_messages, req.message or ""
-                        ),
+                        shown_messages=shown_messages,
                         attempt_id=(
                             active_fence.claim.attempt_id
                             if active_fence is not None

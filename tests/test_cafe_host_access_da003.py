@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from redis import Redis
 
 from apps.group_agent_api.agent_factory.intent_routing.canonical import canonical_hash
@@ -25,6 +25,7 @@ from apps.group_agent_api.app.cafe_host_model_tools import (
     cafe_host_link_for_admission,
     current_cafe_host_link,
     decision_from_tool_args,
+    should_reuse_shown_results,
 )
 from apps.group_agent_api.execution.active_fence import (
     ActiveAttemptFence,
@@ -117,9 +118,15 @@ def _active(
     return req, session
 
 
-def _ordinary(message: str) -> tuple[AsyncCallRequest, Any]:
+def _ordinary(
+    message: str, *, run_id: str | None = None, idempotency_key: str | None = None
+) -> tuple[AsyncCallRequest, Any]:
     body = _v4_body()
     body["message"] = message
+    if run_id is not None:
+        body["run_id"] = run_id
+    if idempotency_key is not None:
+        body["idempotency_key"] = idempotency_key
     body["request_fingerprint"] = calculate_v4_fingerprint(body)
     req = AsyncCallRequest.model_validate(body)
     return req, _session(req)
@@ -130,7 +137,7 @@ def _fake_fetch(calls: list[str]):
         calls.append(path)
         if "/users" in path:
             payload = {"data": [{"user_id": "101", "name": "周餐饮", "bio": "上海餐饮品牌"}]}
-        elif "/groups" in path:
+        elif "/groups" in path or "wechat_groups" in path:
             payload = {"data": [{"id": "e763", "name": "上海创业社群", "summary": "公开社群"}]}
         elif "/faqs" in path or "faq" in path:
             payload = {"data": [{"question": "如何实名认证", "answer": "在个人资料页提交证件。"}]}
@@ -239,6 +246,58 @@ async def test_greeting_does_not_search_or_call_planner(
     assert emitted[-1][1]["model_calls"] == 1
     progress = [payload.get("display_code") for event, payload in emitted if event == "progress"]
     assert "searching_public_people" not in progress
+
+
+@pytest.mark.asyncio
+async def test_explicit_community_request_without_tool_cannot_invent_groups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = ScriptedModel(
+        captured=[], bindings=[],
+        script=[AIMessage(content="爱合伙平台有真实活跃的沪上餐饮新势力社群，每月三场活动。")],
+    )
+    req, session = _ordinary("我想进入上海或者周边地区的创业群")
+    emitted = await _run(req, session, tmp_path, model, monkeypatch)
+    final = _final(emitted)
+    assert "没有完成公开数据查询" in final["reply"]
+    assert "沪上餐饮新势力" not in final["reply"]
+    assert _paths(emitted) == []
+
+
+@pytest.mark.asyncio
+async def test_missed_explicit_community_lookup_gets_one_model_tool_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = ScriptedModel(
+        captured=[], bindings=[],
+        script=[
+            AIMessage(content="平台有沪上餐饮新势力社群。"),
+            AIMessage(content="", tool_calls=[
+                {"name": "search_communities", "id": "call-groups", "args": {"query": "上海 周边 创业社群"}}
+            ]),
+            AIMessage(content="我查到了上海创业社群。"),
+        ],
+    )
+    req, session = _active("我想进入上海或者周边地区的创业群")
+    _enable_search(monkeypatch, req.user_id)
+    emitted = await _run(req, session, tmp_path, model, monkeypatch)
+    assert model.calls == 3
+    assert any("wechat_groups" in path for path in _paths(emitted))
+    assert "沪上餐饮新势力" not in _final(emitted)["reply"]
+
+
+def test_reuse_requires_same_resource_and_a_result_reference() -> None:
+    marker = SystemMessage(
+        content='[CLIENT-RECOMMENDATION-CARDS]\n'
+        '[{"card_ref":"candidate_1","display_name":"周餐饮"}]'
+        '\n[/CLIENT-RECOMMENDATION-CARDS]'
+    )
+    messages = [marker, HumanMessage(content="找上海餐饮合伙人")]
+    assert should_reuse_shown_results(messages, "第一个人怎么样", "search_people")
+    assert not should_reuse_shown_results(messages, "我想进入上海的创业群", "search_communities")
+    assert not should_reuse_shown_results(messages, "你来调用工具搜索", "search_communities")
+    assert not should_reuse_shown_results(messages, "请找北京的合伙人", "search_people")
+    assert not should_reuse_shown_results(messages, "帮我找和刚才第一个类似的人", "search_people")
 
 
 @pytest.mark.asyncio
@@ -558,6 +617,103 @@ async def test_follow_up_reuses_shown_results_until_user_asks_again(
     )
     again = await _run(again_req, session, tmp_path, model, monkeypatch, state=state)
     assert any("/users" in path for path in _paths(again))
+
+
+@pytest.mark.asyncio
+async def test_people_history_cannot_suppress_new_community_search(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = ScriptedModel(
+        captured=[], bindings=[],
+        script=[
+            AIMessage(content="", tool_calls=[
+                {"name": "search_people", "id": "call-people", "args": {"query": "上海 餐饮合伙人"}}
+            ]),
+            AIMessage(content="我查到了周餐饮，可以查看公开卡片。"),
+            AIMessage(content="", tool_calls=[
+                {"name": "search_communities", "id": "call-groups", "args": {"query": "上海 周边 创业社群"}}
+            ]),
+            AIMessage(content="我查到了上海创业社群。"),
+        ],
+    )
+    state = _state(tmp_path, model)
+    first_req, session = _active("找上海餐饮合伙人")
+    _enable_search(monkeypatch, first_req.user_id)
+    first = await _run(first_req, session, tmp_path, model, monkeypatch, state=state)
+    assert any("/users" in path for path in _paths(first))
+    next_req, _ = _active(
+        "我想进入上海或者周边地区的创业群",
+        run_id="00000000-0000-4000-8000-000000000303",
+        idempotency_key="synthetic-access-cafe-groups",
+    )
+    second = await _run(next_req, session, tmp_path, model, monkeypatch, state=state)
+    assert any("wechat_groups" in path for path in _paths(second))
+    assert "chat_access_control" not in _final(second)
+
+
+@pytest.mark.asyncio
+async def test_ordinary_community_search_after_people_results_reaches_drink_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CAFE_HOST_PENDING_SEARCH_OFFER_ENABLED", "1")
+    model = ScriptedModel(
+        captured=[], bindings=[],
+        script=[
+            AIMessage(content="", tool_calls=[
+                {"name": "search_people", "id": "call-people", "args": {"query": "上海 餐饮合伙人"}}
+            ]),
+            AIMessage(content="我查到了周餐饮，可以查看公开卡片。"),
+            AIMessage(content="", tool_calls=[
+                {"name": "search_communities", "id": "call-groups", "args": {"query": "上海 周边 创业社群"}}
+            ]),
+            AIMessage(content="这次没有执行搜索。"),
+        ],
+    )
+    state = _state(tmp_path, model)
+    first_req, first_session = _active("找上海餐饮合伙人")
+    _enable_search(monkeypatch, first_req.user_id)
+    await _run(first_req, first_session, tmp_path, model, monkeypatch, state=state)
+    next_req, next_session = _ordinary(
+        "你来调用工具搜索上海周边创业群",
+        run_id="00000000-0000-4000-8000-000000000305",
+        idempotency_key="synthetic-access-cafe-groups-ordinary",
+    )
+    emitted = await _run(next_req, next_session, tmp_path, model, monkeypatch, state=state)
+    final = _final(emitted)
+    assert final["chat_access_control"]["code"] == "chat_session_required"
+    assert final["pending_search_offer"]["intent"] == "community_search"
+    assert _paths(emitted) == []
+
+
+@pytest.mark.asyncio
+async def test_historical_person_followup_cannot_invent_profile_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = ScriptedModel(
+        captured=[], bindings=[],
+        script=[
+            AIMessage(content="", tool_calls=[
+                {"name": "search_people", "id": "call-person", "args": {"query": "上海 餐饮合伙人"}}
+            ]),
+            AIMessage(content="我查到了周餐饮，可以查看公开卡片。"),
+            AIMessage(content="周餐饮有五年连锁餐饮经历，还持有智能排班专利。"),
+        ],
+    )
+    state = _state(tmp_path, model)
+    first_req, session = _active("找上海餐饮合伙人")
+    _enable_search(monkeypatch, first_req.user_id)
+    await _run(first_req, session, tmp_path, model, monkeypatch, state=state)
+    follow_req, _ = _active(
+        "我想看看第一个结果",
+        run_id="00000000-0000-4000-8000-000000000304",
+        idempotency_key="synthetic-access-cafe-person-detail",
+    )
+    follow = await _run(follow_req, session, tmp_path, model, monkeypatch, state=state)
+    reply = _final(follow)["reply"]
+    assert "周餐饮" in reply
+    assert "专利" not in reply
+    assert "五年" not in reply
+    assert _paths(follow) == []
 
 
 @pytest.mark.asyncio

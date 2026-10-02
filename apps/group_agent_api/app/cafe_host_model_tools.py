@@ -162,7 +162,7 @@ class ModelToolRuntime:
     emit_search_logs: bool
     emit_search_results: bool
     allow_candidates: bool
-    reuse_shown_results: bool = False
+    shown_messages: list[Any] = field(default_factory=list)
     attempt_id: str | None = None
     slot: threading.Lock = field(default_factory=threading.Lock)
     claimed: bool = False
@@ -197,7 +197,13 @@ def current_model_tool_runtime() -> ModelToolRuntime | None:
 
 def verified_model_read() -> bool:
     """Return whether this attempt already has a verified read receipt."""
-    return _VERIFIED.get()
+    runtime = _RUNTIME.get()
+    execution = runtime.execution if runtime is not None else None
+    return _VERIFIED.get() or bool(
+        execution is not None
+        and execution.decision.action == "execute"
+        and execution.receipts
+    )
 
 
 @contextmanager
@@ -401,8 +407,27 @@ def frozen_public_query(execution: Any) -> str:
 
 _FRESH_SEARCH = re.compile(
     r"(?:重新|再)(?:搜|查|找)|刷新|扩大(?:范围|条件)?|放宽(?:条件|范围)?|"
-    r"换(?:个|一)?(?:条件|关键词|城市)|另(?:外)?(?:搜|找|查)|换一批"
+    r"换(?:个|一)?(?:条件|关键词|城市)|另(?:外)?(?:搜|找|查)|换一批|"
+    r"调用.{0,8}(?:搜索|查找|查询|工具)|"
+    r"(?:帮我|请|能否|可以).{0,8}(?:找|查|搜)"
 )
+_RESULT_REFERENCE = re.compile(r"第[一二三123]|刚才|上次|前面|这些|这几个|那几个|对比|比较")
+_SEARCH_FOLLOWUP = re.compile(
+    r"第[一二三123].{0,8}(?:结果|人|位|个|项目)|"
+    r"(?:刚才|上次|前面|这些|这几个|那几个).{0,20}(?:结果|候选|人|项目|搜索|找到)|"
+    r"(?:对比|比较).{0,25}(?:候选|结果|项目|人)"
+)
+_EXPLICIT_PUBLIC_LOOKUP = re.compile(
+    r"(?:找|查|搜|推荐|想进入|想加入|加入).{0,40}"
+    r"(?:社群|创业群|群组|合伙人|候选人|人选|合作项目|创业机会|博客|平台新闻)|"
+    r"(?:社群|创业群|群组|合伙人|候选人|合作项目|创业机会|博客|平台新闻)"
+    r".{0,30}(?:有哪些|找|查|搜|推荐)|调用.{0,8}(?:搜索|查找|查询)"
+)
+_UNVERIFIED_GROUP_CLAIM = re.compile(
+    r"(?:平台|爱合伙).{0,30}(?:确实有|有几个|有不少|有.*社群|官方孵化)|"
+    r"(?:真实活跃|月均\d+场|开放\d+个新席位|已开放申请)"
+)
+_SAFE_NO_READ_REPLY = re.compile(r"(?:没法|无法|不能|没有|尚未|还没).{0,12}(?:查|搜|查询|搜索)")
 
 
 def user_requests_fresh_search(message: str) -> bool:
@@ -410,11 +435,98 @@ def user_requests_fresh_search(message: str) -> bool:
     return _FRESH_SEARCH.search(message or "") is not None
 
 
-def should_reuse_shown_results(messages: list[Any], message: str) -> bool:
-    """Keep this turn on already shown groups unless the user asks to search again."""
+def explicit_public_lookup_request(messages: list[Any]) -> bool:
+    """Identify a direct public lookup for one bounded model retry, not routing."""
+    from langchain_core.messages import HumanMessage
+
     from apps.group_agent_api.agent_factory.cafe_output import validated_search_history
 
-    return bool(validated_search_history(messages)) and not user_requests_fresh_search(message)
+    message = next(
+        (str(item.content or "") for item in reversed(messages) if isinstance(item, HumanMessage)),
+        "",
+    )
+    if not _EXPLICIT_PUBLIC_LOOKUP.search(message):
+        return False
+    if not user_requests_fresh_search(message) and _SEARCH_FOLLOWUP.search(message):
+        return not bool(validated_search_history(messages))
+    return True
+
+
+def should_reuse_shown_results(
+    messages: list[Any], message: str, tool_name: str
+) -> bool:
+    """Reuse only a referenced result group of the same resource as the tool."""
+    from apps.group_agent_api.agent_factory.cafe_output import validated_search_history
+
+    if user_requests_fresh_search(message) or not _RESULT_REFERENCE.search(message or ""):
+        return False
+    intent = TOOL_INTENTS.get(tool_name)
+    resource = _QUERY_FIELD.get(intent or "")
+    if resource is None:
+        return False
+    return any(
+        (group.get("resource") or "users") == resource
+        for group in validated_search_history(messages)
+    )
+
+
+def grounded_unverified_reply(messages: list[Any], draft: str) -> str:
+    """Ground no-tool follow-ups and refuse unsupported public-data claims.
+
+    This is an output guard, not a keyword router: it never starts a search.
+    Only server-authored historical card markers may supply profile facts.
+    """
+    from langchain_core.messages import HumanMessage
+
+    from apps.group_agent_api.agent_factory.cafe_output import validated_search_history
+
+    user_message = next(
+        (str(message.content or "") for message in reversed(messages) if isinstance(message, HumanMessage)),
+        "",
+    )
+    if (
+        user_requests_fresh_search(user_message)
+        and len(draft) <= 160
+        and _SAFE_NO_READ_REPLY.search(draft)
+        and not _UNVERIFIED_GROUP_CLAIM.search(draft)
+    ):
+        return draft
+    if user_requests_fresh_search(user_message):
+        return "这次还没有完成新的公开数据查询，我不能把旧结果当作新结果。"
+    history = validated_search_history(messages)
+    if history and (
+        _SEARCH_FOLLOWUP.search(user_message)
+        or any(
+            str(card.get("display_name") or card.get("title") or "") in user_message
+            for group in history
+            for card in group["cards"]
+            if card.get("display_name") or card.get("title")
+        )
+    ):
+        groups = history if re.search(r"对比|比较", user_message) else history[-1:]
+        ordinal = re.search(r"第([一二三123])", user_message)
+        position = {"一": 0, "二": 1, "三": 2, "1": 0, "2": 1, "3": 2}.get(
+            ordinal.group(1), -1
+        ) if ordinal else -1
+        lines = ["我只能依据之前展示的公开卡片说明，不能补写未核实的资料："]
+        for group in groups:
+            cards = group["cards"]
+            selected = cards[position : position + 1] if 0 <= position < len(cards) else cards
+            for card in selected:
+                title = str(card.get("display_name") or card.get("title") or "")
+                facts = [
+                    str(card.get(key) or "")
+                    for key in ("doing", "need", "offer", "short_intro", "summary")
+                    if card.get(key)
+                ]
+                lines.append(f"- {title}" + ("：" + "；".join(facts) if facts else "（卡片未提供更多详情）"))
+        lines.append("更多履历、活动或合作条件未在这些卡片中核实；可以点开对应卡片查看详情。")
+        return "\n".join(lines)
+    if _EXPLICIT_PUBLIC_LOOKUP.search(user_message):
+        return "这次还没有完成公开数据查询，我不能凭猜测给你具体名单或结果。"
+    if _UNVERIFIED_GROUP_CLAIM.search(draft):
+        return "刚才提到的具体社群并未经过公开查询核实，我不应该把它们说成真实可加入的群组。"
+    return draft
 
 
 async def _emit_ready(runtime: ModelToolRuntime, execution: Any) -> None:
@@ -517,7 +629,9 @@ async def execute_model_read(tool_name: str, args: dict[str, Any]) -> str:
                 "reason": "本轮只能进行一次公开读取。",
             }
         )
-    if runtime.reuse_shown_results:
+    if should_reuse_shown_results(
+        runtime.shown_messages, runtime.original_message, tool_name
+    ):
         _record(
             runtime,
             "cafe_model_tool_reused",

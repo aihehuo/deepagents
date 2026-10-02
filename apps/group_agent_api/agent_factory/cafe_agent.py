@@ -341,7 +341,9 @@ class CafeHostMiddleware(VenueHostMiddleware):
         # The default café graph still fails closed on any tool call. Only the
         # model-tools link may turn a leftover call into ordinary text.
         from apps.group_agent_api.app.cafe_host_model_tools import (
+            grounded_unverified_reply,
             model_tools_link_active,
+            verified_model_read,
         )
 
         # A finalized answer on this link must not enter a tool node. The
@@ -349,8 +351,11 @@ class CafeHostMiddleware(VenueHostMiddleware):
         if model_tools_link_active():
             response = self._without_tool_calls(response)
             allow_tool_calls = False
+        draft = self._draft(response, allow_tool_calls=allow_tool_calls)
+        if model_tools_link_active() and not verified_model_read():
+            draft = grounded_unverified_reply(request.messages, draft)
         output = finalize_host_output(
-            self._draft(response, allow_tool_calls=allow_tool_calls),
+            draft,
             host=host,
             messages=request.messages,
         )
@@ -366,6 +371,20 @@ class CafeHostMiddleware(VenueHostMiddleware):
             shadow_review_scheduled=scheduled,
         )
 
+    def _lookup_retry_request(self, prepared: ModelRequest) -> ModelRequest:
+        """Give one missed explicit lookup another model tool-choice opportunity."""
+        content = str(prepared.system_message.content if prepared.system_message else "")
+        instruction = (
+            "\n用户明确要求查询公开数据，上一稿没有提出工具请求。"
+            "请判断六个只读工具中哪一个适合当前请求，并优先提出该工具；"
+            "是否真正执行由服务端门禁决定。不要凭记忆编造具体结果。"
+        )
+        return prepared.override(
+            system_message=SystemMessage(content=content + instruction, name="venue_host"),
+            tools=list(self.read_tools),
+            tool_choice="auto",
+        )
+
     def wrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
     ) -> ModelResponse:
@@ -375,7 +394,10 @@ class CafeHostMiddleware(VenueHostMiddleware):
             request: Current model invocation.
             handler: Underlying model execution.
         """
-        from apps.group_agent_api.app.cafe_host_model_tools import model_tools_link_active
+        from apps.group_agent_api.app.cafe_host_model_tools import (
+            explicit_public_lookup_request,
+            model_tools_link_active,
+        )
 
         prepared = self.prepare(request)
         response = handler(prepared)
@@ -385,6 +407,12 @@ class CafeHostMiddleware(VenueHostMiddleware):
             return response
         if tool_mode and not exchanged and self._needs_refusal(response):
             return self._reject_tool_batch(prepared, response, handler)
+        if tool_mode and not exchanged and explicit_public_lookup_request(request.messages):
+            response = handler(self._lookup_retry_request(prepared))
+            if self._single_read_call(response):
+                return response
+            if self._needs_refusal(response):
+                return self._reject_tool_batch(prepared, response, handler)
         return self._finish_response(
             response,
             request,
@@ -423,7 +451,10 @@ class CafeHostMiddleware(VenueHostMiddleware):
             request: Current model invocation.
             handler: Underlying model execution.
         """
-        from apps.group_agent_api.app.cafe_host_model_tools import model_tools_link_active
+        from apps.group_agent_api.app.cafe_host_model_tools import (
+            explicit_public_lookup_request,
+            model_tools_link_active,
+        )
 
         prepared = self.prepare(request)
         response = await handler(prepared)
@@ -433,6 +464,12 @@ class CafeHostMiddleware(VenueHostMiddleware):
             return response
         if tool_mode and not exchanged and self._needs_refusal(response):
             return await self._areject_tool_batch(prepared, response, handler)
+        if tool_mode and not exchanged and explicit_public_lookup_request(request.messages):
+            response = await handler(self._lookup_retry_request(prepared))
+            if self._single_read_call(response):
+                return response
+            if self._needs_refusal(response):
+                return await self._areject_tool_batch(prepared, response, handler)
         return self._finish_response(
             response,
             request,

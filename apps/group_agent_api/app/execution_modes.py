@@ -205,8 +205,12 @@ def validate_v3_request(
         {"source", "client_surface", "source_message_id"},
         required={"source", "client_surface"},
     )
-    _equal(metadata["source"], "ios_app")
-    _equal(metadata["client_surface"], "ios_app")
+    _choice(metadata["source"], {"ios_app", "web_cafe"})
+    _choice(metadata["client_surface"], {"ios_app", "web_cafe"})
+    if metadata["source"] != metadata["client_surface"]:
+        raise ValueError("schema_invalid: source/client_surface mismatch")
+    if metadata["source"] == "web_cafe" and body["execution_mode"] != "cafe_host":
+        raise ValueError("schema_invalid: web source limited to cafe_host")
     if "source_message_id" in metadata:
         _integer(metadata["source_message_id"], minimum=1)
         if body["input_kind"] == "venue_event":

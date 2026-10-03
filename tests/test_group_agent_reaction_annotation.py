@@ -13,6 +13,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from apps.group_agent_api.agent_factory.cafe_agent import create_cafe_agent
 from apps.group_agent_api.agent_factory.cafe_reaction_annotation import (
+    _candidates,
     aannotate_reactions,
     annotate_reactions,
 )
@@ -39,6 +40,16 @@ _LONG_REPLY = (
     "离开时，我会记住那盏灯和桌上的热气。下次再推开门，我希望自己仍能按自己的节奏坐下来，"
     "而不是为了完成一套固定的体验流程。"
 )
+_MARKDOWN_REPLY = (
+    "### 从创业者角度看这个餐饮产品\n"
+    "**核心价值：替独居者减少每天晚餐前的选择负担。**\n\n"
+    "| 模块 | 用户得到什么 | 如何验证 |\n"
+    "|------|--------------|----------|\n"
+    "| 餐食 | 一份热饭<br>不用自己备菜 | 看一周内愿意再次购买的人数 |\n\n"
+    "- 不要先租大店，而是先用小规模试卖验证需求。\n"
+    "- 菜单不必丰富，先把一道主菜的口味和出餐速度做稳定。\n"
+    "我们交付的不只是食物，还包括更省心的晚餐决定。"
+)
 
 
 class AnnotationModel:
@@ -57,43 +68,46 @@ class AnnotationModel:
 
 
 def test_separate_annotation_receives_only_final_reply() -> None:
-    model = AnnotationModel([json.dumps({"quotes": [_QUOTE]}, ensure_ascii=False)])
+    chosen = next(item for item in _candidates(_REPLY) if item["quote"] == _QUOTE)
+    model = AnnotationModel([json.dumps({"ids": [chosen["id"]]}, ensure_ascii=False)])
     result = annotate_reactions(_REPLY, model)
     assert result.status == "annotated"
     assert result.spans == [{"id": "span_1", "quote": _QUOTE}]
     messages, kwargs = model.calls[0]
     assert len(messages) == 2
-    assert json.loads(messages[1].content) == {"reply": _REPLY}
+    input_payload = json.loads(messages[1].content)
+    assert input_payload["reply"] == _REPLY
+    assert {item["id"]: item["quote"] for item in input_payload["candidates"]}[chosen["id"]] == _QUOTE
     assert kwargs["tools"] == [] and kwargs["tool_choice"] == "none"
 
 
-def test_invalid_quote_does_not_trigger_another_model_call() -> None:
+def test_unknown_id_does_not_trigger_another_model_call() -> None:
     model = AnnotationModel([
-        json.dumps({"quotes": ["这不是原文中的片段。"]}, ensure_ascii=False),
+        json.dumps({"ids": ["not_a_candidate"]}, ensure_ascii=False),
     ])
     result = annotate_reactions(_REPLY, model)
-    assert result.status == "invalid_quotes" and len(model.calls) == 1
+    assert result.status == "invalid_ids" and len(model.calls) == 1
     assert result.spans == []
 
 
 def test_empty_and_sensitive_choices_do_not_invent_annotations() -> None:
-    empty = AnnotationModel(['{"quotes":[]}'])
+    empty = AnnotationModel(['{"ids":[]}'])
     assert annotate_reactions(_REPLY, empty).status == "model_empty"
     assert len(empty.calls) == 1
     sensitive_reply = _REPLY + " 请联系 guest@example.test 获取详情。"
-    sensitive = AnnotationModel([
-        json.dumps({"quotes": ["请联系 guest@example.test 获取详情。"]}, ensure_ascii=False)
-    ])
-    assert annotate_reactions(sensitive_reply, sensitive).status == "invalid_quotes"
+    assert all("guest@example.test" not in item["quote"] for item in _candidates(sensitive_reply))
+    sensitive = AnnotationModel(['{"ids":["c999"]}'])
+    assert annotate_reactions(sensitive_reply, sensitive).status == "invalid_ids"
     assert len(sensitive.calls) == 1
-    short = AnnotationModel(['{"quotes":[]}'])
+    short = AnnotationModel(['{"ids":[]}'])
     assert annotate_reactions("你好。", short).status == "skipped"
     assert not short.calls
 
 
-def test_valid_model_quotes_survive_invalid_or_overlapping_neighbors() -> None:
+def test_valid_model_ids_survive_invalid_or_duplicate_neighbors() -> None:
+    chosen = next(item for item in _candidates(_REPLY) if item["quote"] == _QUOTE)
     overlapping = AnnotationModel([
-        json.dumps({"quotes": ["这不是原文中的片段。", _QUOTE, "今天来这里吃饭就够了"]}, ensure_ascii=False)
+        json.dumps({"ids": ["not_a_candidate", chosen["id"], chosen["id"]]}, ensure_ascii=False)
     ])
     result = annotate_reactions(_REPLY, overlapping)
     assert result.status == "annotated_partial"
@@ -112,12 +126,40 @@ def test_typography_difference_maps_to_unique_original_span() -> None:
 def test_two_anchors_recover_short_omission_as_original_text() -> None:
     reply = "我觉得这种留白本身就是一种很体贴的招待。"
     model_quote = "这种留白就是一种很体贴的招待。"
-    model = AnnotationModel([json.dumps({"quotes": [model_quote]}, ensure_ascii=False)])
-    # Add ordinary surrounding prose so the real annotation entry point runs.
-    result = annotate_reactions(reply + _REPLY, model)
+    location = locate_reaction_quote(reply, model_quote)
+    assert location is not None
+    assert reply[location[0]:location[1]] == "这种留白本身就是一种很体贴的招待"
+
+
+def test_markdown_table_reply_exposes_unique_prose_candidates() -> None:
+    reply = (
+        "### 这是一个餐饮产品\n"
+        "**核心功能：帮独居者在三十分钟内减少决策负担。**\n"
+        "| 模块 | 交付内容 |\n|------|---------|\n"
+        "| **空间** | 一张桌子<br>六把椅子 |\n"
+        "- 不追求复杂装修，先验证用户是否愿意再来。\n"
+        "所以，这个产品要卖的是一顿省心的饭。"
+    )
+    candidates = _candidates(reply)
+    assert any(item["quote"] == "核心功能：帮独居者在三十分钟内减少决策负担。" for item in candidates)
+    assert any(item["quote"] == "不追求复杂装修，先验证用户是否愿意再来。" for item in candidates)
+    assert all("<br>" not in item["quote"] for item in candidates)
+    chosen = next(item for item in candidates if item["quote"].startswith("核心功能"))
+    result = annotate_reactions(reply, AnnotationModel([json.dumps({"ids": [chosen["id"]]})]))
     assert result.status == "annotated"
-    assert result.spans == [{"id": "span_1", "quote": "这种留白本身就是一种很体贴的招待"}]
-    assert len(model.calls) == 1
+    assert result.spans == [{"id": "span_1", "quote": chosen["quote"]}]
+
+
+def test_long_reply_candidates_cover_the_end_as_well_as_the_start() -> None:
+    reply = "\n".join(
+        f"第{index}个建议：先用一周验证顾客是否愿意复购，再决定是否扩大门店。"
+        for index in range(100)
+    )
+    candidates = _candidates(reply)
+    assert len(candidates) == 48
+    assert candidates[0]["quote"] in reply.splitlines()[0]
+    assert candidates[-1]["quote"] in reply.splitlines()[-1]
+    assert all(reply[item["start"]:].startswith(item["quote"]) for item in candidates)
 
 
 @pytest.mark.parametrize(
@@ -147,7 +189,8 @@ def test_provider_failure_does_not_block_reply() -> None:
 
 async def test_cafe_graph_adds_separate_model_spans_to_final_reply(tmp_path: Path) -> None:
     core = ChatModel(output=AIMessage(content=_REPLY), captured=[])
-    annotation = AnnotationModel([json.dumps({"quotes": [_QUOTE]}, ensure_ascii=False)])
+    chosen = next(item for item in _candidates(_REPLY) if item["quote"] == _QUOTE)
+    annotation = AnnotationModel([json.dumps({"ids": [chosen["id"]]}, ensure_ascii=False)])
     graph = create_cafe_agent(
         model=core,
         reaction_model=annotation,
@@ -168,7 +211,9 @@ async def test_cafe_graph_adds_separate_model_spans_to_final_reply(tmp_path: Pat
 
 @pytest.mark.real_llm
 @pytest.mark.integration
-async def test_real_qwen_selects_excerpts_from_synthetic_narrative(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_real_qwen_selects_excerpts_from_synthetic_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Opt-in paid test: genuinely call DashScope, never use a model stub."""
     if os.environ.get("GROUP_AGENT_REAL_LLM_TEST") != "1":
         pytest.skip("set GROUP_AGENT_REAL_LLM_TEST=1 to call the real model")
@@ -184,7 +229,8 @@ async def test_real_qwen_selects_excerpts_from_synthetic_narrative(monkeypatch: 
     monkeypatch.setenv("GROUP_AGENT_MODEL_MODE", "real")
     model = create_model(timeout_s=20, max_retries=0)
     assert isinstance(model, ChatOpenAI)
-    result = await aannotate_reactions(_LONG_REPLY, model.bind(max_tokens=500, temperature=0))
+    reply = _LONG_REPLY + "\n\n" + _MARKDOWN_REPLY
+    result = await aannotate_reactions(reply, model.bind(max_tokens=500, temperature=0))
     assert result.status == "annotated", result.status
     assert 1 <= len(result.spans) <= 5
-    assert all(_LONG_REPLY.count(span["quote"]) == 1 for span in result.spans)
+    assert all(reply.count(span["quote"]) == 1 for span in result.spans)

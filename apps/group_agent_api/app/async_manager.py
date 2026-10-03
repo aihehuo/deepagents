@@ -1001,6 +1001,7 @@ async def _execute_core_agent(
                 model=state.greeting_model,
                 checkpointer=get_agent_checkpointer(state.agent),
                 shadow_review_model=state.cafe_shadow_review_model,
+                reaction_model=state.cafe_reaction_model,
             )
         agent = state.cafe_agent
     lock = state.thread_locks.setdefault(tid, asyncio.Lock())
@@ -1444,6 +1445,7 @@ async def _execute_core_agent(
                             model=state.greeting_model,
                             checkpointer=get_agent_checkpointer(state.agent),
                             shadow_review_model=state.cafe_shadow_review_model,
+                            reaction_model=state.cafe_reaction_model,
                             model_tools=True,
                         )
                     agent = state.cafe_model_tool_agent
@@ -1785,6 +1787,7 @@ async def _execute_core_agent(
         host_violations = latest.get("cafe_guard_violations", [])
         conversation_topic = latest.get("cafe_conversation_topic")
         reaction_spans = latest.get("cafe_reaction_spans", [])
+        reaction_reply_basis = reply
     else:
         reply, suggested_replies = extract_suggested_replies(reply)
         conversation_topic = None
@@ -2307,7 +2310,9 @@ async def _execute_core_agent(
     }
     if cafe_host and isinstance(conversation_topic, str) and conversation_topic:
         final_payload["conversation_topic"] = conversation_topic
-    if cafe_host and reaction_spans:
+    # Later search/guard projections may replace the model's public reply.
+    # Quotes selected for the old text must not be attached to a replacement.
+    if cafe_host and reaction_spans and visible_reply == reaction_reply_basis:
         final_payload["reaction_spans"] = reaction_spans
     if access_control is not None:
         final_payload["chat_access_control"] = {

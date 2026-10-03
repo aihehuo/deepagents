@@ -29,6 +29,7 @@ class AppState:
     quality_model: Any | None = None  # optional LLM for profile match-ready (REQ-029)
     planner_model: Any | None = None  # bounded model for intent/query planning
     cafe_shadow_review_model: Any | None = None  # observer only; never gates replies
+    cafe_reaction_model: Any | None = None  # separate bounded model for final-reply excerpts
     thread_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
     active_agent_runs: dict[str, str] = field(default_factory=dict)
     active_tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)

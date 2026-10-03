@@ -38,6 +38,7 @@ def get_worker_runtime() -> dict[str, Any]:
     quality_model = None
     greeting_model = None
     cafe_shadow_review_model = None
+    cafe_reaction_model = None
     try:
         from apps.group_agent_api.agent_factory.integrations.config import llm_polish_enabled
         from apps.group_agent_api.agent_factory.model_builder import create_model
@@ -67,6 +68,11 @@ def get_worker_runtime() -> dict[str, Any]:
             timeout_s=core_timeout_s,
             max_retries=0,
         )
+        cafe_reaction_model = create_model(
+            log_prefix="[GroupAgentWorkerCafeReaction]",
+            timeout_s=float(os.environ.get("GROUP_AGENT_CAFE_REACTION_TIMEOUT_S", "12")),
+            max_retries=0,
+        ).bind(max_tokens=500, temperature=0)
         from apps.group_agent_api.agent_factory.cafe_shadow_review import (
             shadow_review_enabled,
         )
@@ -90,6 +96,7 @@ def get_worker_runtime() -> dict[str, Any]:
         backpressure=BackpressureController(store._r, cfg),
         greeting_model=greeting_model,
         cafe_shadow_review_model=cafe_shadow_review_model,
+        cafe_reaction_model=cafe_reaction_model,
     )
     _RUNTIME.update(
         {

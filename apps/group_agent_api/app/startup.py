@@ -57,6 +57,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
     planner_model = None
     greeting_model = None
     cafe_shadow_review_model = None
+    cafe_reaction_model = None
     try:
         from apps.group_agent_api.agent_factory.integrations.config import (
             llm_polish_enabled,
@@ -86,6 +87,11 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
             timeout_s=core_timeout_s,
             max_retries=0,
         )
+        cafe_reaction_model = create_model(
+            log_prefix="[GroupAgentCafeReaction]",
+            timeout_s=float(os.environ.get("GROUP_AGENT_CAFE_REACTION_TIMEOUT_S", "12")),
+            max_retries=0,
+        ).bind(max_tokens=500, temperature=0)
         from apps.group_agent_api.agent_factory.cafe_shadow_review import (
             shadow_review_enabled,
         )
@@ -135,6 +141,7 @@ async def startup(state_ref: dict[str, AppState | None]) -> None:
         backpressure=backpressure,
         greeting_model=greeting_model,
         cafe_shadow_review_model=cafe_shadow_review_model,
+        cafe_reaction_model=cafe_reaction_model,
     )
     _logger.info(
         "%s ready runtime=%s integration=%s durable=%s",

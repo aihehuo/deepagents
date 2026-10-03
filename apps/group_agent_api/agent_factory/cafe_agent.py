@@ -37,9 +37,11 @@ class CafeHostMiddleware(VenueHostMiddleware):
         self,
         *,
         shadow_review_model: Any | None = None,
+        reaction_model: Any | None = None,
         read_tools: list[Any] | None = None,
     ) -> None:
         self.shadow_review_model = shadow_review_model
+        self.reaction_model = reaction_model
         self.read_tools = list(read_tools or [])
 
     def prepare(self, request: ModelRequest) -> ModelRequest:
@@ -226,6 +228,7 @@ class CafeHostMiddleware(VenueHostMiddleware):
         output: HostOutput,
         *,
         shadow_review_scheduled: bool,
+        reaction_status: str = "skipped",
     ) -> ModelResponse:
         from apps.group_agent_api.execution.active_fence import assert_write_allowed
         from apps.group_agent_api.agent_factory.debug_trace import record_decision_point
@@ -241,6 +244,7 @@ class CafeHostMiddleware(VenueHostMiddleware):
                     re.search(r"<\s*reaction_spans\b", str(response.result[0].content), re.I)
                 ),
                 "reaction_span_count": len(output.reaction_spans),
+                "reaction_status": reaction_status,
                 "guard_mode": "deterministic",
                 "shadow_review_scheduled": shadow_review_scheduled,
                 "final_text": output.reply,
@@ -335,13 +339,14 @@ class CafeHostMiddleware(VenueHostMiddleware):
             allow_tool_calls=False,
         )
 
-    def _finish_response(
+    def _finalized_response(
         self,
         response: ModelResponse,
         request: ModelRequest,
         *,
         allow_tool_calls: bool = False,
-    ) -> ModelResponse:
+    ) -> tuple[ModelResponse, HostOutput]:
+        """Freeze the public reply before any optional annotation model sees it."""
         host = current_host_context()
         if host is None:
             raise HostActionRejected("cafe_host_context_required")
@@ -366,6 +371,24 @@ class CafeHostMiddleware(VenueHostMiddleware):
             host=host,
             messages=request.messages,
         )
+        return response, output
+
+    def _finish_response(
+        self,
+        response: ModelResponse,
+        request: ModelRequest,
+        *,
+        allow_tool_calls: bool = False,
+    ) -> ModelResponse:
+        """Finish a synchronous reply, then obtain model-selected excerpts."""
+        from apps.group_agent_api.agent_factory.cafe_reaction_annotation import annotate_reactions
+
+        response, output = self._finalized_response(response, request, allow_tool_calls=allow_tool_calls)
+        annotation = annotate_reactions(output.reply, self.reaction_model)
+        output.reaction_spans = annotation.spans
+        host = current_host_context()
+        if host is None:
+            raise HostActionRejected("cafe_host_context_required")
         scheduled = schedule_cafe_shadow_review(
             model=self.shadow_review_model,
             output=output,
@@ -376,6 +399,36 @@ class CafeHostMiddleware(VenueHostMiddleware):
             response,
             output,
             shadow_review_scheduled=scheduled,
+            reaction_status=annotation.status,
+        )
+
+    async def _afinish_response(
+        self,
+        response: ModelResponse,
+        request: ModelRequest,
+        *,
+        allow_tool_calls: bool = False,
+    ) -> ModelResponse:
+        """Finish an asynchronous reply without blocking on the annotator."""
+        from apps.group_agent_api.agent_factory.cafe_reaction_annotation import aannotate_reactions
+
+        response, output = self._finalized_response(response, request, allow_tool_calls=allow_tool_calls)
+        annotation = await aannotate_reactions(output.reply, self.reaction_model)
+        output.reaction_spans = annotation.spans
+        host = current_host_context()
+        if host is None:
+            raise HostActionRejected("cafe_host_context_required")
+        scheduled = schedule_cafe_shadow_review(
+            model=self.shadow_review_model,
+            output=output,
+            host=host,
+            messages=request.messages,
+        )
+        return self._finish(
+            response,
+            output,
+            shadow_review_scheduled=scheduled,
+            reaction_status=annotation.status,
         )
 
     def _lookup_retry_request(self, prepared: ModelRequest) -> ModelRequest:
@@ -441,7 +494,7 @@ class CafeHostMiddleware(VenueHostMiddleware):
             tool_choice="none",
         )
         revised = await handler(follow)
-        return self._finish_response(
+        return await self._afinish_response(
             self._without_tool_calls(revised),
             prepared,
             allow_tool_calls=False,
@@ -477,7 +530,7 @@ class CafeHostMiddleware(VenueHostMiddleware):
                 return response
             if self._needs_refusal(response):
                 return await self._areject_tool_batch(prepared, response, handler)
-        return self._finish_response(
+        return await self._afinish_response(
             response,
             request,
             allow_tool_calls=False,
@@ -490,6 +543,7 @@ def create_cafe_agent(
     checkpointer: Any,
     shadow_review_model: Any | None = None,
     quality_model: Any | None = None,
+    reaction_model: Any | None = None,
     model_tools: bool = False,
 ) -> Any:
     """Create a café graph without Deep Agent filesystem/subagent/todo tools.
@@ -499,6 +553,7 @@ def create_cafe_agent(
         checkpointer: Same saver as the original authorized conversation graph.
         shadow_review_model: Optional observer used only by non-blocking review.
         quality_model: Deprecated test/caller alias for ``shadow_review_model``.
+        reaction_model: Optional separate annotator for finalized public replies.
     """
     if model is None or checkpointer is None:
         raise HostActionRejected("cafe_host_executor_unavailable")
@@ -514,5 +569,5 @@ def create_cafe_agent(
         model=model,
         tools=tools,
         checkpointer=checkpointer,
-        middleware=[CafeHostMiddleware(shadow_review_model=observer, read_tools=tools)],
+        middleware=[CafeHostMiddleware(shadow_review_model=observer, reaction_model=reaction_model, read_tools=tools)],
     )

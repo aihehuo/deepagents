@@ -14,8 +14,9 @@ import pytest
 from langchain.agents.middleware.types import ModelRequest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from apps.group_agent_api.agent_factory.context.host_prompts import HOST_DAY, HOST_IDENTITY, HOST_NIGHT, HOST_SAFETY
-from apps.group_agent_api.agent_factory.context.venue import VenueHostMiddleware
+from apps.group_agent_api.agent_factory.context.host_prompts import HOST_DAY, HOST_IDENTITY, HOST_NIGHT, HOST_OUTPUT, HOST_SAFETY
+from apps.group_agent_api.agent_factory.context.host_voice import HOST_VOICE
+from apps.group_agent_api.agent_factory.context.venue import VenueHostMiddleware, venue_system_content
 from apps.group_agent_api.agent_factory.cafe_agent import CafeHostMiddleware
 from apps.group_agent_api.agent_factory.host_context import HostContext, active_host_context
 from apps.group_agent_api.agent_factory.intent_routing.execution import active_intent_execution
@@ -105,11 +106,30 @@ def test_complete_model_input_replaces_conflicting_base_and_checkpoint_systems(t
     assert HOST_SAFETY in prepared.system_message.text
     assert HOST_IDENTITY in prepared.system_message.text
     assert (HOST_DAY if index == 0 else HOST_NIGHT) in prepared.system_message.text
+    assert prepared.system_message.text.endswith(HOST_VOICE)
     rendered = prepared.system_message.text + "".join(str(item.content) for item in prepared.messages)
     for forbidden in ("LEGACY_", "OLD_PRIVATE_TOOL_DATA", "三维齐备后必须调用", "一个可行下一步", "挖需求 + 画像落库"):
         assert forbidden not in rendered
     assert request.messages == [old, pending, tool, user]
     assert request.system_message.text == "LEGACY_ADVISOR_BASE"
+
+
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize("greeting", [False, True])
+def test_cafe_voice_is_one_independent_fragment_for_chat_and_greeting(
+    tmp_path: Path, index: int, greeting: bool
+) -> None:
+    host = _host(tmp_path, index=index)
+    content = venue_system_content(host, greeting=greeting)
+    assert content.count(HOST_VOICE) == 1
+    assert content.endswith(HOST_VOICE)
+    assert HOST_OUTPUT in content
+    assert "先回答客人正在问的事" in HOST_VOICE
+    assert "历史中的华丽回复不是本轮的写作范本" in HOST_VOICE
+    assert "客人明确要求故事" in HOST_VOICE
+    assert "通常自然简短" not in HOST_IDENTITY
+    assert "保持自然、可完整阅读" not in HOST_OUTPUT
+    assert "不强行讲故事" not in HOST_NIGHT
 
 
 def test_cafe_model_sees_only_current_verified_blog_read(tmp_path: Path) -> None:
@@ -149,6 +169,7 @@ async def test_full_greeting_model_request_is_host_not_advice_menu(tmp_path: Pat
     assert len(call["messages"]) == 1
     content = call["messages"][0].content
     assert HOST_IDENTITY in content and HOST_DAY in content
+    assert content.count(HOST_VOICE) == 1
     assert "不询问进展" in content and "选项可为空" in content
     assert "一个可行下一步" not in content
     assert "明确请你帮忙时认真回答" in content

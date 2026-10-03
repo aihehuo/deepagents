@@ -16,6 +16,7 @@ from apps.group_agent_api.agent_factory.cafe_reaction_annotation import (
     aannotate_reactions,
     annotate_reactions,
 )
+from apps.group_agent_api.agent_factory.cafe_reaction_locator import locate_reaction_quote
 from apps.group_agent_api.agent_factory.host_context import active_host_context
 from tests.test_group_agent_host_da001 import _host
 from tests.test_group_agent_host_da002 import ChatModel
@@ -66,14 +67,13 @@ def test_separate_annotation_receives_only_final_reply() -> None:
     assert kwargs["tools"] == [] and kwargs["tool_choice"] == "none"
 
 
-def test_invalid_quote_retries_once_without_changing_reply() -> None:
+def test_invalid_quote_does_not_trigger_another_model_call() -> None:
     model = AnnotationModel([
         json.dumps({"quotes": ["这不是原文中的片段。"]}, ensure_ascii=False),
-        json.dumps({"quotes": [_QUOTE]}, ensure_ascii=False),
     ])
     result = annotate_reactions(_REPLY, model)
-    assert result.status == "annotated" and len(model.calls) == 2
-    assert result.spans[0]["quote"] == _QUOTE
+    assert result.status == "invalid_quotes" and len(model.calls) == 1
+    assert result.spans == []
 
 
 def test_empty_and_sensitive_choices_do_not_invent_annotations() -> None:
@@ -83,18 +83,60 @@ def test_empty_and_sensitive_choices_do_not_invent_annotations() -> None:
     sensitive_reply = _REPLY + " 请联系 guest@example.test 获取详情。"
     sensitive = AnnotationModel([
         json.dumps({"quotes": ["请联系 guest@example.test 获取详情。"]}, ensure_ascii=False)
-    ] * 2)
-    assert annotate_reactions(sensitive_reply, sensitive).status == "invalid_after_retry"
+    ])
+    assert annotate_reactions(sensitive_reply, sensitive).status == "invalid_quotes"
+    assert len(sensitive.calls) == 1
     short = AnnotationModel(['{"quotes":[]}'])
     assert annotate_reactions("你好。", short).status == "skipped"
     assert not short.calls
 
 
-def test_overlapping_quotes_and_provider_failure_never_block_reply() -> None:
+def test_valid_model_quotes_survive_invalid_or_overlapping_neighbors() -> None:
     overlapping = AnnotationModel([
-        json.dumps({"quotes": [_QUOTE, "今天来这里吃饭就够了"]}, ensure_ascii=False)
-    ] * 2)
-    assert annotate_reactions(_REPLY, overlapping).status == "invalid_after_retry"
+        json.dumps({"quotes": ["这不是原文中的片段。", _QUOTE, "今天来这里吃饭就够了"]}, ensure_ascii=False)
+    ])
+    result = annotate_reactions(_REPLY, overlapping)
+    assert result.status == "annotated_partial"
+    assert result.spans == [{"id": "span_1", "quote": _QUOTE}]
+    assert len(overlapping.calls) == 1
+
+
+def test_typography_difference_maps_to_unique_original_span() -> None:
+    reply = "我们聊的是：**这种留白，本身就是一种招待！**\n\n后面再说别的。"
+    model_quote = "这种留白本身就是一种招待。"
+    location = locate_reaction_quote(reply, model_quote)
+    assert location is not None
+    assert reply[location[0]:location[1]] == "这种留白，本身就是一种招待"
+
+
+def test_two_anchors_recover_short_omission_as_original_text() -> None:
+    reply = "我觉得这种留白本身就是一种很体贴的招待。"
+    model_quote = "这种留白就是一种很体贴的招待。"
+    model = AnnotationModel([json.dumps({"quotes": [model_quote]}, ensure_ascii=False)])
+    # Add ordinary surrounding prose so the real annotation entry point runs.
+    result = annotate_reactions(reply + _REPLY, model)
+    assert result.status == "annotated"
+    assert result.spans == [{"id": "span_1", "quote": "这种留白本身就是一种很体贴的招待"}]
+    assert len(model.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "reply,model_quote",
+    [
+        ("我不想把吃饭变成一项必须完成的任务。", "我想把吃饭变成一项必须完成的任务。"),
+        ("这种留白本身就是一种招待。\n\n这种留白本身就是一种招待。", "这种留白就是一种招待。"),
+        ("这种留白是我愿意留下来的原因。\n\n我希望下次还能来。", "这种留白是我愿意留下来的原因我希望下次还能来。"),
+        ("这种留白和" + "很多没有关联的内容" * 5 + "是一种招待。", "这种留白是一种招待。"),
+        ("在上海，这种留白本身就是一种招待。", "在深圳，这种留白就是一种招待。"),
+    ],
+)
+def test_anchor_match_rejects_negation_ambiguity_cross_paragraph_long_gap_and_place(
+    reply: str, model_quote: str
+) -> None:
+    assert locate_reaction_quote(reply, model_quote) is None
+
+
+def test_provider_failure_does_not_block_reply() -> None:
 
     class FailedModel:
         def invoke(self, messages: list[Any], **kwargs: Any) -> AIMessage:

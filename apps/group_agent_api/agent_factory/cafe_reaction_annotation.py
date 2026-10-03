@@ -11,6 +11,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from apps.group_agent_api.agent_factory.host_context import contains_sensitive_context_text
+from apps.group_agent_api.agent_factory.cafe_reaction_locator import locate_reaction_quote
 
 _LOGGER = logging.getLogger(__name__)
 _SYSTEM = """你只负责从已经写好的小馆回复中选择可供用户表达态度的原文片段，不改写回复，也不续写对话。
@@ -30,17 +31,16 @@ class ReactionAnnotation:
     status: str
 
 
-def _messages(reply: str, *, retry: bool = False) -> list[Any]:
+def _messages(reply: str) -> list[Any]:
     """Give the annotator only the final public reply, never private context."""
-    suffix = "\n上一稿没有通过逐字引用校验。请重新核对原文并只返回合法 JSON。" if retry else ""
     return [
-        SystemMessage(content=_SYSTEM + suffix),
+        SystemMessage(content=_SYSTEM),
         HumanMessage(content=json.dumps({"reply": reply}, ensure_ascii=False)),
     ]
 
 
 def _parse(reply: str, content: Any) -> ReactionAnnotation:
-    """Accept only exact, unique, non-overlapping, non-sensitive model quotes."""
+    """Keep independently locatable safe choices, always storing source text."""
     if not isinstance(content, str):
         return ReactionAnnotation([], "invalid_format")
     try:
@@ -50,26 +50,32 @@ def _parse(reply: str, content: Any) -> ReactionAnnotation:
     if not isinstance(payload, dict) or set(payload) != {"quotes"} or not isinstance(payload["quotes"], list):
         return ReactionAnnotation([], "invalid_format")
     quotes = payload["quotes"]
-    if len(quotes) > 5:
-        return ReactionAnnotation([], "invalid_quotes")
     occupied: list[tuple[int, int]] = []
     spans: list[dict[str, str]] = []
-    for quote in quotes:
-        if (
-            not isinstance(quote, str)
-            or not 8 <= len(quote) <= 160
-            or reply.count(quote) != 1
-            or contains_sensitive_context_text(quote)
-            or _URL_OR_ID.search(quote)
-        ):
-            return ReactionAnnotation([], "invalid_quotes")
-        start = reply.index(quote)
-        end = start + len(quote)
+    for quote in quotes[:5]:
+        if not isinstance(quote, str) or not 8 <= len(quote) <= 160:
+            continue
+        if contains_sensitive_context_text(quote) or _URL_OR_ID.search(quote):
+            continue
+        location = locate_reaction_quote(reply, quote)
+        if location is None:
+            continue
+        start, end = location
+        source_quote = reply[start:end]
+        if not 8 <= len(source_quote) <= 160 or reply.count(source_quote) != 1:
+            continue
+        if contains_sensitive_context_text(source_quote) or _URL_OR_ID.search(source_quote):
+            continue
         if any(start < right and end > left for left, right in occupied):
-            return ReactionAnnotation([], "invalid_quotes")
+            continue
         occupied.append((start, end))
-        spans.append({"id": f"span_{len(spans) + 1}", "quote": quote})
-    return ReactionAnnotation(spans, "annotated" if spans else "model_empty")
+        spans.append({"id": f"span_{len(spans) + 1}", "quote": source_quote})
+    if spans:
+        return ReactionAnnotation(
+            spans,
+            "annotated" if len(spans) == len(quotes) else "annotated_partial",
+        )
+    return ReactionAnnotation([], "model_empty" if not quotes else "invalid_quotes")
 
 
 def _ready(reply: str, model: Any | None) -> bool:
@@ -80,44 +86,36 @@ def _ready(reply: str, model: Any | None) -> bool:
 def annotate_reactions(reply: str, model: Any | None) -> ReactionAnnotation:
     """Ask a separate model call to mark the already-finalized reply.
 
-    Provider failures never replace the public reply. One invalid response may
-    be retried; a valid empty choice is the model's decision and is preserved.
+    Provider failures never replace the public reply. All matching and
+    validation happen locally after this one model call.
     """
     if not _ready(reply, model):
         return ReactionAnnotation([], "skipped")
-    for retry in (False, True):
-        try:
-            response = model.invoke(
-                _messages(reply, retry=retry),
-                tools=[],
-                tool_choice="none",
-                response_format={"type": "json_object"},
-            )
-        except Exception as exc:  # noqa: BLE001
-            _LOGGER.warning("cafe_reaction_annotation_failed type=%s", type(exc).__name__)
-            return ReactionAnnotation([], "provider_error")
-        result = _parse(reply, getattr(response, "content", None))
-        if result.status not in {"invalid_format", "invalid_quotes"}:
-            return result
-    return ReactionAnnotation([], "invalid_after_retry")
+    try:
+        response = model.invoke(
+            _messages(reply),
+            tools=[],
+            tool_choice="none",
+            response_format={"type": "json_object"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.warning("cafe_reaction_annotation_failed type=%s", type(exc).__name__)
+        return ReactionAnnotation([], "provider_error")
+    return _parse(reply, getattr(response, "content", None))
 
 
 async def aannotate_reactions(reply: str, model: Any | None) -> ReactionAnnotation:
     """Run the same bounded annotation flow without blocking async execution."""
     if not _ready(reply, model):
         return ReactionAnnotation([], "skipped")
-    for retry in (False, True):
-        try:
-            response = await model.ainvoke(
-                _messages(reply, retry=retry),
-                tools=[],
-                tool_choice="none",
-                response_format={"type": "json_object"},
-            )
-        except Exception as exc:  # noqa: BLE001
-            _LOGGER.warning("cafe_reaction_annotation_failed type=%s", type(exc).__name__)
-            return ReactionAnnotation([], "provider_error")
-        result = _parse(reply, getattr(response, "content", None))
-        if result.status not in {"invalid_format", "invalid_quotes"}:
-            return result
-    return ReactionAnnotation([], "invalid_after_retry")
+    try:
+        response = await model.ainvoke(
+            _messages(reply),
+            tools=[],
+            tool_choice="none",
+            response_format={"type": "json_object"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.warning("cafe_reaction_annotation_failed type=%s", type(exc).__name__)
+        return ReactionAnnotation([], "provider_error")
+    return _parse(reply, getattr(response, "content", None))

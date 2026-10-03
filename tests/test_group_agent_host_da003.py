@@ -19,6 +19,7 @@ from apps.group_agent_api.agent_factory.cafe_output import (
     finalize_host_output,
     validated_search_history,
 )
+from apps.group_agent_api.agent_factory.context.host_prompts import HOST_OUTPUT
 from apps.group_agent_api.agent_factory.host_context import (
     active_host_context,
     current_host_context,
@@ -155,6 +156,17 @@ def test_reaction_spans_are_exact_nonoverlapping_and_private() -> None:
     assert with_topic.reply == reply
     assert with_topic.topic_summary == '餐饮品牌定位'
     assert with_topic.reaction_spans == output.reaction_spans
+
+
+def test_single_subjective_passage_can_be_annotated() -> None:
+    """The host should not need multiple explicit opinions to offer a reaction."""
+    assert "不要求出现两个观点" in HOST_OUTPUT
+    assert "对体验的描述" in HOST_OUTPUT
+    reply = "从第一次打开页面到完成选择，客人最需要的是每一步都知道自己接下来能做什么。"
+    marker = f'<reaction_spans>{json.dumps([{"quote": reply}], ensure_ascii=False)}</reaction_spans>'
+    output = extract_host_suggestions(reply + marker)
+    assert output.reply == reply
+    assert output.reaction_spans == [{"id": "span_1", "quote": reply}]
 
 
 @pytest.mark.parametrize(

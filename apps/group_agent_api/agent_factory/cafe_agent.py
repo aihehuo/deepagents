@@ -236,6 +236,11 @@ class CafeHostMiddleware(VenueHostMiddleware):
             detail={
                 "violated_codes": output.violations,
                 "option_count": len(output.suggestions),
+                # Counts make missing UI annotations diagnosable without logging quotes.
+                "reaction_marker_present": bool(
+                    re.search(r"<\s*reaction_spans\b", str(response.result[0].content), re.I)
+                ),
+                "reaction_span_count": len(output.reaction_spans),
                 "guard_mode": "deterministic",
                 "shadow_review_scheduled": shadow_review_scheduled,
                 "final_text": output.reply,

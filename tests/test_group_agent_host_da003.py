@@ -137,6 +137,26 @@ def test_conversation_topic_is_bounded_metadata_not_visible_reply() -> None:
     assert extract_host_suggestions("正文。<conversation_topic>未闭合").reply == "正文。"
 
 
+def test_reaction_spans_are_exact_nonoverlapping_and_private() -> None:
+    reply = "进入餐饮行业前，先观察真实顾客的购买场景。品牌定位要从你能持续提供的体验出发。"
+    marker = '<reaction_spans>[{"quote":"进入餐饮行业前，先观察真实顾客的购买场景。"},' \
+        '{"quote":"品牌定位要从你能持续提供的体验出发。"},' \
+        '{"quote":"不存在的观点片段"}]</reaction_spans>'
+    output = extract_host_suggestions(reply + marker)
+    assert output.reply == reply
+    assert output.reaction_spans == [
+        {"id": "span_1", "quote": "进入餐饮行业前，先观察真实顾客的购买场景。"},
+        {"id": "span_2", "quote": "品牌定位要从你能持续提供的体验出发。"},
+    ]
+    assert extract_host_suggestions(reply + '<reaction_spans>未闭合').reply == reply
+    with_topic = extract_host_suggestions(
+        reply + '<conversation_topic>餐饮品牌定位</conversation_topic>' + marker
+    )
+    assert with_topic.reply == reply
+    assert with_topic.topic_summary == '餐饮品牌定位'
+    assert with_topic.reaction_spans == output.reaction_spans
+
+
 @pytest.mark.parametrize(
     "option",
     [

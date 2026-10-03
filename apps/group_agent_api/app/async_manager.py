@@ -1784,9 +1784,11 @@ async def _execute_core_agent(
         suggested_replies = latest.get("cafe_suggested_replies", [])
         host_violations = latest.get("cafe_guard_violations", [])
         conversation_topic = latest.get("cafe_conversation_topic")
+        reaction_spans = latest.get("cafe_reaction_spans", [])
     else:
         reply, suggested_replies = extract_suggested_replies(reply)
         conversation_topic = None
+        reaction_spans = []
 
     revisit_hint = None
     if not cafe_host:
@@ -2305,6 +2307,8 @@ async def _execute_core_agent(
     }
     if cafe_host and isinstance(conversation_topic, str) and conversation_topic:
         final_payload["conversation_topic"] = conversation_topic
+    if cafe_host and reaction_spans:
+        final_payload["reaction_spans"] = reaction_spans
     if access_control is not None:
         final_payload["chat_access_control"] = {
             "code": access_control,

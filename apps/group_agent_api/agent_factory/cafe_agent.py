@@ -250,6 +250,7 @@ class CafeHostMiddleware(VenueHostMiddleware):
                     "cafe_suggested_replies": output.suggestions,
                     "cafe_guard_violations": output.violations,
                     "cafe_conversation_topic": output.topic_summary,
+                    "cafe_reaction_spans": output.reaction_spans,
                 },
             }
         )

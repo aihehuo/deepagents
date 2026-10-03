@@ -24,6 +24,9 @@ _MARKER = re.compile(
 _TOPIC_MARKER = re.compile(
     r"<\s*conversation_topic\s*>\s*(.*?)\s*<\s*/\s*conversation_topic\s*>", re.I | re.S
 )
+_REACTION_MARKER = re.compile(
+    r"<\s*reaction_spans\s*>\s*(.*?)\s*<\s*/\s*reaction_spans\s*>", re.I | re.S
+)
 _SEARCH_CARDS = re.compile(
     r"\[CLIENT-RECOMMENDATION-CARDS\]\s*(.*?)\s*\[/CLIENT-RECOMMENDATION-CARDS\]",
     re.S,
@@ -200,6 +203,7 @@ class HostOutput:
 
     reply: str
     topic_summary: str | None = None
+    reaction_spans: list[dict[str, str]] = field(default_factory=list)
     suggestions: list[dict[str, str]] = field(default_factory=list)
     violations: list[str] = field(default_factory=list)
     review_passed: bool = False
@@ -281,13 +285,37 @@ def extract_host_suggestions(text: str) -> HostOutput:
     without_topic = _TOPIC_MARKER.sub("", text)
     # Never let malformed private markup leak into the visible reply.
     without_topic = re.sub(r"<\s*/?\s*conversation_topic\b.*", "", without_topic, flags=re.I | re.S)
-    matches = list(_MARKER.finditer(without_topic))
-    visible = _MARKER.sub("", without_topic)
+    reaction_matches = list(_REACTION_MARKER.finditer(without_topic))
+    without_reactions = _REACTION_MARKER.sub("", without_topic)
+    without_reactions = re.sub(r"<\s*/?\s*reaction_spans\b.*", "", without_reactions, flags=re.I | re.S)
+    matches = list(_MARKER.finditer(without_reactions))
+    visible = _MARKER.sub("", without_reactions)
     # Incomplete/malformed markup must not leak JSON into a public transcript.
     visible = re.sub(
         r"<\s*/?\s*suggested_replies\b.*", "", visible, flags=re.I | re.S
     ).strip()
     output = HostOutput(reply=visible, topic_summary=topic)
+    if reaction_matches:
+        try:
+            proposed = json.loads(reaction_matches[-1].group(1))
+        except (ValueError, TypeError):
+            proposed = []
+        if isinstance(proposed, list):
+            occupied: list[tuple[int, int]] = []
+            for item in proposed[:10]:
+                quote = item.get("quote") if isinstance(item, dict) else None
+                if not isinstance(quote, str) or not 8 <= len(quote) <= 160:
+                    continue
+                if visible.count(quote) != 1 or contains_sensitive_context_text(quote):
+                    continue
+                start = visible.index(quote)
+                end = start + len(quote)
+                if any(start < right and end > left for left, right in occupied):
+                    continue
+                occupied.append((start, end))
+                output.reaction_spans.append({"id": f"span_{len(occupied)}", "quote": quote})
+                if len(occupied) == 5:
+                    break
     if not matches:
         return output
     try:
@@ -431,6 +459,7 @@ def _reviewed(response: Any, output: HostOutput) -> HostOutput | None:
         return HostOutput(
             reply=reply,
             topic_summary=output.topic_summary,
+            reaction_spans=output.reaction_spans,
             suggestions=[
                 item
                 for index, item in enumerate(output.suggestions)
@@ -513,6 +542,7 @@ def _review_degraded(output: HostOutput, *, reason: str) -> HostOutput:
     return HostOutput(
         reply=output.reply,
         topic_summary=output.topic_summary,
+        reaction_spans=output.reaction_spans,
         suggestions=[],
         violations=[*output.violations, "host_review_degraded"],
         review_passed=False,

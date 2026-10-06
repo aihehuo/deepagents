@@ -48,6 +48,7 @@ PAID_SEARCH_INTENTS = (
     "startup_digest",
 )
 FREE_SEARCH_INTENTS = ("platform_help",)
+TRUSTED_CLIENT_SURFACES: set[str] = {"ios_app", "android_app", "web_cafe"}
 
 
 def _time(value: Any) -> datetime:
@@ -205,8 +206,9 @@ def validate_v3_request(
         {"source", "client_surface", "source_message_id"},
         required={"source", "client_surface"},
     )
-    _choice(metadata["source"], {"ios_app", "web_cafe"})
-    _choice(metadata["client_surface"], {"ios_app", "web_cafe"})
+    # Micro signs both values; Android uses the same mobile admission rules as iOS.
+    _choice(metadata["source"], TRUSTED_CLIENT_SURFACES)
+    _choice(metadata["client_surface"], TRUSTED_CLIENT_SURFACES)
     if metadata["source"] != metadata["client_surface"]:
         raise ValueError("schema_invalid: source/client_surface mismatch")
     if metadata["source"] == "web_cafe" and body["execution_mode"] != "cafe_host":

@@ -35,6 +35,7 @@ from apps.group_agent_api.app.execution_modes import (
     calculate_v4_fingerprint,
     v4_queue_binding,
     validate_v3_request,
+    validate_v4_request,
     validate_v4_wire,
 )
 from apps.group_agent_api.app.models import AsyncCallRequest
@@ -174,6 +175,25 @@ def _phone_only_body(*, active: bool = False) -> dict[str, Any]:
     body["unionid"] = None
     body["request_fingerprint"] = calculate_v4_fingerprint(body)
     return body
+
+
+@pytest.mark.parametrize("active", [False, True])
+def test_android_v4_phone_only_source_is_admitted(active: bool) -> None:
+    """A signed Android App principal may use the same Cafe Host v4 contract as iOS."""
+    body = _phone_only_body(active=active)
+    body["metadata"] = {"source": "android_app", "client_surface": "android_app"}
+    body["request_fingerprint"] = calculate_v4_fingerprint(body)
+    assert validate_v4_request(body)["metadata"]["source"] == "android_app"
+    AsyncCallRequest.model_validate(body)
+
+
+def test_android_v4_rejects_mismatched_surface() -> None:
+    """The new Android source cannot impersonate another transport in the envelope."""
+    body = _phone_only_body()
+    body["metadata"] = {"source": "android_app", "client_surface": "ios_app"}
+    body["request_fingerprint"] = calculate_v4_fingerprint(body)
+    with pytest.raises(ValueError, match="source/client_surface mismatch"):
+        validate_v4_request(body)
 
 
 def _legal_body(name: str) -> dict[str, Any]:

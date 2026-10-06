@@ -88,6 +88,23 @@ def test_ios_group_agent_still_admitted() -> None:
     assert validate_v3_request(req)["metadata"]["source"] == "ios_app"
 
 
+@pytest.mark.parametrize("mode", ["cafe_host", "group_agent"])
+def test_android_source_admitted_with_matching_surface(mode: str) -> None:
+    req = _minimal_body(source="android_app", mode=mode)
+    assert validate_v3_request(req)["metadata"] == {
+        "source": "android_app",
+        "client_surface": "android_app",
+    }
+
+
+def test_android_source_rejects_mismatched_surface() -> None:
+    req = _minimal_body(source="android_app", mode="cafe_host")
+    req["metadata"]["client_surface"] = "ios_app"
+    req["request_fingerprint"] = calculate_v2_fingerprint(req)
+    with pytest.raises(ValueError, match="source/client_surface mismatch"):
+        validate_v3_request(req)
+
+
 def test_source_client_surface_mismatch_rejected() -> None:
     req = _minimal_body(source="ios_app", mode="cafe_host")
     req["metadata"] = {"source": "ios_app", "client_surface": "web_cafe"}

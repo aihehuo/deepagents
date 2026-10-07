@@ -129,3 +129,15 @@ async def test_profile_execution_uses_exact_confirmed_fields_and_checks_write_ac
     assert writer.call_args.args[0] == fields
     assert writer.call_args.kwargs["config"]["metadata"]["user_id"] == "123"
     state.planner_model.ainvoke.assert_not_awaited()
+
+
+async def test_introduction_addresses_recipient_without_automatic_tools():
+    req, session, state, emit = fixtures({"wecom_service_action": "introduction"}, output="想介绍一位客户给你认识，你们可以交流产品与技术合作。")
+    with patch("skillpacks.aihehuo.client.fetch") as fetch:
+        await execute_wecom_run(req=req, session=session, state=state, tid="recipient", emit_callback=emit)
+    fetch.assert_not_called()
+    prompt = state.planner_model.ainvoke.call_args.args[0][0].content
+    assert "给被推荐人" in prompt
+    assert "不声称收件人已经同意" in prompt
+    assert emit.call_args.args[0] == "final"
+    assert emit.call_args.args[1]["profile_status"] == "disabled"

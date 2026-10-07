@@ -58,6 +58,10 @@ def validate_group_agent_metadata(
         if key.startswith("wecom_service_"):
             if not allow_referral_context or v.get("source") != "wecom_service":
                 raise ValueError("wecom service metadata is reserved for trusted async calls")
+            if key == "wecom_service_customer_number":
+                if not isinstance(val, str) or not re.fullmatch(r"[1-9][0-9]{0,19}", val):
+                    raise ValueError("invalid wecom customer number")
+                continue
             if key == "wecom_service_parameters":
                 from apps.group_agent_api.app.wecom_manual import validate_parameters
                 if val is not None:

@@ -50,7 +50,7 @@ def public_record(resource: str, row: Any) -> dict[str, str] | None:
 
 
 async def find_one(*, resource: str, parameters: dict[str, str], excluded: Any,
-                   side_effect_gate: Any = None) -> tuple[dict[str, str] | None, dict[str, int]]:
+                   side_effect_gate: Any = None, customer_number: str | None = None) -> tuple[dict[str, str] | None, dict[str, int]]:
     """Scan a bounded number of pages and return at most one unseen identity."""
     if not isinstance(excluded, list) or len(excluded) > 2000 or any(not isinstance(key, str) or len(key) > 100 for key in excluded):
         raise ValueError("invalid_recommendation_exclusions")
@@ -68,6 +68,12 @@ async def find_one(*, resource: str, parameters: dict[str, str], excluded: Any,
         scope["pages"] += 1
         for row in rows:
             scope["examined"] += 1
+            if customer_number and resource in {"users", "projects", "ideas"}:
+                owner = (str(row.get("number") or row.get("id") or "") if resource == "users" else
+                         str(row.get("user_number") or (row.get("user") if isinstance(row.get("user"), dict) else {}).get("number") or "")) if isinstance(row, dict) else ""
+                # Without publisher identity we cannot prove a project is not the customer's.
+                if owner == str(customer_number) or (resource != "users" and not owner):
+                    continue
             card = public_record(resource, row)
             if card and card["key"] not in seen:
                 scope["returned"] = 1

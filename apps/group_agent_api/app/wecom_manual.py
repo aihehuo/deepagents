@@ -109,7 +109,8 @@ async def execute_wecom_run(*, req: Any, session: Any, state: Any, tid: str,
             from apps.group_agent_api.app.wecom_recommendation import find_one, recommendation_text
             resource = READ_SKILLS[skill]
             recommendation, search_scope = await find_one(resource=resource, parameters=parameters,
-                excluded=metadata.get("wecom_service_excluded_recommendations", []), side_effect_gate=side_effect_gate)
+                excluded=metadata.get("wecom_service_excluded_recommendations", []), side_effect_gate=side_effect_gate,
+                customer_number=metadata.get("wecom_service_customer_number"))
             if recommendation is None:
                 reply = "本次检索范围内没有找到最近7天尚未推荐过的资料。可以调整条件后再查找。"
             else:

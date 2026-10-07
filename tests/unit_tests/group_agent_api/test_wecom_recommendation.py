@@ -74,3 +74,18 @@ async def test_bad_response_is_not_treated_as_no_results():
     with patch("skillpacks.aihehuo.client.fetch", return_value='{"error":"unavailable"}'):
         with pytest.raises(ValueError, match="invalid_public_search_response"):
             await find_one(resource="users", parameters={}, excluded=[])
+
+
+async def test_customer_self_is_skipped():
+    with patch("skillpacks.aihehuo.client.fetch", return_value=data(1, 2)):
+        card, _ = await find_one(resource="users", parameters={}, excluded=[], customer_number="1")
+    assert card["id"] == "2"
+
+
+async def test_customer_projects_and_unknown_publishers_are_skipped():
+    rows = [{"id": "1", "title": "自己的项目", "user": {"number": "123"}},
+            {"id": "2", "title": "发布者未知"},
+            {"id": "3", "title": "别人的项目", "user": {"number": "456"}}]
+    with patch("skillpacks.aihehuo.client.fetch", return_value=json.dumps({"data": rows})):
+        card, _ = await find_one(resource="projects", parameters={}, excluded=[], customer_number="123")
+    assert card["id"] == "3"

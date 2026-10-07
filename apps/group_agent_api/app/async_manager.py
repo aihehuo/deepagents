@@ -576,6 +576,23 @@ def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _routing_request_fingerprint(req: AsyncCallRequest, session: TrustedSession) -> str:
+    """Use the authenticated Micro ledger fingerprint for durable v1 routing.
+
+    Micro v1 and legacy in-process idempotency hash different projections.
+    The worker restores this value from an encrypted envelope and checks it
+    against the durable ledger before executing. Routing must retain that
+    binding; v2-v4 still recompute their shared canonical protocol hashes.
+    """
+    from apps.group_agent_api.execution.active_fence import get_active_fence
+
+    if req.request_schema_version == 1 and get_active_fence() is not None:
+        if not req.request_fingerprint:
+            raise QueryPlanError("routing_snapshot_invalid")
+        return req.request_fingerprint
+    return calculate_request_fingerprint(req, session)
+
+
 async def reserve_idempotency_slot(
     req: AsyncCallRequest,
     session: TrustedSession,
@@ -1113,7 +1130,7 @@ async def _execute_core_agent(
                             intent_resolution,
                             original_message=req.message,
                             run_id=req.run_id,
-                            request_fingerprint=calculate_request_fingerprint(req, session),
+                            request_fingerprint=_routing_request_fingerprint(req, session),
                             execution_mode="cafe_host",
                             can_search=True,
                         )
@@ -1208,7 +1225,7 @@ async def _execute_core_agent(
                         intent_resolution,
                         original_message=req.message,
                         run_id=req.run_id,
-                        request_fingerprint=calculate_request_fingerprint(req, session),
+                        request_fingerprint=_routing_request_fingerprint(req, session),
                         execution_mode=execution_mode,
                         can_search=intent_can_search,
                     )
@@ -1468,7 +1485,7 @@ async def _execute_core_agent(
                     model_tool_state = ModelToolRuntime(
                         original_message=req.message or "",
                         run_id=req.run_id,
-                        request_fingerprint=calculate_request_fingerprint(req, session),
+                        request_fingerprint=_routing_request_fingerprint(req, session),
                         skills_dir=state.base_dir / "skills" / "aihehuo",
                         user_token=session.principal.user_token,
                         emit=emit_callback,
@@ -1554,7 +1571,7 @@ async def _execute_core_agent(
                                     intent_resolution,
                                     original_message=req.message,
                                     run_id=req.run_id,
-                                    request_fingerprint=calculate_request_fingerprint(
+                                    request_fingerprint=_routing_request_fingerprint(
                                         req, session
                                     ),
                                     execution_mode="cafe_host",

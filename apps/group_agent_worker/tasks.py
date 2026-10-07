@@ -80,6 +80,7 @@ def _supported_queue_schema_version(value: object) -> bool:
 def _strict_callback_enabled(req: AsyncCallRequest) -> bool:
     return (
         req.input_kind != "venue_event"
+        and (req.metadata or {}).get("source") != "wecom_service"
         and os.environ.get("GROUP_AGENT_CALLBACK_ACK_SCHEMA_VERSION", "0").strip()
         == "1"
         and os.environ.get("GROUP_AGENT_INTENT_ROUTING_MODE", "off").strip().lower()

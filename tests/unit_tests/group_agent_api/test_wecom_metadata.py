@@ -27,3 +27,13 @@ def test_invalid_exclusions_rejected(value):
 def test_parameters_cannot_inject_identity():
     with pytest.raises(ValueError):
         validate_group_agent_metadata({"source": "wecom_service", "wecom_service_skill": "get-ai-cofounders", "wecom_service_parameters": {"user_id": "123"}}, allow_referral_context=True)
+
+
+def test_service_callback_stays_legacy_with_production_routing_enabled(monkeypatch):
+    from types import SimpleNamespace
+    from apps.group_agent_worker.tasks import _strict_callback_enabled
+    monkeypatch.setenv("GROUP_AGENT_CALLBACK_ACK_SCHEMA_VERSION", "1")
+    monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "enforce")
+    assert not _strict_callback_enabled(SimpleNamespace(input_kind="user_message", metadata={"source": "wecom_service"}))
+    assert _strict_callback_enabled(SimpleNamespace(input_kind="user_message", metadata={"source": "group_agent_ui"}))
+    assert not _strict_callback_enabled(SimpleNamespace(input_kind="venue_event", metadata={}))

@@ -55,6 +55,20 @@ def validate_group_agent_metadata(
             raise ValueError(
                 f"metadata key '{key}' must be a string with max length 64"
             )
+        if key.startswith("wecom_service_"):
+            if not allow_referral_context or v.get("source") != "wecom_service":
+                raise ValueError("wecom service metadata is reserved for trusted async calls")
+            if key == "wecom_service_parameters":
+                from apps.group_agent_api.app.wecom_manual import validate_parameters
+                if val is not None:
+                    validate_parameters(v.get("wecom_service_skill"), val)
+                continue
+            if key == "wecom_service_excluded_recommendations":
+                if not isinstance(val, list) or len(val) > 2000 or any(
+                    not isinstance(item, str) or len(item) > 100 for item in val
+                ):
+                    raise ValueError("invalid wecom recommendation exclusions")
+                continue
         if key == "prior_candidate_ids":
             _validate_prior_candidate_ids(val)
             continue

@@ -22,7 +22,7 @@ def validate_parameters(skill: str, raw: Any, *, executing: bool = False) -> dic
     if skill not in READ_SKILLS and skill != PROFILE_SKILL:
         raise ValueError("invalid_skill")
     keys = {"doing", "need", "offer"} if skill == PROFILE_SKILL else (
-        set() if skill == "get-ai-startup-digest" else {"keyword", "q"} if skill in {"get-ai-cofounders", "get-ai-opportunities"} else {"keyword"}
+        set() if skill == "get-ai-startup-digest" else {"keyword", "q", "wechat_reachable"} if skill in {"get-ai-cofounders", "get-ai-opportunities"} else {"keyword"}
     )
     if not isinstance(raw, dict) or set(raw) - keys:
         raise ValueError("invalid_skill_parameters")
@@ -30,10 +30,12 @@ def validate_parameters(skill: str, raw: Any, *, executing: bool = False) -> dic
     for key, value in raw.items():
         if not isinstance(value, str) or len(value) > (500 if skill == PROFILE_SKILL else 200):
             raise ValueError("invalid_skill_parameters")
+        if key == "wechat_reachable" and value not in {"true", "false"}:
+            raise ValueError("invalid_skill_parameters")
         result[key] = value.strip()
     if executing and skill == PROFILE_SKILL and any(not result.get(k) for k in keys):
         raise ValueError("incomplete_profile")
-    if executing and keys and skill != PROFILE_SKILL and not any(result.values()):
+    if executing and keys and skill != PROFILE_SKILL and not any(value for key, value in result.items() if key != "wechat_reachable"):
         raise ValueError("empty_search_parameters")
     return result
 

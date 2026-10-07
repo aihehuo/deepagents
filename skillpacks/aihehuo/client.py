@@ -15,8 +15,8 @@ TIMEOUT = 20
 MAX_BYTES = 4 * 1024 * 1024
 MAX_PER = 500
 ENDPOINTS = {
-    "users": {"keyword", "q"},
-    "ideas": {"keyword", "q"},
+    "users": {"keyword", "q", "wechat_reachable"},
+    "ideas": {"keyword", "q", "wechat_reachable"},
     "projects": {"keyword"},
     "groups": {"keyword"},
     "group-members": set(),

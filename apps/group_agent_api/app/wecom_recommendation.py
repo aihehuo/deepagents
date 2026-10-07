@@ -59,7 +59,9 @@ async def find_one(*, resource: str, parameters: dict[str, str], excluded: Any,
     for page in range(1, MAX_PAGES + 1):
         if side_effect_gate is not None:
             side_effect_gate("wecom_search_page")
-        query = {key: value for key, value in parameters.items() if value}
+        query = {key: value for key, value in parameters.items() if value and key != "wechat_reachable"}
+        if resource in {"users", "ideas"} and parameters.get("wechat_reachable", "true") == "true":
+            query["wechat_reachable"] = "true"
         query.update(page=page, per=PAGE_SIZE)
         document = json.loads(await asyncio.to_thread(client.fetch, client.build_path(resource, params=query), output_format="json"))
         if not isinstance(document, dict) or not isinstance(document.get("data"), list):

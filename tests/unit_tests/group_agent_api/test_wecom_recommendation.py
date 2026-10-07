@@ -89,3 +89,12 @@ async def test_customer_projects_and_unknown_publishers_are_skipped():
     with patch("skillpacks.aihehuo.client.fetch", return_value=json.dumps({"data": rows})):
         card, _ = await find_one(resource="projects", parameters={}, excluded=[], customer_number="123")
     assert card["id"] == "3"
+
+
+@pytest.mark.parametrize("resource", ["users", "ideas"])
+async def test_wechat_filter_is_default_and_can_be_disabled(resource):
+    with patch("skillpacks.aihehuo.client.fetch", return_value='{"data": []}') as fetch:
+        await find_one(resource=resource, parameters={"q": "技术"}, excluded=[])
+        assert "wechat_reachable=true" in fetch.call_args.args[0]
+        await find_one(resource=resource, parameters={"q": "技术", "wechat_reachable": "false"}, excluded=[])
+        assert "wechat_reachable" not in fetch.call_args.args[0]

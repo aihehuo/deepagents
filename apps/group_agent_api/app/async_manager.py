@@ -891,6 +891,14 @@ async def execute_async_run_core(
         if req.input_kind == "venue_event":
             await execute_venue_greeting(host=host, model=state.greeting_model, emit_callback=emit_callback, side_effect_gate=side_effect_gate)
             return
+        # This marker is authored by Micro after staff/contact authorization.
+        # Customer prose cannot grant tools or enter the APP intent planner.
+        if (req.metadata or {}).get("source") == "wecom_service":
+            from apps.group_agent_api.app.wecom_manual import execute_wecom_run
+
+            await execute_wecom_run(req=req, session=session, state=state, tid=tid,
+                                    emit_callback=emit_callback, side_effect_gate=side_effect_gate)
+            return
         await _execute_core_agent(req=req, session=session, state=state, tid=tid, emit_callback=emit_callback, side_effect_gate=side_effect_gate)
 
 

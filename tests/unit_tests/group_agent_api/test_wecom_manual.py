@@ -69,7 +69,7 @@ async def test_execution_requires_confirmation_and_capability(confirmed, can_sea
 
 async def test_confirmed_query_executes_once_with_exact_human_parameters():
     req, session, state, emit = fixtures({"wecom_service_action": "skill_execute", "wecom_service_skill": "get-ai-cofounders", "wecom_service_parameters": {"q": "上海技术合伙人"}, "wecom_service_confirmed": True})
-    with patch("skillpacks.aihehuo.client.fetch", return_value='{"data": [{"id":"123","title":"技术伙伴","url":"https://www.aihehuo.com/users/123"}]}') as fetch:
+    with patch("skillpacks.aihehuo.client.fetch", return_value='{"data": [{"id":"123","wechat_reachable":true,"title":"技术伙伴","url":"https://www.aihehuo.com/users/123"}]}') as fetch:
         await execute_wecom_run(req=req, session=session, state=state, tid="t", emit_callback=emit)
     fetch.assert_called_once()
     assert fetch.call_args.args[0].startswith("/ai/users.json?")

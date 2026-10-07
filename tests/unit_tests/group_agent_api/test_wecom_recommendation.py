@@ -98,3 +98,21 @@ async def test_wechat_filter_is_default_and_can_be_disabled(resource):
         assert "wechat_reachable=true" in fetch.call_args.args[0]
         await find_one(resource=resource, parameters={"q": "技术", "wechat_reachable": "false"}, excluded=[])
         assert "wechat_reachable" not in fetch.call_args.args[0]
+
+
+@pytest.mark.parametrize("flag", [True, False])
+async def test_selected_opportunity_uses_publisher_actual_reachability(flag):
+    from apps.group_agent_api.app.wecom_recommendation import enrich_reachability
+    card = {"resource": "ideas", "publisher_number": "123"}
+    with patch("skillpacks.aihehuo.client.fetch", return_value=json.dumps({"data": {"wechat_reachable": flag}})) as fetch:
+        await enrich_reachability(card)
+    assert card["wechat_reachable"] is flag
+    assert fetch.call_args.args[0] == "/ai/users/123.json"
+
+
+async def test_unknown_reachability_is_not_assumed_true():
+    from apps.group_agent_api.app.wecom_recommendation import enrich_reachability
+    card = {"resource": "users", "publisher_number": "123"}
+    with patch("skillpacks.aihehuo.client.fetch", side_effect=RuntimeError("unavailable")):
+        await enrich_reachability(card)
+    assert "wechat_reachable" not in card

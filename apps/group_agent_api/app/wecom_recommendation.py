@@ -28,7 +28,7 @@ def public_url(value: Any) -> str:
     return value
 
 
-def public_record(resource: str, row: Any) -> dict[str, str] | None:
+def public_record(resource: str, row: Any) -> dict[str, Any] | None:
     """Project one public row to safe display fields and a stable resource identity."""
     if not isinstance(row, dict):
         return None
@@ -50,7 +50,7 @@ def public_record(resource: str, row: Any) -> dict[str, str] | None:
 
 
 async def find_one(*, resource: str, parameters: dict[str, str], excluded: Any,
-                   side_effect_gate: Any = None, customer_number: str | None = None) -> tuple[dict[str, str] | None, dict[str, int]]:
+                   side_effect_gate: Any = None, customer_number: str | None = None) -> tuple[dict[str, Any] | None, dict[str, int]]:
     """Scan a bounded number of pages and return at most one unseen identity."""
     if not isinstance(excluded, list) or len(excluded) > 2000 or any(not isinstance(key, str) or len(key) > 100 for key in excluded):
         raise ValueError("invalid_recommendation_exclusions")
@@ -78,6 +78,13 @@ async def find_one(*, resource: str, parameters: dict[str, str], excluded: Any,
                     continue
             card = public_record(resource, row)
             if card and card["key"] not in seen:
+                publisher = row.get("user") if isinstance(row.get("user"), dict) else {}
+                number = str(row.get("number") or row.get("id") or "") if resource == "users" else str(row.get("user_number") or publisher.get("number") or "")
+                if resource in {"users", "ideas"} and re.fullmatch(r"[1-9][0-9]{0,19}", number):
+                    card["publisher_number"] = number
+                flag = row.get("wechat_reachable") if resource == "users" else publisher.get("wechat_reachable", row.get("wechat_reachable"))
+                if resource in {"users", "ideas"} and type(flag) is bool:
+                    card["wechat_reachable"] = flag
                 scope["returned"] = 1
                 return card, scope
         meta = document.get("meta") or {}
@@ -92,3 +99,22 @@ def recommendation_text(raw: Any, card: dict[str, str]) -> str:
     if not text or len(text) > 200 or re.search(r"https?://|www\.|```", text, re.IGNORECASE):
         text = f"这条「{card['title'][:40]}」资料可以先参考一下，看看是否符合你的需求。"
     return text + ("\n" + card["url"] if card["url"] else "")
+
+
+async def enrich_reachability(card: dict[str, Any], *, side_effect_gate: Any = None) -> None:
+    """Read actual reachability for the selected publisher only; never infer from filters."""
+    if card.get("resource") not in {"users", "ideas"} or type(card.get("wechat_reachable")) is bool:
+        return
+    number = card.get("publisher_number")
+    if not isinstance(number, str) or not re.fullmatch(r"[1-9][0-9]{0,19}", number):
+        return
+    if side_effect_gate is not None:
+        side_effect_gate("wecom_publisher_detail")
+    try:
+        raw = await asyncio.to_thread(client.fetch, f"/ai/users/{number}.json", output_format="json")
+        detail = json.loads(raw).get("data")
+        if isinstance(detail, dict) and type(detail.get("wechat_reachable")) is bool:
+            card["wechat_reachable"] = detail["wechat_reachable"]
+    except (ValueError, OSError, TimeoutError, RuntimeError):
+        # Missing public evidence means no promise of WeChat introduction.
+        return

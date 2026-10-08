@@ -52,7 +52,7 @@ async def execute_wecom_run(*, req: Any, session: Any, state: Any, tid: str,
     """Run only the server-selected action; the language model has no tools."""
     metadata = req.metadata or {}
     action = metadata.get("wecom_service_action", "conversation")
-    if action not in {"conversation", "greeting", "skill_plan", "skill_execute", "introduction"}:
+    if action not in {"conversation", "greeting", "skill_plan", "skill_execute", "introduction", "group_conversation", "group_greeting"}:
         raise ValueError("invalid_wecom_action")
     model = state.planner_model or state.quality_model or state.polish_model
     if model is None:
@@ -64,6 +64,10 @@ async def execute_wecom_run(*, req: Any, session: Any, state: Any, tid: str,
         "本会话没有自动技能：不自动搜索、不保存画像，不声称已查找、已联系或已更新。"
         "只使用提供的事实，不编造人物、项目、价格、权益或购买链接。只输出回复正文。"
     )
+    if action in {"group_conversation", "group_greeting"}:
+        system += "当前接待对象是企业微信群。每条录入消息有明确的发言人；结合整批消息生成一条面向群的回复，不把不同成员混为一个人。只考虑客服录入和确认发送的群内容，不引用个人私聊、APP 历史或未提供的群聊天。可以参考提供的成员公开资料，但不能据此捏造群内发言。"
+        if action == "group_greeting":
+            system += "这次是客服主动开启群讨论，请生成简短群开场白或讨论引导语，不冒充成员提问。"
     profile_status = "disabled"
     recommendation = None
     search_scope = None

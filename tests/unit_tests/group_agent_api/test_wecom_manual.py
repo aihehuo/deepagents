@@ -141,3 +141,15 @@ async def test_introduction_addresses_recipient_without_automatic_tools():
     assert "不声称收件人已经同意" in prompt
     assert emit.call_args.args[0] == "final"
     assert emit.call_args.args[1]["profile_status"] == "disabled"
+
+
+@pytest.mark.parametrize("action", ["group_conversation", "group_greeting"])
+async def test_group_replies_keep_speaker_boundaries_and_no_automatic_tools(action):
+    req, session, state, emit = fixtures({"wecom_service_action": action})
+    with patch("skillpacks.aihehuo.client.fetch") as fetch:
+        await execute_wecom_run(req=req, session=session, state=state, tid="t", emit_callback=emit)
+    fetch.assert_not_called()
+    prompt = state.planner_model.ainvoke.call_args.args[0][0].content
+    assert "不把不同成员混为一个人" in prompt
+    assert "不引用个人私聊" in prompt
+    assert emit.call_args.args[1]["profile_status"] == "disabled"

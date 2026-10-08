@@ -153,3 +153,30 @@ async def test_group_replies_keep_speaker_boundaries_and_no_automatic_tools(acti
     assert "不把不同成员混为一个人" in prompt
     assert "不引用个人私聊" in prompt
     assert emit.call_args.args[1]["profile_status"] == "disabled"
+
+
+async def test_platform_help_can_repeat_and_answers_instead_of_recommending():
+    from apps.group_agent_api.app.wecom_recommendation import public_record
+    row = {"question": "如何注册", "answer": "在登录页选择注册并验证手机号", "category": "账号"}
+    key = public_record("faqs", row)["key"]
+    req, session, state, emit = fixtures({"wecom_service_action": "skill_execute", "wecom_service_skill": "get-ai-platform-help", "wecom_service_parameters": {"keyword": "注册"}, "wecom_service_confirmed": True, "wecom_service_excluded_recommendations": [key]}, output="在登录页选择注册，并按提示验证手机号。")
+    with patch("skillpacks.aihehuo.client.fetch", return_value=json.dumps({"data": [row]})):
+        await execute_wecom_run(req=req, session=session, state=state, tid="t", emit_callback=emit)
+    result = emit.call_args.args[1]
+    assert result["recommendation"]["key"] == key
+    assert "注册" in result["reply"]
+    assert "最近7天" not in result["reply"]
+    system = state.planner_model.ainvoke.call_args.args[0][0].content
+    assert "直接、清楚地解释" in system
+    assert "你为当前客户写一段推荐短语" not in system
+
+
+async def test_platform_help_no_match_uses_question_specific_message():
+    req, session, state, emit = fixtures({"wecom_service_action": "skill_execute", "wecom_service_skill": "get-ai-platform-help", "wecom_service_parameters": {"keyword": "未知"}, "wecom_service_confirmed": True})
+    with patch("skillpacks.aihehuo.client.fetch", return_value='{"data": []}'):
+        await execute_wecom_run(req=req, session=session, state=state, tid="t", emit_callback=emit)
+    reply = emit.call_args.args[1]["reply"]
+    assert "没有找到" in reply
+    assert "平台问答" in reply
+    assert "7天" not in reply
+    state.planner_model.ainvoke.assert_not_awaited()

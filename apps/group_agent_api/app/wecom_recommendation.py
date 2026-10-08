@@ -97,7 +97,8 @@ def recommendation_text(raw: Any, card: dict[str, str]) -> str:
     """Bound the customer phrase and append only the source's validated link."""
     text = raw.strip() if isinstance(raw, str) else ""
     if not text or len(text) > 200 or re.search(r"https?://|www\.|```", text, re.IGNORECASE):
-        text = f"这条「{card['title'][:40]}」资料可以先参考一下，看看是否符合你的需求。"
+        text = ("目前未能整理出可靠的平台答复，可以补充具体问题后再查询。" if card.get("resource") == "faqs" else
+                f"这条「{card['title'][:40]}」资料可以先参考一下，看看是否符合你的需求。")
     return text + ("\n" + card["url"] if card["url"] else "")
 
 

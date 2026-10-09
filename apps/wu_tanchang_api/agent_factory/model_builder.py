@@ -59,6 +59,9 @@ def create_model(
     if model_config.api_key:
         model_kwargs["api_key"] = model_config.api_key
 
+    if model_config.provider == "qwen" and model_config.model == "deepseek-v4.1-flash":
+        model_kwargs["extra_body"] = {"enable_thinking": False}
+
     if model_config.api_type == "openai-compatible":
         model = ChatOpenAI(**model_kwargs)
     elif model_config.api_type == "anthropic-compatible":

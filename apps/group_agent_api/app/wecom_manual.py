@@ -64,6 +64,10 @@ async def execute_wecom_run(*, req: Any, session: Any, state: Any, tid: str,
         "本会话没有自动技能：不自动搜索、不保存画像，不声称已查找、已联系或已更新。"
         "只使用提供的事实，不编造人物、项目、价格、权益或购买链接。只输出回复正文。"
     )
+    from apps.group_agent_api.app.community_guidance import guidance_prompt, validate_guidance
+    guidance = validate_guidance(metadata.get("wecom_service_guidance"), metadata)
+    if guidance:
+        system += guidance_prompt(guidance)
     if action in {"group_conversation", "group_greeting"}:
         system += "当前接待对象是企业微信群。每条录入消息有明确的发言人；结合整批消息生成一条面向群的回复，不把不同成员混为一个人。只考虑客服录入和确认发送的群内容，不引用个人私聊、APP 历史或未提供的群聊天。可以参考提供的成员公开资料，但不能据此捏造群内发言。"
         if action == "group_greeting":

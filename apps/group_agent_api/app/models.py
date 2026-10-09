@@ -58,6 +58,10 @@ def validate_group_agent_metadata(
         if key.startswith("wecom_service_"):
             if not allow_referral_context or v.get("source") != "wecom_service":
                 raise ValueError("wecom service metadata is reserved for trusted async calls")
+            if key == "wecom_service_journey_context":
+                from apps.group_agent_api.app.wecom_journey import validate_context
+                validate_context(val, v)
+                continue
             if key == "wecom_service_guidance":
                 from apps.group_agent_api.app.community_guidance import validate_guidance
                 validate_guidance(val, v)

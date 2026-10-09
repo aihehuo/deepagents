@@ -134,7 +134,7 @@ async def resolve_dynamic_agent(
                         from apps.wu_tanchang_api.config import get_selected_provider
 
                         provider = get_selected_provider()
-                        model = "deepseek-v4-flash"
+                        model = "deepseek-v4.1-flash" if provider == "qwen" else "deepseek-v4-flash"
                         max_tokens = 4000 if is_owner else 800
 
                     agent_cfg = WuAgentConfig(

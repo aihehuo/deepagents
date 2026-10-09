@@ -205,6 +205,9 @@ def resolve_model_config(
             msg = f"Provider `{provider}` must define `{role_key}`, `default_{role_key}`, or `default_model`."
             raise ValueError(msg)
 
+    if provider == "qwen" and model == "deepseek-v4-flash":
+        model = "deepseek-v4.1-flash"
+
     models = provider_data.get("models")
     model_data: dict[str, Any] = {}
     if isinstance(models, dict):

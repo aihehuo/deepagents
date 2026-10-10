@@ -73,3 +73,80 @@ async def test_http_endpoint_auth_size_and_valid_result(monkeypatch):
         assert response.json()["service_journey"]["founder_profile"]["clarity"] == "clear"
         assert "reply" not in response.json()
     model.ainvoke.assert_awaited_once()
+
+
+@pytest.mark.parametrize("field,bad,code", [
+    ("has_need", True, "service_journey_has_need"),
+    ("has_need", "有需求", "service_journey_has_need"),
+    ("needs_truncated", "false", "service_journey_needs_truncated"),
+])
+async def test_invalid_intent_is_corrected_once_without_coercion(field, bad, code):
+    context, _ = inputs()
+    value = summary()
+    value[field] = bad
+    model = SimpleNamespace(ainvoke=AsyncMock(side_effect=[
+        SimpleNamespace(content=json.dumps({"reply": "", "service_journey": value})),
+        SimpleNamespace(content=json.dumps({"reply": "", "service_journey": summary()})),
+    ]))
+    result = await synthesize(context, model)
+    assert result == summary()
+    assert model.ainvoke.await_count == 2
+    assert code in model.ainvoke.call_args.args[0][0].content
+    assert "最多5条" in model.ainvoke.call_args.args[0][0].content
+
+
+async def test_excess_evidence_stays_rejected_after_one_correction():
+    from apps.group_agent_api.app.endpoints.service_journey import OutputError
+    context, _ = inputs()
+    value = summary()
+    value["founder_profile"]["evidence_keys"] = list(context["sources"]) * 6
+    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=json.dumps({"reply": "", "service_journey": value}))))
+    with pytest.raises(OutputError) as error:
+        await synthesize(context, model)
+    assert error.value.code == "service_journey_evidence_count"
+    assert model.ainvoke.await_count == 2
+
+
+async def test_model_runtime_error_is_not_retried():
+    context, _ = inputs()
+    model = SimpleNamespace(ainvoke=AsyncMock(side_effect=RuntimeError("provider unavailable")))
+    with pytest.raises(RuntimeError):
+        await synthesize(context, model)
+    model.ainvoke.assert_awaited_once()
+
+
+async def test_http_failure_exposes_only_fixed_error_code(monkeypatch, caplog):
+    import httpx
+    from unittest.mock import patch
+    from apps.group_agent_api.app import create_app
+    monkeypatch.setenv("GROUP_AGENT_SERVICE_SECRET", "service-secret")
+    context, _ = inputs()
+    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content="PRIVATE_INVALID_MODEL_TEXT")))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app()), base_url="http://test") as client:
+        with patch("apps.group_agent_api.agent_factory.model_builder.create_model", return_value=model):
+            response = await client.post("/wecom/service_journey", json=context, headers={"X-GA-Service-Secret": "service-secret"})
+    assert response.status_code == 422
+    assert response.json() == {"detail": "service_journey_output_json"}
+    assert "PRIVATE_INVALID_MODEL_TEXT" not in caplog.text
+    assert "PRIVATE_INVALID_MODEL_TEXT" not in model.ainvoke.call_args.args[0][0].content
+
+
+async def test_correction_shares_original_deadline(monkeypatch):
+    import asyncio
+    from apps.group_agent_api.app.endpoints import service_journey
+    context, _ = inputs()
+    value = summary()
+    value["has_need"] = True
+    model = SimpleNamespace(ainvoke=AsyncMock(side_effect=[
+        SimpleNamespace(content=json.dumps({"reply": "", "service_journey": value})),
+        SimpleNamespace(content=json.dumps({"reply": "", "service_journey": summary()})),
+    ]))
+    wait_for = asyncio.wait_for
+    budgets = []
+    async def track(awaitable, timeout):
+        budgets.append(timeout)
+        return await wait_for(awaitable, timeout)
+    monkeypatch.setattr(service_journey.asyncio, "wait_for", track)
+    await synthesize(context, model)
+    assert len(budgets) == 2
+    assert 0 < budgets[1] <= budgets[0] <= 75

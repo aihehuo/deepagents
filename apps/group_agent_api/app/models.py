@@ -70,6 +70,25 @@ def validate_group_agent_metadata(
                 if not isinstance(val, str) or not re.fullmatch(r"[1-9][0-9]{0,19}", val):
                     raise ValueError("invalid wecom customer number")
                 continue
+            if key == "wecom_service_investor_search_supported":
+                if type(val) is not bool:
+                    raise ValueError("invalid wecom investor search capability")
+                continue
+            if key == "wecom_service_search_feedback":
+                if not isinstance(val, str) or len(val) > 1000 or v.get("wecom_service_action") not in {"skill_plan", "skill_execute"}:
+                    raise ValueError("invalid wecom search feedback")
+                continue
+            if key == "wecom_service_need":
+                if val is not None:
+                    fields = {"id", "title", "target", "purpose", "conditions", "offer"}
+                    if not isinstance(val, dict) or set(val) != fields or any(
+                        not isinstance(item, str) or len(item) > (80 if name == "id" else 160)
+                        for name, item in val.items()
+                    ) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", val["id"]):
+                        raise ValueError("invalid wecom selected need")
+                    if v.get("wecom_service_action") not in {"skill_plan", "skill_execute"}:
+                        raise ValueError("selected need is only valid for manual search")
+                continue
             if key == "wecom_service_parameters":
                 from apps.group_agent_api.app.wecom_manual import validate_parameters
                 if val is not None:

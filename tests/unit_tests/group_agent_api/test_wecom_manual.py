@@ -180,3 +180,14 @@ async def test_platform_help_no_match_uses_question_specific_message():
     assert "平台问答" in reply
     assert "7天" not in reply
     state.planner_model.ainvoke.assert_not_awaited()
+
+
+async def test_feedback_search_plan_is_tool_free_and_requires_staff_confirmation():
+    req, session, state, emit = fixtures({'wecom_service_action': 'skill_plan', 'wecom_service_skill': 'get-ai-cofounders'}, '{"keyword":"巴西本土店运营","q":"有巴西本土店实际运营经验的合伙人"}')
+    req.message = '选定需求：巴西本土店运营。客服反馈：不找招商方，要实操经验。'
+    with patch('skillpacks.aihehuo.client.fetch') as fetch:
+        await execute_wecom_run(req=req, session=session, state=state, emit_callback=emit, tid='feedback_test')
+        fetch.assert_not_called()
+    prompt = state.planner_model.ainvoke.call_args.args[0][0].content
+    assert '客服反馈不是客户本人确认' in prompt
+    assert '不擅自放宽' in prompt

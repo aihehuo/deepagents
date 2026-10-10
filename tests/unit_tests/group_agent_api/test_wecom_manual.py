@@ -139,6 +139,12 @@ async def test_introduction_addresses_recipient_without_automatic_tools():
     prompt = state.planner_model.ainvoke.call_args.args[0][0].content
     assert "给被推荐人" in prompt
     assert "不声称收件人已经同意" in prompt
+    assert "给被推荐人 recipient" in prompt
+    assert "介绍的对象是 initiator" in prompt
+    assert "不得向 recipient 推荐其本人" in prompt
+    assert "customer_feedback 属于 initiator" in prompt
+    assert "不用‘您’" in prompt
+    assert "不要擅自称客户为老师" in prompt
     assert emit.call_args.args[0] == "final"
     assert emit.call_args.args[1]["profile_status"] == "disabled"
 

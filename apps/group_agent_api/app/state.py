@@ -28,6 +28,7 @@ class AppState:
     polish_model: Any | None = None  # optional LLM for invite polish
     quality_model: Any | None = None  # optional LLM for profile match-ready (REQ-029)
     planner_model: Any | None = None  # bounded model for intent/query planning
+    wecom_review_model: Any | None = None  # lazily initialized; never shares Cafe Host review limits
     cafe_shadow_review_model: Any | None = None  # observer only; never gates replies
     cafe_reaction_model: Any | None = None  # separate bounded model for final-reply excerpts
     thread_locks: dict[str, asyncio.Lock] = field(default_factory=dict)

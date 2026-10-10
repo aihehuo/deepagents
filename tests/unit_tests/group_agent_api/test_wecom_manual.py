@@ -35,7 +35,7 @@ def fixtures(metadata, output="你好，请介绍一下你的项目。", *, can_
     model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=output)))
     req = SimpleNamespace(metadata={"source": "wecom_service", **metadata}, message="客户说想找上海技术合伙人", run_id="ga_test", conversation_id="isolated")
     session = SimpleNamespace(capabilities=SimpleNamespace(can_search=can_search, can_write_profile=False))
-    state = SimpleNamespace(planner_model=model, quality_model=None, polish_model=None, base_dir=Path("/unused"))
+    state = SimpleNamespace(wecom_review_model=model, planner_model=model, quality_model=None, polish_model=None, base_dir=Path("/unused"))
     emit = AsyncMock()
     return req, session, state, emit
 

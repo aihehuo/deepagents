@@ -1,7 +1,10 @@
 """Tool-free WeCom conversation and staff-confirmed, bounded skill execution."""
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import time
 import re
 from typing import Any
 
@@ -167,8 +170,28 @@ async def execute_wecom_run(*, req: Any, session: Any, state: Any, tid: str,
                 context = json.dumps({"selected_need": metadata.get("wecom_service_need"),
                     "staff_confirmed_parameters": parameters,
                     "staff_feedback": metadata.get("wecom_service_search_feedback")}, ensure_ascii=False)
+                from apps.group_agent_api.app.wecom_review_model import get_review_model, review_timeout, review_budget
+                review_model = get_review_model(state)
+                deadline = None
                 async def reviewer(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
-                    return await review_candidates(model, context, cards)
+                    nonlocal deadline
+                    started = time.monotonic()
+                    if deadline is None:
+                        deadline = started + review_budget()
+                    remaining = deadline - started
+                    if remaining <= 0:
+                        raise TimeoutError("wecom_match_review_budget_exhausted")
+                    timeout = min(review_timeout(), remaining)
+                    logger = logging.getLogger(__name__)
+                    size = len(json.dumps({"demand": context, "candidates": cards}, ensure_ascii=False).encode())
+                    logger.info("wecom_match_review_start run_id=%s candidates=%d input_bytes=%d timeout_s=%.1f", req.run_id, len(cards), size, timeout)
+                    try:
+                        result = await asyncio.wait_for(review_candidates(review_model, context, cards), timeout=timeout)
+                    except Exception as error:
+                        logger.warning("wecom_match_review_failed run_id=%s candidates=%d elapsed_s=%.3f error_type=%s", req.run_id, len(cards), time.monotonic() - started, type(error).__name__)
+                        raise
+                    logger.info("wecom_match_review_completed run_id=%s candidates=%d elapsed_s=%.3f", req.run_id, len(cards), time.monotonic() - started)
+                    return result
             recommendation, search_scope = await find_one(resource=resource, parameters=parameters,
                 excluded=[] if resource == "faqs" else metadata.get("wecom_service_excluded_recommendations", []), side_effect_gate=side_effect_gate,
                 customer_number=metadata.get("wecom_service_customer_number"), reviewer=reviewer)

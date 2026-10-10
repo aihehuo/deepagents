@@ -6,7 +6,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 MAX_REVIEWED = 20
-BATCH_SIZE = 10
+BATCH_SIZE = 5
 
 
 async def review_candidates(model: Any, context: str, cards: list[dict[str, Any]]) -> list[dict[str, Any]]:

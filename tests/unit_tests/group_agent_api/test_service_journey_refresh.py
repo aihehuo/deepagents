@@ -92,14 +92,14 @@ async def test_invalid_intent_is_corrected_once_without_coercion(field, bad, cod
     assert result == summary()
     assert model.ainvoke.await_count == 2
     assert code in model.ainvoke.call_args.args[0][0].content
-    assert "最多5条" in model.ainvoke.call_args.args[0][0].content
+    assert "最多10条" in model.ainvoke.call_args.args[0][0].content
 
 
 async def test_excess_evidence_stays_rejected_after_one_correction():
     from apps.group_agent_api.app.endpoints.service_journey import OutputError
     context, _ = inputs()
     value = summary()
-    value["founder_profile"]["evidence_keys"] = list(context["sources"]) * 6
+    value["founder_profile"]["evidence_keys"] = list(context["sources"]) * 11
     model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=json.dumps({"reply": "", "service_journey": value}))))
     with pytest.raises(OutputError) as error:
         await synthesize(context, model)
@@ -150,3 +150,28 @@ async def test_correction_shares_original_deadline(monkeypatch):
     await synthesize(context, model)
     assert len(budgets) == 2
     assert 0 < budgets[1] <= budgets[0] <= 75
+
+
+@pytest.mark.parametrize("count", [5, 6, 10, 11])
+def test_evidence_limit_matches_decoder_and_journey_validator(count):
+    from apps.group_agent_api.app.endpoints.service_journey import validate_output, OutputError
+    from apps.group_agent_api.app.wecom_journey import validate_journey
+    context, _ = inputs()
+    source = next(iter(context["sources"].values()))
+    keys = ["wecom_turn:%s:input:0" % i for i in range(1, count + 1)]
+    sources = {key: source for key in keys}
+    value = summary()
+    value["intent_evidence_keys"] = keys
+    value["founder_profile"]["evidence_keys"] = keys
+    for need in value["needs"]:
+        need["evidence_keys"] = keys
+    text = json.dumps({"reply": "", "service_journey": value})
+    if count <= 10:
+        assert validate_output(text, sources) == value
+        assert validate_journey(value, sources) == value
+    else:
+        with pytest.raises(OutputError) as error:
+            validate_output(text, sources)
+        assert error.value.code == "service_journey_evidence_count"
+        with pytest.raises(ValueError):
+            validate_journey(value, sources)

@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from apps.group_agent_api.app.wecom_journey import CONVERGENCE_PROMPT, structured_prompt, validate_context, validate_journey
+from apps.group_agent_api.app.wecom_journey import MAX_EVIDENCE_KEYS, CONVERGENCE_PROMPT, structured_prompt, validate_context, validate_journey
 
 
 def authenticate(secret: str) -> None:
@@ -41,7 +41,7 @@ async def synthesize(context: dict[str, Any], model: Any) -> dict[str, Any]:
     prompt = structured_prompt(context) + (
         "\n这是独立内部整理：reply必须为零长度字符串，不生成客户回复，不执行工具。"
         "has_need必须是字符串yes/no/unknown，不能使用true/false或中文；needs_truncated必须是JSON布尔值。"
-        "所有evidence_keys和intent_evidence_keys各最多5条，只选最相关且存在于sources的证据，不能堆砌引用。"
+        "所有evidence_keys和intent_evidence_keys各最多10条，只选最相关且存在于sources的证据，不能堆砌引用。"
         "doing/background/offer/title/target/purpose/conditions每项最多160个字符；next_action最多240字符。"
         "missing最多5项，每项最多100字符；needs最多8项；clarity仅clear/unclear。"
         "schema_version必须为整数1；简报JSON最多12000字节；引用至少支持非空画像和需求内容。"
@@ -107,7 +107,7 @@ def validate_output(text: Any, sources: dict[str, Any]) -> dict[str, Any]:
                 continue
             for field in ("intent_evidence_keys", "evidence_keys"):
                 keys = entry.get(field)
-                if isinstance(keys, list) and len(keys) > 5:
+                if isinstance(keys, list) and len(keys) > MAX_EVIDENCE_KEYS:
                     raise OutputError("service_journey_evidence_count")
                 if isinstance(keys, list) and any(not isinstance(key, str) or key not in sources for key in keys):
                     raise OutputError("service_journey_evidence_reference")

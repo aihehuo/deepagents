@@ -5,6 +5,8 @@ import json
 import re
 from typing import Any
 
+MAX_EVIDENCE_KEYS = 10
+
 ROOT = {"schema_version", "founder_profile", "has_need", "intent_evidence_keys", "needs", "needs_truncated", "next_action"}
 PROFILE = {"doing", "background", "offer", "clarity", "missing", "evidence_keys"}
 NEED = {"id", "title", "target", "purpose", "conditions", "offer", "clarity", "missing", "evidence_keys"}
@@ -66,7 +68,7 @@ def _text(value: Any, limit: int = 160) -> None:
 
 
 def _evidence(keys: Any, sources: dict[str, Any]) -> None:
-    if not isinstance(keys, list) or len(keys) > 5 or any(not isinstance(key, str) or key not in sources for key in keys):
+    if not isinstance(keys, list) or len(keys) > MAX_EVIDENCE_KEYS or any(not isinstance(key, str) or key not in sources for key in keys):
         raise ValueError("invalid service journey evidence")
 
 
@@ -132,6 +134,7 @@ def structured_prompt(context: dict[str, Any]) -> str:
         "service_journey按模板，字段固定；未知用空字符串和空数组，真正无需求或未知不虚构需求项。"
         "clear表示目标类别和合作任务已清楚、可初筛；尚未明确预算等非必要条件可以后补。"
         "只有资料而未在对话中核实时，需求clarity保留unclear，has_need保留unknown。"
+        "每项evidence_keys及intent_evidence_keys最多10条，由模型选择最相关、足以支持结论的证据，不机械按时间截取。"
         "evidence_keys只能引用下面sources的键，引用支持整项概括的客户原话/公开自述/客服记录；客服记录不能冒充用户确认。"
         "每类需求独立一项，最多8项，超过时needs_truncated=true。沿用previous里同一需求的id，新需求使用新id；不要将旧需求静默合并。"
         "previous是可能过时的AI初稿，必须用当前证据核对；用户取消需求需更新，不能保留为清楚的当前需求。"

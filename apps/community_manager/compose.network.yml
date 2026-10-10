@@ -1,0 +1,12 @@
+# Optional: attach only the three manager containers to an existing Redis/foundation network.
+services:
+  community-manager-api:
+    networks: [foundation]
+  community-manager-worker:
+    networks: [foundation]
+  community-manager-scheduler:
+    networks: [foundation]
+networks:
+  foundation:
+    external: true
+    name: ${COMMUNITY_MANAGER_NETWORK:?Set the existing foundation network}

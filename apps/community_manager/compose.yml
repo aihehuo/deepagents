@@ -1,0 +1,39 @@
+services:
+  community-manager-api:
+    image: ${COMMUNITY_MANAGER_IMAGE:?Set an immutable manager image}
+    env_file: ${COMMUNITY_MANAGER_ENV_FILE:?Set a private env file}
+    ports: ["127.0.0.1:8092:8092"]
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.50
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/ready',timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  community-manager-worker:
+    image: ${COMMUNITY_MANAGER_IMAGE:?Set an immutable manager image}
+    env_file: ${COMMUNITY_MANAGER_ENV_FILE:?Set a private env file}
+    command: [python, -m, celery, -A, apps.community_manager.celery_app:app, worker, -Q, community_manager_v1, --concurrency=1, --loglevel=WARNING, --without-gossip, --without-mingle, --without-heartbeat]
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 0.75
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+  community-manager-scheduler:
+    image: ${COMMUNITY_MANAGER_IMAGE:?Set an immutable manager image}
+    env_file: ${COMMUNITY_MANAGER_ENV_FILE:?Set a private env file}
+    command: [python, -m, celery, -A, apps.community_manager.celery_app:app, beat, --schedule=/tmp/manager-beat, --loglevel=WARNING]
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.25
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]

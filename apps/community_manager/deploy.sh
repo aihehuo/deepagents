@@ -12,4 +12,4 @@ if [[ -n "${COMMUNITY_MANAGER_NETWORK:-}" ]]; then compose_args+=(-f "$script_di
 # Project and service names are fixed: existing customer deployments are never targeted.
 docker compose "${compose_args[@]}" config --quiet
 docker compose "${compose_args[@]}" pull
-docker compose "${compose_args[@]}" up -d community-manager-api community-manager-worker community-manager-scheduler
+docker compose "${compose_args[@]}" up -d community-manager-api community-manager-worker community-manager-scheduler community-customer-worker

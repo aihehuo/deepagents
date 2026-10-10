@@ -110,4 +110,7 @@ def rpc(action: str, **values: object) -> dict:
                 raise ProtocolError("manager_invalid_response")
             return data["result"]
     except HTTPError as error:
+        if action == 'tool' and error.code in {400, 403, 404, 409, 422, 429}:
+            # Definitive business refusal is safe to explain; uncertain network/5xx writes abort.
+            return {'tool_error': 'business_request_refused', 'status': error.code}
         raise ProtocolError("manager_upstream_http_" + str(error.code)) from None

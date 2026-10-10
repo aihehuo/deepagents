@@ -7,7 +7,7 @@ if [[ ! "$MANAGER_RUNTIME_IMAGE" =~ @sha256:[0-9a-f]{64}$ && ! "$MANAGER_RUNTIME
 fi
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-if [[ -n "$(git status --porcelain -- apps/community_manager)" ]]; then
+if [[ -n "$(git status --porcelain -- apps/community_manager apps/group_agent_api/app/wecom_journey.py)" ]]; then
   echo 'Commit manager source before building a release image' >&2; exit 1
 fi
 manager_revision="$(git rev-parse HEAD)"

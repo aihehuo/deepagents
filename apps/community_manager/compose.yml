@@ -37,3 +37,14 @@ services:
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+  community-customer-worker:
+    image: ${COMMUNITY_MANAGER_IMAGE:?Set an immutable manager image}
+    env_file: ${COMMUNITY_MANAGER_ENV_FILE:?Set a private env file}
+    command: [python, -m, celery, -A, apps.community_manager.celery_app:app, worker, -Q, community_customer_assessment_v1, --concurrency=1, --loglevel=WARNING, --without-gossip, --without-mingle, --without-heartbeat]
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.50
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]

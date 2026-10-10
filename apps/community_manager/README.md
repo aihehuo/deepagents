@@ -17,7 +17,15 @@ The API accepts only an opaque UUID run reference from Micro. Micro persists the
 
 Wire signature: HMAC SHA256 over UTF-8 `community-manager-v1\n{epoch_seconds}\n{nonce_uuid}\n` followed by the **exact request bytes**, using `COMMUNITY_MANAGER_SECRET`. Headers are `X-CM-Time`, `X-CM-Nonce`, `X-CM-Signature`; sixty-second clock window, replay nonce consumed for 120 seconds. For signed run-status GET, the final bytes are the exact path instead of a JSON body.
 
-All enterprise employees enter manager mode directly in the configured application. Commands: `今日概览`, `下一位`, `查看 创业号`, `更新指导 创业号`, `认领/开始/等待/稍后/结束/暂停 任务号 v修订 [原因]`. Unsupported language returns help without guessing a mutation. Only guidance drafting invokes the configured model.
+All enterprise employees converse naturally in the configured application. There are no entry codes, claim commands or task version phrases. A dedicated tool-calling model loads `skills/operations/SKILL.md`, reads scoped facts and persistent memory, and updates plans, follow-ups and existing guidance drafts. Guidance still requires human review. The manager does not send customer messages or add contacts.
+
+Automatic runs receive transactional Micro and OnePenny events through the backend ledger. Beat drains platform events and calls Micro's bounded recovery/reconciliation tick. Source events are coalesced per user and deduplicated; self-origin events cannot recursively drive guidance. Plain-text employee reminders have trusted recipient resolution, source checks, work hours and cooldown. Unknown delivery is not automatically retried.
+
+Observation is controlled by Micro's explicit numbers/platform scope. Autonomous runs and configured operators may read scoped private data; ordinary employees require their live customer relationship or trusted assignment. Public search returns candidate numbers to Micro for scope filtering before the model sees details. No arbitrary SQL, shell, URL or recipient tool is exposed.
+
+Model execution is bounded to six tool rounds, sixteen model tool requests and a context byte budget. All model settings are independent `COMMUNITY_MANAGER_MODEL*` variables; no customer model configuration is overwritten. `/ready` checks model configuration presence, broker and service credentials, not a real provider response.
+
+The optional upward report uses existing customer journey output, requires `WECOM_SERVICE_MANAGER_REPORT_ENABLED=1` in the customer runtime, and currently covers only `new_clear_need`. It needs a separate customer image release if enabled; the independent manager itself does not require changes to customer prompts or tools.
 
 Tests (root runtime already installed):
 
@@ -25,4 +33,12 @@ Tests (root runtime already installed):
 uv run --no-project --python .venv/bin/python python -m pytest tests/unit_tests/community_manager/test_manager.py -q
 ```
 
-Full internal contract and publication sequence live in the aggregate repository at `aihehuo_total/docs/design/community-manager-wecom-v1-implementation.md`. Both Micro entry and proactive reminder flags default off. Actual WeCom cards, contacts and host resource isolation require a production canary after deployment.
+Full internal contract and publication sequence live in the aggregate repository at `aihehuo_total/docs/design/community-manager-natural-v1-implementation.md`. Both Micro entry and proactive reminder flags default off. Real model tools, WeCom delivery, contacts and host resource isolation require a production canary after deployment.
+
+## Customer-first background pipeline
+
+Enable Micro `COMMUNITY_CUSTOMER_ASSESSMENT_ENABLED=1` only after migration `20261010203000` and the updated independent image are ready. Routine source events then update a platform-user dossier and enqueue `/customer/assess_async` on `community_customer_assessment_v1`. A separate `community-customer-worker` handles this queue with explicit `COMMUNITY_CUSTOMER_MODEL*` configuration. It calls no manager tools, emits no customer reply and sends no employee notification. It reuses the pure journey contract, which is explicitly copied into this image. No existing customer deployment is rebuilt by this build script.
+
+Micro validates current sources and journey evidence, then persists meaningful reports. Only those reports enter the manager queue; timer follow-ups and employee questions can still invoke the manager directly. Manager tools `get_customer_dossier` / `get_customer_reports` are individually authorized. Existing dossiers attach to real WeCom conversations by platform user ID; no synthetic conversations are created for background assessment.
+
+Readiness `/customer/ready` verifies customer model configuration presence and broker, not actual provider availability. The Compose project now includes a fourth, separate customer assessment worker; deployment capacity needs checking. Turn the new pipeline off before reverting an image. The earlier optional in-conversation report remains supported, but is routed through background assessment when the new pipeline is enabled.

@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel, ConfigDict
 from redis import Redis
 from apps.community_manager.protocol import verify, rpc, ProtocolError
-from apps.community_manager.celery_app import app as celery, QUEUE
+from apps.community_manager.celery_app import app as celery, QUEUE, CUSTOMER_QUEUE
 
 app = FastAPI(title="Community Manager", docs_url=None, redoc_url=None)
 
@@ -36,6 +36,27 @@ async def admit(request: Request) -> dict:
     Args:
         request: Incoming FastAPI request.
     """
+    return await admit_run(request, queue=QUEUE, task="community_manager.run")
+
+
+@app.post("/customer/assess_async", status_code=202)
+async def admit_customer(request: Request) -> dict:
+    """Admit a signed opaque assessment run on the independent customer queue.
+
+    Args:
+        request: Incoming service request, without employee or user scope claims.
+    """
+    return await admit_run(request, queue=CUSTOMER_QUEUE, task="community_customer.run")
+
+
+async def admit_run(request: Request, *, queue: str, task: str) -> dict:
+    """Authenticate exact bytes and bound the selected internal queue.
+
+    Args:
+        request: Incoming service request.
+        queue: Server-selected queue.
+        task: Server-selected task name.
+    """
     if request.headers.get("content-type", "").split(";")[0] != "application/json":
         raise HTTPException(415, "unsupported_media_type")
     body = bytearray()
@@ -48,9 +69,9 @@ async def admit(request: Request) -> dict:
         verify(bytes(body), dict(request.headers), redis)
         data = Admission.model_validate_json(bytes(body))
         # Kombu's global_keyprefix also applies to the list used by this admission bound.
-        if redis.llen("community_manager:v1:" + QUEUE) >= 100:
+        if redis.llen("community_manager:v1:" + queue) >= 100:
             raise HTTPException(429, "manager_queue_full")
-        celery.send_task("community_manager.run", args=[str(data.run_id)], queue=QUEUE, expires=600, retry=False)
+        celery.send_task(task, args=[str(data.run_id)], queue=queue, expires=600, retry=False)
         return {"run_id": str(data.run_id), "status": "queued"}
     except ProtocolError as error:
         raise HTTPException(401, str(error)) from None
@@ -86,9 +107,24 @@ def ready() -> dict[str, str]:
     try:
         from apps.community_manager.protocol import secret
         secret()
-        if not os.environ.get("COMMUNITY_MANAGER_AGENT_KEY") or not os.environ.get("COMMUNITY_MANAGER_OPERATIONS_URL"):
+        if not all(os.environ.get(name) for name in ("COMMUNITY_MANAGER_AGENT_KEY", "COMMUNITY_MANAGER_OPERATIONS_URL", "COMMUNITY_MANAGER_MODEL", "COMMUNITY_MANAGER_MODEL_API_KEY", "COMMUNITY_MANAGER_MODEL_BASE_URL")):
             raise ValueError("unconfigured")
         redis_client().ping()
         return {"status": "ready", "service": "community_manager"}
     except Exception:
         raise HTTPException(503, "manager_not_ready") from None
+
+
+@app.get("/customer/ready")
+def customer_ready() -> dict[str, str]:
+    """Check background model and service configuration without calling a provider."""
+    try:
+        from apps.community_manager.protocol import secret
+        secret()
+        required = ("COMMUNITY_MANAGER_AGENT_KEY", "COMMUNITY_MANAGER_OPERATIONS_URL", "COMMUNITY_CUSTOMER_MODEL", "COMMUNITY_CUSTOMER_MODEL_API_KEY", "COMMUNITY_CUSTOMER_MODEL_BASE_URL")
+        if not all(os.environ.get(name) for name in required):
+            raise ValueError("unconfigured")
+        redis_client().ping()
+        return {"status": "ready", "service": "community_customer_assessment"}
+    except Exception:
+        raise HTTPException(503, "customer_not_ready") from None

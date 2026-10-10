@@ -264,6 +264,15 @@ async def execute_wecom_run(*, req: Any, session: Any, state: Any, tid: str,
         raise ValueError("empty_wecom_reply")
     if side_effect_gate is not None:
         side_effect_gate("wecom_final")
-    await emit_callback("final", {"reply": reply[:8000], "profile_status": profile_status,
+    final_payload = {"reply": reply[:8000], "profile_status": profile_status,
         "match_status": "skipped", "match_reason": None, "candidates": [],
-        "recommendation": recommendation, "search_scope": search_scope, "service_journey": service_journey})
+        "recommendation": recommendation, "search_scope": search_scope, "service_journey": service_journey}
+    # Optional internal signal consumes the existing assessment; it never blocks the reply.
+    try:
+        from apps.group_agent_api.app.community_manager_report import build_report
+        report = build_report(service_journey, journey_context)
+        if report:
+            final_payload["community_manager_report"] = report
+    except Exception:
+        pass
+    await emit_callback("final", final_payload)

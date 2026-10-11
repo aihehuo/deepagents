@@ -82,7 +82,7 @@ def test_plain_legacy_reply_has_no_fabricated_progress_and_json_never_leaks():
             decode_reply(raw, context)
 
 
-async def test_one_call_generates_reply_and_summary_without_tools_or_profile_write():
+async def test_reply_consumes_brief_without_publishing_another_assessment():
     context, metadata = inputs()
     model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=json.dumps({"reply": "找技术和渠道两类伙伴，对吗？", "service_journey": summary()}))))
     req = SimpleNamespace(metadata=metadata, message="客户原话", run_id="test", conversation_id="isolated")
@@ -99,5 +99,6 @@ async def test_one_call_generates_reply_and_summary_without_tools_or_profile_wri
     assert "2–3次" in system
     final = emit.call_args.args[1]
     assert final["profile_status"] == "disabled"
-    assert len(final["service_journey"]["needs"]) == 2
+    assert "service_journey" not in final
+    assert "不生成内部简报" in system
     assert "service_journey" not in final["reply"]

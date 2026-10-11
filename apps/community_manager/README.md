@@ -25,7 +25,7 @@ Observation is controlled by Micro's explicit numbers/platform scope. Autonomous
 
 Model execution is bounded to six tool rounds, sixteen model tool requests and a context byte budget. All model settings are independent `COMMUNITY_MANAGER_MODEL*` variables; no customer model configuration is overwritten. `/ready` checks model configuration presence, broker and service credentials, not a real provider response.
 
-The optional upward report uses existing customer journey output, requires `WECOM_SERVICE_MANAGER_REPORT_ENABLED=1` in the customer runtime, and currently covers only `new_clear_need`. It needs a separate customer image release if enabled; the independent manager itself does not require changes to customer prompts or tools.
+Upward reports are produced by the independent customer assessment worker and validated by Micro. Customer replies consume the saved brief without generating a second assessment or report.
 
 Tests (root runtime already installed):
 
@@ -41,4 +41,12 @@ Enable Micro `COMMUNITY_CUSTOMER_ASSESSMENT_ENABLED=1` only after migration `202
 
 Micro validates current sources and journey evidence, then persists meaningful reports. Only those reports enter the manager queue; timer follow-ups and employee questions can still invoke the manager directly. Manager tools `get_customer_dossier` / `get_customer_reports` are individually authorized. Existing dossiers attach to real WeCom conversations by platform user ID; no synthetic conversations are created for background assessment.
 
-Readiness `/customer/ready` verifies customer model configuration presence and broker, not actual provider availability. The Compose project now includes a fourth, separate customer assessment worker; deployment capacity needs checking. Turn the new pipeline off before reverting an image. The earlier optional in-conversation report remains supported, but is routed through background assessment when the new pipeline is enabled.
+Readiness `/customer/ready` verifies customer model configuration presence and broker, not actual provider availability. The Compose project now includes a fourth, separate customer assessment worker; deployment capacity needs checking. Turn the new pipeline off before reverting an image. Previously saved in-conversation briefs remain readable for continuity; new replies do not publish them.
+
+## Unified customer brief updates
+
+Sidebar refresh, committed customer submissions (including record-only), and manager refresh requests retain the existing Micro API and durable `wecom_service_journey_refreshes` status records. Their Sidekiq job now links to a `community_customer_assessments` run and admits it through `/customer/assess_async`; it never calls `group-agent-api` for synthesis. Platform events use the same assessment queue and model. Identical source fingerprints share an active assessment under the user row lock. The signed result callback validates live sources, completes linked sidebar requests, saves the dossier and conditionally reports to the manager. Newer requests supersede older sidebar results; source changes prevent stale dossier publication. Uncertain admission retains its durable run link for recovery; failures and the ten-minute deadline are visible in sidebar status.
+
+`group-agent-api` generates replies and executes existing customer skills. It reads the saved brief to guide conversation and does not generate or save another brief. Its former `/wecom/service_journey` route authenticates and returns 410 without loading a model. The dedicated customer worker performs synthesis and evaluation only; it sends neither customer messages nor staff notifications.
+
+Release order: verify the existing customer worker and `/customer/ready`, required Micro flags (`COMMUNITY_MANAGER_ENABLED`, `COMMUNITY_MANAGER_EVENTS_ENABLED`, `COMMUNITY_CUSTOMER_ASSESSMENT_ENABLED`, `WECOM_SERVICE_JOURNEY_ENABLED`) and the signed admission configuration. Deploy Micro web and Sidekiq first; verify a sidebar refresh completes through the customer queue. Drain pre-release journey jobs before releasing the group-agent image that retires the old route. No new migration, frontend release or manager worker image is needed for this refactor. Rollback restores the older group-agent route first, then reverts Micro. Tests are offline; production canary must verify actual model completion and sidebar display.

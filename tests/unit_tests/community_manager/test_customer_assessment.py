@@ -93,3 +93,13 @@ def test_customer_contract_does_not_import_customer_application() -> None:
     script = "import sys; import apps.community_manager.customer_model; assert 'apps.group_agent_api.app' not in sys.modules; assert 'apps.group_agent_api.agent_factory.agent' not in sys.modules"
     result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
+
+
+def test_customer_failures_log_location_without_private_payload(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    call = Mock(side_effect=[{'token': 't', 'trigger': {'kind': 'customer_assessment'}, 'customer_assessment': sample()[0]}, {}])
+    monkeypatch.setattr(worker, 'rpc', call)
+    monkeypatch.setattr(customer_model, 'assess', Mock(side_effect=ValueError('SECRET private customer text')))
+    worker.customer_run.run('opaque-run')
+    assert 'customer_assessment_failed run_id=opaque-run class=ValueError' in caplog.text
+    assert 'SECRET' not in caplog.text
+    assert 'private customer text' not in caplog.text

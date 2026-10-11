@@ -10,19 +10,20 @@ from apps.community_manager.model import PROMPT_VERSION
 LOGGER = logging.getLogger(__name__)
 
 
-def log_failure(run_id: str, error: Exception) -> None:
+def log_failure(run_id: str, error: Exception, component: str = 'manager_execution') -> None:
     """Log exception type and source location without messages, inputs or credentials.
 
     Args:
         run_id: Opaque backend-issued run identifier.
         error: Exception whose text and provider payload must remain private.
+        component: Fixed internal processing stage.
     """
     frames = traceback.extract_tb(error.__traceback__)
     location = next((f for f in reversed(frames) if '/apps/community_manager/' in f.filename), None)
     status = getattr(error, 'status_code', getattr(error, 'code', None))
     status = status if isinstance(status, int) and 100 <= status <= 599 else None
-    LOGGER.error('manager_execution_failed run_id=%s class=%s source=%s line=%s http_status=%s',
-                 run_id, type(error).__name__, location.name if location else 'unknown',
+    LOGGER.error('%s_failed run_id=%s class=%s source=%s line=%s http_status=%s',
+                 component, run_id, type(error).__name__, location.name if location else 'unknown',
                  location.lineno if location else 0, status)
 
 
@@ -90,6 +91,7 @@ def customer_run(run_id: str) -> None:
     try:
         output, model = assess(started['customer_assessment'])
         output.update(model_id=model, prompt_version=VERSION)
-    except Exception:
+    except Exception as error:
+        log_failure(run_id, error, component='customer_assessment')
         output = {'error_code': 'customer_assessment_failed'}
     rpc('result', run_id=run_id, token=token, output=output)

@@ -385,3 +385,35 @@ def test_oversized_reply_fails_explicitly_instead_of_silent_truncation(monkeypat
     monkeypatch.setattr(worker, 'execute', Mock(return_value=('中' * 6000, 'test')))
     worker.run.run('id')
     assert call.call_args.kwargs['output']['error_code'] == 'manager_execution_failed'
+
+
+def test_budget_process_reply_uses_verified_receipts_instead(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.community_manager import agent
+    from langchain_core.messages import AIMessage, ToolMessage
+    plain = Mock(); plain.invoke.return_value = AIMessage(content='让我继续搜索，以确保找到10位最合适的用户：')
+    monkeypatch.setattr(agent, 'client', lambda: plain)
+    monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
+    receipts = [ToolMessage(content=json.dumps({'contact_scope': 'reachable', 'users': [
+        {'user_number': 123, 'display_name': '已核验用户', 'bound': 'bound_snapshot'},
+        {'user_number': 999, 'display_name': '冲突用户', 'bound': 'binding_conflict'}]}), tool_call_id='a')]
+    text, _ = agent.partial_summary(receipts, '推理轮数', agent.time.monotonic() + 90)
+    assert '123' in text and '999' not in text
+    assert '让我继续搜索' not in text
+    assert '尚未完成核验' in text
+
+
+def test_ten_candidates_stop_repetitive_search_and_keep_receipts(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.community_manager import agent
+    from langchain_core.messages import AIMessage
+    model = Mock(); model.invoke.return_value = AIMessage(content='继续搜索', tool_calls=[
+        {'name': 'search_users', 'args': {}, 'id': 'search', 'type': 'tool_call'}])
+    plain = Mock(); plain.bind_tools.return_value = model
+    plain.invoke.return_value = AIMessage(content='让我继续搜索')
+    monkeypatch.setattr(agent, 'client', lambda: plain)
+    monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
+    call = Mock(return_value={'contact_scope': 'reachable', 'users': [
+        {'user_number': 100+i, 'display_name': '用户', 'bound': 'bound_snapshot'} for i in range(10)]})
+    text, _ = agent.execute({'text': '请列10位关注用户'}, call)
+    assert call.call_count == 3
+    assert all(str(100+i) in text for i in range(10))
+    assert '让我继续搜索' not in text

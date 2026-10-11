@@ -1,6 +1,7 @@
 """Bounded natural-dialogue manager with scoped business tools and persistent memory."""
 import json
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -70,6 +71,45 @@ def invoke_tool(call: Callable[..., dict], name: str, args: dict, call_id: str) 
     return call('tool', name='save_guidance_draft', arguments={'number': args['number'], 'output': output}, call_id=call_id + '-draft')
 
 
+def verified_candidates(messages: list) -> list[dict]:
+    """Collect only reachable records from successful scoped search receipts.
+
+    Args:
+        messages: Run-local tool receipts; assistant claims are never evidence.
+    """
+    found = {}
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            continue
+        try:
+            data = json.loads(message.content)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(data, dict) or data.get('contact_scope') != 'reachable':
+            continue
+        for user in data.get('users', []):
+            if isinstance(user, dict) and user.get('bound') == 'bound_snapshot' and user.get('user_number'):
+                found[str(user['user_number'])] = user
+    return list(found.values())
+
+
+def receipt_summary(messages: list) -> str:
+    """Produce a factual fallback without promising further execution.
+
+    Args:
+        messages: Current scoped results, excluding remembered assistant text.
+    """
+    users = verified_candidates(messages)
+    if not users:
+        return '尚未完成具体用户名单核验；已完成操作以记录为准，未向客户发送消息。'
+    lines = ['已读取以下可触达候选（不是已完成的优先级评估）：']
+    for index, user in enumerate(users[:10], 1):
+        name = str(user.get('display_name') or '未记录姓名')[:80].replace('\n', ' ')
+        lines.append(f"{index}. {name}（创业号：{user['user_number']}）")
+    lines.append('备注、逐人关注理由和下一步尚未完成核验；本轮已停止，未向客户发送消息。')
+    return '\n'.join(lines)
+
+
 def partial_summary(messages: list, reason: str, deadline: float) -> tuple[str, str]:
     """Summarize verified progress without more tools when a bounded run must stop.
 
@@ -80,15 +120,19 @@ def partial_summary(messages: list, reason: str, deadline: float) -> tuple[str, 
     """
     prefix = '本轮已达到分析上限，已停止新增操作。'
     if time.monotonic() + 30 >= deadline:
-        return prefix + '已完成操作以记录为准，尚未完成的事项需要继续处理；未向客户发送消息。', os.environ['COMMUNITY_MANAGER_MODEL']
+        return prefix + '\n' + receipt_summary(messages), os.environ['COMMUNITY_MANAGER_MODEL']
     response = client().invoke(messages + [SystemMessage(content=
         '本轮已达到' + reason + '上限。只能总结，不调用任何工具、不执行新的操作。'
         '用中文简短列出已核验的具体候选和依据、实际保存的草稿或安排、尚未完成的事项。'
         '工具报错或未执行不算完成；公开搜索候选不是已经安排服务；未读取历史明确说明。'
-        '不得复述系统失败通知，不声称整项请求已完成。')])
+        '不得复述系统失败通知，不声称整项请求已完成。') , HumanMessage(content=
+        '现在立即交付本轮结果，不再搜索。列出工具实际返回的具体用户，明确已核验与未核验项。禁止写“让我继续搜索”“我将继续”或任何未来操作承诺。')])
     if not isinstance(response.content, str) or not response.content.strip():
         raise ValueError('manager_output_invalid')
-    return prefix + '\n' + response.content, os.environ['COMMUNITY_MANAGER_MODEL']
+    text = response.content
+    if getattr(response, 'tool_calls', None) or re.search(r'让我.*(?:搜索|查找|查询)|(?:将|会|现在|接下来|继续|再).{0,8}(?:搜索|查找)', text) or (verified_candidates(messages) and not any(str(u['user_number']) in text for u in verified_candidates(messages))):
+        text = receipt_summary(messages)
+    return prefix + '\n' + text, os.environ['COMMUNITY_MANAGER_MODEL']
 
 
 def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
@@ -119,6 +163,8 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     messages.append(HumanMessage(content=json.dumps(trigger, ensure_ascii=False)))
     model = client().bind_tools(TOOLS)
     deadline = time.monotonic() + MAX_SECONDS
+    ten_candidate_request = bool(re.search(r'(?:10|十).{0,6}(?:位|个|名|用户|候选)', started.get('text', '')))
+    searches = 0
     used = 0; bytes_used = sum(len(str(m.content).encode()) for m in messages)
     for _ in range(MAX_MODEL_STEPS):
         if time.monotonic() >= deadline:
@@ -141,7 +187,12 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             used += 1
             operation = str(uuid.uuid4())
             try:
-                result = invoke_tool(call, tool['name'], tool['args'], operation)
+                if tool['name'] in {'search_users', 'search_public_users'} and ten_candidate_request and searches >= 3 and len(verified_candidates(messages)) >= 10:
+                    result = {'tool_error': 'candidate_selection_required', 'note': '已有至少10位可触达候选；停止重复搜索，从既有结果选择并核验备注、资料和优先级。'}
+                else:
+                    result = invoke_tool(call, tool['name'], tool['args'], operation)
+                    if tool['name'] in {'search_users', 'search_public_users'}:
+                        searches += 1
             except ValueError:
                 result = {'error': 'invalid_tool_request'}
             # Unknown writes/network errors abort the run instead of generating a new operation ID.
@@ -150,4 +201,6 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             if bytes_used > MAX_CONTEXT_BYTES:
                 return '本轮已达到资料量上限，已停止新增操作；已完成操作以记录为准，剩余用户需分批核验，未向客户发送消息。', os.environ['COMMUNITY_MANAGER_MODEL']
             messages.append(ToolMessage(content=encoded, tool_call_id=tool['id']))
+        if ten_candidate_request and searches >= 3 and len(verified_candidates(messages)) >= 10:
+            messages.append(SystemMessage(content='可触达候选已足够。现在停止搜索，选择所需人数，批量调用get_contact_relationships核实备注，随后交付完整名单；不能用继续搜索的过程话作答。'))
     return partial_summary(messages, '推理轮数', deadline)

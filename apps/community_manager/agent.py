@@ -10,6 +10,8 @@ from langchain_openai import ChatOpenAI
 from apps.community_manager.model import draft
 from apps.community_manager.tool_schema import TOOLS
 
+FAILURE_NOTICE = '本次经理分析未完成，已完成的操作请以记录为准；现有客服仍可继续工作，没有向客户发送消息。'
+
 SKILL = Path(__file__).parent / "skills" / "operations" / "SKILL.md"
 
 
@@ -82,6 +84,8 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
         if row['role'] == 'staff':
             messages.append(HumanMessage(content=row['text'][:2000]))
         else:
+            if row['text'].strip() == FAILURE_NOTICE:
+                continue
             from langchain_core.messages import AIMessage
             messages.append(AIMessage(content=row['text'][:2000]))
     trigger = {k: v for k, v in started.items() if k in {'text', 'trigger', 'global_write', 'model_mode'}}
@@ -97,6 +101,9 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
         if not response.tool_calls:
             if not isinstance(response.content, str) or not response.content.strip():
                 raise ValueError('manager_output_invalid')
+            if response.content.strip() == FAILURE_NOTICE:
+                messages.append(SystemMessage(content="这是历史系统失败通知，不是当前任务的答案。依据本轮权限和工具重新处理当前请求；仅报告本轮实际核验结果与未完成事项。"))
+                continue
             return response.content, os.environ['COMMUNITY_MANAGER_MODEL']
         for tool in response.tool_calls:
             used += 1

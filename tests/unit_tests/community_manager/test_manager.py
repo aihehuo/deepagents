@@ -259,3 +259,20 @@ def test_failure_log_has_metadata_without_exception_payload(monkeypatch: pytest.
     assert "run_id=opaque-run" in caplog.text
     assert "SECRET" not in caplog.text
     assert "private input" not in caplog.text
+
+
+def test_manager_does_not_copy_historical_failure_notice(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.community_manager import agent
+    from langchain_core.messages import AIMessage
+    model = Mock()
+    model.invoke.side_effect = [AIMessage(content=agent.FAILURE_NOTICE),
+        AIMessage(content='', tool_calls=[{'name': 'get_scope_metrics', 'args': {}, 'id': 't1', 'type': 'tool_call'}]),
+        AIMessage(content='已核验当前范围。')]
+    monkeypatch.setattr(agent, 'client', lambda: Mock(bind_tools=Mock(return_value=model)))
+    monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
+    call = Mock(return_value={'user_count': 2})
+    text, _ = agent.execute({'text': '请核验', 'history': [{'role': 'manager', 'text': agent.FAILURE_NOTICE}], 'global_write': True}, call)
+    assert text == '已核验当前范围。'
+    call.assert_called_once()
+    first_messages = model.invoke.call_args_list[0].args[0]
+    assert not any(isinstance(m, AIMessage) and m.content == agent.FAILURE_NOTICE for m in first_messages[:2])

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11, <4.0"
 
 [[package]]
@@ -887,7 +887,7 @@ wheels = [
 
 [[package]]
 name = "langchain-quickjs"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "deepagents" },

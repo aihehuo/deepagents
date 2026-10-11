@@ -12,6 +12,11 @@ from apps.community_manager.tool_schema import TOOLS
 
 FAILURE_NOTICE = '本次经理分析未完成，已完成的操作请以记录为准；现有客服仍可继续工作，没有向客户发送消息。'
 
+MAX_TOOL_CALLS = 48
+MAX_MODEL_STEPS = 12
+MAX_SECONDS = 420
+MAX_CONTEXT_BYTES = 240_000
+
 SKILL = Path(__file__).parent / "skills" / "operations" / "SKILL.md"
 
 
@@ -43,7 +48,7 @@ def invoke_tool(call: Callable[..., dict], name: str, args: dict, call_id: str) 
     if name == 'search_public_users':
         from apps.community_manager.public_users import candidate_numbers
         numbers = candidate_numbers(args)
-        return call('tool', name='filter_public_candidates', arguments={'numbers': numbers}, call_id=call_id)
+        return call('tool', name='filter_public_candidates', arguments={'numbers': numbers, 'contact_scope': args.get('contact_scope', 'reachable')}, call_id=call_id)
     if name != 'draft_guidance':
         return call('tool', name=name, arguments=args, call_id=call_id)
     sources = call('tool', name='get_guidance_sources', arguments=args, call_id=call_id + '-sources')
@@ -95,8 +100,8 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     """
     messages = [SystemMessage(content=SKILL.read_text(encoding='utf-8') +
         "\n工具错误只说明本次未完成，不泄露系统异常。把权限拒绝作为边界，不用其他工具绕过。"
-        "单轮最多16次工具调用、6轮模型推理。先用最少工具核验目标并选具体候选，避免重复搜索；10人深入分析和指导应分批，明确未完成项。用户创业号number必须用字符串，不用数据库id代替。"
-        "最终用中文自然回复，不输出任务版本暗语。每次写入以前读取当前版本；模型不补造业务执行结果。"
+        "单轮最多48次工具调用、12轮模型推理。先用最少工具核验目标并选具体候选，避免重复搜索；优先完成用户要求的候选数量；不足时继续分页搜索，不能用未加企微的人补数。逐人指导仍需核验证据，明确未完成项。用户创业号number必须用字符串，不用数据库id代替。"
+        "最终用中文自然回复，不输出任务版本暗语。企微回复须UTF8不超过1900字节，用紧凑的编号列表覆盖用户要求的全部人数，减少前言，不要只列前4位。每次写入以前读取当前版本；模型不补造业务执行结果。"
         "save_plan.body 必须有 objective,selection_criteria,principles,metrics,capacity,starts_at,expires_at，时间用ISO8601。"
         "随访 need_key 使用 profile/contact 或已读取需求ID；reason基于 evidence。通知需要保存安排后再调用 notify_staff。"
         "自动触发先聚焦 trigger.user_number，不因一个事件批量通知所有用户；最后总结仅内部留存。"
@@ -113,9 +118,9 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     trigger = {k: v for k, v in started.items() if k in {'text', 'trigger', 'global_write', 'model_mode'}}
     messages.append(HumanMessage(content=json.dumps(trigger, ensure_ascii=False)))
     model = client().bind_tools(TOOLS)
-    deadline = time.monotonic() + 170
+    deadline = time.monotonic() + MAX_SECONDS
     used = 0; bytes_used = sum(len(str(m.content).encode()) for m in messages)
-    for _ in range(6):
+    for _ in range(MAX_MODEL_STEPS):
         if time.monotonic() >= deadline:
             return partial_summary(messages, '时间', deadline)
         response = model.invoke(messages)
@@ -128,7 +133,7 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
                 continue
             return response.content, os.environ['COMMUNITY_MANAGER_MODEL']
         for index, tool in enumerate(response.tool_calls):
-            if used >= 16 or time.monotonic() + 30 >= deadline:
+            if used >= MAX_TOOL_CALLS or time.monotonic() + 30 >= deadline:
                 # Complete the assistant's pending call IDs with explicit non-execution results.
                 for pending in response.tool_calls[index:]:
                     messages.append(ToolMessage(content='{"tool_error":"not_executed_budget_limit"}', tool_call_id=pending['id']))
@@ -142,7 +147,7 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             # Unknown writes/network errors abort the run instead of generating a new operation ID.
             encoded = json.dumps(result, ensure_ascii=False)
             bytes_used += len(encoded.encode())
-            if bytes_used > 120_000:
+            if bytes_used > MAX_CONTEXT_BYTES:
                 return '本轮已达到资料量上限，已停止新增操作；已完成操作以记录为准，剩余用户需分批核验，未向客户发送消息。', os.environ['COMMUNITY_MANAGER_MODEL']
             messages.append(ToolMessage(content=encoded, tool_call_id=tool['id']))
     return partial_summary(messages, '推理轮数', deadline)

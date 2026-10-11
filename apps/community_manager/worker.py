@@ -26,7 +26,7 @@ def log_failure(run_id: str, error: Exception) -> None:
                  location.lineno if location else 0, status)
 
 
-@app.task(name="community_manager.run")
+@app.task(name="community_manager.run", soft_time_limit=500, time_limit=540)
 def run(run_id: str) -> None:
     """Claim once and execute without creating new identities after uncertain writes.
 
@@ -49,7 +49,7 @@ def run(run_id: str) -> None:
         if started.get('trigger', {}).get('kind') == 'customer_assessment':
             raise ValueError('wrong_manager_queue')
         text, model = execute(started, call)
-        output = {'text': text[:650].encode('utf-8')[:2000].decode('utf-8', errors='ignore'),
+        output = {'text': text.encode('utf-8')[:2000].decode('utf-8', errors='ignore'),
                   'model_id': model, 'prompt_version': PROMPT_VERSION}
     except Exception as error:
         log_failure(run_id, error)

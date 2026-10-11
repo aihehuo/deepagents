@@ -11,13 +11,22 @@ def candidate_numbers(arguments: dict) -> list[str]:
     Args:
         arguments: One keyword or semantic query plus optional public filters.
     """
-    if set(arguments) - {'keyword', 'q', 'location', 'vertical', 'role'}:
+    if set(arguments) - {'keyword', 'q', 'location', 'vertical', 'role', 'contact_scope', 'page'}:
         raise ValueError('invalid_public_query')
     if bool(arguments.get('keyword')) == bool(arguments.get('q')):
         raise ValueError('invalid_public_query')
-    if any(not isinstance(v, str) or len(v) > 200 for v in arguments.values()):
+    page = arguments.get('page', 1)
+    if type(page) is not int or not 1 <= page <= 10:
         raise ValueError('invalid_public_query')
-    query = {**arguments, 'page': 1, 'per': 10, 'current_page': 1, 'per_page': 10}
+    if any(not isinstance(v, str) or len(v) > 200 for k, v in arguments.items() if k != 'page'):
+        raise ValueError('invalid_public_query')
+    mode = arguments.get('contact_scope', 'reachable')
+    if mode not in {'reachable', 'unbound', 'all'}:
+        raise ValueError('invalid_public_query')
+    query = {**{k: v for k, v in arguments.items() if k not in {'contact_scope', 'page'}}, 'page': page, 'per': 20, 'current_page': page, 'per_page': 20}
+    if mode == 'reachable':
+        query['wechat_reachable_only'] = 'true'
+
     request = Request('https://www.aihehuo.com/ai/users?' + urlencode(query), headers={'Accept': 'application/json'})
     with build_opener(NoRedirect()).open(request, timeout=15) as response:
         raw = response.read(300_001)

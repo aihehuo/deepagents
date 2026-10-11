@@ -5,3 +5,17 @@ TOOLS.extend([
     {'type': 'function', 'function': {'name': 'get_customer_dossier', 'description': '读取单用户后台客服画像、认证、完善度及评估状态，未加企微也可有档案', 'parameters': {'type': 'object', 'properties': {'number': {'type': 'string'}}, 'required': ['number'], 'additionalProperties': False}}},
     {'type': 'function', 'function': {'name': 'get_customer_reports', 'description': '读取此用户客服证据化上报与消费状态，经理核验后再决定服务优先级', 'parameters': {'type': 'object', 'properties': {'number': {'type': 'string'}}, 'required': ['number'], 'additionalProperties': False}}},
 ])
+
+
+# Candidate lists default to recorded active WeCom contacts; outreach is explicit.
+for _tool in TOOLS:
+    if _tool['function']['name'] in {'search_users', 'search_public_users'}:
+        _tool['function']['parameters']['properties']['contact_scope'] = {
+            'type': 'string', 'enum': ['reachable', 'unbound', 'all'],
+            'description': '默认reachable：已加企微且有有效联系记录；客服询问主动添加时单列unbound；all仅用于全平台观察，不能当作可触达关注名单。'}
+
+for _tool in TOOLS:
+    if _tool['function']['name'] == 'search_public_users':
+        _tool['function']['parameters']['properties']['page'] = {
+            'type': 'integer', 'minimum': 1, 'maximum': 10,
+            'description': '公开索引页码，默认1。有效可触达候选不足时翻页，不重复读取同一页。'}

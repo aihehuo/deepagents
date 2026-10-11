@@ -233,7 +233,7 @@ def test_semantic_search_passes_only_numbers_through_scope_filter(monkeypatch: p
     call = Mock(return_value={'users': [{'user_number': 123}]})
     result = invoke_tool(call, 'search_public_users', {'q': '希望找技术合伙人的创业者'}, 'stable')
     assert result['users'] == [{'user_number': 123}]
-    call.assert_called_once_with('tool', name='filter_public_candidates', arguments={'numbers': ['123', '456']}, call_id='stable')
+    call.assert_called_once_with('tool', name='filter_public_candidates', arguments={'numbers': ['123', '456'], 'contact_scope': 'reachable'}, call_id='stable')
 
 
 def test_public_search_has_fixed_url_no_auth_and_bounded_response(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -283,7 +283,7 @@ def test_tool_budget_returns_verified_partial_summary_without_extra_tools(monkey
     from langchain_core.messages import AIMessage, ToolMessage
     model = Mock()
     model.invoke.return_value = AIMessage(content='', tool_calls=[
-        {'name': 'get_scope_metrics', 'args': {}, 'id': 't' + str(i), 'type': 'tool_call'} for i in range(18)])
+        {'name': 'get_scope_metrics', 'args': {}, 'id': 't' + str(i), 'type': 'tool_call'} for i in range(50)])
     plain = Mock()
     plain.bind_tools.return_value = model
     plain.invoke.return_value = AIMessage(content='已核验范围；逐人指导尚未生成。')
@@ -291,7 +291,7 @@ def test_tool_budget_returns_verified_partial_summary_without_extra_tools(monkey
     monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
     call = Mock(return_value={'user_count': 2})
     text, _ = agent.execute({'text': '请分析十位'}, call)
-    assert call.call_count == 16
+    assert call.call_count == 48
     assert '已达到分析上限' in text
     assert '尚未生成' in text
     pending = [m for m in plain.invoke.call_args.args[0] if isinstance(m, ToolMessage) and 'not_executed_budget_limit' in m.content]
@@ -309,8 +309,8 @@ def test_step_budget_summarizes_without_running_more_tools(monkeypatch: pytest.M
     monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
     call = Mock(return_value={'user_count': 2})
     text, _ = agent.execute({'text': '分析'}, call)
-    assert call.call_count == 6
-    assert model.invoke.call_count == 6
+    assert call.call_count == 12
+    assert model.invoke.call_count == 12
     assert '已达到分析上限' in text
 
 
@@ -321,3 +321,59 @@ def test_expired_budget_does_not_start_another_model_call(monkeypatch: pytest.Mo
     text, _ = agent.partial_summary([], '时间', agent.time.monotonic())
     plain.invoke.assert_not_called()
     assert '尚未完成' in text
+
+
+def test_manager_extended_budget_does_not_change_customer_worker_limits() -> None:
+    from apps.community_manager import agent
+    assert (agent.MAX_TOOL_CALLS, agent.MAX_MODEL_STEPS, agent.MAX_SECONDS, agent.MAX_CONTEXT_BYTES) == (48, 12, 420, 240_000)
+    assert worker.run.soft_time_limit == 500
+    assert worker.run.time_limit == 540
+    assert celery.conf.task_soft_time_limit == 220
+    assert celery.conf.task_time_limit == 240
+
+
+def test_ascii_reply_is_not_truncated_at_650_characters(monkeypatch: pytest.MonkeyPatch) -> None:
+    call = Mock(side_effect=[{'token': 'token', 'text': 'next'}, {}])
+    monkeypatch.setattr(worker, 'rpc', call)
+    monkeypatch.setattr(worker, 'execute', Mock(return_value=('a' * 1200, 'test')))
+    worker.run.run('id')
+    assert call.call_args.kwargs['output']['text'] == 'a' * 1200
+
+
+def test_candidate_tool_schema_defaults_and_outreach_instructions() -> None:
+    from apps.community_manager.agent import SKILL
+    from apps.community_manager.tool_schema import TOOLS
+    for tool in TOOLS:
+        if tool['function']['name'] in {'search_users', 'search_public_users'}:
+            assert tool['function']['parameters']['properties']['contact_scope']['enum'] == ['reachable', 'unbound', 'all']
+    assert '未加企微名单仅在客服询问时出现' in SKILL.read_text()
+
+
+@pytest.mark.parametrize('mode, reachable', [('reachable', True), ('unbound', False)])
+def test_public_query_reachable_filter_is_not_sent_for_outreach(monkeypatch: pytest.MonkeyPatch, mode: str, reachable: bool) -> None:
+    from apps.community_manager import public_users
+    from urllib.parse import parse_qs, urlparse
+    response = Mock(); response.read.return_value = b'{"data":[{"number":123}]}'
+    from contextlib import nullcontext
+    opener = Mock(); opener.open.return_value = nullcontext(response)
+    monkeypatch.setattr(public_users, 'build_opener', lambda *_: opener)
+    assert public_users.candidate_numbers({'q': '技术合伙人', 'contact_scope': mode}) == ['123']
+    query = parse_qs(urlparse(opener.open.call_args.args[0].full_url).query)
+    assert (query.get('wechat_reachable_only') == ['true']) == reachable
+    assert 'contact_scope' not in query
+    assert query['per_page'] == ['20']
+
+
+def test_public_search_forwards_valid_page_and_rejects_invalid_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.community_manager import public_users
+    from contextlib import nullcontext
+    from urllib.parse import parse_qs, urlparse
+    response = Mock(); response.read.return_value = b'{"data":[]}'
+    opener = Mock(); opener.open.return_value = nullcontext(response)
+    monkeypatch.setattr(public_users, 'build_opener', lambda *_: opener)
+    assert public_users.candidate_numbers({'q': '合伙人', 'page': 2}) == []
+    query = parse_qs(urlparse(opener.open.call_args.args[0].full_url).query)
+    assert query['page'] == query['current_page'] == ['2']
+    for page in [0, 11, True, '2']:
+        with pytest.raises(ValueError):
+            public_users.candidate_numbers({'q': '合伙人', 'page': page})

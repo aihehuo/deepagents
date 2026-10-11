@@ -161,3 +161,17 @@ def test_final_length_failure_logs_safe_field_location(monkeypatch: pytest.Monke
     assert 'journey.next_action' in caplog.text
     assert 'PRIVATE' not in caplog.text
     assert model.invoke.call_count == 2
+
+
+@pytest.mark.parametrize("value", [None, [], {}, 12, True])
+def test_text_type_diagnostics_and_repair_preserve_strict_contract(value: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    import copy
+    context, body = sample(); bad = copy.deepcopy(body)
+    bad['journey']['founder_profile']['offer'] = value
+    issue = customer_model.length_issues(json.dumps(bad))[0]
+    assert issue['field'] == 'journey.founder_profile.offer'
+    assert issue['expected_type'] == 'string'
+    model = Mock(); model.invoke.side_effect = [Mock(content=json.dumps(bad)), Mock(content=json.dumps(body))]
+    monkeypatch.setattr(customer_model, 'ChatOpenAI', Mock(return_value=model))
+    assert customer_model.assess(context)[0] == body
+    assert 'expected_type' in model.invoke.call_args.args[0][-1][1]

@@ -94,7 +94,8 @@ def assess(input_data: dict) -> tuple[dict, str]:
         # One bounded correction for malformed output; never retry an uncertain provider call.
         correction = ('输出未通过严格校验，错误类别：' + reason + '。只纠正JSON结构、类型、长度和证据引用；'
                       '必须保留模板全部字段，不增删字段。只能使用sources内真实key；没有依据的事实留空或未知。'
-                      '不要编造引用或新事实，不输出操作或回复。返回唯一完整JSON对象。')
+                      '不要编造引用或新事实，不输出操作或回复。返回唯一完整JSON对象。可用证据key完整列表：' +
+                      json.dumps(list(context['sources']), ensure_ascii=False))
         repaired = model.invoke([("system", SYSTEM), ("human", text), ("assistant", response.content), ("human", correction)])
         if not isinstance(repaired.content, str) or len(repaired.content.encode()) > 16000:
             raise ValueError("invalid_customer_assessment_output")

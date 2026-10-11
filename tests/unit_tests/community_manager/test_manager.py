@@ -248,3 +248,14 @@ def test_public_search_has_fixed_url_no_auth_and_bounded_response(monkeypatch: p
     assert 'X-agent-key' not in request.headers
     with pytest.raises(ValueError):
         public_users.candidate_numbers({'q': 'AI', 'url': 'http://evil.test'})
+
+
+def test_failure_log_has_metadata_without_exception_payload(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    call = Mock(side_effect=[{"token": "token", "text": "private input"}, {}])
+    monkeypatch.setattr(worker, "rpc", call)
+    monkeypatch.setattr(worker, "execute", Mock(side_effect=RuntimeError("SECRET customer payload")))
+    worker.run.run("opaque-run")
+    assert "class=RuntimeError" in caplog.text
+    assert "run_id=opaque-run" in caplog.text
+    assert "SECRET" not in caplog.text
+    assert "private input" not in caplog.text

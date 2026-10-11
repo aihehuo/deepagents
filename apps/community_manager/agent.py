@@ -65,6 +65,27 @@ def invoke_tool(call: Callable[..., dict], name: str, args: dict, call_id: str) 
     return call('tool', name='save_guidance_draft', arguments={'number': args['number'], 'output': output}, call_id=call_id + '-draft')
 
 
+def partial_summary(messages: list, reason: str, deadline: float) -> tuple[str, str]:
+    """Summarize verified progress without more tools when a bounded run must stop.
+
+    Args:
+        messages: Completed tool results, including refusals for unexecuted calls.
+        reason: Fixed budget category, never a provider exception or customer input.
+        deadline: Original execution deadline; reserve time for a tool-free summary.
+    """
+    prefix = '本轮已达到分析上限，已停止新增操作。'
+    if time.monotonic() + 30 >= deadline:
+        return prefix + '已完成操作以记录为准，尚未完成的事项需要继续处理；未向客户发送消息。', os.environ['COMMUNITY_MANAGER_MODEL']
+    response = client().invoke(messages + [SystemMessage(content=
+        '本轮已达到' + reason + '上限。只能总结，不调用任何工具、不执行新的操作。'
+        '用中文简短列出已核验的具体候选和依据、实际保存的草稿或安排、尚未完成的事项。'
+        '工具报错或未执行不算完成；公开搜索候选不是已经安排服务；未读取历史明确说明。'
+        '不得复述系统失败通知，不声称整项请求已完成。')])
+    if not isinstance(response.content, str) or not response.content.strip():
+        raise ValueError('manager_output_invalid')
+    return prefix + '\n' + response.content, os.environ['COMMUNITY_MANAGER_MODEL']
+
+
 def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     """Run a bounded model/tool loop for an employee message or a backend event.
 
@@ -74,6 +95,7 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     """
     messages = [SystemMessage(content=SKILL.read_text(encoding='utf-8') +
         "\n工具错误只说明本次未完成，不泄露系统异常。把权限拒绝作为边界，不用其他工具绕过。"
+        "单轮最多16次工具调用、6轮模型推理。先用最少工具核验目标并选具体候选，避免重复搜索；10人深入分析和指导应分批，明确未完成项。用户创业号number必须用字符串，不用数据库id代替。"
         "最终用中文自然回复，不输出任务版本暗语。每次写入以前读取当前版本；模型不补造业务执行结果。"
         "save_plan.body 必须有 objective,selection_criteria,principles,metrics,capacity,starts_at,expires_at，时间用ISO8601。"
         "随访 need_key 使用 profile/contact 或已读取需求ID；reason基于 evidence。通知需要保存安排后再调用 notify_staff。"
@@ -95,7 +117,7 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     used = 0; bytes_used = sum(len(str(m.content).encode()) for m in messages)
     for _ in range(6):
         if time.monotonic() >= deadline:
-            raise ValueError('manager_budget_exceeded')
+            return partial_summary(messages, '时间', deadline)
         response = model.invoke(messages)
         messages.append(response)
         if not response.tool_calls:
@@ -105,10 +127,13 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
                 messages.append(SystemMessage(content="这是历史系统失败通知，不是当前任务的答案。依据本轮权限和工具重新处理当前请求；仅报告本轮实际核验结果与未完成事项。"))
                 continue
             return response.content, os.environ['COMMUNITY_MANAGER_MODEL']
-        for tool in response.tool_calls:
+        for index, tool in enumerate(response.tool_calls):
+            if used >= 16 or time.monotonic() + 30 >= deadline:
+                # Complete the assistant's pending call IDs with explicit non-execution results.
+                for pending in response.tool_calls[index:]:
+                    messages.append(ToolMessage(content='{"tool_error":"not_executed_budget_limit"}', tool_call_id=pending['id']))
+                return partial_summary(messages, '工具调用或时间', deadline)
             used += 1
-            if used > 16 or time.monotonic() >= deadline:
-                raise ValueError('manager_budget_exceeded')
             operation = str(uuid.uuid4())
             try:
                 result = invoke_tool(call, tool['name'], tool['args'], operation)
@@ -118,6 +143,6 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             encoded = json.dumps(result, ensure_ascii=False)
             bytes_used += len(encoded.encode())
             if bytes_used > 120_000:
-                raise ValueError('manager_context_budget_exceeded')
+                return '本轮已达到资料量上限，已停止新增操作；已完成操作以记录为准，剩余用户需分批核验，未向客户发送消息。', os.environ['COMMUNITY_MANAGER_MODEL']
             messages.append(ToolMessage(content=encoded, tool_call_id=tool['id']))
-    raise ValueError('manager_step_budget_exceeded')
+    return partial_summary(messages, '推理轮数', deadline)

@@ -276,3 +276,48 @@ def test_manager_does_not_copy_historical_failure_notice(monkeypatch: pytest.Mon
     call.assert_called_once()
     first_messages = model.invoke.call_args_list[0].args[0]
     assert not any(isinstance(m, AIMessage) and m.content == agent.FAILURE_NOTICE for m in first_messages[:2])
+
+
+def test_tool_budget_returns_verified_partial_summary_without_extra_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.community_manager import agent
+    from langchain_core.messages import AIMessage, ToolMessage
+    model = Mock()
+    model.invoke.return_value = AIMessage(content='', tool_calls=[
+        {'name': 'get_scope_metrics', 'args': {}, 'id': 't' + str(i), 'type': 'tool_call'} for i in range(18)])
+    plain = Mock()
+    plain.bind_tools.return_value = model
+    plain.invoke.return_value = AIMessage(content='已核验范围；逐人指导尚未生成。')
+    monkeypatch.setattr(agent, 'client', lambda: plain)
+    monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
+    call = Mock(return_value={'user_count': 2})
+    text, _ = agent.execute({'text': '请分析十位'}, call)
+    assert call.call_count == 16
+    assert '已达到分析上限' in text
+    assert '尚未生成' in text
+    pending = [m for m in plain.invoke.call_args.args[0] if isinstance(m, ToolMessage) and 'not_executed_budget_limit' in m.content]
+    assert len(pending) == 2
+
+
+def test_step_budget_summarizes_without_running_more_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.community_manager import agent
+    from langchain_core.messages import AIMessage
+    model = Mock()
+    model.invoke.return_value = AIMessage(content='', tool_calls=[{'name': 'get_scope_metrics', 'args': {}, 'id': 't', 'type': 'tool_call'}])
+    plain = Mock(); plain.bind_tools.return_value = model
+    plain.invoke.return_value = AIMessage(content='已核验范围，剩余需求需继续核对。')
+    monkeypatch.setattr(agent, 'client', lambda: plain)
+    monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
+    call = Mock(return_value={'user_count': 2})
+    text, _ = agent.execute({'text': '分析'}, call)
+    assert call.call_count == 6
+    assert model.invoke.call_count == 6
+    assert '已达到分析上限' in text
+
+
+def test_expired_budget_does_not_start_another_model_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.community_manager import agent
+    plain = Mock(); monkeypatch.setattr(agent, 'client', lambda: plain)
+    monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
+    text, _ = agent.partial_summary([], '时间', agent.time.monotonic())
+    plain.invoke.assert_not_called()
+    assert '尚未完成' in text

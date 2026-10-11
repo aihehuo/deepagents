@@ -49,7 +49,9 @@ def run(run_id: str) -> None:
         if started.get('trigger', {}).get('kind') == 'customer_assessment':
             raise ValueError('wrong_manager_queue')
         text, model = execute(started, call)
-        output = {'text': text.encode('utf-8')[:2000].decode('utf-8', errors='ignore'),
+        if not isinstance(text, str) or not text.strip() or len(text.encode('utf-8')) > 16000:
+            raise ValueError('manager_reply_size_invalid')
+        output = {'text': text,
                   'model_id': model, 'prompt_version': PROMPT_VERSION}
     except Exception as error:
         log_failure(run_id, error)

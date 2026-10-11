@@ -133,13 +133,13 @@ def test_model_unconfigured_and_invalid_json_are_rejected(monkeypatch: pytest.Mo
         model.draft({})
 
 
-def test_staff_reply_is_limited_in_utf8_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_staff_reply_preserves_full_text_for_backend_multipart(monkeypatch: pytest.MonkeyPatch) -> None:
     call = Mock(side_effect=[{'token': 'token', 'text': 'next'}, {}])
     monkeypatch.setattr(worker, 'rpc', call)
     monkeypatch.setattr(worker, 'execute', Mock(return_value=('🧑' * 1000, 'deterministic')))
     worker.run.run('id')
     text = call.call_args.kwargs['output']['text']
-    assert len(text.encode('utf-8')) <= 2000
+    assert text == '🧑' * 1000
     assert '�' not in text
 
 
@@ -377,3 +377,11 @@ def test_public_search_forwards_valid_page_and_rejects_invalid_page(monkeypatch:
     for page in [0, 11, True, '2']:
         with pytest.raises(ValueError):
             public_users.candidate_numbers({'q': '合伙人', 'page': page})
+
+
+def test_oversized_reply_fails_explicitly_instead_of_silent_truncation(monkeypatch: pytest.MonkeyPatch) -> None:
+    call = Mock(side_effect=[{'token': 'token', 'text': 'next'}, {}])
+    monkeypatch.setattr(worker, 'rpc', call)
+    monkeypatch.setattr(worker, 'execute', Mock(return_value=('中' * 6000, 'test')))
+    worker.run.run('id')
+    assert call.call_args.kwargs['output']['error_code'] == 'manager_execution_failed'

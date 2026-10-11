@@ -19,3 +19,16 @@ for _tool in TOOLS:
         _tool['function']['parameters']['properties']['page'] = {
             'type': 'integer', 'minimum': 1, 'maximum': 10,
             'description': '公开索引页码，默认1。有效可触达候选不足时翻页，不重复读取同一页。'}
+
+# Chronological requests must use DB ordering rather than semantic candidate order.
+TOOLS.append({'type': 'function', 'function': {
+    'name': 'search_recent_users',
+    'description': '按数据库真实时间倒序搜索配置范围用户；先筛地区与联系状态。最近活跃用last_active_desc，最新注册用registered_desc；不以更新时间替代。最多20位，空排序时间排除。',
+    'parameters': {'type': 'object', 'properties': {
+        'city': {'type': 'string', 'description': '用户所在城市，例如上海；直辖市也匹配省份字段。'},
+        'sort': {'type': 'string', 'enum': ['last_active_desc', 'registered_desc']},
+        'active_since': {'type': 'string', 'description': '仅此时间之后活跃的用户，带时区ISO8601，如2026-10-11T00:00:00+08:00；今日以上海时区计算。'},
+        'contact_scope': {'type': 'string', 'enum': ['reachable', 'unbound', 'all']},
+        'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20}
+    }, 'required': [], 'additionalProperties': False}
+}})

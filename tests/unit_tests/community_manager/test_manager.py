@@ -419,7 +419,7 @@ def test_ten_candidates_stop_repetitive_search_and_keep_receipts(monkeypatch: py
     assert '让我继续搜索' not in text
 
 
-@pytest.mark.parametrize('name', ['search_users', 'filter_public_candidates', 'save_guidance_draft', 'notify_staff'])
+@pytest.mark.parametrize('name', ['search_users', 'search_recent_users', 'filter_public_candidates', 'save_guidance_draft', 'notify_staff'])
 def test_search_5xx_is_recoverable_but_uncertain_writes_abort(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     from urllib.error import HTTPError
     from apps.community_manager import protocol
@@ -428,7 +428,7 @@ def test_search_5xx_is_recoverable_but_uncertain_writes_abort(monkeypatch: pytes
     monkeypatch.setenv('COMMUNITY_MANAGER_SECRET', 's' * 32)
     opener = Mock(); opener.open.side_effect = HTTPError('http://facade', 500, 'private error', {}, None)
     monkeypatch.setattr(protocol, 'build_opener', lambda *_: opener)
-    if name in {'search_users', 'filter_public_candidates'}:
+    if name in {'search_users', 'search_recent_users', 'filter_public_candidates'}:
         assert protocol.rpc('tool', name=name)['tool_error'] == 'candidate_search_unavailable'
     else:
         with pytest.raises(protocol.ProtocolError, match='manager_upstream_http_500'):
@@ -453,3 +453,21 @@ def test_outreach_search_converges_and_fallback_keeps_unbound_separate(monkeypat
     assert '未加企微、主动联系候选' in text
     assert '已加企微候选' not in text
     assert '让我继续搜索' not in text
+
+
+def test_recent_activity_search_is_explicit_db_tool_not_semantic_recall():
+    from apps.community_manager.agent import invoke_tool, SKILL
+    from apps.community_manager.tool_schema import TOOLS
+    schema = next(t['function'] for t in TOOLS if t['function']['name'] == 'search_recent_users')
+    assert schema['parameters']['properties']['sort']['enum'] == ['last_active_desc', 'registered_desc']
+    assert schema['parameters']['properties']['contact_scope']['enum'] == ['reachable', 'unbound', 'all']
+    calls = []
+    def call(action, **kwargs):
+        calls.append((action, kwargs))
+        return {'users': [], 'sort_field': 'users.last_accessed_at'}
+    args = {'city': '上海', 'sort': 'last_active_desc', 'contact_scope': 'unbound', 'limit': 5}
+    assert invoke_tool(call, 'search_recent_users', args, 'recent')['sort_field'] == 'users.last_accessed_at'
+    assert calls == [('tool', {'name': 'search_recent_users', 'arguments': args, 'call_id': 'recent'})]
+    instructions = SKILL.read_text()
+    assert '必须使用 search_recent_users' in instructions
+    assert 'observed_at 是本次查询时间' in instructions

@@ -34,3 +34,7 @@ description: Observe scoped community data, develop evidence-based service plans
 主动联系探索同样应先用 search_public_users 的 contact_scope=unbound 做关键词或语义召回，再由后端排除已加企微用户。不要连续大量换词运行数据库全文搜索；取得足够候选后读取逐人资料，判断信息质量与主动联系价值。candidate_search_unavailable 表示本次只读搜索失败，不代表已有结果失效；不立即重试相同查询，整理已有候选并明确核验不足。
 
 主动联系名单必须对最终选中的每位用户调用 get_contact_leads。每位列姓名/创业号、主动联系理由、preferred_contact.kind/value及来源、建议开场。优先微信号，没有才用手机号；只复制工具实际返回的值，不能从姓名、external_userid或绑定状态编造微信。wechat_conflict=true或explicit_text_requires_confirmation时标注需人工核验。工具拒绝或无值时明确“联系方式未取得”，不能声称名单已可执行。注册手机号只是联系线索，不保证可搜到微信；不自动添加，不将微信或手机号写入经理长期记忆、指导草稿或公共搜索结果。
+
+
+当员工要求“最近活跃/当天活跃/按活跃倒序/最新注册前N位”，必须使用 search_recent_users，不能使用公开语义召回或 search_users 的候选顺序冒充全范围时间排名。地区填 city，未加企微填 contact_scope=unbound，活跃排序填 sort=last_active_desc，注册排序填 registered_desc，人数填 limit。“当天活跃”须填 active_since 为当前上海日期的00:00:00+08:00；根据当前运行时间核对日期，不使用示例日期。返回不足时如实报告，不用更新时间补数。
+时间字段严格区分：last_active_at 是 users.last_accessed_at 的平台活跃记录；registered_at 是注册时间；record_updated_at/profile_updated_at 是记录或资料修改时间；observed_at 是本次查询时间。输出时间排名时逐人列实际排序时间（北京时间），不把空值或查询时间当成活跃时间。工具无法提供活跃数据时必须说明无法验证排序。活跃排名请求优先遵循排名，不用主观推荐理由重排；可在保持排序的前提下补充联系价值。联系方式继续逐人核验 get_contact_leads。

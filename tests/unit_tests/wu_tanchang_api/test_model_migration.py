@@ -16,7 +16,7 @@ def test_legacy_alibaba_override_routes_to_supported_model(monkeypatch) -> None:
     """Keep old caller overrides usable after the retirement."""
     monkeypatch.setattr(CONFIG, "load_env_file", lambda: None)
     model = CONFIG.resolve_model_config(provider="qwen", model_name_suffix="MAIN_AGENT_MODEL", model_name_override="deepseek-v4-flash")
-    assert model.model == "deepseek-v4.1-flash"
+    assert model.model == "qwen-plus"
     assert model.max_input_tokens == 1000000
 
 
@@ -25,3 +25,10 @@ def test_official_deepseek_provider_is_not_remapped(monkeypatch) -> None:
     monkeypatch.setattr(CONFIG, "load_env_file", lambda: None)
     model = CONFIG.resolve_model_config(provider="deepseek", model_name_suffix="MAIN_AGENT_MODEL", model_name_override="deepseek-v4-flash")
     assert model.model == "deepseek-v4-flash"
+
+
+def test_previous_alibaba_model_routes_to_qwen_plus(monkeypatch) -> None:
+    """Keep persisted V4.1 model selections compatible with the new default."""
+    monkeypatch.setattr(CONFIG, "load_env_file", lambda: None)
+    model = CONFIG.resolve_model_config(provider="qwen", model_name_suffix="MAIN_AGENT_MODEL", model_name_override="deepseek-v4.1-flash")
+    assert model.model == "qwen-plus"

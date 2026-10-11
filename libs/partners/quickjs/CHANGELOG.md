@@ -2,6 +2,26 @@
 
 # Changelog
 
+## [0.3.0](https://github.com/aihehuo/deepagents/compare/langchain-quickjs==0.2.0...langchain-quickjs==0.3.0) (2026-10-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **quickjs:** upgrade to 0.2.0 quickjs-rs ([#4067](https://github.com/aihehuo/deepagents/issues/4067))
+* **quickjs:** add default `subagent` bridge ([#3850](https://github.com/aihehuo/deepagents/issues/3850))
+* **quickjs:** remove `skills_backend` ([#3843](https://github.com/aihehuo/deepagents/issues/3843))
+
+### Features
+
+* **quickjs:** add default `subagent` bridge ([#3850](https://github.com/aihehuo/deepagents/issues/3850)) ([85fd7c2](https://github.com/aihehuo/deepagents/commit/85fd7c283da6744e403a01861e17e99e13e0f481))
+* **quickjs:** prompt tuning on task global ([#4066](https://github.com/aihehuo/deepagents/issues/4066)) ([a47696f](https://github.com/aihehuo/deepagents/commit/a47696f6d3e57eccb5ea19fb344305a7995ecc76))
+* **quickjs:** upgrade to 0.2.0 quickjs-rs ([#4067](https://github.com/aihehuo/deepagents/issues/4067)) ([4ffea88](https://github.com/aihehuo/deepagents/commit/4ffea88690418207b5e4fa800ee8c1abfa454bec))
+
+
+### Bug Fixes
+
+* **quickjs:** remove `skills_backend` ([#3843](https://github.com/aihehuo/deepagents/issues/3843)) ([1159e50](https://github.com/aihehuo/deepagents/commit/1159e504abaeec4f81d5e777ecde6a6cee641edb))
+
 ## [0.2.0](https://github.com/langchain-ai/deepagents/compare/langchain-quickjs==0.1.4...langchain-quickjs==0.2.0) (2026-06-12)
 
 ### ⚠ BREAKING CHANGES

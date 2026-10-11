@@ -190,5 +190,7 @@ def rpc(action: str, **values: object) -> dict:
                 issues = follow_up_parameter_issues(values.get('arguments'))
                 LOGGER.warning('manager_follow_up_validation fields=%s', ','.join(issues) or 'backend_state')
                 result['invalid_fields'] = issues
+                if 'need_key' in issues:
+                    result['note'] = 'need_key必须是原样的ASCII标识：整理画像用profile，建立企微联系用contact；针对需求用已读取的need_xxx或need:数字ID。没有已读取需求ID时用profile/contact，不附加用户编号、中文标签或额外冒号。'
             return result
         raise ProtocolError("manager_upstream_http_" + str(error.code)) from None

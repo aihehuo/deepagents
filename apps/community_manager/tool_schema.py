@@ -32,3 +32,11 @@ TOOLS.append({'type': 'function', 'function': {
         'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20}
     }, 'required': [], 'additionalProperties': False}
 }})
+
+
+# Keep manager follow-up identifiers aligned with Micro's strict key contract.
+for _tool in TOOLS:
+    if _tool['function']['name'] in {'save_follow_up', 'notify_staff'}:
+        _tool['function']['parameters']['properties']['need_key'].update({
+            'pattern': r'^(?:need:[1-9][0-9]{0,18}|[a-zA-Z0-9][a-zA-Z0-9_.-]{0,95})$',
+            'description': '整理画像只用profile；建立联系只用contact。需求使用已读取的真实need_xxx或need:数字ID。不能附加用户编号、中文标题或其他冒号；不得编造需求ID。'})

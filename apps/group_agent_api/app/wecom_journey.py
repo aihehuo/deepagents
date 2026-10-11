@@ -21,6 +21,7 @@ CONVERGENCE_PROMPT = (
     "目标类别和合作任务足够清楚时，先形成阶段总结请用户确认，而不是继续追问全部商业模式、功能或技术路线。"
     "每跨阶段或连续2–3次有效客户回复，简要总结已知画像、尚缺条件及下一步；这不是强制用户在三轮内答完。"
     "用户已明确需求时可直接补需求画像，不必机械地重新做自我介绍；暂不找人、拒绝或忙碌时尊重并暂停。"
+    "document_self_report是BP上传资料自述，可能是历史材料，不能作为近期用户意愿确认。partial=true仅覆盖前15及末尾10页，中间未提及不能判定不存在。review_required=true涉及复杂表格图示，需原页复核，不猜金额或人物履历归属。"
     "没有可靠依据的画像及当前需求留未知；不要为了清楚而猜预算、投入、合作意愿。"
     "画像清楚仅表示可初筛，不表示已得到搜索/联系授权；搜索与对接仍须客服确认执行，不声称已执行。"
 )
@@ -49,10 +50,18 @@ def validate_context(value: Any, metadata: dict[str, Any]) -> dict[str, Any] | N
     if not isinstance(value["sources"], dict) or len(value["sources"]) > 40:
         raise ValueError("invalid service journey sources")
     for key, source in value["sources"].items():
-        if not isinstance(key, str) or not re.fullmatch(r"[a-z0-9_:]{1,96}", key) or not isinstance(source, dict) or set(source) != {"role", "text", "recorded_at"}:
+        if not isinstance(key, str) or not re.fullmatch(r"[a-z0-9_:]{1,96}", key) or not isinstance(source, dict) or not {"role", "text", "recorded_at"}.issubset(source) or set(source) - {"role", "text", "recorded_at", "bp_id", "page", "partial", "review_required"}:
             raise ValueError("invalid service journey source")
-        if not isinstance(source["role"], str) or source["role"] not in {"user", "staff", "staff_instruction", "profile_self_report"} or not isinstance(source["text"], str) or len(source["text"]) > 180:
+        if not isinstance(source["role"], str) or source["role"] not in {"user", "staff", "staff_instruction", "profile_self_report", "document_self_report"} or not isinstance(source["text"], str) or len(source["text"]) > (600 if source["role"] == "document_self_report" else 180):
             raise ValueError("invalid service journey source")
+        for field in ("bp_id", "page"):
+            if field in source and source[field] is not None and (type(source[field]) is not int or source[field] < 1):
+                raise ValueError("invalid BP source page")
+        for field in ("partial", "review_required"):
+            if field in source and type(source[field]) is not bool:
+                raise ValueError("invalid BP source coverage")
+        if source["role"] != "document_self_report" and set(source) != {"role", "text", "recorded_at"}:
+            raise ValueError("BP metadata requires document source")
         if source["recorded_at"] is not None and (not isinstance(source["recorded_at"], str) or len(source["recorded_at"]) > 64):
             raise ValueError("invalid service journey source time")
     if not isinstance(value["observed_at"], str) or len(value["observed_at"]) > 64:

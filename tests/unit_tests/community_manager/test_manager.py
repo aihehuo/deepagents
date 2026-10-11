@@ -471,3 +471,67 @@ def test_recent_activity_search_is_explicit_db_tool_not_semantic_recall():
     instructions = SKILL.read_text()
     assert '必须使用 search_recent_users' in instructions
     assert 'observed_at 是本次查询时间' in instructions
+
+
+def ranking_receipt():
+    return {'sort': 'last_active_desc', 'sort_field': 'users.last_accessed_at', 'contact_scope': 'unbound', 'city': '上海',
+            'observed_at': '2026-10-11T04:20:00Z', 'users': [
+                {'user_number': 123, 'display_name': '真实候选', 'bound': 'not_bound', 'last_active_at': '2026-10-11T04:10:18Z', 'profile': {}}]}
+
+
+def test_ranking_without_current_search_cannot_repeat_history(monkeypatch):
+    from langchain_core.messages import AIMessage
+    from apps.community_manager import agent, ranking
+    monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
+    model = Mock(); model.invoke.return_value = AIMessage(content='我已经搜索，旧用户最后活跃在九月。')
+    monkeypatch.setattr(agent, 'client', lambda: Mock(bind_tools=Mock(return_value=model)))
+    call = Mock()
+    text, _ = agent.execute({'text': '上海未加企微用户按最近活跃倒序', 'history': [{'role': 'manager', 'text': '旧名单'}]}, call)
+    assert text == ranking.FAILURE
+    assert '九月' not in text
+    assert model.invoke.call_count == 2
+    call.assert_not_called()
+
+
+def test_ranking_output_uses_only_current_receipt_dates(monkeypatch):
+    from langchain_core.messages import AIMessage
+    from apps.community_manager import agent
+    monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
+    model = Mock(); model.invoke.side_effect = [
+        AIMessage(content='', tool_calls=[{'name': 'search_recent_users', 'args': {'city': '上海', 'contact_scope': 'unbound', 'limit': 5}, 'id': 'search', 'type': 'tool_call'}]),
+        AIMessage(content='我已搜索：假的用户最后活跃2026-09-22。')]
+    bound = Mock(bind_tools=Mock(return_value=model))
+    monkeypatch.setattr(agent, 'client', lambda: bound)
+    call = Mock(return_value=ranking_receipt())
+    text, _ = agent.execute({'text': '上海未加企微，按最近活跃时间倒序前五位'}, call)
+    assert '真实候选' in text and '2026-10-11 12:10:18' in text
+    assert '假的' not in text and '2026-09-22' not in text
+    assert '实际返回1位' in text
+    assert bound.bind_tools.call_args_list[-1].kwargs['tool_choice'] == 'search_recent_users'
+    assert call.call_args.kwargs['name'] == 'search_recent_users'
+
+
+@pytest.mark.parametrize('change', [{'city': '杭州'}, {'contact_scope': 'reachable'}, {'sort_field': 'users.updated_at'}, {'tool_error': 'candidate_search_unavailable'}])
+def test_wrong_scope_or_failed_rank_receipt_is_rejected(change):
+    from apps.community_manager import ranking
+    receipt = ranking_receipt(); receipt.update(change)
+    expected = ranking.intent({'text': '上海未加企微，按最近活跃时间倒序前五位'})
+    assert not ranking.valid_receipt(receipt, {'limit': 5}, expected)
+
+
+def test_rank_filter_adjustment_inherits_only_last_human_request():
+    from apps.community_manager import ranking
+    expected = ranking.intent({'text': '去掉上海的地域限制', 'history': [{'role': 'staff', 'text': '上海未加企微按最近活跃倒序'}, {'role': 'manager', 'text': '假的旧排名'}]})
+    assert expected['sort'] == 'last_active_desc' and expected['no_city'] and expected['contact_scope'] == 'unbound'
+    assert ranking.intent({'text': '给这位用户做指导'}) is None
+
+
+def test_ranking_wrong_requested_count_and_unsorted_dates_rejected():
+    from apps.community_manager import ranking
+    expected = ranking.intent({'text': '上海未加企微按最近活跃倒序前五位'})
+    assert expected['limit'] == 5
+    assert not ranking.valid_receipt(ranking_receipt(), {'limit': 3}, expected)
+    assert ranking.valid_receipt(ranking_receipt(), {'limit': 5}, expected)
+    receipt = ranking_receipt()
+    receipt['users'].append({**receipt['users'][0], 'user_number': 456, 'last_active_at': '2026-10-11T05:00:00Z'})
+    assert not ranking.valid_receipt(receipt, {'limit': 5}, expected)

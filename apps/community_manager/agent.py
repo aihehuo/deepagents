@@ -167,7 +167,16 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             messages.append(AIMessage(content=row['text'][:2000]))
     trigger = {k: v for k, v in started.items() if k in {'text', 'trigger', 'global_write', 'model_mode'}}
     messages.append(HumanMessage(content=json.dumps(trigger, ensure_ascii=False)))
-    model = client().bind_tools(TOOLS)
+    from apps.community_manager import ranking
+    rank_expected = ranking.intent(started)
+    rank_receipt = None; rank_contacts = {}; rank_limit = 10; rank_refusals = 0
+    if rank_expected:
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone(timedelta(hours=8))).isoformat()
+        messages.append(SystemMessage(content='本轮是实时排名请求，必须先查询，不得使用历史名单和历史日期。当前北京时间：' + now + '。本轮校验要求：' + json.dumps(rank_expected, ensure_ascii=False) + '。limit为要求人数；today要求当前北京时间零点active_since；no_city表示移除city。最终姓名、顺序和日期只取本轮回执，不得编造。'))
+    base_model = client()
+    model = base_model.bind_tools(TOOLS)
+    ranking_model = base_model.bind_tools(TOOLS, tool_choice='search_recent_users') if rank_expected else model
     deadline = time.monotonic() + MAX_SECONDS
     outreach_request = bool(re.search(r'未.{0,10}(?:企微|企业微信)|主动.{0,6}(?:联系|添加)|添加.{0,8}微信', started.get('text', '')))
     selection_mode = 'unbound' if outreach_request else 'reachable'
@@ -176,10 +185,18 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     used = 0; bytes_used = sum(len(str(m.content).encode()) for m in messages)
     for _ in range(MAX_MODEL_STEPS):
         if time.monotonic() >= deadline:
-            return partial_summary(messages, '时间', deadline)
-        response = model.invoke(messages)
+            return (ranking.render(rank_receipt, rank_contacts, rank_limit), os.environ['COMMUNITY_MANAGER_MODEL']) if rank_expected else partial_summary(messages, '时间', deadline)
+        response = (ranking_model if rank_expected and rank_receipt is None else model).invoke(messages)
         messages.append(response)
         if not response.tool_calls:
+            if rank_expected:
+                if rank_receipt is not None:
+                    return ranking.render(rank_receipt, rank_contacts, rank_limit), os.environ['COMMUNITY_MANAGER_MODEL']
+                rank_refusals += 1
+                if rank_refusals >= 2:
+                    return ranking.FAILURE, os.environ['COMMUNITY_MANAGER_MODEL']
+                messages.append(SystemMessage(content='本轮尚无有效实时查询回执。禁止复用历史名单或编造搜索结果。下一步必须调用search_recent_users，参数遵循：' + json.dumps(rank_expected, ensure_ascii=False) + '；today表示北京时间今天零点active_since，no_city表示不填city。'))
+                continue
             if not isinstance(response.content, str) or not response.content.strip():
                 raise ValueError('manager_output_invalid')
             if response.content.strip() == FAILURE_NOTICE:
@@ -191,11 +208,13 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
                 # Complete the assistant's pending call IDs with explicit non-execution results.
                 for pending in response.tool_calls[index:]:
                     messages.append(ToolMessage(content='{"tool_error":"not_executed_budget_limit"}', tool_call_id=pending['id']))
-                return partial_summary(messages, '工具调用或时间', deadline)
+                return (ranking.render(rank_receipt, rank_contacts, rank_limit), os.environ['COMMUNITY_MANAGER_MODEL']) if rank_expected else partial_summary(messages, '工具调用或时间', deadline)
             used += 1
             operation = str(uuid.uuid4())
             try:
-                if tool['name'] in {'search_users', 'search_public_users'} and (ten_candidate_request or outreach_request) and searches >= 3 and len(verified_candidates(messages, selection_mode)) >= 10:
+                if rank_expected and rank_receipt is None and tool['name'] != 'search_recent_users':
+                    result = {'tool_error': 'current_ranking_receipt_required', 'note': '先调用search_recent_users取得本轮时间排序回执，再核验候选。'}
+                elif tool['name'] in {'search_users', 'search_public_users'} and (ten_candidate_request or outreach_request) and searches >= 3 and len(verified_candidates(messages, selection_mode)) >= 10:
                     result = {'tool_error': 'candidate_selection_required', 'note': '已有至少10位目标联系范围内候选；停止重复搜索，从既有结果选择并核验资料、联系关系和优先级。'}
                 else:
                     result = invoke_tool(call, tool['name'], tool['args'], operation)
@@ -203,6 +222,13 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
                         searches += 1
             except ValueError:
                 result = {'error': 'invalid_tool_request'}
+            if rank_expected and tool['name'] == 'search_recent_users':
+                if ranking.valid_receipt(result, tool['args'], rank_expected):
+                    rank_receipt = result; rank_limit = tool['args'].get('limit', 10)
+                else:
+                    result = {'tool_error': 'ranking_receipt_invalid', 'note': '未取得符合本轮地区、联系范围和排序要求的实时回执，不得声称已完成查询。'}
+            if rank_expected and tool['name'] == 'get_contact_leads' and isinstance(result, dict):
+                rank_contacts[str(tool['args'].get('number'))] = result
             # Unknown writes/network errors abort the run instead of generating a new operation ID.
             encoded = json.dumps(result, ensure_ascii=False)
             bytes_used += len(encoded.encode())
@@ -211,4 +237,4 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             messages.append(ToolMessage(content=encoded, tool_call_id=tool['id']))
         if (ten_candidate_request or outreach_request) and searches >= 3 and len(verified_candidates(messages, selection_mode)) >= 10:
             messages.append(SystemMessage(content='目标联系范围内候选已足够。现在停止搜索，选择所需人数，批量核验资料与联系关系。已加企微读取真实备注，未加企微单列并调用get_contact_leads读取preferred_contact与来源，优先微信号、缺失退到手机号，核验主动联系理由；随后交付完整名单，不能用继续搜索的过程话作答。'))
-    return partial_summary(messages, '推理轮数', deadline)
+    return (ranking.render(rank_receipt, rank_contacts, rank_limit), os.environ['COMMUNITY_MANAGER_MODEL']) if rank_expected else partial_summary(messages, '推理轮数', deadline)

@@ -132,3 +132,32 @@ def test_provider_failure_is_not_a_format_repair(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(customer_model, 'ChatOpenAI', Mock(return_value=model))
     with pytest.raises(RuntimeError): customer_model.assess(sample()[0])
     assert model.invoke.call_count == 1
+
+
+def test_length_diagnostics_identify_fields_without_customer_text(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    import copy
+    context, body = sample()
+    bad = copy.deepcopy(body)
+    bad['journey']['founder_profile']['background'] = 'SECRET' * 30
+    bad['journey']['founder_profile']['missing'] = ['PRIVATE' * 20]
+    issues = customer_model.length_issues(json.dumps(bad))
+    assert [i['field'] for i in issues] == ['journey.founder_profile.background', 'journey.founder_profile.missing[0]']
+    assert [i['limit'] for i in issues] == [160, 100]
+    model = Mock(); model.invoke.side_effect = [Mock(content=json.dumps(bad)), Mock(content=json.dumps(body))]
+    monkeypatch.setattr(customer_model, 'ChatOpenAI', Mock(return_value=model))
+    assert customer_model.assess(context)[0] == body
+    correction = model.invoke.call_args.args[0][-1][1]
+    assert 'journey.founder_profile.background' in correction
+    assert 'journey.founder_profile.missing[0]' in correction
+    assert 'SECRET' not in caplog.text and 'PRIVATE' not in caplog.text
+
+
+def test_final_length_failure_logs_safe_field_location(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    context, bad = sample(); bad['journey']['next_action'] = 'PRIVATE' * 40
+    model = Mock(); model.invoke.return_value.content = json.dumps(bad)
+    monkeypatch.setattr(customer_model, 'ChatOpenAI', Mock(return_value=model))
+    with pytest.raises(ValueError): customer_model.assess(context)
+    assert 'customer_output_repair_failed reason=text_limit' in caplog.text
+    assert 'journey.next_action' in caplog.text
+    assert 'PRIVATE' not in caplog.text
+    assert model.invoke.call_count == 2

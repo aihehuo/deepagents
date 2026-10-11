@@ -148,8 +148,10 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
         started: Micro-issued execution context, trigger and employee-safe history.
         call: Adapter bound to the run and execution token; cannot change employee identity.
     """
-    messages = [SystemMessage(content=SKILL.read_text(encoding='utf-8') +
-        "\n工具错误只说明本次未完成，不泄露系统异常。把权限拒绝作为边界，不用其他工具绕过。"
+    from datetime import datetime, timezone
+    current_time = datetime.now(timezone.utc).isoformat()
+    messages = [SystemMessage(content='当前UTC时间：' + current_time + '。next_review_at须在当前时间之后、90天内，使用带时区ISO8601。\n' + SKILL.read_text(encoding='utf-8') +
+        "\n工具错误只说明本次未完成，不泄露系统异常。只有403才作为权限或运营开关边界，不用其他工具绕过。400/422是参数或证据校验拒绝，不要称为权限不足；基于已读取的真实资料修正参数。409按具体tool_error处理，版本冲突先重新读取版本，源变化重新核验证据；暂停或业务阻塞不能绕过。无法修正时明确报告未保存、未通知。"
         "单轮最多48次工具调用、12轮模型推理。先用最少工具核验目标并选具体候选，避免重复搜索；优先完成用户要求的候选数量；不足时继续分页搜索，不能用未加企微的人补数。逐人指导仍需核验证据，明确未完成项。用户创业号number必须用字符串，不用数据库id代替。"
         "最终用中文自然回复，不输出任务版本暗语。完整回复须UTF8不超过12000字节，系统会分段发送。用紧凑的编号列表覆盖用户要求的全部人数，减少前言，不要遗漏后面的用户。名单每位先调用get_contact_relationships核实remark，bound_snapshot只是绑定状态，绝不能当企微备注；remark为空时写未记录备注。每次写入以前读取当前版本；模型不补造业务执行结果。"
         "save_plan.body 必须有 objective,selection_criteria,principles,metrics,capacity,starts_at,expires_at，时间用ISO8601。"

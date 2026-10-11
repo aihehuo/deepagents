@@ -535,3 +535,23 @@ def test_ranking_wrong_requested_count_and_unsorted_dates_rejected():
     receipt = ranking_receipt()
     receipt['users'].append({**receipt['users'][0], 'user_number': 456, 'last_active_at': '2026-10-11T05:00:00Z'})
     assert not ranking.valid_receipt(receipt, {'limit': 5}, expected)
+
+
+@pytest.mark.parametrize('body,expected', [
+    ({'success': False, 'error': 'manager_follow_up_conflict'}, 'manager_follow_up_conflict'),
+    ({'success': False, 'error': 'invalid_parameters', 'message': 'PRIVATE'}, 'invalid_parameters'),
+    ({'success': False, 'error': 'PRIVATE'}, 'business_request_refused'),
+    ({'success': True, 'error': 'invalid_parameters'}, 'business_request_refused'),
+])
+def test_business_refusal_preserves_only_known_codes(monkeypatch, caplog, body, expected):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    monkeypatch.setenv('COMMUNITY_MANAGER_OPERATIONS_URL', 'http://facade')
+    monkeypatch.setenv('COMMUNITY_MANAGER_AGENT_KEY', 'test')
+    opener = Mock()
+    opener.open.side_effect = HTTPError('http://facade', 409, 'PRIVATE', {}, BytesIO(json.dumps(body).encode()))
+    monkeypatch.setattr(protocol, 'build_opener', lambda *_: opener)
+    assert protocol.rpc('tool', name='save_follow_up', arguments={'reason': 'PRIVATE'}) == {'tool_error': expected, 'status': 409}
+    assert 'PRIVATE' not in caplog.text
+    assert expected in caplog.text
+    assert opener.open.call_count == 1

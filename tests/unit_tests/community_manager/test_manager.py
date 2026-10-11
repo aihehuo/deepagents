@@ -551,7 +551,26 @@ def test_business_refusal_preserves_only_known_codes(monkeypatch, caplog, body, 
     opener = Mock()
     opener.open.side_effect = HTTPError('http://facade', 409, 'PRIVATE', {}, BytesIO(json.dumps(body).encode()))
     monkeypatch.setattr(protocol, 'build_opener', lambda *_: opener)
-    assert protocol.rpc('tool', name='save_follow_up', arguments={'reason': 'PRIVATE'}) == {'tool_error': expected, 'status': 409}
+    result = protocol.rpc('tool', name='save_follow_up', arguments={'reason': 'PRIVATE'})
+    assert result['tool_error'] == expected and result['status'] == 409
+    if expected == 'invalid_parameters':
+        assert 'argument_keys' in result['invalid_fields']
+    else:
+        assert 'invalid_fields' not in result
     assert 'PRIVATE' not in caplog.text
     assert expected in caplog.text
     assert opener.open.call_count == 1
+
+
+def test_follow_up_diagnostics_never_expose_values():
+    from datetime import datetime, timezone, timedelta
+    args = {'number': '123', 'need_key': 'need:123', 'focus': 'clarify', 'reason': 'PRIVATE',
+            'evidence': [{'source': 'profile', 'id': 1, 'field': 'goal'}],
+            'next_review_at': (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+            'status': 'active', 'expected_revision': 0}
+    assert protocol.follow_up_parameter_issues(args) == []
+    args['evidence'] = [{'ref': {'source': 'profile', 'id': 1}, 'text': 'PRIVATE'}]
+    args['expected_revision'] = '0'
+    assert protocol.follow_up_parameter_issues(args) == ['evidence.ref_shape', 'expected_revision']
+    args['evidence'] = [{'source': 'wecom_turn', 'id': '1'}]
+    assert protocol.follow_up_parameter_issues(args) == ['evidence.id', 'evidence.message_index', 'expected_revision']

@@ -155,7 +155,7 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
         "单轮最多48次工具调用、12轮模型推理。先用最少工具核验目标并选具体候选，避免重复搜索；优先完成用户要求的候选数量；不足时继续分页搜索，不能用未加企微的人补数。逐人指导仍需核验证据，明确未完成项。用户创业号number必须用字符串，不用数据库id代替。"
         "最终用中文自然回复，不输出任务版本暗语。完整回复须UTF8不超过12000字节，系统会分段发送。用紧凑的编号列表覆盖用户要求的全部人数，减少前言，不要遗漏后面的用户。名单每位先调用get_contact_relationships核实remark，bound_snapshot只是绑定状态，绝不能当企微备注；remark为空时写未记录备注。每次写入以前读取当前版本；模型不补造业务执行结果。"
         "save_plan.body 必须有 objective,selection_criteria,principles,metrics,capacity,starts_at,expires_at，时间用ISO8601。"
-        "随访 need_key 使用 profile/contact 或已读取需求ID；reason基于 evidence。通知需要保存安排后再调用 notify_staff。"
+        "随访 need_key 使用 profile/contact 或已读取需求ID；reason基于 evidence。evidence必须直接复制get_guidance_sources.allowed_evidence每项的ref对象（只含source/id/field/message_index等），不能传整项ref/text/role包装，id和message_index保持整数；不能将简报内引用的字符串当证据对象。只有save_follow_up成功返回id和revision后才调用notify_staff，保存失败先按invalid_fields修正，不得先通知。"
         "自动触发先聚焦 trigger.user_number，不因一个事件批量通知所有用户；最后总结仅内部留存。"
         "若非 global_write，不修改整体目标，记录员工建议并解释可推进的范围。")]
     # This history is already employee-scoped in Micro; no global model transcripts are mixed in.

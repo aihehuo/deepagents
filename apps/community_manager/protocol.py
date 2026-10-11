@@ -4,6 +4,8 @@ import hmac
 import json
 import logging
 import os
+import re
+from datetime import datetime, timezone, timedelta
 import time
 import uuid
 from urllib.parse import urlparse
@@ -87,6 +89,55 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def follow_up_parameter_issues(arguments: object) -> list[str]:
+    """Return fixed field names for malformed follow-up arguments, never their values."""
+    if not isinstance(arguments, dict):
+        return ['arguments']
+    issues = []
+    required = {'number', 'need_key', 'focus', 'reason', 'evidence', 'next_review_at', 'status', 'expected_revision'}
+    if set(arguments) != required:
+        issues.append('argument_keys')
+    for field, allowed in [('focus', {'clarify', 'match', 'feedback', 'connect', 'coordinate'}), ('status', {'active', 'waiting', 'paused', 'completed'})]:
+        value = arguments.get(field)
+        if not isinstance(value, str) or value not in allowed:
+            issues.append(field)
+    key = arguments.get('need_key')
+    if not isinstance(key, str) or not (re.fullmatch(r'need:[1-9][0-9]{0,18}', key) or (re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,95}', key) and '..' not in key)):
+        issues.append('need_key')
+    reason = arguments.get('reason')
+    if not isinstance(reason, str) or not reason.strip() or len(reason.encode()) > 1500:
+        issues.append('reason')
+    revision = arguments.get('expected_revision')
+    if type(revision) is not int or not 0 <= revision < 2**63:
+        issues.append('expected_revision')
+    due = arguments.get('next_review_at')
+    try:
+        if not isinstance(due, str) or len(due.encode()) > 64 or not re.search(r'(?:Z|[+-][0-9]{2}:[0-9]{2})$', due):
+            raise ValueError
+        parsed = datetime.fromisoformat(due.replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+        if not now - timedelta(minutes=1) <= parsed <= now + timedelta(days=90):
+            raise ValueError
+    except (ValueError, TypeError):
+        issues.append('next_review_at')
+    evidence = arguments.get('evidence')
+    if not isinstance(evidence, list) or not 1 <= len(evidence) <= 10:
+        issues.append('evidence')
+    else:
+        for ref in evidence:
+            if not isinstance(ref, dict) or not {'source', 'id'} <= set(ref) or set(ref) - {'source', 'id', 'field', 'message_index', 'quote'}:
+                issues.append('evidence.ref_shape')
+                continue
+            if type(ref.get('id')) is not int or not 1 <= ref['id'] < 2**63:
+                issues.append('evidence.id')
+            if ref.get('source') == 'wecom_turn' and ref.get('field', 'input') == 'input' and (type(ref.get('message_index')) is not int or ref['message_index'] < 0):
+                issues.append('evidence.message_index')
+            quote = ref.get('quote')
+            if 'quote' in ref and (not isinstance(quote, str) or not quote.strip() or len(quote.encode()) > 500):
+                issues.append('evidence.quote')
+    return sorted(set(issues))
+
+
 def rpc(action: str, **values: object) -> dict:
     """Call the fixed OnePenny facade using a service key AND a fresh body signature.
 
@@ -134,5 +185,10 @@ def rpc(action: str, **values: object) -> dict:
             name = values.get('name')
             safe_name = name if isinstance(name, str) and name.isascii() and name.replace('_', '').isalnum() and len(name) <= 64 else 'unknown'
             LOGGER.warning('manager_tool_refused tool=%s status=%s code=%s', safe_name, error.code, code)
-            return {'tool_error': code, 'status': error.code}
+            result = {'tool_error': code, 'status': error.code}
+            if safe_name == 'save_follow_up' and code == 'invalid_parameters':
+                issues = follow_up_parameter_issues(values.get('arguments'))
+                LOGGER.warning('manager_follow_up_validation fields=%s', ','.join(issues) or 'backend_state')
+                result['invalid_fields'] = issues
+            return result
         raise ProtocolError("manager_upstream_http_" + str(error.code)) from None

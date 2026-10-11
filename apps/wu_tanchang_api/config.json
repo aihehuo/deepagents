@@ -4,7 +4,7 @@
   "agents": {
     "defaults": {
       "provider": "env:WU_API_MODEL_PROVIDER",
-      "model": "deepseek-v4.1-flash",
+      "model": "qwen-plus",
       "max_tokens": 800,
       "workspace": "workspace"
     },
@@ -12,18 +12,18 @@
       {
         "name": "default",
         "default": true,
-        "model": "deepseek-v4.1-flash",
+        "model": "qwen-plus",
         "workspace": "workspace"
       },
       {
         "name": "owner",
-        "model": "deepseek-v4.1-flash",
+        "model": "qwen-plus",
         "max_tokens": 4000,
         "workspace": "workspace_owner"
       },
       {
         "name": "aihehuo",
-        "model": "deepseek-v4.1-flash",
+        "model": "qwen-plus",
         "workspace": "workspace_aihehuo"
       }
     ]

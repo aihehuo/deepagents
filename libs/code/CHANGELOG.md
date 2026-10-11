@@ -2,6 +2,73 @@
 
 # Deep Agents Code Changelog
 
+## [0.1.21](https://github.com/aihehuo/deepagents/compare/deepagents-code==0.1.20...deepagents-code==0.1.21) (2026-10-11)
+
+
+### Features
+
+* **code:** add agent filter dropdown to `/threads` picker ([#3677](https://github.com/aihehuo/deepagents/issues/3677)) ([f8193df](https://github.com/aihehuo/deepagents/commit/f8193df41d7c47626d94252039217f4079d117cd))
+* **code:** add config command and canonical config manifest ([#3763](https://github.com/aihehuo/deepagents/issues/3763)) ([79899a3](https://github.com/aihehuo/deepagents/commit/79899a306d01de6217a1dfcc013ae92c808a47a0))
+* **code:** add Deep Agents client version metadata ([#3934](https://github.com/aihehuo/deepagents/issues/3934)) ([058cec6](https://github.com/aihehuo/deepagents/commit/058cec654645dd1a504408d712ab678edc48273d))
+* **code:** add latest frontier models to recommended list ([#4045](https://github.com/aihehuo/deepagents/issues/4045)) ([1145356](https://github.com/aihehuo/deepagents/commit/114535637eaee383c64eac5282bc9ac57007c83f))
+* **code:** add pre-release update support ([#3960](https://github.com/aihehuo/deepagents/issues/3960)) ([341a5cc](https://github.com/aihehuo/deepagents/commit/341a5cc55a30d808dbb366b396923c7801c431d2))
+* **code:** add provider-specific auth guidance ([#4004](https://github.com/aihehuo/deepagents/issues/4004)) ([6a39247](https://github.com/aihehuo/deepagents/commit/6a392471ba30089b1a63135494873d55209bb081))
+* **code:** auto-install ripgrep on first run ([#3348](https://github.com/aihehuo/deepagents/issues/3348)) ([fecf22b](https://github.com/aihehuo/deepagents/commit/fecf22b0909e79ff7bdf180baf20abf5fdf1f390))
+* **code:** ChatGPT OAuth sign-in for Codex models ([#3532](https://github.com/aihehuo/deepagents/issues/3532)) ([202e0bd](https://github.com/aihehuo/deepagents/commit/202e0bd3e5b8b874a69656815489308d75a77d05))
+* **code:** confirm modal for `/install --package` ([#3840](https://github.com/aihehuo/deepagents/issues/3840)) ([3d75026](https://github.com/aihehuo/deepagents/commit/3d75026e2f241648fae78d9e1de2cbb4985f58ff))
+* **code:** copy focused input selection on `Ctrl+C` ([#3841](https://github.com/aihehuo/deepagents/issues/3841)) ([99f782c](https://github.com/aihehuo/deepagents/commit/99f782cf08336c200d02a24ae4edaa650af67ed2))
+* **code:** dual-write agent traces to extra LangSmith projects ([#3998](https://github.com/aihehuo/deepagents/issues/3998)) ([1b94cf3](https://github.com/aihehuo/deepagents/commit/1b94cf322949e0cafd6f2bacf343fb0044ec5a8c))
+* **code:** first-class `[retries]` config ([#3772](https://github.com/aihehuo/deepagents/issues/3772)) ([9334d91](https://github.com/aihehuo/deepagents/commit/9334d91ef94997e46d5373daca9c146fa9498763))
+* **code:** make auto-update opt-out by default ([#3994](https://github.com/aihehuo/deepagents/issues/3994)) ([7ff6e22](https://github.com/aihehuo/deepagents/commit/7ff6e2224d7ba8462c073333da937c35831f9b34))
+* **code:** manage Tavily web-search API key in `/auth` ([#4062](https://github.com/aihehuo/deepagents/issues/4062)) ([90cc099](https://github.com/aihehuo/deepagents/commit/90cc099b0998a9aa55df01e3bc12ad1597c65365))
+* **code:** non-interactive `deepagents auth` subcommands ([#3910](https://github.com/aihehuo/deepagents/issues/3910)) ([11a71bb](https://github.com/aihehuo/deepagents/commit/11a71bbf00c4e6c1f989e70fb3472a65c8d39662))
+* **code:** note minimum OpenAI key permissions in `/auth` ([#4040](https://github.com/aihehuo/deepagents/issues/4040)) ([14be63d](https://github.com/aihehuo/deepagents/commit/14be63d476ed8dece75e20fff05016122c258be8))
+* **code:** pluggable third-party sandbox backends ([#3842](https://github.com/aihehuo/deepagents/issues/3842)) ([2b635a7](https://github.com/aihehuo/deepagents/commit/2b635a7e6e6b50ca8ce783c2ac96ed8643ae0224))
+* **code:** prompt before updating an out-of-date dcode install ([#3995](https://github.com/aihehuo/deepagents/issues/3995)) ([a5ec6dd](https://github.com/aihehuo/deepagents/commit/a5ec6dd0fec66ad321c1cc0f5e2f990c9026e03f))
+* **code:** prompt to install provider when selecting an uninstalled model ([#3981](https://github.com/aihehuo/deepagents/issues/3981)) ([619207c](https://github.com/aihehuo/deepagents/commit/619207c8d4d4308a9a3ab9d2d039506feeaf8a67))
+* **code:** quiet install script's full dependency list ([#4058](https://github.com/aihehuo/deepagents/issues/4058)) ([de2c9fd](https://github.com/aihehuo/deepagents/commit/de2c9fd8c7437fdcdfe738599f83808c5423c55c))
+* **code:** show connection state in the status bar ([#3710](https://github.com/aihehuo/deepagents/issues/3710)) ([3e3e8fe](https://github.com/aihehuo/deepagents/commit/3e3e8feb0e6e1b77be75a7756fbf32e5c9497c28))
+* **code:** show provider in usage stats table ([#4049](https://github.com/aihehuo/deepagents/issues/4049)) ([309b054](https://github.com/aihehuo/deepagents/commit/309b054fdd040adb5086408a3bcb2550ba73439e))
+* **code:** surface editable mode and core deps in `/version` ([#3898](https://github.com/aihehuo/deepagents/issues/3898)) ([d4f5a12](https://github.com/aihehuo/deepagents/commit/d4f5a12cc6d73dc19d24d5748242705d79fa65bf))
+* **code:** surface uninstalled known providers in `/auth` menu ([#4059](https://github.com/aihehuo/deepagents/issues/4059)) ([73db271](https://github.com/aihehuo/deepagents/commit/73db2719bce5ad3c933ffee643df4a62cfd60e17))
+* **code:** warn on `--interpreter-tools` without `--interpreter` ([#3976](https://github.com/aihehuo/deepagents/issues/3976)) ([e68e720](https://github.com/aihehuo/deepagents/commit/e68e720e2c3caa4e4e7c5e937faf718db7ad2e98))
+* **vercel:** add Vercel Sandbox provider ([#3588](https://github.com/aihehuo/deepagents/issues/3588)) ([e5e4748](https://github.com/aihehuo/deepagents/commit/e5e4748cb6c66ddaa9444ab464990c1a5d10854d))
+
+
+### Bug Fixes
+
+* **code:** add debug-log guidance for truncated startup errors ([#3849](https://github.com/aihehuo/deepagents/issues/3849)) ([cd1ef30](https://github.com/aihehuo/deepagents/commit/cd1ef303cf5d0e9d746c787eb09a4a89437e965a))
+* **code:** clarify post-update restart semantics ([6318b81](https://github.com/aihehuo/deepagents/commit/6318b817399f7dd2f2e6dc07987dca46f1da9886))
+* **code:** don't move cursor on click that re-focuses terminal ([#3893](https://github.com/aihehuo/deepagents/issues/3893)) ([b76788b](https://github.com/aihehuo/deepagents/commit/b76788b7850e910fe2882cb1a62ffff6ff5085b0))
+* **code:** drop lock-key events so Caps Lock in iTerm2 doesn't type ([#3855](https://github.com/aihehuo/deepagents/issues/3855)) ([110f1a7](https://github.com/aihehuo/deepagents/commit/110f1a7a975743efda12e181cb3afc8404202254))
+* **code:** exclude prompt prefix from `UserMessage` selection ([#4002](https://github.com/aihehuo/deepagents/issues/4002)) ([8ee6ba6](https://github.com/aihehuo/deepagents/commit/8ee6ba6e64895d3d36a5957627221ed7667bc1d4))
+* **code:** guard against misconfigured LangSmith tracing ([#3993](https://github.com/aihehuo/deepagents/issues/3993)) ([81acc2e](https://github.com/aihehuo/deepagents/commit/81acc2ecdada55a98e512f96b0caf8cb0f2c6d29))
+* **code:** guard restart-prompt import against in-place self-upgrade ([#3980](https://github.com/aihehuo/deepagents/issues/3980)) ([7af13f6](https://github.com/aihehuo/deepagents/commit/7af13f6ec2440c2e3eb63bad2ff31e809f772804))
+* **code:** hand pointer over splash tracing project link ([#3858](https://github.com/aihehuo/deepagents/issues/3858)) ([ea7dae5](https://github.com/aihehuo/deepagents/commit/ea7dae58a37cfb1d2b96544eb7c941aad331b280))
+* **code:** hide `[SYSTEM]` interrupt notices from `/threads` prompt ([#3988](https://github.com/aihehuo/deepagents/issues/3988)) ([68fa0cb](https://github.com/aihehuo/deepagents/commit/68fa0cb4d48ff3f3e552bbf16f8316433c7b6f34))
+* **code:** keep install-required `/model` rows dimmed after navigation ([#4048](https://github.com/aihehuo/deepagents/issues/4048)) ([c499634](https://github.com/aihehuo/deepagents/commit/c499634c530dcab9b18e3126b4573ff0d36c3efa))
+* **code:** keep terminal-default theme on Esc in `/theme` selector ([#3854](https://github.com/aihehuo/deepagents/issues/3854)) ([c3bc67b](https://github.com/aihehuo/deepagents/commit/c3bc67b0cdeda6f4dbcc6360ddd72b455aec4fe7))
+* **code:** label `-r` resume as `"Resuming..."` in the status bar ([#3892](https://github.com/aihehuo/deepagents/issues/3892)) ([70cd286](https://github.com/aihehuo/deepagents/commit/70cd28643bc2ca7da5a61a7b7203c6de2266ca4e))
+* **code:** preserve inherited `PYTHONPATH` for server subprocess ([#3833](https://github.com/aihehuo/deepagents/issues/3833)) ([4689569](https://github.com/aihehuo/deepagents/commit/4689569f94138987319cd9cbb45ce66a1f496934))
+* **code:** read `LANGSMITH_PROJECT` for `tracing.langsmith_project` + show default ([#4054](https://github.com/aihehuo/deepagents/issues/4054)) ([fec1551](https://github.com/aihehuo/deepagents/commit/fec1551e901a4fe88bd74ee4833a91ef93b1e93f))
+* **code:** remove transient `Restarting server...` message after restart ([#4047](https://github.com/aihehuo/deepagents/issues/4047)) ([87cc504](https://github.com/aihehuo/deepagents/commit/87cc50428bc96ef11dfb11cee4020bff322a7216))
+* **code:** rescaffold server workspace on `/restart` when config is missing ([#4050](https://github.com/aihehuo/deepagents/issues/4050)) ([de51b0e](https://github.com/aihehuo/deepagents/commit/de51b0e082293f5f795d96d3bf717c82efb9337e))
+* **code:** resolve interpreter PTC allowlist against the runtime tool registry ([#3845](https://github.com/aihehuo/deepagents/issues/3845)) ([c59a27e](https://github.com/aihehuo/deepagents/commit/c59a27ef2405b8e04c4351ce7ffa53d8d16d519c))
+* **code:** scope `@` file completion to current cwd ([#3874](https://github.com/aihehuo/deepagents/issues/3874)) ([dd237ac](https://github.com/aihehuo/deepagents/commit/dd237acd21a39e98e37bb9d98dfae09bc44d5457))
+* **code:** set dcode agent names in trace metadata ([#3901](https://github.com/aihehuo/deepagents/issues/3901)) ([ac94dd6](https://github.com/aihehuo/deepagents/commit/ac94dd6b139211187cad8685c1152f02c51ba086))
+* **code:** skip startup auto-update when already updated in-session ([#3915](https://github.com/aihehuo/deepagents/issues/3915)) ([3ba3471](https://github.com/aihehuo/deepagents/commit/3ba347138ac61a474bad58365fdeaa0d00cc1a42))
+* **code:** suppress model-switch defer toast on bare reconnect ([#4060](https://github.com/aihehuo/deepagents/issues/4060)) ([60b1052](https://github.com/aihehuo/deepagents/commit/60b10520d24c87b9c8c9d85b94cffae9e3c67c43))
+* **code:** surface recommended models missing from installed provider profiles ([#4057](https://github.com/aihehuo/deepagents/issues/4057)) ([56e0d31](https://github.com/aihehuo/deepagents/commit/56e0d31b6c507d5a1e95c3f2058a8d3b9488a4db))
+* **code:** surface untracked files in `@` completion ([#3872](https://github.com/aihehuo/deepagents/issues/3872)) ([2bdf6ea](https://github.com/aihehuo/deepagents/commit/2bdf6ea329c6b4c8be5f0075528e00c7ce2c1e6a))
+* **code:** treat multi-line key-event pastes as one input ([#3856](https://github.com/aihehuo/deepagents/issues/3856)) ([6bb15d4](https://github.com/aihehuo/deepagents/commit/6bb15d4bd97bd16f47504f937c8458d1b53d9cc4))
+* **code:** warn on misconfigured subagent files ([#3873](https://github.com/aihehuo/deepagents/issues/3873)) ([f1614d6](https://github.com/aihehuo/deepagents/commit/f1614d67827c3d4d3bd01a784f57f83a50ec3410))
+* **sdk,code:** rename trace version metadata to `lc_versions` ([#3928](https://github.com/aihehuo/deepagents/issues/3928)) ([27f38c5](https://github.com/aihehuo/deepagents/commit/27f38c51f960941e102dfc2f9c0220bc16736749))
+
+
+### Performance Improvements
+
+* **code:** cache theme colors/charset, fix `O(n^2)` tool-call streaming ([#3881](https://github.com/aihehuo/deepagents/issues/3881)) ([9d463f5](https://github.com/aihehuo/deepagents/commit/9d463f52fb3a4d458477982963f3d278d5362b48))
+
 ## [0.1.20](https://github.com/langchain-ai/deepagents/compare/deepagents-code==0.1.19...deepagents-code==0.1.20) (2026-06-17)
 
 ### Features

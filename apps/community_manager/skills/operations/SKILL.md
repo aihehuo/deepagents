@@ -32,3 +32,5 @@ description: Observe scoped community data, develop evidence-based service plans
 输出名单先完整列出所要求人数，每位紧凑包含姓名/创业号、关注理由和下一步，备注需要经工具核实；完整回复UTF8≤12000字节，系统会分段发送，减少标题和泛泛建议。每位调用 get_contact_relationships 读取真实 remark；bound_snapshot 只是绑定状态，不是备注。缺失时写“未记录备注”，不使用姓名或绑定状态假冒备注。若符合条件不足所要求人数，报告实际数量与搜索范围，不声称已遍历平台。未加企微名单仅在客服询问时出现。
 
 主动联系探索同样应先用 search_public_users 的 contact_scope=unbound 做关键词或语义召回，再由后端排除已加企微用户。不要连续大量换词运行数据库全文搜索；取得足够候选后读取逐人资料，判断信息质量与主动联系价值。candidate_search_unavailable 表示本次只读搜索失败，不代表已有结果失效；不立即重试相同查询，整理已有候选并明确核验不足。
+
+主动联系名单必须对最终选中的每位用户调用 get_contact_leads。每位列姓名/创业号、主动联系理由、preferred_contact.kind/value及来源、建议开场。优先微信号，没有才用手机号；只复制工具实际返回的值，不能从姓名、external_userid或绑定状态编造微信。wechat_conflict=true或explicit_text_requires_confirmation时标注需人工核验。工具拒绝或无值时明确“联系方式未取得”，不能声称名单已可执行。注册手机号只是联系线索，不保证可搜到微信；不自动添加，不将微信或手机号写入经理长期记忆、指导草稿或公共搜索结果。

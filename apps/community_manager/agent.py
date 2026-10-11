@@ -210,5 +210,5 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
                 return '本轮已达到资料量上限，已停止新增操作；已完成操作以记录为准，剩余用户需分批核验，未向客户发送消息。', os.environ['COMMUNITY_MANAGER_MODEL']
             messages.append(ToolMessage(content=encoded, tool_call_id=tool['id']))
         if (ten_candidate_request or outreach_request) and searches >= 3 and len(verified_candidates(messages, selection_mode)) >= 10:
-            messages.append(SystemMessage(content='目标联系范围内候选已足够。现在停止搜索，选择所需人数，批量核验资料与联系关系。已加企微读取真实备注，未加企微单列并核验主动联系理由；随后交付完整名单，不能用继续搜索的过程话作答。'))
+            messages.append(SystemMessage(content='目标联系范围内候选已足够。现在停止搜索，选择所需人数，批量核验资料与联系关系。已加企微读取真实备注，未加企微单列并调用get_contact_leads读取preferred_contact与来源，优先微信号、缺失退到手机号，核验主动联系理由；随后交付完整名单，不能用继续搜索的过程话作答。'))
     return partial_summary(messages, '推理轮数', deadline)

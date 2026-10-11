@@ -110,6 +110,10 @@ def rpc(action: str, **values: object) -> dict:
                 raise ProtocolError("manager_invalid_response")
             return data["result"]
     except HTTPError as error:
+        if action == 'tool' and values.get('name') in {'search_users', 'filter_public_candidates'} and error.code in {500, 502, 503, 504}:
+            # Searches have no business writes; keep completed receipts after a failed read.
+            return {'tool_error': 'candidate_search_unavailable', 'status': error.code,
+                    'note': '本次只读搜索失败，不自动重试；使用已取得候选进行核验或明确报告不足。'}
         if action == 'tool' and error.code in {400, 403, 404, 409, 422, 429}:
             # Definitive business refusal is safe to explain; uncertain network/5xx writes abort.
             return {'tool_error': 'business_request_refused', 'status': error.code}

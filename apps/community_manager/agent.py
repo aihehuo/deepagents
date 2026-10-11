@@ -71,11 +71,12 @@ def invoke_tool(call: Callable[..., dict], name: str, args: dict, call_id: str) 
     return call('tool', name='save_guidance_draft', arguments={'number': args['number'], 'output': output}, call_id=call_id + '-draft')
 
 
-def verified_candidates(messages: list) -> list[dict]:
-    """Collect only reachable records from successful scoped search receipts.
+def verified_candidates(messages: list, mode: str = 'reachable') -> list[dict]:
+    """Collect only records matching the requested contact scope from search receipts.
 
     Args:
         messages: Run-local tool receipts; assistant claims are never evidence.
+        mode: Explicit reachable or unbound contact scope.
     """
     found = {}
     for message in messages:
@@ -85,10 +86,10 @@ def verified_candidates(messages: list) -> list[dict]:
             data = json.loads(message.content)
         except (TypeError, ValueError):
             continue
-        if not isinstance(data, dict) or data.get('contact_scope') != 'reachable':
+        if not isinstance(data, dict) or data.get('contact_scope') != mode:
             continue
         for user in data.get('users', []):
-            if isinstance(user, dict) and user.get('bound') == 'bound_snapshot' and user.get('user_number'):
+            if isinstance(user, dict) and user.get('bound') == ('not_bound' if mode == 'unbound' else 'bound_snapshot') and user.get('user_number'):
                 found[str(user['user_number'])] = user
     return list(found.values())
 
@@ -99,15 +100,20 @@ def receipt_summary(messages: list) -> str:
     Args:
         messages: Current scoped results, excluding remembered assistant text.
     """
-    users = verified_candidates(messages)
-    if not users:
+    lines = []
+    for mode, title in [('reachable', '已加企微候选'), ('unbound', '未加企微、主动联系候选')]:
+        users = verified_candidates(messages, mode)
+        if not users:
+            continue
+        lines.append(title + '（仅已读取资料，优先级评估尚未完成）：')
+        for index, user in enumerate(users[:10], 1):
+            name = str(user.get('display_name') or '未记录姓名')[:80].replace('\n', ' ')
+            lines.append(f"{index}. {name}（创业号：{user['user_number']}）")
+    if not lines:
         return '尚未完成具体用户名单核验；已完成操作以记录为准，未向客户发送消息。'
-    lines = ['已读取以下可触达候选（不是已完成的优先级评估）：']
-    for index, user in enumerate(users[:10], 1):
-        name = str(user.get('display_name') or '未记录姓名')[:80].replace('\n', ' ')
-        lines.append(f"{index}. {name}（创业号：{user['user_number']}）")
-    lines.append('备注、逐人关注理由和下一步尚未完成核验；本轮已停止，未向客户发送消息。')
+    lines.append('逐人关注理由、备注或联系线索及下一步尚未完成核验；本轮已停止，未向客户发送消息。')
     return '\n'.join(lines)
+
 
 
 def partial_summary(messages: list, reason: str, deadline: float) -> tuple[str, str]:
@@ -130,7 +136,7 @@ def partial_summary(messages: list, reason: str, deadline: float) -> tuple[str, 
     if not isinstance(response.content, str) or not response.content.strip():
         raise ValueError('manager_output_invalid')
     text = response.content
-    if getattr(response, 'tool_calls', None) or re.search(r'让我.*(?:搜索|查找|查询)|(?:将|会|现在|接下来|继续|再).{0,8}(?:搜索|查找)', text) or (verified_candidates(messages) and not any(str(u['user_number']) in text for u in verified_candidates(messages))):
+    if getattr(response, 'tool_calls', None) or re.search(r'让我.*(?:搜索|查找|查询)|(?:将|会|现在|接下来|继续|再).{0,8}(?:搜索|查找)', text) or ((verified_candidates(messages) + verified_candidates(messages, 'unbound')) and not any(str(u['user_number']) in text for u in verified_candidates(messages) + verified_candidates(messages, 'unbound'))):
         text = receipt_summary(messages)
     return prefix + '\n' + text, os.environ['COMMUNITY_MANAGER_MODEL']
 
@@ -163,6 +169,8 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     messages.append(HumanMessage(content=json.dumps(trigger, ensure_ascii=False)))
     model = client().bind_tools(TOOLS)
     deadline = time.monotonic() + MAX_SECONDS
+    outreach_request = bool(re.search(r'未.{0,10}(?:企微|企业微信)|主动.{0,6}(?:联系|添加)|添加.{0,8}微信', started.get('text', '')))
+    selection_mode = 'unbound' if outreach_request else 'reachable'
     ten_candidate_request = bool(re.search(r'(?:10|十).{0,6}(?:位|个|名|用户|候选)', started.get('text', '')))
     searches = 0
     used = 0; bytes_used = sum(len(str(m.content).encode()) for m in messages)
@@ -187,8 +195,8 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             used += 1
             operation = str(uuid.uuid4())
             try:
-                if tool['name'] in {'search_users', 'search_public_users'} and ten_candidate_request and searches >= 3 and len(verified_candidates(messages)) >= 10:
-                    result = {'tool_error': 'candidate_selection_required', 'note': '已有至少10位可触达候选；停止重复搜索，从既有结果选择并核验备注、资料和优先级。'}
+                if tool['name'] in {'search_users', 'search_public_users'} and (ten_candidate_request or outreach_request) and searches >= 3 and len(verified_candidates(messages, selection_mode)) >= 10:
+                    result = {'tool_error': 'candidate_selection_required', 'note': '已有至少10位目标联系范围内候选；停止重复搜索，从既有结果选择并核验资料、联系关系和优先级。'}
                 else:
                     result = invoke_tool(call, tool['name'], tool['args'], operation)
                     if tool['name'] in {'search_users', 'search_public_users'}:
@@ -201,6 +209,6 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             if bytes_used > MAX_CONTEXT_BYTES:
                 return '本轮已达到资料量上限，已停止新增操作；已完成操作以记录为准，剩余用户需分批核验，未向客户发送消息。', os.environ['COMMUNITY_MANAGER_MODEL']
             messages.append(ToolMessage(content=encoded, tool_call_id=tool['id']))
-        if ten_candidate_request and searches >= 3 and len(verified_candidates(messages)) >= 10:
-            messages.append(SystemMessage(content='可触达候选已足够。现在停止搜索，选择所需人数，批量调用get_contact_relationships核实备注，随后交付完整名单；不能用继续搜索的过程话作答。'))
+        if (ten_candidate_request or outreach_request) and searches >= 3 and len(verified_candidates(messages, selection_mode)) >= 10:
+            messages.append(SystemMessage(content='目标联系范围内候选已足够。现在停止搜索，选择所需人数，批量核验资料与联系关系。已加企微读取真实备注，未加企微单列并核验主动联系理由；随后交付完整名单，不能用继续搜索的过程话作答。'))
     return partial_summary(messages, '推理轮数', deadline)

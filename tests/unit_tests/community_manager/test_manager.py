@@ -417,3 +417,39 @@ def test_ten_candidates_stop_repetitive_search_and_keep_receipts(monkeypatch: py
     assert call.call_count == 3
     assert all(str(100+i) in text for i in range(10))
     assert '让我继续搜索' not in text
+
+
+@pytest.mark.parametrize('name', ['search_users', 'filter_public_candidates', 'save_guidance_draft', 'notify_staff'])
+def test_search_5xx_is_recoverable_but_uncertain_writes_abort(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    from urllib.error import HTTPError
+    from apps.community_manager import protocol
+    monkeypatch.setenv('COMMUNITY_MANAGER_OPERATIONS_URL', 'http://facade')
+    monkeypatch.setenv('COMMUNITY_MANAGER_AGENT_KEY', 'test')
+    monkeypatch.setenv('COMMUNITY_MANAGER_SECRET', 's' * 32)
+    opener = Mock(); opener.open.side_effect = HTTPError('http://facade', 500, 'private error', {}, None)
+    monkeypatch.setattr(protocol, 'build_opener', lambda *_: opener)
+    if name in {'search_users', 'filter_public_candidates'}:
+        assert protocol.rpc('tool', name=name)['tool_error'] == 'candidate_search_unavailable'
+    else:
+        with pytest.raises(protocol.ProtocolError, match='manager_upstream_http_500'):
+            protocol.rpc('tool', name=name)
+    assert opener.open.call_count == 1
+
+
+def test_outreach_search_converges_and_fallback_keeps_unbound_separate(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.community_manager import agent
+    from langchain_core.messages import AIMessage
+    model = Mock(); model.invoke.return_value = AIMessage(content='', tool_calls=[
+        {'name': 'search_users', 'args': {'contact_scope': 'unbound'}, 'id': 'search', 'type': 'tool_call'}])
+    plain = Mock(); plain.bind_tools.return_value = model
+    plain.invoke.return_value = AIMessage(content='让我继续搜索')
+    monkeypatch.setattr(agent, 'client', lambda: plain)
+    monkeypatch.setenv('COMMUNITY_MANAGER_MODEL', 'test')
+    call = Mock(return_value={'contact_scope': 'unbound', 'users': [
+        {'user_number': 200+i, 'display_name': '用户', 'bound': 'not_bound'} for i in range(10)]})
+    text, _ = agent.execute({'text': '有哪些未添加企业微信但值得主动联系的用户'}, call)
+    assert call.call_count == 3
+    assert all(str(200+i) in text for i in range(10))
+    assert '未加企微、主动联系候选' in text
+    assert '已加企微候选' not in text
+    assert '让我继续搜索' not in text

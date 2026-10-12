@@ -102,3 +102,17 @@ async def test_reply_consumes_brief_without_publishing_another_assessment():
     assert "service_journey" not in final
     assert "不生成内部简报" in system
     assert "service_journey" not in final["reply"]
+
+
+@pytest.mark.parametrize('role', ['staff_relayed_counterpart', 'staff', 'operator_inference'])
+def test_phone_notes_are_host_owned_sources_with_separate_attribution(role):
+    context, metadata = inputs()
+    context['sources'] = {'phone_note_item:12': {'role': role, 'text': '客服转述的电话事实', 'recorded_at': None}}
+    assert validate_context(context, metadata)['sources']['phone_note_item:12']['role'] == role
+
+
+def test_relayed_counterpart_role_cannot_be_assigned_to_other_sources():
+    context, metadata = inputs()
+    context['sources']['wecom_turn:1:input:0']['role'] = 'staff_relayed_counterpart'
+    with pytest.raises(ValueError, match='phone note provenance'):
+        validate_context(context, metadata)

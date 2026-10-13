@@ -34,6 +34,6 @@ def test_service_callback_stays_legacy_with_production_routing_enabled(monkeypat
     from apps.group_agent_worker.tasks import _strict_callback_enabled
     monkeypatch.setenv("GROUP_AGENT_CALLBACK_ACK_SCHEMA_VERSION", "1")
     monkeypatch.setenv("GROUP_AGENT_INTENT_ROUTING_MODE", "enforce")
-    assert not _strict_callback_enabled(SimpleNamespace(input_kind="user_message", metadata={"source": "wecom_service"}))
-    assert _strict_callback_enabled(SimpleNamespace(input_kind="user_message", metadata={"source": "group_agent_ui"}))
-    assert not _strict_callback_enabled(SimpleNamespace(input_kind="venue_event", metadata={}))
+    assert not _strict_callback_enabled(SimpleNamespace(request_schema_version=1, input_kind="user_message", metadata={"source": "wecom_service"}))
+    assert _strict_callback_enabled(SimpleNamespace(request_schema_version=1, input_kind="user_message", metadata={"source": "group_agent_ui"}))
+    assert not _strict_callback_enabled(SimpleNamespace(request_schema_version=1, input_kind="venue_event", metadata={}))

@@ -883,6 +883,18 @@ async def execute_async_run_core(
             side_effect_gate("assistant_result")
         await emit_callback("final", {"assistant_result": result})
         return
+    from apps.group_agent_api.app.shared_dialogue import wecom_input
+    shared = wecom_input(req.model_dump())
+    if shared is not None:
+        from apps.group_agent_api.app.endpoints.ai_assistant import execute
+        if side_effect_gate:
+            side_effect_gate("assistant_generate")
+        result = await execute(shared)
+        if side_effect_gate:
+            side_effect_gate("assistant_result")
+        # Only the channel's visible draft is delivered; no profile/circle side effects.
+        await emit_callback("final", {"reply": result["reply"], "candidates": []})
+        return
     from apps.group_agent_api.agent_factory.host_context import (
         HostContext,
         active_host_context,

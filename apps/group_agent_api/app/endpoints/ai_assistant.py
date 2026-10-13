@@ -247,7 +247,7 @@ def prompt(payload: Input) -> str:
         )
     if payload.kind in {"suggestion", "compose"}:
         return common + (
-            "你在幕后为当前用户拟发言，不是群成员。只输出JSON {\"text\":\"可编辑草稿\"}。"
+            "你在幕后为当前用户拟发言，不是群成员。输出是user_id对应的当前用户本人准备发送的第一人称发言，不是AI点评或给用户的建议说明。以circles中的owner_id判断身份：user_id等于owner_id时，当前用户是圈主；kind=need表示他是需求方，围绕自己的需求说明或回应，不能把自己写成提供该资源的人；kind=offer表示他是提供方。user_id不等于owner_id时，当前用户是加入者，不得代圈主宣称拥有需求或资源；不知道加入者能力时先表达探讨意愿或询问，不能编造能力。messages中的author_id区分自己与他人，别人提出的能力和承诺不得写成自己的。只输出JSON {\"text\":\"可编辑草稿\"}。"
             "建议具体、自然。不能把圈公告当本人能力，不能承诺未经确认的引荐、预算、分工或资源。"
             "只用提供的圈内内容，未知先询问；用户必须自己确认发送。suggestion围绕target_message_id，compose结合最近讨论。"
         )

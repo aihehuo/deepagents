@@ -125,6 +125,12 @@ def validate_durable_request_fields(req: AsyncCallRequest) -> tuple[int, str]:
         or (schema, queue_schema) not in SUPPORTED_SCHEMA_PAIRS
     ):
         _error_response(400, "schema_invalid", "unsupported request/queue schema pair")
+    if schema == 5:
+        from apps.group_agent_api.app.assistant_protocol import validate
+        try:
+            validate(req.model_dump())
+        except (ValueError, TypeError):
+            _error_response(400, "schema_invalid", "invalid assistant request")
     if schema == 2:
         try:
             validate_v2_request(req.model_dump())
@@ -301,7 +307,7 @@ def admit_durable_async_call(
         )
         if thread_id != expected_thread:
             _error_response(400, "schema_invalid", "invalid frozen thread binding")
-    if schema in {2, 3, 4} and (
+    if schema in {2, 3, 4, 5} and (
         req.user_id != session.principal.user_id
         or req.unionid != session.principal.unionid
         or req.group_id != session.group_id

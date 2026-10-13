@@ -1,13 +1,10 @@
-"""Experimental tool-free AI assistant; host owns all persistence and permissions."""
+"""Tool-free AI assistant executor for the shared durable call_async transport."""
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
-import os
 from typing import Literal
 
-from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 
@@ -189,33 +186,3 @@ async def execute(payload: Input) -> dict[str, object]:
     if not isinstance(output.content, str):
         raise ValueError("invalid_model_content")
     return validate_result(payload, output.content)
-
-
-async def run(request: Request) -> dict[str, object]:
-    """Authenticate before reading a bounded internal request.
-
-    Args:
-        request: Micro service request; public user credentials are insufficient.
-    """
-    expected = os.environ.get("AI_ASSISTANT_SERVICE_SECRET", "")
-    supplied = request.headers.get("X-AI-Assistant-Secret", "")
-    if len(expected) < 32:
-        raise HTTPException(503, detail="assistant_auth_unconfigured")
-    if not supplied or not hmac.compare_digest(supplied.encode(), expected.encode()):
-        raise HTTPException(403, detail="assistant_forbidden")
-    size = 0
-    chunks: list[bytes] = []
-    async for chunk in request.stream():
-        size += len(chunk)
-        if size > 64000:
-            raise HTTPException(413, detail="assistant_input_too_large")
-        chunks.append(chunk)
-    try:
-        payload = Input.model_validate_json(b"".join(chunks))
-        if payload.kind == "suggestion" and payload.target_message_id not in {m.id for m in payload.messages if m.role == "member"}:
-            raise ValueError("invalid_target")
-        return await execute(payload)
-    except (ValueError, json.JSONDecodeError) as error:
-        raise HTTPException(422, detail="invalid_assistant_payload") from error
-    except TimeoutError as error:
-        raise HTTPException(504, detail="assistant_model_timeout") from error

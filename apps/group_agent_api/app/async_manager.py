@@ -529,6 +529,11 @@ async def _attempt_deterministic_profile_save(
 
 def calculate_request_fingerprint(req: AsyncCallRequest, session: TrustedSession) -> str:
     """Construct complete canonical request fingerprint derived from TrustedSession & canonical callback URL."""
+    if req.request_schema_version == 5:
+        from apps.group_agent_api.app.assistant_protocol import fingerprint
+        if req.user_id != session.principal.user_id or session.group_id != "global" or session.principal.unionid:
+            raise ValueError("assistant_identity_invalid")
+        return fingerprint(req.model_dump())
     if req.request_schema_version in {2, 3, 4}:
         if (
             req.user_id != session.principal.user_id
@@ -869,6 +874,15 @@ async def execute_async_run_core(
         side_effect_gate: Optional callable ``(action: str) -> None`` that raises
             when the attempt lost lease ownership (worker fence).
     """
+    if req.request_schema_version == 5:
+        from apps.group_agent_api.app.endpoints.ai_assistant import Input, execute
+        if side_effect_gate:
+            side_effect_gate("assistant_generate")
+        result = await execute(Input.model_validate(req.assistant_input))
+        if side_effect_gate:
+            side_effect_gate("assistant_result")
+        await emit_callback("final", {"assistant_result": result})
+        return
     from apps.group_agent_api.agent_factory.host_context import (
         HostContext,
         active_host_context,

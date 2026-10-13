@@ -675,3 +675,36 @@ def test_broker_delivery_has_no_secrets() -> None:
     assert "callback" not in raw
     assert "message" not in raw
     assert "unionid" not in raw
+
+
+def test_assistant_v5_uses_shared_admission_crypto_and_worker_identity(
+    store: ExecutionStore, cfg: DurableQueueConfig,
+) -> None:
+    """A real Redis lease roundtrip must not enter a legacy profile epoch."""
+    import json
+    from pathlib import Path
+    from apps.group_agent_api.app.utils import thread_id
+    from apps.group_agent_api.app.venue_protocol import lease_scope
+    from apps.group_agent_worker.tasks import _rebuild_session
+    vector = json.loads((Path(__file__).parent / 'fixtures' / 'ai_assistant' / 'v5-ruby.json').read_text())
+    req = AsyncCallRequest.model_validate_json(vector['body'])
+    uid = req.user_id
+    session = TrustedSession(principal=SessionPrincipal(user_id=uid, unionid=None, user_token=None, source='signed_oauth_principal'),
+        membership=MembershipResult(tier=CapabilityTier.unknown, source='internal'), group_id='global', group_token=None)
+    tid = thread_id(user_id=uid, group_id='global', conversation_id=req.conversation_id)
+    deliveries = []
+    bp = BackpressureController(store._r, cfg)  # noqa: SLF001
+    result = admit_durable_async_call(req=req, session=session, thread_id=tid, store=store, config=cfg, backpressure=bp, enqueue=deliveries.append)
+    assert result.response.accepted and len(deliveries) == 1
+    hit = admit_durable_async_call(req=req, session=session, thread_id=tid, store=store, config=cfg, backpressure=bp, enqueue=deliveries.append)
+    assert not hit.created and len(deliveries) == 1
+    record = store.get(req.run_id)
+    assert record and record.request_schema_version == 5
+    assert record.conversation_id == lease_scope(req) == 'ai_assistant_run_' + req.run_id
+    envelope = decrypt_envelope(record.payload_ciphertext,keys=cfg.payload_keys,run_id=record.run_id,idempotency_key=record.idempotency_key,request_fingerprint=record.request_fingerprint,schema_version=5)
+    restored, frozen_session, frozen_tid = _rebuild_session(envelope)
+    assert restored.model_dump() == req.model_dump() and frozen_tid == tid
+    assert not frozen_session.capabilities.can_search and not frozen_session.capabilities.can_write_profile
+    claim = store.claim_lease(run_id=req.run_id,conversation_id=record.conversation_id,owner='assistant-test-worker')
+    assert claim.kind == 'claimed'
+    assert 'assistant_epoch' in store.epoch_key_for_record(record,conversation_id=record.conversation_id)

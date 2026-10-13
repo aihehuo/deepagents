@@ -163,7 +163,7 @@ def decrypt_envelope(
         raise PayloadCryptoError("payload_decrypt_failed") from exc
     if not isinstance(data, dict):
         raise PayloadCryptoError("payload_decrypt_failed")
-    if schema_version == 3:
+    if schema_version in {3, 5}:
         request = data.get("request")
         if not isinstance(request, dict) or any(request.get(name) != value for name, value in {"run_id": run_id, "idempotency_key": idempotency_key, "request_fingerprint": request_fingerprint, "request_schema_version": schema_version, **dict(mode_binding or {})}.items()):
             raise PayloadCryptoError("payload_decrypt_failed")

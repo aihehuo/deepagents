@@ -200,6 +200,8 @@ def lease_scope(req: Any) -> str:
     Args:
         req: A validated async request.
     """
+    if req.request_schema_version == 5:
+        return f"ai_assistant_run_{req.run_id}"
     if req.request_schema_version in {3, 4}:
         return f"ga_greeting::{req.run_id}" if req.input_kind == "venue_event" else f"ga::{req.user_id}::global::{req.execution_mode}::{req.conversation_id}::{req.episode_id}"
     return f"ga_greeting::{req.run_id}" if req.input_kind == "venue_event" else req.conversation_id

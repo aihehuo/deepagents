@@ -30,7 +30,7 @@ TERMINAL_STATUSES = frozenset(
 
 QUEUE_SCHEMA_VERSION = 1
 REQUEST_SCHEMA_VERSION = 1
-SUPPORTED_SCHEMA_PAIRS = frozenset({(1, 1), (2, 2), (3, 3), (4, 4)})
+SUPPORTED_SCHEMA_PAIRS = frozenset({(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)})
 
 
 class RetryClass(str, Enum):

@@ -31,12 +31,16 @@ async def call_async(
     request: Request,
 ) -> AsyncCallResponse:
     """Async endpoint: validates principal & SSRF, then durable or legacy admission."""
+    if req.request_schema_version == 5:
+        from apps.group_agent_api.agent_factory.integrations.config import integration_mode
+        if integration_mode() != "http":
+            raise HTTPException(503, detail={"error":"assistant_requires_signed_transport"})
     # 1. Validate and normalize callback_url against SSRF allowlist
     canonical_url = validate_and_normalize_callback_url(req.callback_url)
-    if req.request_schema_version in {2, 3, 4} and canonical_url != req.callback_url:
+    if req.request_schema_version in {2, 3, 4, 5} and canonical_url != req.callback_url:
         raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "typed callback_url must already be canonical"})
     req.callback_url = canonical_url
-    raw_body = await request.body() if req.request_schema_version in {2, 3, 4} else None
+    raw_body = await request.body() if req.request_schema_version in {2, 3, 4, 5} else None
     if raw_body is not None and len(raw_body) > 128 * 1024:
         raise HTTPException(status_code=400, detail={"error": "schema_invalid", "message": "request budget exceeded"})
     if req.request_schema_version == 3:
@@ -69,7 +73,7 @@ async def call_async(
 
     # Typed execution modes are admitted only through the encrypted durable ledger. Never fall
     # back to the process-local legacy adapter when durable execution is off.
-    if req.request_schema_version in {3, 4}:
+    if req.request_schema_version in {3, 4, 5}:
         try:
             calculate_request_fingerprint(req, session)
         except ValueError as exc:
@@ -82,7 +86,7 @@ async def call_async(
         group_id=session.group_id,
         conversation_id=req.conversation_id,
         execution_mode=req.execution_mode if req.request_schema_version in {3, 4} else None,
-        episode_id=req.episode_id if req.request_schema_version in {2, 3, 4} else (
+        episode_id=req.episode_id if req.request_schema_version in {2, 3, 4, 5} else (
             str((req.metadata or {}).get("episode_id") or (req.metadata or {}).get("episodeId") or "").strip()
             or None
         ),
@@ -115,7 +119,7 @@ async def call_async(
         return result.response
 
     # --- Legacy process-local path (GROUP_AGENT_DURABLE_QUEUE_ENABLED=0) ---
-    if req.request_schema_version in {2, 3, 4}:
+    if req.request_schema_version in {2, 3, 4, 5}:
         raise HTTPException(status_code=503, detail={"error": "queue_unavailable", "message": "v2 requires durable execution"})
     status, cached, slot = await reserve_idempotency_slot(req, session)
 

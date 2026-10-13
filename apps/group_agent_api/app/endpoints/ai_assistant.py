@@ -5,7 +5,7 @@ import asyncio
 import json
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator, model_validator
 
 
 class Message(BaseModel):
@@ -133,6 +133,15 @@ class Conversation(BaseModel):
     profile: dict[Literal["doing", "need", "offer"], StrictStr]
     profile_evidence: dict[Literal["doing", "need", "offer"], list[ProfileEvidence]] = Field(default_factory=dict)
     proposals: list[Proposal] = Field(default_factory=list, max_length=5)
+
+    @field_validator("profile_evidence", mode="before")
+    @classmethod
+    def normalize_single_evidence(cls, value: object) -> object:
+        """Accept one evidence object as a singleton list without altering its content."""
+        if isinstance(value, dict):
+            return {key: [entry] if isinstance(entry, dict) else entry for key, entry in value.items()}
+        return value
+
 
 
 class Draft(BaseModel):

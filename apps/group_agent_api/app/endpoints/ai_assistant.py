@@ -218,7 +218,11 @@ def prompt(payload: Input) -> str:
             "提炼仅为私有初稿，用户核对后才生效。示例、假设、引用、不要公开的内容不得变成圈子。"
             "profile字段未知或无更新时留空，不删除旧字段。profile_evidence只为本轮用户明确陈述的更新给出原话和消息ID，不引用历史或助手。已有profile是待核实背景，保留已知内容，当前更正优先，不根据助手消息创造事实。已有圈子更新沿用circle_id，新圈留null。source_ids只引用用户消息。未知留空，不以多建圈为目标。"
             '输出JSON：{"reply":"正文","profile":{"doing":"","need":"","offer":""},'
-            '"profile_evidence":{"offer":[{"message_id":1,"quote":"用户本轮原话"}]},"proposals":[{"circle_id":null,"kind":"offer或need","title":"","description":"","conditions":[],"source_ids":[1]}]}。'
+            '"profile_evidence":{},"proposals":[]}。'
+            'profile必须始终包含doing、need、offer三个键，未知或无更新时对应值是空字符串，不能输出空对象。'
+            '只概述背景时严格保持profile三个值为空、profile_evidence为空对象、proposals为空数组。'
+            '有本轮明确更新时，仅在profile_evidence对应字段中给出实际message_id和逐字quote。'
+            '有明确可提炼的圈子时，proposals条目包含circle_id、kind（offer或need）、title、description、conditions、source_ids。'
         )
     if payload.kind in {"suggestion", "compose"}:
         return common + (

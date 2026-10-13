@@ -52,3 +52,16 @@ def test_greeting_is_explicit_and_not_a_fabricated_customer_utterance():
     body["metadata"]["wecom_service_action"] = "greeting"
     body["metadata"]["wecom_service_shared_input"]["purpose"] = "greeting"
     assert "不是用户新发言" in prompt(wecom_input(body))
+
+
+def test_single_evidence_object_is_normalized_without_relaxing_quote_validation():
+    import json
+    from apps.group_agent_api.app.endpoints.ai_assistant import validate_result
+    payload = wecom_input(request_data())
+    result = {"reply": "收到", "profile": {"doing": "", "need": "", "offer": "门店"},
+              "profile_evidence": {"offer": {"message_id": 8, "quote": "提供门店"}}, "proposals": []}
+    parsed = validate_result(payload, json.dumps(result))
+    assert parsed["profile_evidence"]["offer"] == [{"message_id": 8, "quote": "提供门店"}]
+    result["profile_evidence"]["offer"]["quote"] = "伪造原话"
+    with pytest.raises(ValueError, match="invalid_profile_evidence"):
+        validate_result(payload, json.dumps(result))

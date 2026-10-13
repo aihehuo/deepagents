@@ -4,6 +4,7 @@ MODULE_ID = "mod.brain.context"
 
 # System prompt fragments (TSD-14 §4.2 / inventory).
 CTX_SYSTEM_ROLE_AND_GOAL = "ctx.system.role_and_goal"
+CTX_SYSTEM_CUSTOMER_SERVICE = "ctx.system.customer_service"
 CTX_SYSTEM_ADVISOR_TONE = "ctx.system.advisor_tone"
 CTX_SYSTEM_SEARCH_TOOL = "ctx.system.search_tool"
 CTX_SYSTEM_WECHAT_STYLE = "ctx.system.wechat_style"
@@ -23,6 +24,7 @@ CTX_FORCE_SAVE_PROMPT = "ctx.force_save_prompt"
 
 SYSTEM_FRAGMENT_IDS: tuple[str, ...] = (
     CTX_SYSTEM_ROLE_AND_GOAL,
+    CTX_SYSTEM_CUSTOMER_SERVICE,
     CTX_SYSTEM_ADVISOR_TONE,
     CTX_SYSTEM_SEARCH_TOOL,
     CTX_SYSTEM_WECHAT_STYLE,

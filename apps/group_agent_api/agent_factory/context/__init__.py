@@ -5,6 +5,7 @@ from __future__ import annotations
 from apps.group_agent_api.agent_factory.context.ids import (
     ALL_CONTEXT_IDS,
     CTX_FORCE_SAVE_PROMPT,
+    CTX_SYSTEM_CUSTOMER_SERVICE,
     CTX_SYSTEM_ADVISOR_TONE,
     CTX_SYSTEM_NETWORK_DONTS,
     CTX_SYSTEM_PERSIST_RULES,
@@ -43,6 +44,7 @@ __all__ = [
     "SYSTEM_FRAGMENT_IDS",
     "TURN_FRAGMENT_IDS",
     "CTX_SYSTEM_ROLE_AND_GOAL",
+    "CTX_SYSTEM_CUSTOMER_SERVICE",
     "CTX_SYSTEM_ADVISOR_TONE",
     "CTX_SYSTEM_SEARCH_TOOL",
     "CTX_SYSTEM_WECHAT_STYLE",

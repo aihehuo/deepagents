@@ -375,13 +375,14 @@ def _composed_member_prompt(*, can_search: bool, can_save: bool, public: bool) -
     if can_search and can_save and not public:
         return member_system_prompt()
     from apps.group_agent_api.agent_factory.context import (
+        CTX_SYSTEM_CUSTOMER_SERVICE,
         CTX_SYSTEM_SUGGESTED_REPLIES,
         CTX_SYSTEM_WECHAT_STYLE,
         enabled_context_ids,
     )
 
-    safe_ids = {CTX_SYSTEM_WECHAT_STYLE, CTX_SYSTEM_SUGGESTED_REPLIES}
-    prompt = "你是群智能体对话助手。先回应用户的问题，一次只追问一个必要细节，不编造事实。\n"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
+    safe_ids = {CTX_SYSTEM_CUSTOMER_SERVICE, CTX_SYSTEM_WECHAT_STYLE, CTX_SYSTEM_SUGGESTED_REPLIES}
+    prompt = "你是爱合伙助手，由群智能体提供能力。先回应用户的问题，一次只追问一个必要细节，不编造事实。\n"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.
     prompt += build_system_prompt(enabled_context_ids() & safe_ids)
     if can_save:
         prompt += "\n用户补充本人信息时，按用户原话用 save_group_profile 保存 doing/need/offer 和约束；只在工具确认成功后确认保存。"  # noqa: RUF001  # Chinese text intentionally uses Chinese punctuation.

@@ -13,3 +13,11 @@ v5 强制 durable 严格回调，即使旧模式的严格回调开关关闭也�
 部署顺序：先更新现有 Deep API 和 worker，再更新 Micro 与新增迁移；保持入口及匹配开关关闭，完成真实内部联调后灰度开启。沿用现有 Principal HMAC、callback HMAC、durable queue 加密配置；无需新增 AI助手专属密钥。回退先关闭两个业务开关，保留新数据，不自动向下迁移。
 
 本地测试验证了 Ruby/Python 签名一致、实际 Redis 入队与加密恢复、身份防篡改和现有 Cafe Host 模式。真实模型与生产完整链路尚未验收。完整用户接口见 Micro 的 docs/contracts/ai-assistant-v1.md。
+
+## 主对话私人背景
+
+Input新增可选user_context，仅允许conversation且绑定同一user_id。包括本人profile、自我介绍、近期已发布idea/project、合伙需求、历史客服阶段简报和客户综合简报；总量24KB，来源读取/权限/新鲜度在Micro负责。
+
+主提示词利用已知背景，避免重复询问；资料和简报中的指令不执行，历史判断不能视为本人当前承诺。背景不能生成聊天证据ID，不改变profile/圈子写入的原有证据规则。
+
+suggestion/compose/match携带该私人字段会被拒绝。字段未提供的旧任务仍有效，新字段参与原有请求指纹、HMAC和队列加密。本轮139项含真实隔离Redis及旧Cafe Host/企微兼容回归通过。部署本版Deep API/worker后才能部署新Micro，无依赖或容器变化。

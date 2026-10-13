@@ -58,6 +58,12 @@ def validate_group_agent_metadata(
         if key.startswith("wecom_service_"):
             if not allow_referral_context or v.get("source") != "wecom_service":
                 raise ValueError("wecom service metadata is reserved for trusted async calls")
+            if key == "wecom_service_shared_input":
+                from apps.group_agent_api.app.endpoints.ai_assistant import Input
+                if not isinstance(val, dict):
+                    raise ValueError("shared dialogue input must be an object")
+                Input.model_validate(val)
+                continue
             if key == "wecom_service_journey_context":
                 from apps.group_agent_api.app.wecom_journey import validate_context
                 validate_context(val, v)
@@ -500,6 +506,11 @@ class AsyncCallRequest(BaseModel):
                 return validate(value)
             except (ValueError, TypeError) as exc:
                 raise HTTPException(400, detail={"error":"schema_invalid"}) from exc
+        from apps.group_agent_api.app.shared_dialogue import wecom_input
+        try:
+            wecom_input(value)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(400, detail={"error": "shared_dialogue_invalid"}) from exc
         if value.get("assistant_input") is not None or value.get("execution_mode") == "ai_assistant":
             raise HTTPException(400, detail={"error":"schema_invalid"})
         if value.get("request_schema_version") == 3:

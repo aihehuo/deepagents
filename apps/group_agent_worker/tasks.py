@@ -78,6 +78,8 @@ def _supported_queue_schema_version(value: object) -> bool:
 
 
 def _strict_callback_enabled(req: AsyncCallRequest) -> bool:
+    if req.request_schema_version == 5:
+        return True
     return (
         req.input_kind != "venue_event"
         and (req.metadata or {}).get("source") != "wecom_service"
@@ -212,7 +214,7 @@ def _rebuild_session(envelope: dict[str, Any]) -> tuple[AsyncCallRequest, Truste
         group_token=sess.get("group_token"),
         capabilities=capabilities,
     )
-    if req.request_schema_version in {2, 3, 4}:
+    if req.request_schema_version in {2, 3, 4, 5}:
         expected_tid = thread_id(
             user_id=req.user_id,
             group_id=req.group_id,

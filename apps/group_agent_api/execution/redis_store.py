@@ -1287,6 +1287,8 @@ class ExecutionStore:
         del conversation_id
         if record is None:
             raise ExecutionStoreError("missing_record")
+        if record.request_schema_version == 5:
+            return self._cfg.key("assistant_epoch", record.run_id)
         if record.request_schema_version in {3, 4}:
             if not record.mode_binding or record.mode_binding.get("execution_mode") not in {"cafe_host", "group_agent"}:
                 raise ExecutionStoreError("binding_conflict")

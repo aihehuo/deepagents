@@ -114,9 +114,9 @@ def sign_principal(
         request_schema_version: Typed versions additionally sign raw body.
         request_body: Exact serialized HTTP body, mandatory for typed versions.
     """
-    if request_schema_version not in {1, 2, 3, 4}:
+    if request_schema_version not in {1, 2, 3, 4, 5}:
         raise ValueError("unsupported request schema version")
-    if not unionid and request_schema_version != 4:
+    if not unionid and request_schema_version not in {4, 5}:
         raise ValueError("unionid required for request schema v1-v3")
     key = (secret if secret is not None else principal_hmac_secret()).encode("utf-8")
     if not key:
@@ -136,7 +136,7 @@ def sign_principal(
             "CAFE-HOST-PRINCIPAL-V4"
             if request_schema_version == 4
             else f"GA-PRINCIPAL-V{request_schema_version}"
-            if request_schema_version in {2, 3}
+            if request_schema_version in {2, 3, 5}
             else _CANON_VERSION
         ),
     )
@@ -153,7 +153,7 @@ def sign_principal(
         headers[HEADER_USER_TOKEN] = user_token
     if group_token:
         headers[HEADER_GROUP_TOKEN] = group_token
-    if request_schema_version in {2, 3, 4}:
+    if request_schema_version in {2, 3, 4, 5}:
         if request_body is None:
             raise ValueError("typed signing requires the exact HTTP request body")
         headers["X-GA-Request-Version"] = (
@@ -176,7 +176,7 @@ def canonical_request_payload(*, method: str, path: str, body: bytes, ts: str, n
         nonce: Principal nonce header.
         request_schema_version: Typed signature domain, v2 by default.
     """
-    if request_schema_version not in {2, 3, 4}:
+    if request_schema_version not in {2, 3, 4, 5}:
         raise ValueError("unsupported request signature domain")
     domain = (
         "CAFE-HOST-REQUEST-V4"
@@ -279,7 +279,7 @@ def _verify_hmac_principal(
     nonce = (request.headers.get(HEADER_NONCE) or "").strip()
     signature = (request.headers.get(HEADER_SIGNATURE) or "").strip()
 
-    if not hdr_uid or (not hdr_union and request_schema_version != 4) or not ts or not nonce or not signature:
+    if not hdr_uid or (not hdr_union and request_schema_version not in {4, 5}) or not ts or not nonce or not signature:
         raise HTTPException(
             status_code=401,
             detail={
@@ -311,7 +311,7 @@ def _verify_hmac_principal(
     path = request.url.path if request.url else "/"
     request_version = request.headers.get("X-GA-Request-Version")
     request_signature = request.headers.get("X-GA-Request-Signature") or ""
-    if request_schema_version in {2, 3, 4}:
+    if request_schema_version in {2, 3, 4, 5}:
         expected_request_version = (
             "CAFE-HOST-REQUEST-V4"
             if request_schema_version == 4
@@ -338,7 +338,7 @@ def _verify_hmac_principal(
             "CAFE-HOST-PRINCIPAL-V4"
             if request_schema_version == 4
             else f"GA-PRINCIPAL-V{request_schema_version}"
-            if request_schema_version in {2, 3}
+            if request_schema_version in {2, 3, 5}
             else _CANON_VERSION
         ),
     )

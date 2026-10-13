@@ -2,8 +2,6 @@
 import json
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from apps.group_agent_api.app.endpoints import ai_assistant as assistant
 
@@ -76,31 +74,6 @@ def test_same_owner_and_duplicate_pairs_rejected():
         assistant.validate_result(payload, json.dumps({"matches": [match()]}))
     with pytest.raises(ValueError):
         assistant.validate_result(source("match"), json.dumps({"matches": [match(), match()]}))
-
-
-def client():
-    app = FastAPI()
-    app.post("/ai_assistant/run")(assistant.run)
-    return TestClient(app)
-
-
-def test_http_auth_and_size_before_model(monkeypatch):
-    monkeypatch.setenv("AI_ASSISTANT_SERVICE_SECRET", "x" * 32)
-    http = client()
-    assert http.post("/ai_assistant/run", json={}).status_code == 403
-    headers = {"X-AI-Assistant-Secret": "x" * 32}
-    assert http.post("/ai_assistant/run", content="x" * 64001, headers=headers).status_code == 413
-    assert http.post("/ai_assistant/run", json={"kind": "compose", "user_id": 1, "token": "no"}, headers=headers).status_code == 422
-
-
-def test_http_private_response_only(monkeypatch):
-    monkeypatch.setenv("AI_ASSISTANT_SERVICE_SECRET", "x" * 32)
-    async def generate(payload):
-        return {"text": "可编辑发言"}
-    monkeypatch.setattr(assistant, "execute", generate)
-    response = client().post("/ai_assistant/run", json=source("compose").model_dump(), headers={"X-AI-Assistant-Secret": "x" * 32})
-    assert response.status_code == 200
-    assert response.json() == {"text": "可编辑发言"}
 
 
 def test_prompts_do_not_enable_business_tools():

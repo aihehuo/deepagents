@@ -106,3 +106,26 @@ def test_http_private_response_only(monkeypatch):
 def test_prompts_do_not_enable_business_tools():
     assert "无搜索" in assistant.prompt(source())
     assert "不是群成员" in assistant.prompt(source("compose"))
+
+
+def test_profile_updates_need_current_user_quotes():
+    data = proposal()
+    data["profile_evidence"] = {"offer": [{"message_id": 1, "quote": "门店"}]}
+    assert assistant.validate_result(source(), json.dumps(data))["profile_evidence"]["offer"][0]["quote"] == "门店"
+    data["profile_evidence"]["offer"][0]["quote"] = "原话里没有的内容"
+    with pytest.raises(ValueError):
+        assistant.validate_result(source(), json.dumps(data))
+
+
+def test_old_user_message_cannot_prove_this_turn_profile_change():
+    payload = source()
+    payload.messages.append(assistant.Message(id=2, role="user", text="你好"))
+    data = proposal()
+    data["profile_evidence"] = {"offer": [{"message_id": 1, "quote": "门店"}]}
+    with pytest.raises(ValueError):
+        assistant.validate_result(payload, json.dumps(data))
+
+
+def test_no_profile_evidence_means_no_automatic_update_authority():
+    result = assistant.validate_result(source(), json.dumps(proposal()))
+    assert result["profile_evidence"] == {}

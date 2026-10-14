@@ -243,7 +243,7 @@ def prompt(payload: Input) -> str:
             '"profile_evidence":{},"proposals":[]}。'
             'profile必须始终包含doing、need、offer三个键，未知或无更新时对应值是空字符串，不能输出空对象。'
             '只概述背景时严格保持profile三个值为空、profile_evidence为空对象、proposals为空数组。'
-            '有本轮明确更新时，仅在profile_evidence对应字段中给出实际message_id和逐字quote。'
+            '最终要求：画像由共享客服简报独立维护，本轮不要提炼画像。profile固定为doing、need、offer三个空字符串，profile_evidence固定为空对象；这不影响proposals的圈子提炼。'
             '有明确可提炼的圈子时，proposals条目包含circle_id、kind（offer或need）、title、description、conditions、source_ids。'
         )
     if payload.kind in {"suggestion", "compose"}:
@@ -283,4 +283,14 @@ async def execute(payload: Input) -> dict[str, object]:
         raise ValueError("assistant_tools_forbidden")
     if not isinstance(output.content, str):
         raise ValueError("invalid_model_content")
-    return validate_result(payload, output.content)
+    content = output.content
+    if payload.kind == "conversation":
+        # The shared customer brief owns profile synthesis. Legacy optional
+        # extraction must neither overwrite it nor prevent delivery of replies.
+        data = json.loads(content)
+        if not isinstance(data, dict):
+            raise ValueError("invalid_model_content")
+        data["profile"] = {"doing": "", "need": "", "offer": ""}
+        data["profile_evidence"] = {}
+        content = json.dumps(data, ensure_ascii=False)
+    return validate_result(payload, content)

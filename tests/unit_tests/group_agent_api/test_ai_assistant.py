@@ -102,3 +102,22 @@ def test_old_user_message_cannot_prove_this_turn_profile_change():
 def test_no_profile_evidence_means_no_automatic_update_authority():
     result = assistant.validate_result(source(), json.dumps(proposal()))
     assert result["profile_evidence"] == {}
+
+@pytest.mark.asyncio
+async def test_execution_ignores_obsolete_profile_but_keeps_circle_evidence_strict(monkeypatch):
+    from unittest.mock import AsyncMock
+    from langchain_core.messages import AIMessage
+    from apps.group_agent_api.agent_factory import model_builder
+    data = proposal()
+    data['profile_evidence'] = {'offer': 'obsolete malformed extraction'}
+    model = AsyncMock()
+    model.ainvoke.return_value = AIMessage(content=json.dumps(data))
+    monkeypatch.setattr(model_builder, 'create_model', lambda **kwargs: model)
+    result = await assistant.execute(source())
+    assert result['profile'] == {'doing': '', 'need': '', 'offer': ''}
+    assert result['profile_evidence'] == {}
+    assert result['proposals'][0]['source_ids'] == [1]
+    data['proposals'][0]['source_ids'] = [999]
+    model.ainvoke.return_value = AIMessage(content=json.dumps(data))
+    with pytest.raises(ValueError):
+        await assistant.execute(source())

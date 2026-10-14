@@ -27,6 +27,7 @@ class Circle(BaseModel):
     title: StrictStr = Field(max_length=80)
     description: StrictStr = Field(max_length=2000)
     conditions: list[StrictStr] = Field(default_factory=list, max_length=10)
+    owner_introduction: StrictStr = Field(default="", max_length=2000)
 
 
 class PersonalProfile(BaseModel):
@@ -265,6 +266,11 @@ async def execute(payload: Input) -> dict[str, object]:
     Args:
         payload: Validated host-owned task input.
     """
+    if payload.kind == "match":
+        from apps.group_agent_api.app.circle_matching import match_circle
+        if len(payload.circles) != 1 or payload.circles[0].owner_id != payload.user_id:
+            raise ValueError("invalid_matching_circle")
+        return await match_circle(payload.circles[0].model_dump(mode="json"))
     from langchain_core.messages import HumanMessage, SystemMessage
     from apps.group_agent_api.agent_factory.model_builder import create_model
 

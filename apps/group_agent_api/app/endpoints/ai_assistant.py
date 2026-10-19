@@ -275,10 +275,11 @@ async def execute(payload: Input) -> dict[str, object]:
     from apps.group_agent_api.agent_factory.model_builder import create_model
 
     model = create_model(log_prefix="[AiAssistant]", timeout_s=55, max_retries=0)
-    output = await asyncio.wait_for(model.ainvoke([
+    from apps.group_agent_api.app.assistant_usage import invoke
+    output = await invoke(model, [
         SystemMessage(content=prompt(payload)),
         HumanMessage(content=payload.model_dump_json()),
-    ]), timeout=60)
+    ], operation=payload.kind, timeout=60)
     if getattr(output, "tool_calls", None):
         raise ValueError("assistant_tools_forbidden")
     if not isinstance(output.content, str):

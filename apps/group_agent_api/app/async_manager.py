@@ -878,7 +878,12 @@ async def execute_async_run_core(
         from apps.group_agent_api.app.endpoints.ai_assistant import Input, execute
         if side_effect_gate:
             side_effect_gate("assistant_generate")
-        result = await execute(Input.model_validate(req.assistant_input))
+        from apps.group_agent_api.app.assistant_usage import sink
+        usage_token = sink.set(emit_callback)
+        try:
+            result = await execute(Input.model_validate(req.assistant_input))
+        finally:
+            sink.reset(usage_token)
         if side_effect_gate:
             side_effect_gate("assistant_result")
         await emit_callback("final", {"assistant_result": result})

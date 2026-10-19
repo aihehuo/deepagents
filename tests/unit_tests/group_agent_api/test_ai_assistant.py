@@ -121,3 +121,23 @@ async def test_execution_ignores_obsolete_profile_but_keeps_circle_evidence_stri
     model.ainvoke.return_value = AIMessage(content=json.dumps(data))
     with pytest.raises(ValueError):
         await assistant.execute(source())
+
+
+def test_optional_reply_options_reuse_group_agent_structure():
+    data = proposal()
+    data['suggested_replies'] = [
+        {'label': '聊合作方式', 'reply': '我想先聊聊合作方式。'},
+        {'label': '补充需求', 'reply': '我想先补充需求。'},
+    ]
+    result = assistant.validate_result(source(), json.dumps(data))
+    assert result['suggested_replies'] == data['suggested_replies']
+    assert 'suggested_replies' in assistant.prompt(source())
+    assert assistant.validate_result(source(), json.dumps(proposal()))['suggested_replies'] == []
+
+
+def test_invalid_optional_options_never_drop_the_answer():
+    data = proposal()
+    data['suggested_replies'] = {'tool': 'delete'}
+    result = assistant.validate_result(source(), json.dumps(data))
+    assert result['reply'] == data['reply']
+    assert result['suggested_replies'] == []

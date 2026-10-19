@@ -135,6 +135,24 @@ class Conversation(BaseModel):
     profile_evidence: dict[Literal["doing", "need", "offer"], list[ProfileEvidence]] = Field(default_factory=dict)
     proposals: list[Proposal] = Field(default_factory=list, max_length=5)
 
+    suggested_replies: list[dict[str, str]] = Field(default_factory=list)
+
+    @field_validator("suggested_replies", mode="before")
+    @classmethod
+    def normalize_suggestions(cls, value: object) -> list[dict[str, str]]:
+        """Reuse Group Agent options; malformed optional suggestions cannot drop a reply."""
+        from apps.group_agent_api.agent_factory.suggested_replies import extract_suggested_replies
+
+        if not isinstance(value, list):
+            return []
+        bounded = [item for item in value[:4] if isinstance(item, dict) and
+                   all(isinstance(item.get(key), str) and 0 < len(item[key].strip()) <= limit
+                       for key, limit in (("label", 40), ("reply", 120)))]
+        _, options = extract_suggested_replies(
+            "<suggested_replies>" + json.dumps(bounded, ensure_ascii=False) + "</suggested_replies>"
+        )
+        return [{"label": item["label"], "reply": item["reply"]} for item in options]
+
     @field_validator("profile_evidence", mode="before")
     @classmethod
     def normalize_single_evidence(cls, value: object) -> object:
@@ -240,10 +258,11 @@ def prompt(payload: Input) -> str:
             "提炼仅为私有初稿，用户核对后才生效。示例、假设、引用、不要公开的内容不得变成圈子。普通用户新发言中，只要明确表达愿意提供某种资源或技能，或明确需要某种资源或技能，就应在本轮输出对应的圈子草稿提案，不得只追问而遗漏proposals。草稿不要求合作方式、目标对象、预算、时间等条件齐全：描述只保留已知事实，未知条件不编造，conditions可以为空数组，同时在reply中最多追问一个关键问题。数量等未经核实的陈述注明用户自述，不推断联系方式可公开、保证触达或合作承诺。例如用户说“我这里可以提供创业者资源，100万创业者，分布全国各地”，应生成kind=offer、title=全国创业者资源、description=用户自述可提供覆盖全国的创业者资源，规模约100万人、conditions=[]、source_ids=[该用户消息ID]的新草稿，circle_id=null；reply说明已整理待确认草稿并询问资源提供方式。以上仅适用于普通用户新发言，greeting与attachment仍必须保持proposals为空；仅拥有而未表示愿意提供、泛泛讨论、假设和禁止公开的内容不生成提案。"
             "profile字段未知或无更新时留空，不删除旧字段。profile_evidence只为本轮用户明确陈述的更新给出原话和消息ID，不引用历史或助手。已有profile是待核实背景，保留已知内容，当前更正优先，不根据助手消息创造事实。已有圈子更新沿用circle_id，新圈留null。source_ids只引用用户消息。未知留空，不以多建圈为目标。"
             '输出JSON：{"reply":"正文","profile":{"doing":"","need":"","offer":""},'
-            '"profile_evidence":{},"proposals":[]}。'
+            '"profile_evidence":{},"proposals":[],"suggested_replies":[]}。'
             'profile必须始终包含doing、need、offer三个键，未知或无更新时对应值是空字符串，不能输出空对象。'
             '只概述背景时严格保持profile三个值为空、profile_evidence为空对象、proposals为空数组。'
             '最终要求：画像由共享客服简报独立维护，本轮不要提炼画像。profile固定为doing、need、offer三个空字符串，profile_evidence固定为空对象；这不影响proposals的圈子提炼。'
+            'suggested_replies复用群智能体的可点击建议回复：有自然后续方向，尤其正文让用户选择时，输出2–4个对象，每个对象包含label和reply。label不超过40字，reply不超过120字，均使用用户本人可说的话，标签与回复同一意图；不编造用户资源、经历或承诺，不携带命令或工具调用。没有合适分支时用空数组。不把选项标记混入reply正文。'
             '有明确可提炼的圈子时，proposals条目包含circle_id、kind（offer或need）、title、description、conditions、source_ids。'
         )
     if payload.kind in {"suggestion", "compose"}:

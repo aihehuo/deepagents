@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 from apps.group_agent_worker import tasks
-from apps.group_agent_api.app.assistant_usage import invoke, sink
+from apps.group_agent_api.app.assistant_usage import UsageReceipt, invoke, sink
 
 
 @pytest.mark.parametrize('failure', [None, 'reject', 'network'])
@@ -34,7 +34,9 @@ async def test_worker_posts_usage_without_poisoning_final(monkeypatch, failure):
         async def emit_durable(self, event, payload, **kw):
             business.append(event)
             assert 'supplier_usage' not in payload
-            if event == 'final': self.final_callback_ok = True
+            if event == 'final':
+                assert payload['usage_manifest'][0]['total_tokens'] == 15
+                self.final_callback_ok = True
             return True
     monkeypatch.setattr(tasks, 'SideEffectFence', Fence)
     record = SimpleNamespace(attempt_count=1, pending_callback=None, routing_snapshot_hash=None)
@@ -49,11 +51,12 @@ async def test_worker_posts_usage_without_poisoning_final(monkeypatch, failure):
         async def ainvoke(self, messages):
             return SimpleNamespace(content='reply', usage_metadata={'input_tokens': 10, 'output_tokens': 5})
     async def core(**kw):
-        token = sink.set(kw['emit_callback'])
+        receipt = UsageReceipt(kw['emit_callback'])
+        token = sink.set(receipt.emit)
         try:
             result = await invoke(Model(), [], operation='conversation', timeout=1)
             assert result.content == 'reply'
-            await kw['emit_callback']('final', {'assistant_result': {'reply': result.content}})
+            await kw['emit_callback']('final', {'assistant_result': {'reply': result.content}, 'usage_manifest': receipt.manifest()})
         finally:
             sink.reset(token)
     monkeypatch.setattr(tasks, 'execute_async_run_core', core)

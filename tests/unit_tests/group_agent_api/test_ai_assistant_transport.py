@@ -47,7 +47,7 @@ def test_shared_core_executes_tool_free_assistant_before_legacy_graph(monkeypatc
     monkeypatch.setattr(ai_assistant,'execute',execute)
     callback=AsyncMock(); gates=[]
     asyncio.run(execute_async_run_core(req=AsyncCallRequest.model_validate(request_data()),session=None,state=None,tid='isolated',emit_callback=callback,side_effect_gate=gates.append))
-    callback.assert_awaited_once_with('final', {'assistant_result':execute.return_value})
+    callback.assert_awaited_once_with('final', {'assistant_result':execute.return_value, 'usage_manifest': []})
     assert gates == ['assistant_generate','assistant_result']
 
 

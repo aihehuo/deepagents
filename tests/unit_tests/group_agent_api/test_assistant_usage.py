@@ -86,3 +86,28 @@ async def test_malformed_usage_does_not_discard_successful_reply(metadata):
     assert events[-1]['status'] == 'completed'
     assert events[-1]['usage_status'] == 'unknown'
     assert 'total_tokens' not in events[-1]
+
+async def test_durable_receipt_survives_progress_failure_and_contains_no_text():
+    from apps.group_agent_api.app.assistant_usage import UsageReceipt
+    async def unavailable(event, payload):
+        raise RuntimeError('progress lost')
+    receipt = UsageReceipt(unavailable)
+    token = sink.set(receipt.emit)
+    try:
+        result = await invoke(Model(), [], operation='conversation', timeout=1)
+    finally:
+        sink.reset(token)
+    assert result.content == 'private text'
+    assert len(receipt.manifest()) == 1
+    assert receipt.manifest()[0]['total_tokens'] == 120
+    assert receipt.manifest()[0]['status'] == 'completed'
+    assert 'private text' not in str(receipt.manifest())
+
+async def test_overflow_receipt_is_incomplete_instead_of_partially_chargeable():
+    from apps.group_agent_api.app.assistant_usage import UsageReceipt
+    async def forward(event, payload):
+        return True
+    receipt = UsageReceipt(forward)
+    for n in range(17):
+        await receipt.emit('progress', {'supplier_usage': {'call_id': str(n), 'status': 'completed'}})
+    assert receipt.manifest() == []

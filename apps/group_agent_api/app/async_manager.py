@@ -878,15 +878,16 @@ async def execute_async_run_core(
         from apps.group_agent_api.app.endpoints.ai_assistant import Input, execute
         if side_effect_gate:
             side_effect_gate("assistant_generate")
-        from apps.group_agent_api.app.assistant_usage import sink
-        usage_token = sink.set(emit_callback)
+        from apps.group_agent_api.app.assistant_usage import UsageReceipt, sink
+        receipt = UsageReceipt(emit_callback)
+        usage_token = sink.set(receipt.emit)
         try:
             result = await execute(Input.model_validate(req.assistant_input))
         finally:
             sink.reset(usage_token)
         if side_effect_gate:
             side_effect_gate("assistant_result")
-        await emit_callback("final", {"assistant_result": result})
+        await emit_callback("final", {"assistant_result": result, "usage_manifest": receipt.manifest()})
         return
     from apps.group_agent_api.app.shared_dialogue import wecom_input
     shared = wecom_input(req.model_dump())

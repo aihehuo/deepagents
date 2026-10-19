@@ -53,3 +53,13 @@ async def test_timeout_records_unknown_instead_of_zero():
 def test_missing_or_invalid_usage_is_not_zero():
     assert counters(SimpleNamespace())['input_tokens'] is None
     assert counters(SimpleNamespace(usage_metadata={'input_tokens': True}))['usage_status'] == 'unknown'
+
+async def test_metering_exception_never_consumes_generated_reply():
+    async def broken(event, payload):
+        raise RuntimeError('telemetry unavailable')
+    token = sink.set(broken)
+    try:
+        output = await invoke(Model(), [], operation='conversation', timeout=1)
+    finally:
+        sink.reset(token)
+    assert output.content == 'private text'

@@ -1,13 +1,14 @@
 """Metadata-only supplier metering for authenticated APP assistant runs."""
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
 from contextvars import ContextVar
 from typing import Any, Awaitable, Callable
 
-Sink = Callable[[str, dict[str, Any]], Awaitable[None]]
+Sink = Callable[[str, dict[str, Any]], Awaitable[bool | None]]
 sink: ContextVar[Sink | None] = ContextVar('assistant_usage_sink', default=None)
 
 
@@ -27,9 +28,19 @@ def counters(output: Any) -> dict[str, Any]:
             'total_tokens': incoming + outgoing if incoming is not None and outgoing is not None else None,
             'cached_tokens': optional(details.get('cache_read', details.get('cached_tokens'))),
             'reasoning_tokens': optional(completion.get('reasoning', completion.get('reasoning_tokens'))),
-            'provider_request_id': str(meta.get('id') or meta.get('request_id') or '')[:200],
+            'provider_request_id': str(meta.get('request_id') or '')[:200],
             'model': str(meta.get('model_name') or meta.get('model') or os.getenv('GROUP_AGENT_MODEL', ''))[:120],
             'usage_status': 'reported' if incoming is not None and outgoing is not None else 'unknown'}
+
+
+async def report(emit: Sink, data: dict[str, Any]) -> None:
+    """Telemetry failure cannot replace a completed model result or exception."""
+    try:
+        delivered = await emit('progress', {'supplier_usage': data})
+        if delivered is False:
+            logging.getLogger(__name__).warning('assistant_usage_not_delivered')
+    except Exception as error:
+        logging.getLogger(__name__).warning('assistant_usage_failed class=%s', type(error).__name__)
 
 
 async def invoke(model: Any, messages: list[Any], *, operation: str, timeout: float) -> Any:
@@ -41,16 +52,16 @@ async def invoke(model: Any, messages: list[Any], *, operation: str, timeout: fl
     call_id = str(uuid.uuid4())
     base = {'call_id': call_id, 'operation': operation, 'provider': os.getenv('GROUP_AGENT_PROVIDER', '')[:40],
             'model': os.getenv('GROUP_AGENT_MODEL', '')[:120]}
-    await emit('progress', {'supplier_usage': {**base, 'status': 'started', 'usage_status': 'unknown'}})
+    await report(emit, {**base, 'status': 'started', 'usage_status': 'unknown'})
     started = time.monotonic()
     try:
         output = await asyncio.wait_for(model.ainvoke(messages), timeout)
     except BaseException:
-        await emit('progress', {'supplier_usage': {**base, 'status': 'failed', 'usage_status': 'unknown',
-                    'duration_ms': int((time.monotonic() - started) * 1000)}})
+        await report(emit, {**base, 'status': 'failed', 'usage_status': 'unknown',
+                    'duration_ms': int((time.monotonic() - started) * 1000)})
         raise
-    await emit('progress', {'supplier_usage': {**base, **counters(output), 'status': 'completed',
-                'duration_ms': int((time.monotonic() - started) * 1000)}})
+    await report(emit, {**base, **counters(output), 'status': 'completed',
+                'duration_ms': int((time.monotonic() - started) * 1000)})
     return output
 
 
@@ -58,5 +69,5 @@ async def tool(name: str, *, status: str = "completed") -> None:
     """Record tool execution separately from supplier token usage."""
     emit = sink.get()
     if emit:
-        await emit('progress', {'supplier_usage': {'call_id': str(uuid.uuid4()), 'operation': name,
-                   'provider': 'internal', 'model': '', 'status': status, 'usage_status': 'not_applicable'}})
+        await report(emit, {'call_id': str(uuid.uuid4()), 'operation': name,
+                   'provider': 'internal', 'model': '', 'status': status, 'usage_status': 'not_applicable'})

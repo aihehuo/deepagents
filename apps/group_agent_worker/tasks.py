@@ -77,6 +77,20 @@ def _supported_queue_schema_version(value: object) -> bool:
     )
 
 
+async def _emit_supplier_usage(callback_url: str, envelope: dict[str, Any]) -> bool:
+    """Send signed telemetry on an independent, idempotent lane.
+
+    Never create a business pending callback: a lost ACK must not poison final.
+    Usage gaps remain unknown and can be investigated separately.
+    """
+    try:
+        return await send_callback_event(callback_url=callback_url, envelope_dict=envelope,
+            require_ack=False, max_retries=0, timeout_s=2)
+    except Exception as error:
+        _logger.warning("assistant_usage_delivery_failed class=%s", type(error).__name__)
+        return False
+
+
 def _strict_callback_enabled(req: AsyncCallRequest) -> bool:
     if req.request_schema_version == 5:
         return True
@@ -407,6 +421,10 @@ async def _run_attempt(
     async def _emit(event_type: str, payload: dict[str, Any]) -> bool:
         if event_type == "final":
             _assert_event_live()
+        if req.request_schema_version == 5 and event_type == "progress" and set(payload) == {"supplier_usage"}:
+            # Separate from run-global business seq and its durable pending slot.
+            telemetry = {**payload, "usage_channel_version": 1}
+            return await _emit_supplier_usage(req.callback_url, _build_envelope(1, event_type, telemetry))
         if strict_callbacks:
             if event_type == "progress" and payload.get("progress_schema_version") != 1:
                 if payload.get("phase") != "started":

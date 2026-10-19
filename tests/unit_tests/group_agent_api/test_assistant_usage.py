@@ -63,3 +63,26 @@ async def test_metering_exception_never_consumes_generated_reply():
     finally:
         sink.reset(token)
     assert output.content == 'private text'
+
+@pytest.mark.parametrize('metadata', [
+    {'usage_metadata': ['invalid']},
+    {'response_metadata': ['invalid']},
+    {'usage_metadata': {'input_tokens': 10, 'output_tokens': 5, 'input_token_details': ['invalid']}},
+    {'usage_metadata': {'input_tokens': 10, 'output_tokens': 5, 'output_token_details': ['invalid']}},
+])
+async def test_malformed_usage_does_not_discard_successful_reply(metadata):
+    class Malformed:
+        async def ainvoke(self, messages):
+            return SimpleNamespace(content='successful reply', **metadata)
+    events = []
+    async def emit(event, payload):
+        events.append(payload['supplier_usage'])
+    token = sink.set(emit)
+    try:
+        output = await invoke(Malformed(), [], operation='conversation', timeout=1)
+    finally:
+        sink.reset(token)
+    assert output.content == 'successful reply'
+    assert events[-1]['status'] == 'completed'
+    assert events[-1]['usage_status'] == 'unknown'
+    assert 'total_tokens' not in events[-1]

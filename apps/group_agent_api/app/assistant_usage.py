@@ -60,7 +60,12 @@ async def invoke(model: Any, messages: list[Any], *, operation: str, timeout: fl
         await report(emit, {**base, 'status': 'failed', 'usage_status': 'unknown',
                     'duration_ms': int((time.monotonic() - started) * 1000)})
         raise
-    await report(emit, {**base, **counters(output), 'status': 'completed',
+    try:
+        usage = counters(output)
+    except Exception as error:
+        logging.getLogger(__name__).warning('assistant_usage_parse_failed class=%s', type(error).__name__)
+        usage = {'usage_status': 'unknown'}
+    await report(emit, {**base, **usage, 'status': 'completed',
                 'duration_ms': int((time.monotonic() - started) * 1000)})
     return output
 

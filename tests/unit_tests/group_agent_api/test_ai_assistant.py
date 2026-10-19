@@ -141,3 +141,28 @@ def test_invalid_optional_options_never_drop_the_answer():
     result = assistant.validate_result(source(), json.dumps(data))
     assert result['reply'] == data['reply']
     assert result['suggested_replies'] == []
+
+
+def test_user_options_keep_user_voice_and_drop_ai_service_promises():
+    data = proposal()
+    data['suggested_replies'] = [
+        {'label': '分析合作方案', 'reply': '我来帮你分析合作方案。'},
+        {'label': '明确合作方式', 'reply': '我想先明确合作方式。'},
+        {'label': '分析合作方案', 'reply': '请帮我分析合作方案。'},
+    ]
+    result = assistant.validate_result(source(), json.dumps(data))
+    assert result['reply'] == data['reply']
+    assert result['suggested_replies'] == data['suggested_replies'][1:]
+    assert '说话人绝不是AI' in assistant.prompt(source())
+
+
+@pytest.mark.parametrize('reply', ['我可以提供创业者资源。', '请帮我找合作伙伴。', '我想先了解匹配方式。'])
+def test_user_resources_and_requests_are_not_treated_as_ai_voice(reply):
+    from apps.group_agent_api.agent_factory.suggested_replies import is_assistant_voice_option
+    assert not is_assistant_voice_option({'label': '进一步聊聊', 'reply': reply})
+
+
+@pytest.mark.parametrize('reply', ['我可以为你匹配合适的人。', '请告诉我你的需求。', 'I can help you find a partner.'])
+def test_obvious_ai_voice_is_identified(reply):
+    from apps.group_agent_api.agent_factory.suggested_replies import is_assistant_voice_option
+    assert is_assistant_voice_option({'label': '进一步聊聊', 'reply': reply})

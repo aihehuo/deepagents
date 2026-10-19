@@ -74,3 +74,27 @@ def extract_suggested_replies(text: str) -> tuple[str, list[dict[str, str]]]:
             return visible, suggestions
 
     return visible, []
+
+
+_ASSISTANT_OPTION_VOICE = re.compile(
+    r"(?:我|我们)(?:(?:可以|会|将|能|来|先|再|正在|已经|已|马上|接下来|这就|正在)\s*){0,4}"
+    r"(?:帮你|为你|替你|帮您|为您|替您)|"
+    r"(?:请|麻烦)(?:你|您)?(?:先)?(?:告诉我|提供|描述|介绍)(?:一下)?(?:你|您)的|"
+    r"作为(?:AI|人工智能|智能助手)|"
+    r"\bI\s+(?:can|will|shall)\s+(?:help|assist|guide)\s+you\b|"
+    r"\b(?:tell\s+me|describe)\s+your\b",
+    re.IGNORECASE,
+)
+
+
+def is_assistant_voice_option(item: dict[str, Any]) -> bool:
+    """Detect clear assistant-to-user phrasing, without rewriting legitimate user facts.
+
+    Args:
+        item: Optional model-authored label and user reply.
+
+    Returns:
+        Whether the option should be omitted for obvious speaker-role inversion.
+    """
+    return any(isinstance(item.get(key), str) and _ASSISTANT_OPTION_VOICE.search(item[key]) is not None
+               for key in ("label", "reply"))

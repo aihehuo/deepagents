@@ -141,11 +141,12 @@ class Conversation(BaseModel):
     @classmethod
     def normalize_suggestions(cls, value: object) -> list[dict[str, str]]:
         """Reuse Group Agent options; malformed optional suggestions cannot drop a reply."""
-        from apps.group_agent_api.agent_factory.suggested_replies import extract_suggested_replies
+        from apps.group_agent_api.agent_factory.suggested_replies import extract_suggested_replies, is_assistant_voice_option
 
         if not isinstance(value, list):
             return []
         bounded = [item for item in value[:4] if isinstance(item, dict) and
+                   not is_assistant_voice_option(item) and
                    all(isinstance(item.get(key), str) and 0 < len(item[key].strip()) <= limit
                        for key, limit in (("label", 40), ("reply", 120)))]
         _, options = extract_suggested_replies(
@@ -262,6 +263,11 @@ def prompt(payload: Input) -> str:
             'profile必须始终包含doing、need、offer三个键，未知或无更新时对应值是空字符串，不能输出空对象。'
             '只概述背景时严格保持profile三个值为空、profile_evidence为空对象、proposals为空数组。'
             '最终要求：画像由共享客服简报独立维护，本轮不要提炼画像。profile固定为doing、need、offer三个空字符串，profile_evidence固定为空对象；这不影响proposals的圈子提炼。'
+            '角色必须严格区分：顶层reply是AI对用户说的话；suggested_replies中的reply是user_id对应用户点击后准备发给AI的下一句话，收件人是AI，说话人绝不是AI。'
+            '先从用户视角回答本轮AI的提问或选择后续方向，再拟选项。不得把正文中的AI建议或服务承诺复制成用户发言。'
+            '正例：正文问“你希望先明确合作方式，还是补充资源范围？”，选项为label=明确合作方式、reply=我想先明确合作方式；label=补充资源范围、reply=我想先补充资源范围。'
+            '正例：label=分析合作方案、reply=请帮我分析合作方案。反例：label=分析合作方案、reply=我来帮你分析合作方案；反例：我可以为你匹配合适的人；反例：请告诉我你的需求。'
+            '不替用户编造资源、经历、需求细节或承诺；缺少用户事实时只表达想了解的方向或请求AI帮助。输出前检查：这句话由用户本人发送给AI是否自然？如果仍像AI在接待或引导用户，则删掉该选项，不能仅替换我和你来凑数。'
             'suggested_replies复用群智能体的可点击建议回复：有自然后续方向，尤其正文让用户选择时，输出2–4个对象，每个对象包含label和reply。label不超过40字，reply不超过120字，均使用用户本人可说的话，标签与回复同一意图；不编造用户资源、经历或承诺，不携带命令或工具调用。没有合适分支时用空数组。不把选项标记混入reply正文。'
             '有明确可提炼的圈子时，proposals条目包含circle_id、kind（offer或need）、title、description、conditions、source_ids。'
         )

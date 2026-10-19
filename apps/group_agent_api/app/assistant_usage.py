@@ -76,3 +76,28 @@ async def tool(name: str, *, status: str = "completed") -> None:
     if emit:
         await report(emit, {'call_id': str(uuid.uuid4()), 'operation': name,
                    'provider': 'internal', 'model': '', 'status': status, 'usage_status': 'not_applicable'})
+
+
+class UsageReceipt:
+    """Bounded metadata receipt carried by the durable final callback.
+
+    Independent progress delivery stays best effort. An incomplete receipt must
+    never be mistaken for a complete zero-cost invocation set.
+    """
+    def __init__(self, forward: Sink) -> None:
+        self.forward = forward
+        self.calls: dict[str, dict[str, Any]] = {}
+        self.complete = True
+
+    async def emit(self, event: str, payload: dict[str, Any]) -> bool | None:
+        data = payload.get('supplier_usage')
+        if event == 'progress' and isinstance(data, dict):
+            call_id = data.get('call_id')
+            if isinstance(call_id, str) and (call_id in self.calls or len(self.calls) < 16):
+                self.calls[call_id] = dict(data)
+            else:
+                self.complete = False
+        return await self.forward(event, payload)
+
+    def manifest(self) -> list[dict[str, Any]]:
+        return list(self.calls.values()) if self.complete else []

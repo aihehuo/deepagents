@@ -44,6 +44,25 @@ async def report(emit: Sink, data: dict[str, Any]) -> None:
 
 
 async def invoke(model: Any, messages: list[Any], *, operation: str, timeout: float) -> Any:
+    """Try the optional primary once, then use standby within the same deadline."""
+    from apps.group_agent_api.app.assistant_model_fallback import primary_client, may_fallback
+    primary = primary_client(model)
+    if primary is None:
+        return await _invoke_once(model, messages, operation=operation, timeout=timeout)
+    started = time.monotonic()
+    try:
+        return await _invoke_once(primary, messages, operation=operation, timeout=min(20, timeout / 2))
+    except Exception as error:
+        if not may_fallback(error):
+            raise
+        logging.getLogger(__name__).warning('assistant_primary_fallback class=%s', type(error).__name__)
+    remaining = timeout - (time.monotonic() - started)
+    if remaining <= 0:
+        raise TimeoutError('assistant_model_deadline')
+    return await _invoke_once(model, messages, operation=operation, timeout=remaining)
+
+
+async def _invoke_once(model: Any, messages: list[Any], *, operation: str, timeout: float) -> Any:
     """Journal each actual SDK invocation; failed calls retain unknown usage."""
     import asyncio
     emit = sink.get()
@@ -51,13 +70,15 @@ async def invoke(model: Any, messages: list[Any], *, operation: str, timeout: fl
         return await asyncio.wait_for(model.ainvoke(messages), timeout)
     call_id = str(uuid.uuid4())
     base = {'call_id': call_id, 'operation': operation, 'provider': os.getenv('GROUP_AGENT_PROVIDER', '')[:40],
-            'model': os.getenv('GROUP_AGENT_MODEL', '')[:120]}
+            'model': str(getattr(model, 'model_name', None) or os.getenv('GROUP_AGENT_MODEL', ''))[:120]}
     await report(emit, {**base, 'status': 'started', 'usage_status': 'unknown'})
     started = time.monotonic()
     try:
         output = await asyncio.wait_for(model.ainvoke(messages), timeout)
-    except BaseException:
-        await report(emit, {**base, 'status': 'failed', 'usage_status': 'unknown',
+    except BaseException as error:
+        from openai import APIStatusError
+        rejected = isinstance(error, APIStatusError) and error.status_code in {401, 403, 404, 429}
+        await report(emit, {**base, 'status': 'failed', 'usage_status': 'not_applicable' if rejected else 'unknown',
                     'duration_ms': int((time.monotonic() - started) * 1000)})
         raise
     try:

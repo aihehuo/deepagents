@@ -22,7 +22,7 @@ def primary_client(standby: Any) -> Any | None:
         logging.getLogger(__name__).warning('assistant_primary_configuration_unavailable')
         return None
     return ChatOpenAI(model=model, api_key=key, base_url=url,
-                      max_tokens=standby.max_tokens, temperature=standby.temperature,
+                      max_tokens=standby.max_tokens, temperature=None,
                       extra_body={**(standby.extra_body or {}), 'enable_thinking': False}, timeout=20, max_retries=0)
 
 
@@ -30,6 +30,16 @@ def may_fallback(error: Exception) -> bool:
     """Retry endpoint failures only, never cancellations or content parsing."""
     import asyncio
     from openai import APIConnectionError, APIStatusError
+    error = provider_error(error)
     if isinstance(error, (asyncio.TimeoutError, APIConnectionError)):
         return True
-    return isinstance(error, APIStatusError) and error.status_code in {401, 403, 404, 408, 429, 500, 502, 503, 504}
+    return isinstance(error, APIStatusError) and error.status_code in {400, 401, 403, 404, 408, 422, 429, 500, 502, 503, 504}
+
+
+def provider_error(error: BaseException) -> BaseException:
+    """Unwrap SDK request wrappers without depending on a LangChain version."""
+    for _ in range(5):
+        if error.__cause__ is None:
+            break
+        error = error.__cause__
+    return error

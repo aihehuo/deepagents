@@ -77,7 +77,9 @@ async def _invoke_once(model: Any, messages: list[Any], *, operation: str, timeo
         output = await asyncio.wait_for(model.ainvoke(messages), timeout)
     except BaseException as error:
         from openai import APIStatusError
-        rejected = isinstance(error, APIStatusError) and error.status_code in {401, 403, 404, 429}
+        from apps.group_agent_api.app.assistant_model_fallback import provider_error
+        actual_error = provider_error(error)
+        rejected = isinstance(actual_error, APIStatusError) and actual_error.status_code in {400, 401, 403, 404, 422, 429}
         await report(emit, {**base, 'status': 'failed', 'usage_status': 'not_applicable' if rejected else 'unknown',
                     'duration_ms': int((time.monotonic() - started) * 1000)})
         raise

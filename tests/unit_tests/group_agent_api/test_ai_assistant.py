@@ -166,3 +166,37 @@ def test_user_resources_and_requests_are_not_treated_as_ai_voice(reply):
 def test_obvious_ai_voice_is_identified(reply):
     from apps.group_agent_api.agent_factory.suggested_replies import is_assistant_voice_option
     assert is_assistant_voice_option({'label': '进一步聊聊', 'reply': reply})
+
+
+@pytest.mark.parametrize("purpose", ["greeting", "attachment"])
+@pytest.mark.parametrize("proposals", [proposal()["proposals"], [{"source_ids": [999]}]])
+async def test_staff_reply_survives_forbidden_optional_extraction(monkeypatch: pytest.MonkeyPatch, purpose: str, proposals: list[dict]) -> None:
+    """A non-utterance must deliver the reply without creating user facts."""
+    from unittest.mock import AsyncMock
+    from langchain_core.messages import AIMessage
+    from apps.group_agent_api.agent_factory import model_builder
+
+    payload = source().model_copy(update={"purpose": purpose})
+    data = proposal()
+    data["reply"] = "产品目前有样品和供应商报价了吗？"
+    data["proposals"] = proposals
+    data["profile_evidence"] = {"need": "malformed historical extraction"}
+    model = AsyncMock()
+    model.ainvoke.return_value = AIMessage(content=json.dumps(data))
+    monkeypatch.setattr(model_builder, "create_model", lambda **kwargs: model)
+
+    result = await assistant.execute(payload)
+    assert result["reply"] == data["reply"]
+    assert result["proposals"] == []
+    assert result["profile"] == {"doing": "", "need": "", "offer": ""}
+    assert result["profile_evidence"] == {}
+
+
+@pytest.mark.parametrize("purpose", ["greeting", "attachment"])
+def test_non_utterance_validator_remains_strict(purpose: str) -> None:
+    """Callers cannot bypass provenance rules through the raw validator."""
+    payload = source().model_copy(update={"purpose": purpose})
+    data = proposal()
+    data["profile"] = {"doing": "", "need": "", "offer": ""}
+    with pytest.raises(ValueError, match="non_utterance_cannot_create_facts"):
+        assistant.validate_result(payload, json.dumps(data))

@@ -200,3 +200,13 @@ def test_non_utterance_validator_remains_strict(purpose: str) -> None:
     data["profile"] = {"doing": "", "need": "", "offer": ""}
     with pytest.raises(ValueError, match="non_utterance_cannot_create_facts"):
         assistant.validate_result(payload, json.dumps(data))
+
+
+def test_circle_prompt_uses_host_auto_activation_and_keeps_source_boundaries() -> None:
+    """The host starts permitted new circles; extraction still excludes quoted/private data."""
+    text = assistant.prompt(source())
+    assert "自动开启招募" in text
+    assert "无需用户确认草稿" in text
+    assert "最终创建和启动结果由服务端决定" in text
+    assert "示例、假设、引用、不要公开的内容不得变成圈子" in text
+    assert "用户核对后才生效" not in text

@@ -157,7 +157,7 @@ def rpc(action: str, **values: object) -> dict:
     signed["X-Agent-Key"] = key
     request = Request(base.rstrip("/") + "/backend/agent/community_manager/dispatch", data=body, headers=signed, method="POST")
     try:
-        with build_opener(NoRedirect()).open(request, timeout=25) as response:
+        with build_opener(NoRedirect()).open(request, timeout=2 if action == "usage" else 25) as response:
             raw = response.read(300_001)
             if len(raw) > 300_000:
                 raise ProtocolError("manager_response_too_large")

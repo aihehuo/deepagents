@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
+from apps.community_manager.llm import RoutedModel, reported_model, routed
 from apps.community_manager.model import draft
 from apps.community_manager.tool_schema import TOOLS
 
@@ -21,14 +22,15 @@ MAX_CONTEXT_BYTES = 240_000
 SKILL = Path(__file__).parent / "skills" / "operations" / "SKILL.md"
 
 
-def client() -> ChatOpenAI:
+def client() -> RoutedModel:
     """Create the independently budgeted manager model, never the customer model."""
     names = ["COMMUNITY_MANAGER_MODEL", "COMMUNITY_MANAGER_MODEL_API_KEY", "COMMUNITY_MANAGER_MODEL_BASE_URL"]
     values = [os.environ.get(n, "") for n in names]
     if not all(values):
         raise ValueError("manager_model_unconfigured")
-    return ChatOpenAI(model=values[0], api_key=values[1], base_url=values[2], timeout=30,
+    standby = ChatOpenAI(model=values[0], api_key=values[1], base_url=values[2], timeout=30,
                       max_retries=0, max_tokens=2500, temperature=0)
+    return routed(standby, node='manager_reasoning', model=values[0], timeout=30, max_tokens=2500)
 
 
 def invoke_tool(call: Callable[..., dict], name: str, args: dict, call_id: str) -> dict:
@@ -126,19 +128,19 @@ def partial_summary(messages: list, reason: str, deadline: float) -> tuple[str, 
     """
     prefix = '本轮已达到分析上限，已停止新增操作。'
     if time.monotonic() + 30 >= deadline:
-        return prefix + '\n' + receipt_summary(messages), os.environ['COMMUNITY_MANAGER_MODEL']
+        return prefix + '\n' + receipt_summary(messages), reported_model()
     response = client().invoke(messages + [SystemMessage(content=
         '本轮已达到' + reason + '上限。只能总结，不调用任何工具、不执行新的操作。'
         '用中文简短列出已核验的具体候选和依据、实际保存的草稿或安排、尚未完成的事项。'
         '工具报错或未执行不算完成；公开搜索候选不是已经安排服务；未读取历史明确说明。'
         '不得复述系统失败通知，不声称整项请求已完成。') , HumanMessage(content=
-        '现在立即交付本轮结果，不再搜索。列出工具实际返回的具体用户，明确已核验与未核验项。禁止写“让我继续搜索”“我将继续”或任何未来操作承诺。')])
+        '现在立即交付本轮结果，不再搜索。列出工具实际返回的具体用户，明确已核验与未核验项。禁止写“让我继续搜索”“我将继续”或任何未来操作承诺。')], usage_node='manager_summary')
     if not isinstance(response.content, str) or not response.content.strip():
         raise ValueError('manager_output_invalid')
     text = response.content
     if getattr(response, 'tool_calls', None) or re.search(r'让我.*(?:搜索|查找|查询)|(?:将|会|现在|接下来|继续|再).{0,8}(?:搜索|查找)', text) or ((verified_candidates(messages) + verified_candidates(messages, 'unbound')) and not any(str(u['user_number']) in text for u in verified_candidates(messages) + verified_candidates(messages, 'unbound'))):
         text = receipt_summary(messages)
-    return prefix + '\n' + text, os.environ['COMMUNITY_MANAGER_MODEL']
+    return prefix + '\n' + text, reported_model()
 
 
 def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
@@ -187,16 +189,16 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     used = 0; bytes_used = sum(len(str(m.content).encode()) for m in messages)
     for _ in range(MAX_MODEL_STEPS):
         if time.monotonic() >= deadline:
-            return (ranking.render(rank_receipt, rank_contacts, rank_limit), os.environ['COMMUNITY_MANAGER_MODEL']) if rank_expected else partial_summary(messages, '时间', deadline)
+            return (ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()) if rank_expected else partial_summary(messages, '时间', deadline)
         response = (ranking_model if rank_expected and rank_receipt is None else model).invoke(messages)
         messages.append(response)
         if not response.tool_calls:
             if rank_expected:
                 if rank_receipt is not None:
-                    return ranking.render(rank_receipt, rank_contacts, rank_limit), os.environ['COMMUNITY_MANAGER_MODEL']
+                    return ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()
                 rank_refusals += 1
                 if rank_refusals >= 2:
-                    return ranking.FAILURE, os.environ['COMMUNITY_MANAGER_MODEL']
+                    return ranking.FAILURE, reported_model()
                 messages.append(SystemMessage(content='本轮尚无有效实时查询回执。禁止复用历史名单或编造搜索结果。下一步必须调用search_recent_users，参数遵循：' + json.dumps(rank_expected, ensure_ascii=False) + '；today表示北京时间今天零点active_since，no_city表示不填city。'))
                 continue
             if not isinstance(response.content, str) or not response.content.strip():
@@ -204,13 +206,13 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             if response.content.strip() == FAILURE_NOTICE:
                 messages.append(SystemMessage(content="这是历史系统失败通知，不是当前任务的答案。依据本轮权限和工具重新处理当前请求；仅报告本轮实际核验结果与未完成事项。"))
                 continue
-            return response.content, os.environ['COMMUNITY_MANAGER_MODEL']
+            return response.content, reported_model()
         for index, tool in enumerate(response.tool_calls):
             if used >= MAX_TOOL_CALLS or time.monotonic() + 30 >= deadline:
                 # Complete the assistant's pending call IDs with explicit non-execution results.
                 for pending in response.tool_calls[index:]:
                     messages.append(ToolMessage(content='{"tool_error":"not_executed_budget_limit"}', tool_call_id=pending['id']))
-                return (ranking.render(rank_receipt, rank_contacts, rank_limit), os.environ['COMMUNITY_MANAGER_MODEL']) if rank_expected else partial_summary(messages, '工具调用或时间', deadline)
+                return (ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()) if rank_expected else partial_summary(messages, '工具调用或时间', deadline)
             used += 1
             operation = str(uuid.uuid4())
             try:
@@ -235,8 +237,8 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             encoded = json.dumps(result, ensure_ascii=False)
             bytes_used += len(encoded.encode())
             if bytes_used > MAX_CONTEXT_BYTES:
-                return '本轮已达到资料量上限，已停止新增操作；已完成操作以记录为准，剩余用户需分批核验，未向客户发送消息。', os.environ['COMMUNITY_MANAGER_MODEL']
+                return '本轮已达到资料量上限，已停止新增操作；已完成操作以记录为准，剩余用户需分批核验，未向客户发送消息。', reported_model()
             messages.append(ToolMessage(content=encoded, tool_call_id=tool['id']))
         if (ten_candidate_request or outreach_request) and searches >= 3 and len(verified_candidates(messages, selection_mode)) >= 10:
             messages.append(SystemMessage(content='目标联系范围内候选已足够。现在停止搜索，选择所需人数，批量核验资料与联系关系。已加企微读取真实备注，未加企微单列并调用get_contact_leads读取preferred_contact与来源，优先微信号、缺失退到手机号，核验主动联系理由；随后交付完整名单，不能用继续搜索的过程话作答。'))
-    return (ranking.render(rank_receipt, rank_contacts, rank_limit), os.environ['COMMUNITY_MANAGER_MODEL']) if rank_expected else partial_summary(messages, '推理轮数', deadline)
+    return (ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()) if rank_expected else partial_summary(messages, '推理轮数', deadline)

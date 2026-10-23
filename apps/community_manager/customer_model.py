@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from langchain_openai import ChatOpenAI
+from apps.community_manager.llm import routed
 from apps.community_manager.journey_contract import validate_context, validate_journey, CONVERGENCE_PROMPT
 
 LOGGER = logging.getLogger(__name__)
@@ -128,13 +129,14 @@ def assess(input_data: dict) -> tuple[dict, str]:
     text = json.dumps(input_data, ensure_ascii=False)
     if len(text.encode()) > 40000:
         raise ValueError("customer_input_too_large")
-    model = ChatOpenAI(model=values[0], api_key=values[1], base_url=values[2], timeout=60, max_retries=0,
+    standby = ChatOpenAI(model=values[0], api_key=values[1], base_url=values[2], timeout=60, max_retries=0,
                        max_tokens=4000, temperature=0, model_kwargs={"response_format": {"type": "json_object"}})
+    model = routed(standby, node='customer_assessment', model=values[0], timeout=60, max_tokens=4000, response_format={'type':'json_object'})
     response = model.invoke([("system", SYSTEM), ("human", text)])
     if not isinstance(response.content, str) or len(response.content.encode()) > 16000:
         raise ValueError("invalid_customer_assessment_output")
     try:
-        return validate_output(response.content, context), values[0]
+        return validate_output(response.content, context), model.last_model
     except ValueError as error:
         reason = validation_reason(error)
         issues = length_issues(response.content)
@@ -145,11 +147,11 @@ def assess(input_data: dict) -> tuple[dict, str]:
                       '不要编造引用或新事实，不输出操作或回复。所有文本字段必须是字符串，未知用空字符串，绝不能用null、数组、对象、数字或布尔值；普通文本必须概括压缩到100字符以内，不复制长段原文；missing每项最多100字符。下一步用一句话。返回唯一完整JSON对象。需纠正的字段、类型和硬上限（无正文）：' +
                       json.dumps(issues, ensure_ascii=False) + '。可用证据key完整列表：' +
                       json.dumps(list(context['sources']), ensure_ascii=False))
-        repaired = model.invoke([("system", SYSTEM), ("human", text), ("assistant", response.content), ("human", correction)])
+        repaired = model.invoke([("system", SYSTEM), ("human", text), ("assistant", response.content), ("human", correction)], usage_node="customer_assessment_repair")
         if not isinstance(repaired.content, str) or len(repaired.content.encode()) > 16000:
             raise ValueError("invalid_customer_assessment_output")
         try:
-            return validate_output(repaired.content, context), values[0]
+            return validate_output(repaired.content, context), model.last_model
         except ValueError as final_error:
             LOGGER.warning("customer_output_repair_failed reason=%s length_issues=%s",
                            validation_reason(final_error), json.dumps(length_issues(repaired.content)))

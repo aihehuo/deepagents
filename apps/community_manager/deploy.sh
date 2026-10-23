@@ -12,4 +12,6 @@ if [[ -n "${COMMUNITY_MANAGER_NETWORK:-}" ]]; then compose_args+=(-f "$script_di
 # Project and service names are fixed: existing customer deployments are never targeted.
 docker compose "${compose_args[@]}" config --quiet
 docker compose "${compose_args[@]}" pull
+# Check the new image and private env before any worker begins consuming jobs.
+docker compose "${compose_args[@]}" run --rm --no-deps --entrypoint python community-manager-api -c 'from apps.community_manager.llm import validate_primary; validate_primary()'
 docker compose "${compose_args[@]}" up -d community-manager-api community-manager-worker community-manager-scheduler community-customer-worker

@@ -50,3 +50,35 @@ Sidebar refresh, committed customer submissions (including record-only), and man
 `group-agent-api` generates replies and executes existing customer skills. It reads the saved brief to guide conversation and does not generate or save another brief. Its former `/wecom/service_journey` route authenticates and returns 410 without loading a model. The dedicated customer worker performs synthesis and evaluation only; it sends neither customer messages nor staff notifications.
 
 Release order: verify the existing customer worker and `/customer/ready`, required Micro flags (`COMMUNITY_MANAGER_ENABLED`, `COMMUNITY_MANAGER_EVENTS_ENABLED`, `COMMUNITY_CUSTOMER_ASSESSMENT_ENABLED`, `WECOM_SERVICE_JOURNEY_ENABLED`) and the signed admission configuration. Deploy Micro web and Sidekiq first; verify a sidebar refresh completes through the customer queue. Drain pre-release journey jobs before releasing the group-agent image that retires the old route. No new migration, frontend release or manager worker image is needed for this refactor. Rollback restores the older group-agent route first, then reverts Micro. Tests are offline; production canary must verify actual model completion and sidebar display.
+
+## Token Plan 首选与统一调用记账
+
+客户评估、修正、经理推理、指导草拟和收尾总结共用 `llm.RoutedModel`。
+固定首选 Token Plan / auto，备选沿用各自的 COMMUNITY_CUSTOMER_MODEL* 或 COMMUNITY_MANAGER_MODEL*（当前 qwen-plus）。
+工具绑定与 JSON 输出约束同时传给两端；首选只试一次，只有网络/超时与指定HTTP错误才回退。
+结构校验失败仍遵循原有一次修正逻辑，修正是一笔新的模型调用，不当作网络重试。
+主备在原有单次调用超时预算内执行。内部 `client()` 返回兼容 invoke/bind_tools 的 RoutedModel；业务消息及结果协议不变。
+
+私有 env 新增变量（config.env.example 是变量清单，不包含密钥）：
+
+- COMMUNITY_LLM_PRIMARY_API_KEY：复用 Deep 现有 Token Plan 密钥，禁止写入仓库或日志。
+- COMMUNITY_LLM_PRIMARY_BASE_URL：默认 https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+- COMMUNITY_LLM_PRIMARY_MODEL：默认 auto。
+
+新增变量要由四个 manager 项目服务载入。部署脚本在启动服务前运行无网络凭据预检；ready和customer/ready也检查首选配置。
+无需新容器、无需新队列。原有两个按量模型密钥保留作备选，不修改其他智能体的模型配置。
+
+用量通过现有签名 RPC 的 usage 动作回传，沿用 Agent Key、HMAC、nonce 与运行 execution_token。
+新增动作只写 Micro 的 micro_llm_calls，不创建消息、通知或资料更新，不扣用户credit。
+每次 invoke 有独立编号，首选与备选分别记 attempt=1/2；修正和多轮推理也分别记账。
+Micro 将编号绑定运行身份，客户归属只从服务端 assessment 记录读取，经理跨用户任务的user_id留空。
+节点为 community_manager.reasoning / guidance / summary、community_customer.assessment / repair，OPE Micro组件标签页自动纳入。
+缓存和思考是输入/输出子项，不重复计入总量。缺Token不记0，不以模型正文推断用量；实际响应模型和请求模型分开保存。
+
+计量是尽力观测：RPC单次超时2秒、无自动网络重试，发送失败只记脱敏警告，不替代业务回复。
+进程被杀或回传中断仍可能漏记，不能当完整财务账单。相同回传不会重复插入或覆盖已完成的记录。
+不在提示词、业务结果或日志中附带密钥、运行token、原文或异常message。
+
+发布顺序：Micro先支持usage动作并确认micro_llm_calls已迁移；然后配置manager私有env，再部署本项目API、两个worker和scheduler。
+OnePenny门面原样转发签名字节，无需改动。旧Micro会拒绝usage但不会因遥测失败卡住模型；仍应先部署Micro以免漏账。
+回退manager镜像可保留这些env变量和账表，已有用户资料与历史用量不删除。

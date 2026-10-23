@@ -109,6 +109,8 @@ def ready() -> dict[str, str]:
         secret()
         if not all(os.environ.get(name) for name in ("COMMUNITY_MANAGER_AGENT_KEY", "COMMUNITY_MANAGER_OPERATIONS_URL", "COMMUNITY_MANAGER_MODEL", "COMMUNITY_MANAGER_MODEL_API_KEY", "COMMUNITY_MANAGER_MODEL_BASE_URL")):
             raise ValueError("unconfigured")
+        from apps.community_manager.llm import validate_primary
+        validate_primary()
         redis_client().ping()
         return {"status": "ready", "service": "community_manager"}
     except Exception:
@@ -124,6 +126,8 @@ def customer_ready() -> dict[str, str]:
         required = ("COMMUNITY_MANAGER_AGENT_KEY", "COMMUNITY_MANAGER_OPERATIONS_URL", "COMMUNITY_CUSTOMER_MODEL", "COMMUNITY_CUSTOMER_MODEL_API_KEY", "COMMUNITY_CUSTOMER_MODEL_BASE_URL")
         if not all(os.environ.get(name) for name in required):
             raise ValueError("unconfigured")
+        from apps.community_manager.llm import validate_primary
+        validate_primary()
         redis_client().ping()
         return {"status": "ready", "service": "community_customer_assessment"}
     except Exception:

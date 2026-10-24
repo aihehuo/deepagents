@@ -10,18 +10,6 @@ def test_employee_budget_unchanged() -> None:
     assert agent.execution_budget({}) == (12, 48, 240_000)
 
 
-def test_autonomous_budget_and_no_extra_summary(monkeypatch: pytest.MonkeyPatch) -> None:
-    response = AIMessage(content='', tool_calls=[{'name': 'get_follow_ups', 'args': {}, 'id': 'read-1'}])
-    model = Mock(); model.bind_tools.return_value = model; model.invoke.return_value = response
-    monkeypatch.setattr(agent, 'client', lambda: model)
-    monkeypatch.setattr(agent, 'invoke_tool', lambda *args: {'items': []})
-    summary = Mock(side_effect=AssertionError('autonomous summary must not call a model'))
-    monkeypatch.setattr(agent, 'partial_summary', summary)
-    with pytest.raises(agent.BudgetExhausted):
-        agent.execute({'model_mode': 'autonomous', 'text': '检查这名用户', 'trigger': {'kind': 'event', 'user_number': '123456'}}, Mock())
-    assert model.invoke.call_count == 6
-    summary.assert_not_called()
-
 
 def test_budget_exhaustion_is_failed_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     from apps.community_manager import worker
@@ -34,3 +22,73 @@ def test_budget_exhaustion_is_failed_callback(monkeypatch: pytest.MonkeyPatch) -
     worker.run.run('budget-test')
     assert calls[-1][0] == 'result'
     assert calls[-1][1]['output']['error_code'] == 'manager_budget_exhausted'
+
+
+def configured_model(monkeypatch: pytest.MonkeyPatch, responses: list) -> Mock:
+    model = Mock(); model.bind_tools.return_value = model; model.invoke.side_effect = responses
+    monkeypatch.setattr(agent, 'client', lambda: model)
+    return model
+
+
+def event() -> dict:
+    return {'model_mode': 'autonomous', 'trigger': {'kind': 'event', 'user_number': '123456'}}
+
+
+def save_message(number: str = '123456') -> AIMessage:
+    return AIMessage(content='', tool_calls=[{'id': 'save', 'name': 'save_follow_up', 'args': {
+        'number': number, 'need_key': 'profile', 'focus': 'clarify', 'status': 'active',
+        'reason': 'fictional', 'evidence': [{'source': 'profile', 'id': 1}],
+        'next_review_at': '2026-10-25T10:00:00+08:00', 'expected_revision': 0}}])
+
+
+def test_autonomous_reads_once_then_saves_and_notifies(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = []
+    def rpc(action: str, **kwargs: object) -> dict:
+        seen.append(kwargs)
+        return {'revision': 1, 'id': 1}
+    model = configured_model(monkeypatch, [save_message(),
+        AIMessage(content='', tool_calls=[{'id': 'notify', 'name': 'notify_staff', 'args': {'number': '123456', 'need_key': 'profile'}}]),
+        AIMessage(content='已保存安排并通知负责人。')])
+    text, _ = agent.execute(event(), rpc)
+    assert model.invoke.call_count == 3
+    assert [row['name'] for row in seen] == ['get_guidance_sources', 'resolve_owner', 'get_service_journey', 'save_follow_up', 'notify_staff']
+    assert all(row['arguments']['number'] == '123456' for row in seen)
+    assert {t['function']['name'] for t in model.bind_tools.call_args.args[0]} == {'save_follow_up', 'notify_staff', 'draft_guidance'}
+    assert '已保存' in text
+
+
+def test_budget_and_duplicate_write_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    model = configured_model(monkeypatch, [save_message() for _ in range(6)])
+    rpc = Mock(return_value={'revision': 1})
+    with pytest.raises(agent.BudgetExhausted): agent.execute(event(), rpc)
+    assert model.invoke.call_count == 6
+    assert [c.kwargs['name'] for c in rpc.call_args_list].count('save_follow_up') == 1
+
+
+def test_paused_user_needs_no_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = Mock(); monkeypatch.setattr(agent, 'client', client)
+    text, _ = agent.execute(event(), Mock(return_value={'blocked_reason': 'paused'}))
+    client.assert_not_called(); assert 'paused' in text
+
+
+def test_cross_user_action_rejected_before_rpc(monkeypatch: pytest.MonkeyPatch) -> None:
+    configured_model(monkeypatch, [save_message('999999')])
+    rpc = Mock(return_value={})
+    with pytest.raises(ValueError, match='autonomous_tool_scope_invalid'): agent.execute(event(), rpc)
+    assert all(c.kwargs['name'] != 'save_follow_up' for c in rpc.call_args_list)
+
+
+def test_rejected_write_cannot_be_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    configured_model(monkeypatch, [save_message()])
+    def rpc(action: str, **kwargs: object) -> dict:
+        return {'tool_error': 'manager_follow_up_conflict'} if kwargs['name'] == 'save_follow_up' else {}
+    with pytest.raises(ValueError, match='autonomous_action_rejected'): agent.execute(event(), rpc)
+
+
+def test_compacted_evidence_preserves_refs_and_marks_truncation() -> None:
+    rows = [{'ref': {'source': 'profile', 'id': n}, 'text': 'x' * 1000} for n in range(30)]
+    result = agent.autonomous_sources({'allowed_evidence': rows})
+    assert result['evidence_truncated']
+    assert len(result['allowed_evidence']) == 24
+    assert result['allowed_evidence'][0]['ref'] == rows[0]['ref']
+    assert len(result['allowed_evidence'][0]['text']) == 400

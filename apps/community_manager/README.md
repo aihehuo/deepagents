@@ -82,3 +82,8 @@ Micro 将编号绑定运行身份，客户归属只从服务端 assessment 记�
 发布顺序：Micro先支持usage动作并确认micro_llm_calls已迁移；然后配置manager私有env，再部署本项目API、两个worker和scheduler。
 OnePenny门面原样转发签名字节，无需改动。旧Micro会拒绝usage但不会因遥测失败卡住模型；仍应先部署Micro以免漏账。
 回退manager镜像可保留这些env变量和账表，已有用户资料与历史用量不删除。
+
+### Bounded single-user automatic events
+Automatic mode prepares `get_guidance_sources`, `resolve_owner` (including that user's follow-ups) and `get_service_journey` once through existing authenticated RPC. The model receives a compact evidence snapshot with exact refs and explicit truncation, rather than the global operations skill/history. It can only draft guidance, save follow-ups, or notify staff for the trigger user. Existing Micro authorization, evidence, revision and delivery checks remain authoritative. No new Micro API or migration is needed.
+
+The execution budget remains six model rounds, 18 operations (three prerequisite reads plus at most 15 actions), and 64KB serialized context. A 150-second local deadline leaves room for reporting under the worker deadline. Repeated identical action arguments reuse the same in-run receipt; explicit tool rejection or exhausted budgets remain failures for bounded recovery, never successful completion. A paused/no-current-need snapshot completes without a model call. Staff-directed conversations retain the original workflow and tools. Production cost and task completion rate still require post-release observation; offline orchestration tests do not prove real-model completion.

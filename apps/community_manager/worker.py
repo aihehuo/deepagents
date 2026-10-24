@@ -3,7 +3,7 @@ import logging
 import traceback
 from apps.community_manager.celery_app import app
 from apps.community_manager.protocol import rpc
-from apps.community_manager.agent import execute
+from apps.community_manager.agent import execute, BudgetExhausted
 from apps.community_manager.model import PROMPT_VERSION
 from apps.community_manager.llm import usage_scope
 
@@ -59,7 +59,7 @@ def run(run_id: str) -> None:
     except Exception as error:
         log_failure(run_id, error)
         output = {'text': '本次经理分析未完成，已完成的操作请以记录为准；现有客服仍可继续工作，没有向客户发送消息。',
-                  'model_id': 'unknown', 'prompt_version': PROMPT_VERSION, 'error_code': 'manager_execution_failed'}
+                  'model_id': 'unknown', 'prompt_version': PROMPT_VERSION, 'error_code': 'manager_budget_exhausted' if isinstance(error, BudgetExhausted) else 'manager_execution_failed'}
     rpc('result', run_id=run_id, token=token, output=output)
 
 

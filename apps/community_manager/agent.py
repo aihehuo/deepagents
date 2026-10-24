@@ -143,10 +143,14 @@ def partial_summary(messages: list, reason: str, deadline: float) -> tuple[str, 
     return prefix + '\n' + text, reported_model()
 
 
+class BudgetExhausted(ValueError):
+    """Autonomous work stopped before completion; preserve writes and retry boundedly."""
+
+
 def execution_budget(started: dict) -> tuple[int, int, int]:
     """Keep employee requests intact; bound optional autonomous background work."""
     if started.get('model_mode') == 'autonomous':
-        return 4, 12, 64_000
+        return 6, 18, 64_000
     return MAX_MODEL_STEPS, MAX_TOOL_CALLS, MAX_CONTEXT_BYTES
 
 
@@ -161,7 +165,7 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     current_time = datetime.now(timezone.utc).isoformat()
     messages = [SystemMessage(content='当前UTC时间：' + current_time + '。next_review_at须在当前时间之后、90天内，使用带时区ISO8601。\n' + SKILL.read_text(encoding='utf-8') +
         "\n工具错误只说明本次未完成，不泄露系统异常。只有403才作为权限或运营开关边界，不用其他工具绕过。400/422是参数或证据校验拒绝，不要称为权限不足；基于已读取的真实资料修正参数。409按具体tool_error处理，版本冲突先重新读取版本，源变化重新核验证据；暂停或业务阻塞不能绕过。无法修正时明确报告未保存、未通知。"
-        "单轮最多48次工具调用、12轮模型推理。先用最少工具核验目标并选具体候选，避免重复搜索；优先完成用户要求的候选数量；不足时继续分页搜索，不能用未加企微的人补数。逐人指导仍需核验证据，明确未完成项。用户创业号number必须用字符串，不用数据库id代替。"
+        "先用最少工具核验目标并选具体候选，避免重复搜索；优先完成用户要求的候选数量；不足时继续分页搜索，不能用未加企微的人补数。逐人指导仍需核验证据，明确未完成项。用户创业号number必须用字符串，不用数据库id代替。"
         "最终用中文自然回复，不输出任务版本暗语。完整回复须UTF8不超过12000字节，系统会分段发送。用紧凑的编号列表覆盖用户要求的全部人数，减少前言，不要遗漏后面的用户。名单每位先调用get_contact_relationships核实remark，bound_snapshot只是绑定状态，绝不能当企微备注；remark为空时写未记录备注。每次写入以前读取当前版本；模型不补造业务执行结果。"
         "save_plan.body 必须有 objective,selection_criteria,principles,metrics,capacity,starts_at,expires_at，时间用ISO8601。"
         "随访 need_key 使用 profile/contact 或已读取需求ID；reason基于 evidence。evidence必须直接复制get_guidance_sources.allowed_evidence每项的ref对象（只含source/id/field/message_index等），不能传整项ref/text/role包装，id和message_index保持整数；不能将简报内引用的字符串当证据对象。只有save_follow_up成功返回id和revision后才调用notify_staff，保存失败先按invalid_fields修正，不得先通知。"
@@ -188,10 +192,10 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     autonomous = started.get('model_mode') == 'autonomous'
     steps, tools, context_bytes = execution_budget(started)
     if autonomous:
-        messages.append(SystemMessage(content='本轮后台自动检查覆盖前述默认预算：最多4轮推理、12次工具调用、64KB资料。仅处理触发用户；优先读取已生成的评估，复用已有计划，信息无实质变化时直接结束。尽早完成有证据支持的保存操作；不要重复搜索，不承诺未执行操作。'))
+        messages.append(SystemMessage(content='本轮后台自动检查覆盖前述默认预算：最多6轮推理、18次工具调用、64KB资料。仅处理触发用户；优先读取已生成的评估，复用已有计划，信息无实质变化时直接结束。尽早完成有证据支持的保存操作；不要重复搜索，不承诺未执行操作。'))
     def finish_summary(messages: list, reason: str, deadline: float) -> tuple[str, str]:
         if autonomous:
-            return '本轮后台检查达到预算，以下仅为已执行操作回执：\n' + receipt_summary(messages), reported_model()
+            raise BudgetExhausted('manager_budget_exhausted')
         return partial_summary(messages, reason, deadline)
     base_model = client()
     model = base_model.bind_tools(TOOLS)
@@ -205,6 +209,8 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     for _ in range(steps):
         if time.monotonic() >= deadline:
             return (ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()) if rank_expected else finish_summary(messages, '时间', deadline)
+        if autonomous and len(json.dumps([m.model_dump() for m in messages], ensure_ascii=False).encode()) > context_bytes:
+            raise BudgetExhausted('manager_budget_exhausted')
         response = (ranking_model if rank_expected and rank_receipt is None else model).invoke(messages)
         messages.append(response)
         if not response.tool_calls:
@@ -252,6 +258,8 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             encoded = json.dumps(result, ensure_ascii=False)
             bytes_used += len(encoded.encode())
             if bytes_used > context_bytes:
+                if autonomous:
+                    raise BudgetExhausted('manager_budget_exhausted')
                 return '本轮已达到资料量上限，已停止新增操作；已完成操作以记录为准，剩余用户需分批核验，未向客户发送消息。', reported_model()
             messages.append(ToolMessage(content=encoded, tool_call_id=tool['id']))
         if (ten_candidate_request or outreach_request) and searches >= 3 and len(verified_candidates(messages, selection_mode)) >= 10:

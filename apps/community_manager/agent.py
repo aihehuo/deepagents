@@ -28,9 +28,9 @@ def client() -> RoutedModel:
     values = [os.environ.get(n, "") for n in names]
     if not all(values):
         raise ValueError("manager_model_unconfigured")
-    standby = ChatOpenAI(model=values[0], api_key=values[1], base_url=values[2], timeout=30,
+    standby = ChatOpenAI(model=values[0], api_key=values[1], base_url=values[2], timeout=75,
                       max_retries=0, max_tokens=2500, temperature=0)
-    return routed(standby, node='manager_reasoning', model=values[0], timeout=30, max_tokens=2500)
+    return routed(standby, node='manager_reasoning', model=values[0], timeout=75, max_tokens=2500)
 
 
 def invoke_tool(call: Callable[..., dict], name: str, args: dict, call_id: str) -> dict:

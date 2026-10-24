@@ -1,3 +1,4 @@
+from apps.community_manager import llm
 """No-network checks for background routing, tool parity and run-bound usage."""
 from unittest.mock import Mock
 
@@ -48,7 +49,7 @@ def test_primary_and_telemetry_are_separate_from_user_content() -> None:
     assert [e[1]["usage"]["status"] for e in events] == ["started","completed"]
     assert events[1][1]["usage"]["total_tokens"] == 12
     assert "private prompt" not in repr(events) and "private fixture text" not in repr(events)
-    assert primary.calls[0][1]["timeout"] <= 15
+    assert primary.calls[0][1]["timeout"] <= 18
     assert all(e[0]=="usage" and e[1]["token"]=="private-token" for e in events)
 
 
@@ -161,3 +162,32 @@ def test_both_readiness_paths_reject_missing_primary(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("COMMUNITY_LLM_PRIMARY_BASE_URL","https://example.test/v1")
     assert api.ready()["status"]=="ready"
     assert api.customer_ready()["status"]=="ready"
+
+
+def test_manager_primary_gets_45_seconds_and_fallback_remaining(monkeypatch) -> None:
+    clock = [100.0]
+    monkeypatch.setattr(llm.time, 'monotonic', lambda: clock[0])
+    class SlowPrimary(Model):
+        def invoke(self, messages: list, **kwargs: object):
+            self.calls.append((messages, kwargs)); clock[0] += 45
+            raise TimeoutError('fixture')
+    primary = SlowPrimary(); standby = Model(output())
+    model = RoutedModel(standby, primary, node='manager_reasoning', standby_model='qwen-plus', timeout=75)
+    model.invoke([])
+    assert primary.calls[0][1]['timeout'] == 45
+    assert standby.calls[0][1]['timeout'] == 30
+
+
+def test_nested_task_deadline_caps_model_wait_and_resets(monkeypatch) -> None:
+    clock = [100.0]
+    monkeypatch.setattr(llm.time, 'monotonic', lambda: clock[0])
+    primary = Model(output(), output())
+    model = RoutedModel(Model(), primary, node='manager_guidance', standby_model='qwen-plus', timeout=90)
+    with llm.model_deadline(10):
+        model.invoke([])
+        assert primary.calls[0][1]['timeout'] == 6
+        clock[0] += 11
+        import pytest
+        with pytest.raises(TimeoutError):model.invoke([])
+    model.invoke([])
+    assert primary.calls[-1][1]['timeout'] == 45

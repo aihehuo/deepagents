@@ -32,9 +32,9 @@ def draft(sources: dict) -> tuple[dict, str]:
     url = os.environ.get("COMMUNITY_MANAGER_MODEL_BASE_URL", "")
     if not name or not key or not url:
         raise ValueError("manager_model_unconfigured")
-    standby = ChatOpenAI(model=name, api_key=key, base_url=url, timeout=45, max_retries=0,
+    standby = ChatOpenAI(model=name, api_key=key, base_url=url, timeout=90, max_retries=0,
         max_tokens=4000, temperature=0, model_kwargs={"response_format": {"type": "json_object"}})
-    model = routed(standby, node='manager_guidance', model=name, timeout=45, max_tokens=4000, response_format={'type':'json_object'})
+    model = routed(standby, node='manager_guidance', model=name, timeout=90, max_tokens=4000, response_format={'type':'json_object'})
     text = json.dumps(sources, ensure_ascii=False, separators=(",", ":"))
     if len(text.encode()) > 100_000:
         raise ValueError("manager_model_input_too_large")

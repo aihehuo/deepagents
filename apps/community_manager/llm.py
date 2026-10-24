@@ -22,7 +22,26 @@ class _Model(Protocol):
 LOGGER = logging.getLogger(__name__)
 Reporter = Callable[[dict], None]
 _LAST: ContextVar[str | None] = ContextVar("community_llm_last_model", default=None)
+_DEADLINE: ContextVar[float | None] = ContextVar("community_llm_deadline", default=None)
 _REPORTER: ContextVar[Reporter | None] = ContextVar("community_llm_reporter", default=None)
+
+
+@contextmanager
+def model_deadline(seconds: float) -> Iterator[None]:
+    """Bound all nested model calls by a task's remaining wall-clock budget."""
+    previous = _DEADLINE.get()
+    token = _DEADLINE.set(min(previous or float('inf'), time.monotonic() + seconds))
+    try:
+        yield
+    finally:
+        _DEADLINE.reset(token)
+
+
+def primary_timeout(remaining: float, node: str) -> float:
+    """Reserve fallback time without truncating manager inference at 15 seconds."""
+    if node.startswith('manager_'):
+        return min(45, remaining * 0.6)
+    return min(20, remaining / 2)
 
 
 @contextmanager
@@ -152,7 +171,7 @@ class RoutedModel:
             kwargs: Existing model invocation options.
         """
         invocation = str(uuid.uuid4())
-        deadline = time.monotonic() + self.timeout
+        deadline = min(time.monotonic() + self.timeout, _DEADLINE.get() or float('inf'))
         for attempt, model in enumerate((self.primary, self.standby), start=1):
             role = "primary" if attempt == 1 else "standby"
             name = self.primary_model if attempt == 1 else self.standby_model
@@ -167,7 +186,7 @@ class RoutedModel:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError("model_deadline")
-                timeout = min(20, remaining / 2) if attempt == 1 else remaining
+                timeout = primary_timeout(remaining, self.node) if attempt == 1 else remaining
                 output = model.invoke(messages, **{**kwargs, "timeout": timeout})
             except Exception as error:
                 emit({**event, "status": "failed", "usage_status": "unknown",
@@ -223,7 +242,7 @@ def routed(standby: _Model, *, node: str, model: str, timeout: float,
         if url.scheme != "https" or not url.hostname or url.username or url.password or url.query or url.fragment:
             raise ValueError("invalid_primary_endpoint")
         primary = ChatOpenAI(model=name, api_key=key, base_url=base, temperature=None,
-            timeout=min(20, timeout / 2), max_retries=0, max_tokens=max_tokens,
+            timeout=primary_timeout(timeout, node), max_retries=0, max_tokens=max_tokens,
             extra_body={"enable_thinking": False},
             model_kwargs={"response_format": response_format} if response_format else {})
     return RoutedModel(standby, primary, node=node, standby_model=model, primary_model=name, timeout=timeout)

@@ -5,7 +5,7 @@ from apps.community_manager.celery_app import app
 from apps.community_manager.protocol import rpc
 from apps.community_manager.agent import execute, BudgetExhausted
 from apps.community_manager.model import PROMPT_VERSION
-from apps.community_manager.llm import usage_scope
+from apps.community_manager.llm import usage_scope, model_deadline
 
 
 LOGGER = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ def run(run_id: str) -> None:
     try:
         if started.get('trigger', {}).get('kind') == 'customer_assessment':
             raise ValueError('wrong_manager_queue')
-        with usage_scope(run_id, token, rpc=rpc):
+        with usage_scope(run_id, token, rpc=rpc), model_deadline(180):
             text, model = execute(started, call)
         if not isinstance(text, str) or not text.strip() or len(text.encode('utf-8')) > 16000:
             raise ValueError('manager_reply_size_invalid')
@@ -91,7 +91,7 @@ def customer_run(run_id: str) -> None:
         rpc('result', run_id=run_id, token=token, output={'text': '本次运行路由不匹配。', 'model_id': 'unknown', 'prompt_version': VERSION, 'error_code': 'wrong_customer_queue'})
         return
     try:
-        with usage_scope(run_id, token, rpc=rpc):
+        with usage_scope(run_id, token, rpc=rpc), model_deadline(180):
             output, model = assess(started['customer_assessment'])
         output.update(model_id=model, prompt_version=VERSION)
     except Exception as error:

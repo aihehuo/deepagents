@@ -143,6 +143,13 @@ def partial_summary(messages: list, reason: str, deadline: float) -> tuple[str, 
     return prefix + '\n' + text, reported_model()
 
 
+def execution_budget(started: dict) -> tuple[int, int, int]:
+    """Keep employee requests intact; bound optional autonomous background work."""
+    if started.get('model_mode') == 'autonomous':
+        return 4, 12, 64_000
+    return MAX_MODEL_STEPS, MAX_TOOL_CALLS, MAX_CONTEXT_BYTES
+
+
 def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     """Run a bounded model/tool loop for an employee message or a backend event.
 
@@ -178,6 +185,14 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
         from datetime import datetime, timezone, timedelta
         now = datetime.now(timezone(timedelta(hours=8))).isoformat()
         messages.append(SystemMessage(content='本轮是实时排名请求，必须先查询，不得使用历史名单和历史日期。当前北京时间：' + now + '。本轮校验要求：' + json.dumps(rank_expected, ensure_ascii=False) + '。limit为要求人数；today要求当前北京时间零点active_since；no_city表示移除city。最终姓名、顺序和日期只取本轮回执，不得编造。'))
+    autonomous = started.get('model_mode') == 'autonomous'
+    steps, tools, context_bytes = execution_budget(started)
+    if autonomous:
+        messages.append(SystemMessage(content='本轮后台自动检查覆盖前述默认预算：最多4轮推理、12次工具调用、64KB资料。仅处理触发用户；优先读取已生成的评估，复用已有计划，信息无实质变化时直接结束。尽早完成有证据支持的保存操作；不要重复搜索，不承诺未执行操作。'))
+    def finish_summary(messages: list, reason: str, deadline: float) -> tuple[str, str]:
+        if autonomous:
+            return '本轮后台检查达到预算，以下仅为已执行操作回执：\n' + receipt_summary(messages), reported_model()
+        return partial_summary(messages, reason, deadline)
     base_model = client()
     model = base_model.bind_tools(TOOLS)
     ranking_model = base_model.bind_tools(TOOLS, tool_choice='search_recent_users') if rank_expected else model
@@ -187,9 +202,9 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
     ten_candidate_request = bool(re.search(r'(?:10|十).{0,6}(?:位|个|名|用户|候选)', started.get('text', '')))
     searches = 0
     used = 0; bytes_used = sum(len(str(m.content).encode()) for m in messages)
-    for _ in range(MAX_MODEL_STEPS):
+    for _ in range(steps):
         if time.monotonic() >= deadline:
-            return (ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()) if rank_expected else partial_summary(messages, '时间', deadline)
+            return (ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()) if rank_expected else finish_summary(messages, '时间', deadline)
         response = (ranking_model if rank_expected and rank_receipt is None else model).invoke(messages)
         messages.append(response)
         if not response.tool_calls:
@@ -208,11 +223,11 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
                 continue
             return response.content, reported_model()
         for index, tool in enumerate(response.tool_calls):
-            if used >= MAX_TOOL_CALLS or time.monotonic() + 30 >= deadline:
+            if used >= tools or time.monotonic() + 30 >= deadline:
                 # Complete the assistant's pending call IDs with explicit non-execution results.
                 for pending in response.tool_calls[index:]:
                     messages.append(ToolMessage(content='{"tool_error":"not_executed_budget_limit"}', tool_call_id=pending['id']))
-                return (ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()) if rank_expected else partial_summary(messages, '工具调用或时间', deadline)
+                return (ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()) if rank_expected else finish_summary(messages, '工具调用或时间', deadline)
             used += 1
             operation = str(uuid.uuid4())
             try:
@@ -236,9 +251,9 @@ def execute(started: dict, call: Callable[..., dict]) -> tuple[str, str]:
             # Unknown writes/network errors abort the run instead of generating a new operation ID.
             encoded = json.dumps(result, ensure_ascii=False)
             bytes_used += len(encoded.encode())
-            if bytes_used > MAX_CONTEXT_BYTES:
+            if bytes_used > context_bytes:
                 return '本轮已达到资料量上限，已停止新增操作；已完成操作以记录为准，剩余用户需分批核验，未向客户发送消息。', reported_model()
             messages.append(ToolMessage(content=encoded, tool_call_id=tool['id']))
         if (ten_candidate_request or outreach_request) and searches >= 3 and len(verified_candidates(messages, selection_mode)) >= 10:
             messages.append(SystemMessage(content='目标联系范围内候选已足够。现在停止搜索，选择所需人数，批量核验资料与联系关系。已加企微读取真实备注，未加企微单列并调用get_contact_leads读取preferred_contact与来源，优先微信号、缺失退到手机号，核验主动联系理由；随后交付完整名单，不能用继续搜索的过程话作答。'))
-    return (ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()) if rank_expected else partial_summary(messages, '推理轮数', deadline)
+    return (ranking.render(rank_receipt, rank_contacts, rank_limit), reported_model()) if rank_expected else finish_summary(messages, '推理轮数', deadline)

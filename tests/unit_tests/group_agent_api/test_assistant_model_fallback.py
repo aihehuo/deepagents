@@ -74,3 +74,29 @@ def test_wrapped_provider_rejection_is_recognized():
     wrapped = ValueError('provider wrapper')
     wrapped.__cause__ = original
     assert fallback.may_fallback(wrapped)
+
+@pytest.mark.parametrize('operation,total,expected', [('conversation',100,40),('draft',100,40),('match',110,60)])
+async def test_primary_timeout_budget_reserves_standby(monkeypatch, operation, total, expected):
+    primary, standby = Client('auto'), Client('qwen-plus')
+    monkeypatch.setattr(fallback, 'primary_client', lambda _: primary)
+    calls = []
+    async def once(model, messages, *, operation, timeout):
+        calls.append((model.model_name, timeout))
+        if model is primary:
+            error = asyncio.TimeoutError()
+            error.__cause__ = asyncio.CancelledError()
+            raise error
+        return SimpleNamespace(content='backup')
+    monkeypatch.setattr(usage, '_invoke_once', once)
+    result = await usage.invoke(standby, [], operation=operation, timeout=total)
+    assert result.content == 'backup'
+    assert calls[0] == ('auto', expected)
+    assert calls[1][0] == 'qwen-plus'
+    assert calls[1][1] > total - expected - 1
+
+async def test_real_wait_for_timeout_can_fallback():
+    with pytest.raises(asyncio.TimeoutError) as captured:
+        await asyncio.wait_for(asyncio.sleep(1), timeout=0.001)
+    assert isinstance(captured.value.__cause__, asyncio.CancelledError)
+    assert fallback.may_fallback(captured.value)
+    assert not fallback.may_fallback(asyncio.CancelledError())

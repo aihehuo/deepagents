@@ -23,13 +23,15 @@ def primary_client(standby: Any) -> Any | None:
         return None
     return ChatOpenAI(model=model, api_key=key, base_url=url,
                       max_tokens=standby.max_tokens, temperature=None,
-                      extra_body={**(standby.extra_body or {}), 'enable_thinking': True}, timeout=20, max_retries=0)
+                      extra_body={**(standby.extra_body or {}), 'enable_thinking': True}, timeout=60, max_retries=0)
 
 
 def may_fallback(error: Exception) -> bool:
     """Retry endpoint failures only, never cancellations or content parsing."""
     import asyncio
     from openai import APIConnectionError, APIStatusError
+    if isinstance(error, asyncio.TimeoutError):
+        return True
     error = provider_error(error)
     if isinstance(error, (asyncio.TimeoutError, APIConnectionError)):
         return True

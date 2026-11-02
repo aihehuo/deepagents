@@ -83,7 +83,7 @@ async def match_circle(circle: dict[str, Any]) -> dict[str, Any]:
     async def generate(system: str, data: dict[str, Any]) -> str:
         from apps.group_agent_api.app.assistant_usage import invoke
         output = await invoke(model, [
-            SystemMessage(content=system), HumanMessage(content=json.dumps(data, ensure_ascii=False))], operation="match", timeout=50)
+            SystemMessage(content=system), HumanMessage(content=json.dumps(data, ensure_ascii=False))], operation="match", timeout=110)
         if getattr(output, "tool_calls", None) or not isinstance(output.content, str):
             raise ValueError("invalid_matching_output")
         return output.content

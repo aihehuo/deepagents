@@ -312,7 +312,7 @@ async def execute(payload: Input) -> dict[str, object]:
     output = await invoke(model, [
         SystemMessage(content=prompt(payload)),
         HumanMessage(content=payload.model_dump_json()),
-    ], operation=payload.kind, timeout=60)
+    ], operation=payload.kind, timeout=100)
     if getattr(output, "tool_calls", None):
         raise ValueError("assistant_tools_forbidden")
     if not isinstance(output.content, str):

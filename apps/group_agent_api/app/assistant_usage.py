@@ -51,7 +51,7 @@ async def invoke(model: Any, messages: list[Any], *, operation: str, timeout: fl
         return await _invoke_once(model, messages, operation=operation, timeout=timeout)
     started = time.monotonic()
     try:
-        return await _invoke_once(primary, messages, operation=operation, timeout=min(20, timeout / 2))
+        return await _invoke_once(primary, messages, operation=operation, timeout=min(60 if operation == 'match' else 40, timeout))
     except Exception as error:
         if not may_fallback(error):
             raise

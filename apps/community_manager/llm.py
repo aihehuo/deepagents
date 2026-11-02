@@ -243,6 +243,6 @@ def routed(standby: _Model, *, node: str, model: str, timeout: float,
             raise ValueError("invalid_primary_endpoint")
         primary = ChatOpenAI(model=name, api_key=key, base_url=base, temperature=None,
             timeout=primary_timeout(timeout, node), max_retries=0, max_tokens=max_tokens,
-            extra_body={"enable_thinking": False},
+            extra_body={"enable_thinking": True},
             model_kwargs={"response_format": response_format} if response_format else {})
     return RoutedModel(standby, primary, node=node, standby_model=model, primary_model=name, timeout=timeout)

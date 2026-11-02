@@ -141,7 +141,7 @@ def test_primary_preserves_json_contract_without_copying_standby_key(monkeypatch
     kwargs=factory.call_args.kwargs
     assert kwargs["api_key"]=="fake-primary-key" and kwargs["model"]=="auto"
     assert kwargs["model_kwargs"]["response_format"]=={"type":"json_object"}
-    assert kwargs["extra_body"]["enable_thinking"] is False
+    assert kwargs["extra_body"]["enable_thinking"] is True
     assert kwargs["max_retries"]==0
 
 

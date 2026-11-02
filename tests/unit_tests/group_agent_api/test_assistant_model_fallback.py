@@ -64,7 +64,7 @@ def test_auto_omits_temperature(monkeypatch):
     primary = fallback.primary_client(standby)
     assert 'temperature' not in primary._default_params
     assert primary.max_retries == 0
-    assert primary.extra_body['enable_thinking'] is False
+    assert primary.extra_body['enable_thinking'] is True
 
 
 def test_wrapped_provider_rejection_is_recognized():

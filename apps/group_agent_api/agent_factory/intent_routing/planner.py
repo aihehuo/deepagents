@@ -197,11 +197,11 @@ def _structured(model: Any) -> Any:
     if hasattr(model, "model_copy") and hasattr(model, "temperature"):
         candidate = model.model_copy(update={"temperature": 0})
     # The Qwen planner's JSON-schema request exhausted its output budget in
-    # production. Force one tool-shaped decision on its non-thinking client;
+    # production. Force one tool-shaped decision on its thinking-enabled client;
     # keep other providers and fixture models on their existing contract.
     if (
         isinstance(candidate, ChatOpenAI)
-        and (candidate.extra_body or {}).get("enable_thinking") is False
+        and (candidate.extra_body or {}).get("enable_thinking") is True
     ):
         return candidate.with_structured_output(
             PlannerDraftV2, method="function_calling"

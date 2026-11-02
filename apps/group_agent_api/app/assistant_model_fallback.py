@@ -23,7 +23,7 @@ def primary_client(standby: Any) -> Any | None:
         return None
     return ChatOpenAI(model=model, api_key=key, base_url=url,
                       max_tokens=standby.max_tokens, temperature=None,
-                      extra_body={**(standby.extra_body or {}), 'enable_thinking': False}, timeout=20, max_retries=0)
+                      extra_body={**(standby.extra_body or {}), 'enable_thinking': True}, timeout=20, max_retries=0)
 
 
 def may_fallback(error: Exception) -> bool:

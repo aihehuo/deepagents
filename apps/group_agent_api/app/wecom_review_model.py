@@ -22,7 +22,7 @@ def get_review_model(state: Any) -> Any:
     if isinstance(model, ChatOpenAI):
         updates = {"max_tokens": 3000, "temperature": 0}
         if os.getenv("GROUP_AGENT_PROVIDER", "deepseek").strip().lower() in {"qwen", "dashscope"}:
-            updates["extra_body"] = {**(model.extra_body or {}), "enable_thinking": False}
+            updates["extra_body"] = {**(model.extra_body or {}), "enable_thinking": True}
         model = model.model_copy(update=updates)
     state.wecom_review_model = model
     return model

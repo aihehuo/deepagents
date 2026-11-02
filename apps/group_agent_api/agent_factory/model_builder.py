@@ -277,7 +277,7 @@ def create_model(
 
 
 def create_planner_model() -> Any:
-    """Build the bounded, non-thinking client used only for intent planning.
+    """Build the bounded, thinking-enabled client used only for intent planning.
 
     The planner emits one small structured decision, not a user-facing answer.
     Keeping its output budget separate from the general/review clients prevents
@@ -296,7 +296,7 @@ def create_planner_model() -> Any:
     }:
         chat = chat.model_copy(
             update={
-                "extra_body": {**(chat.extra_body or {}), "enable_thinking": False},
+                "extra_body": {**(chat.extra_body or {}), "enable_thinking": True},
                 "max_tokens": 512,
                 "temperature": 0,
             }

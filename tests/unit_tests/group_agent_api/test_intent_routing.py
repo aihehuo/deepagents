@@ -81,7 +81,7 @@ def _query_plan_would_run(result: Any) -> bool:
     )
 
 
-def test_qwen_planner_uses_bounded_non_thinking_tool_decision(
+def test_qwen_planner_uses_bounded_thinking_tool_decision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Keep the production planner off the slow JSON-schema/thinking request path."""
@@ -96,9 +96,9 @@ def test_qwen_planner_uses_bounded_non_thinking_tool_decision(
     assert model.max_tokens == 512
     assert model.max_retries == 0
     assert model.temperature == 0
-    assert model.extra_body == {"enable_thinking": False}
+    assert model.extra_body == {"enable_thinking": True}
     payload = model._get_request_payload([HumanMessage(content="test")])
-    assert payload["extra_body"] == {"enable_thinking": False}
+    assert payload["extra_body"] == {"enable_thinking": True}
     assert payload["max_completion_tokens"] == 512
     structured = _structured(model)
     kwargs = structured.first.kwargs

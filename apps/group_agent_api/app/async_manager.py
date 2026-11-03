@@ -895,7 +895,7 @@ async def execute_async_run_core(
         from apps.group_agent_api.app.endpoints.ai_assistant import execute
         if side_effect_gate:
             side_effect_gate("assistant_generate")
-        result = await execute(shared)
+        result = await execute(shared, reply_only=True)
         if side_effect_gate:
             side_effect_gate("assistant_result")
         # Only the channel's visible draft is delivered; no profile/circle side effects.

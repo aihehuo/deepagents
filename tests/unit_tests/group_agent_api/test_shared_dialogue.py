@@ -20,7 +20,7 @@ def request_data():
                            [{"id": 8, "role": "user", "author_id": 12, "text": "愿意提供门店"}]}})
 
 
-def test_same_prompt_and_executor_with_only_delivery_adapted(monkeypatch):
+def test_wecom_executor_requests_only_the_visible_draft(monkeypatch):
     from apps.group_agent_api.app.endpoints import ai_assistant
     body = request_data()
     wecom = wecom_input(body)
@@ -30,7 +30,7 @@ def test_same_prompt_and_executor_with_only_delivery_adapted(monkeypatch):
     callback = AsyncMock()
     asyncio.run(execute_async_run_core(req=AsyncCallRequest.model_validate(body), session=None,
                                       state=None, tid="isolated", emit_callback=callback))
-    execute.assert_awaited_once_with(wecom)
+    execute.assert_awaited_once_with(wecom, reply_only=True)
     callback.assert_awaited_once_with("final", {"reply": "共同核心回复", "candidates": []})
 
 
@@ -65,3 +65,17 @@ def test_single_evidence_object_is_normalized_without_relaxing_quote_validation(
     result["profile_evidence"]["offer"]["quote"] = "伪造原话"
     with pytest.raises(ValueError, match="invalid_profile_evidence"):
         validate_result(payload, json.dumps(result))
+
+def test_wecom_executor_accepts_plain_text_without_json(monkeypatch):
+    from types import SimpleNamespace
+    from apps.group_agent_api.agent_factory import model_builder
+    from apps.group_agent_api.app import assistant_usage
+    from apps.group_agent_api.app.endpoints.ai_assistant import execute
+
+    monkeypatch.setattr(model_builder, "create_model", lambda **kwargs: object())
+    invoke = AsyncMock(return_value=SimpleNamespace(content="  可以先确认对接条件。  "))
+    monkeypatch.setattr(assistant_usage, "invoke", invoke)
+    assert asyncio.run(execute(wecom_input(request_data()), reply_only=True)) == {
+        "reply": "可以先确认对接条件。"
+    }
+    assert "只输出纯文本回复正文" in invoke.await_args.args[1][0].content

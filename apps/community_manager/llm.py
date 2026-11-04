@@ -187,7 +187,14 @@ class RoutedModel:
                 if remaining <= 0:
                     raise TimeoutError("model_deadline")
                 timeout = primary_timeout(remaining, self.node) if attempt == 1 else remaining
-                output = model.invoke(messages, **{**kwargs, "timeout": timeout})
+                options = {**kwargs, "timeout": timeout}
+                if role == "standby" and (usage_node or self.node) in {"customer_assessment", "manager_guidance"}:
+                    options["extra_body"] = {
+                        **(getattr(model, "extra_body", None) or {}),
+                        **(options.get("extra_body") or {}),
+                        "enable_thinking": False,
+                    }
+                output = model.invoke(messages, **options)
             except Exception as error:
                 emit({**event, "status": "failed", "usage_status": "unknown",
                       "duration_ms": int((time.monotonic() - started) * 1000),

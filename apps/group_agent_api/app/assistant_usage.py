@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable
 
 Sink = Callable[[str, dict[str, Any]], Awaitable[bool | None]]
 sink: ContextVar[Sink | None] = ContextVar('assistant_usage_sink', default=None)
+endpoint_role: ContextVar[str] = ContextVar('assistant_endpoint_role', default='unknown')
 
 
 def counters(output: Any) -> dict[str, Any]:
@@ -48,10 +49,10 @@ async def invoke(model: Any, messages: list[Any], *, operation: str, timeout: fl
     from apps.group_agent_api.app.assistant_model_fallback import primary_client, may_fallback
     primary = primary_client(model)
     if primary is None:
-        return await _invoke_once(model, messages, operation=operation, timeout=timeout)
+        return await _invoke_routed(model, messages, operation=operation, timeout=timeout, role="standby")
     started = time.monotonic()
     try:
-        return await _invoke_once(primary, messages, operation=operation, timeout=min(60 if operation == 'match' else 40, timeout))
+        return await _invoke_routed(primary, messages, operation=operation, timeout=min(60 if operation == 'match' else 40, timeout), role="primary")
     except Exception as error:
         if not may_fallback(error):
             raise
@@ -59,7 +60,24 @@ async def invoke(model: Any, messages: list[Any], *, operation: str, timeout: fl
     remaining = timeout - (time.monotonic() - started)
     if remaining <= 0:
         raise TimeoutError('assistant_model_deadline')
-    return await _invoke_once(model, messages, operation=operation, timeout=remaining)
+    return await _invoke_routed(model, messages, operation=operation, timeout=remaining, role="standby")
+
+
+async def _invoke_routed(model: Any, messages: list[Any], *, operation: str, timeout: float, role: str) -> Any:
+    """Expose exact route to a sandbox observer without changing production event fields.
+
+    Args:
+        model: The selected route client.
+        messages: Model input, never stored by the observer.
+        operation: Existing task kind.
+        timeout: Remaining deadline.
+        role: Actual route selected by invoke.
+    """
+    token = endpoint_role.set(role)
+    try:
+        return await _invoke_once(model, messages, operation=operation, timeout=timeout)
+    finally:
+        endpoint_role.reset(token)
 
 
 async def _invoke_once(model: Any, messages: list[Any], *, operation: str, timeout: float) -> Any:

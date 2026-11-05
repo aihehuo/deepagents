@@ -65,6 +65,11 @@ def create_app() -> FastAPI:
         assert _state is not None
         return await call_async.call_async(req, _state, request)
 
+    @app_inst.post("/internal/assistant_prompt_preview")
+    async def assistant_prompt_preview_endpoint(request: Request) -> dict[str, object]:
+        from apps.group_agent_api.app.endpoints.assistant_prompt_preview import preview
+        return await preview(request)
+
     @app_inst.post("/wecom/service_journey")
     async def service_journey_endpoint(request: Request) -> dict[str, object]:
         from apps.group_agent_api.app.endpoints.service_journey import refresh

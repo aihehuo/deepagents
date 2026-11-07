@@ -216,12 +216,18 @@ class BackpressureDecision:
 class BackpressureController:
     """Atomic Redis quota check+reserve with TTL safety."""
 
-    def __init__(self, client: Redis, config: DurableQueueConfig) -> None:
+    def __init__(self, client: Redis, config: DurableQueueConfig, *, lane: str = "") -> None:
         self._r = client
         self._cfg = config
+        self._lane = lane
+
+    def for_lane(self, lane: str) -> BackpressureController:
+        if lane == "match" and self._cfg.match_celery_queue:
+            return BackpressureController(self._r, self._cfg, lane=lane)
+        return self
 
     def _k(self, *parts: str) -> str:
-        return self._cfg.key("metrics", *parts)
+        return self._cfg.key("metrics_match" if self._lane == "match" else "metrics", *parts)
 
     def check_and_reserve(
         self,
@@ -451,6 +457,9 @@ class BackpressureController:
             ExecutionStatus.RUNNING,
         ):
             for rec in store.scan_status(st, count=200):
+                lane = rec.queue_lane if self._cfg.match_celery_queue else ""
+                if lane != self._lane:
+                    continue
                 if rec.status in queued_statuses:
                     desired[self._k("queued_global")] += 1
                     if rec.user_id_digest:
@@ -476,7 +485,7 @@ class BackpressureController:
             )
             return False
 
-        pattern = self._cfg.key("metrics", "*")
+        pattern = self._k("*")
         existing_keys: list[str] = []
         try:
             for key in self._r.scan_iter(match=pattern, count=500):

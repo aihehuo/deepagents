@@ -109,6 +109,34 @@ services:
       - aihehuo-net
     restart: unless-stopped
 
+  group-agent-match-worker:
+    image: ${GROUP_AGENT_WORKER_IMAGE:?GROUP_AGENT_WORKER_IMAGE is required}
+    container_name: group-agent-match-worker
+    user: "1000:1000"
+    env_file:
+      - ./group-agent-worker.docker.env
+    environment:
+      HOME: /home/celery
+      GROUP_AGENT_WORKER_BEAT: "0"
+      GROUP_AGENT_WORKER_INSTANCE_ID: ga-match-worker-1
+    profiles: ["match-queue"]
+    command:
+      - celery
+      - -A
+      - apps.group_agent_worker.celery_app
+      - worker
+      - --loglevel=info
+      - --pool=prefork
+      - --concurrency=1
+      - --queues=${GROUP_AGENT_MATCH_CELERY_QUEUE:-group_agent.matches}
+    volumes:
+      - ./data/group-agent-worker:/home/celery/.deepagents/group_agent_api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - aihehuo-net
+    restart: unless-stopped
+
   group-agent-beat:
     image: ${GROUP_AGENT_WORKER_IMAGE:?GROUP_AGENT_WORKER_IMAGE is required}
     container_name: group-agent-beat

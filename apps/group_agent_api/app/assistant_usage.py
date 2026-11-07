@@ -13,6 +13,10 @@ sink: ContextVar[Sink | None] = ContextVar('assistant_usage_sink', default=None)
 endpoint_role: ContextVar[str] = ContextVar('assistant_endpoint_role', default='unknown')
 
 
+class EmptyMatchOutput(ValueError):
+    """A matching route produced no usable response text."""
+
+
 def counters(output: Any) -> dict[str, Any]:
     """Normalize LangChain metadata without retaining prompts or model output."""
     meta = getattr(output, 'response_metadata', None) or {}
@@ -54,7 +58,7 @@ async def invoke(model: Any, messages: list[Any], *, operation: str, timeout: fl
     try:
         return await _invoke_routed(primary, messages, operation=operation, timeout=min(60 if operation == 'match' else 40, timeout), role="primary")
     except Exception as error:
-        if not may_fallback(error):
+        if not isinstance(error, EmptyMatchOutput) and not may_fallback(error):
             raise
         logging.getLogger(__name__).warning('assistant_primary_fallback class=%s', type(error).__name__)
     remaining = timeout - (time.monotonic() - started)
@@ -75,7 +79,18 @@ async def _invoke_routed(model: Any, messages: list[Any], *, operation: str, tim
     """
     token = endpoint_role.set(role)
     try:
-        return await _invoke_once(model, messages, operation=operation, timeout=timeout)
+        if operation == "match" and os.getenv("GROUP_AGENT_PROVIDER", "").lower() in {"qwen", "dashscope"}:
+            from langchain_openai import ChatOpenAI
+
+            if isinstance(model, ChatOpenAI):
+                updates: dict[str, Any] = {"max_tokens": max(model.max_tokens or 0, 4096)}
+                if role == "standby":
+                    updates["extra_body"] = {**(model.extra_body or {}), "enable_thinking": False}
+                model = model.model_copy(update=updates)
+        output = await _invoke_once(model, messages, operation=operation, timeout=timeout)
+        if operation == "match" and isinstance(getattr(output, "content", None), str) and not output.content.strip():
+            raise EmptyMatchOutput("matching_model_empty_output")
+        return output
     finally:
         endpoint_role.reset(token)
 

@@ -677,8 +677,9 @@ def test_broker_delivery_has_no_secrets() -> None:
     assert "unionid" not in raw
 
 
+@pytest.mark.parametrize("kind", ["conversation", "match"])
 def test_assistant_v5_uses_shared_admission_crypto_and_worker_identity(
-    store: ExecutionStore, cfg: DurableQueueConfig,
+    store: ExecutionStore, cfg: DurableQueueConfig, kind: str,
 ) -> None:
     """A real Redis lease roundtrip must not enter a legacy profile epoch."""
     import json
@@ -688,6 +689,17 @@ def test_assistant_v5_uses_shared_admission_crypto_and_worker_identity(
     from apps.group_agent_worker.tasks import _rebuild_session
     vector = json.loads((Path(__file__).parent / 'fixtures' / 'ai_assistant' / 'v5-ruby.json').read_text())
     req = AsyncCallRequest.model_validate_json(vector['body'])
+    if kind == "match":
+        from dataclasses import replace
+        from apps.group_agent_api.app.assistant_protocol import fingerprint
+        cfg = replace(cfg, match_celery_queue="test.matches")
+        req = req.model_copy(update={
+            "message": "match",
+            "assistant_input": {**req.assistant_input, "kind": "match", "messages": [],
+                                "circles": [{"id": 2, "version": 1, "owner_id": int(req.user_id),
+                                             "kind": "need", "title": "测试", "description": "测试"}]}
+        })
+        req = req.model_copy(update={"request_fingerprint": fingerprint(req.model_dump())})
     uid = req.user_id
     session = TrustedSession(principal=SessionPrincipal(user_id=uid, unionid=None, user_token=None, source='signed_oauth_principal'),
         membership=MembershipResult(tier=CapabilityTier.unknown, source='internal'), group_id='global', group_token=None)
@@ -700,6 +712,7 @@ def test_assistant_v5_uses_shared_admission_crypto_and_worker_identity(
     assert not hit.created and len(deliveries) == 1
     record = store.get(req.run_id)
     assert record and record.request_schema_version == 5
+    assert record.queue_lane == deliveries[0].queue_lane == ("match" if kind == "match" else "")
     assert record.conversation_id == lease_scope(req) == 'ai_assistant_run_' + req.run_id
     envelope = decrypt_envelope(record.payload_ciphertext,keys=cfg.payload_keys,run_id=record.run_id,idempotency_key=record.idempotency_key,request_fingerprint=record.request_fingerprint,schema_version=5)
     restored, frozen_session, frozen_tid = _rebuild_session(envelope)
@@ -708,3 +721,46 @@ def test_assistant_v5_uses_shared_admission_crypto_and_worker_identity(
     claim = store.claim_lease(run_id=req.run_id,conversation_id=record.conversation_id,owner='assistant-test-worker')
     assert claim.kind == 'claimed'
     assert 'assistant_epoch' in store.epoch_key_for_record(record,conversation_id=record.conversation_id)
+
+
+def test_matching_backlog_does_not_fill_dialogue_quota_and_recovery_keeps_lane(
+    cfg: DurableQueueConfig, session: TrustedSession,
+) -> None:
+    from dataclasses import replace
+    from apps.group_agent_api.execution.broker import enqueue_delivery
+    from apps.group_agent_api.execution.recovery import run_recovery_once
+
+    suffix = uuid.uuid4().hex
+    cfg = replace(cfg, redis_prefix=cfg.redis_prefix + ":" + suffix, celery_queue="test.dialogue." + suffix,
+                  match_celery_queue="test.match." + suffix, queue_max_depth=1)
+    redis = Redis.from_url(REDIS_URL, decode_responses=True)
+    store = ExecutionStore(redis, cfg)
+    bp = BackpressureController(redis, cfg)
+    pending = ExecutionRecord(
+        run_id="match_" + suffix, idempotency_key="idem_" + suffix,
+        request_schema_version=5, request_fingerprint=_fp(suffix),
+        queue_schema_version=5, status=ExecutionStatus.ACCEPTED,
+        created_at=store.redis_time() - 120, queue_lane="match", conversation_id="match-scope",
+    )
+    try:
+        assert store.create_or_get(record=pending)[0] == "created"
+        assert bp.for_lane("match").check_and_reserve(
+            user_id="u1", group_id="g1", conversation_id="match-scope", provider="default",
+        ).allowed
+        assert not bp.for_lane("match").check_and_reserve(
+            user_id="u2", group_id="g1", conversation_id="another-match", provider="default",
+        ).allowed
+        report = run_recovery_once(store, cfg, lambda delivery: enqueue_delivery(cfg, delivery), backpressure=bp)
+        assert report.accepted_requeued == 1
+        assert redis.llen(cfg.match_celery_queue) == 1
+        assert redis.llen(cfg.celery_queue) == 0
+        result = admit_durable_async_call(
+            req=_req(run_id="chat_" + suffix, idempotency_key="chat_idem_" + suffix),
+            session=session, thread_id="c1", store=store, config=cfg, backpressure=bp,
+            enqueue=lambda delivery: enqueue_delivery(cfg, delivery),
+        )
+        assert result.response.accepted
+        assert redis.llen(cfg.celery_queue) == 1
+        assert redis.llen(cfg.match_celery_queue) == 1
+    finally:
+        redis.delete(cfg.celery_queue, cfg.match_celery_queue)

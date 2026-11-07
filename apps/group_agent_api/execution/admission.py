@@ -396,6 +396,9 @@ def admit_durable_async_call(
             409, "run_binding_conflict", "run_id bound to different idempotency_key"
         )
 
+    queue_lane = "match" if schema == 5 and req.message == "match" else ""
+    if config.match_celery_queue and queue_lane:
+        backpressure = backpressure.for_lane(queue_lane)
     bp = backpressure.check_and_reserve(
         user_id=session.principal.user_id,
         group_id=session.group_id,
@@ -453,6 +456,7 @@ def admit_durable_async_call(
             group_id_digest=digest_id(session.group_id),
             provider=provider,
             input_kind=req.input_kind,
+            queue_lane=queue_lane,
             mode_binding=(
                 v4_queue_binding(req)
                 if schema == 4
@@ -587,6 +591,7 @@ def _enqueue_and_ack(
         idempotency_key=loaded.idempotency_key,
         request_fingerprint=loaded.request_fingerprint,
         delivery_id=str(uuid.uuid4()),
+        queue_lane=loaded.queue_lane,
     )
     # FIX3: admission shares publish ownership with recovery.
     ownership = store.claim_publish_delivery(

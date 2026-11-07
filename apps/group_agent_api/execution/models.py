@@ -109,6 +109,7 @@ class ExecutionRecord:
     group_id_digest: str | None = None
     provider: str | None = None
     input_kind: str | None = None
+    queue_lane: str = ""
     terminal_fence: str | None = None
     fencing_token: int = 0
     replay_audit: list[dict[str, str]] = field(default_factory=list)
@@ -146,6 +147,7 @@ class ExecutionRecord:
             "group_id_digest": self.group_id_digest,
             "provider": self.provider,
             "input_kind": self.input_kind,
+            "queue_lane": self.queue_lane or None,
             "terminal_fence": self.terminal_fence,
             "routing_snapshot_hash": self.routing_snapshot_hash,
             "routing_snapshot_created_at": self.routing_snapshot_created_at,
@@ -321,6 +323,7 @@ class ExecutionRecord:
             group_id_digest=(str(data["group_id_digest"]) if data.get("group_id_digest") else None),
             provider=(str(data["provider"]) if data.get("provider") else None),
             input_kind=(str(data["input_kind"]) if data.get("input_kind") else None),
+            queue_lane=str(data.get("queue_lane") or ""),
             terminal_fence=(str(data["terminal_fence"]) if data.get("terminal_fence") else None),
             fencing_token=_i("fencing_token", 0),
             replay_audit=replay_audit,
@@ -358,6 +361,7 @@ class BrokerDeliveryRef:
     idempotency_key: str
     request_fingerprint: str
     delivery_id: str
+    queue_lane: str = ""  # Publisher-only routing; not part of the broker wire format.
 
     def to_dict(self) -> dict[str, Any]:
         return {

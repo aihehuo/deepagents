@@ -94,6 +94,7 @@ class DurableQueueConfig:
     terminal_ttl_s: int
     heartbeat_fail_threshold: int
     worker_instance_id: str
+    match_celery_queue: str = ""
 
     @property
     def current_payload_key(self) -> bytes:
@@ -199,6 +200,10 @@ def load_durable_queue_config(*, require_enabled: bool = False) -> DurableQueueC
     if not worker_instance_id:
         raise RuntimeError("GROUP_AGENT_WORKER_INSTANCE_ID must not be empty")
 
+    match_queue = os.environ.get("GROUP_AGENT_MATCH_CELERY_QUEUE", "").strip()
+    if match_queue and match_queue in {celery_queue, dlq_queue}:
+        raise RuntimeError("GROUP_AGENT_MATCH_CELERY_QUEUE must be distinct")
+
     return DurableQueueConfig(
         redis_url=redis_url,
         redis_prefix=redis_prefix,
@@ -224,6 +229,7 @@ def load_durable_queue_config(*, require_enabled: bool = False) -> DurableQueueC
         terminal_ttl_s=_env_int("GROUP_AGENT_EXEC_TERMINAL_TTL_S", 7 * 24 * 3600),
         heartbeat_fail_threshold=_env_int("GROUP_AGENT_HEARTBEAT_FAIL_THRESHOLD", 3),
         worker_instance_id=worker_instance_id,
+        match_celery_queue=match_queue,
     )
 
 

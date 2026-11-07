@@ -12,6 +12,7 @@ from apps.group_agent_api.execution.models import RetryClass
 _PERMANENT_CODES = frozenset(
     {
         "schema_invalid",
+        "matching_model_empty_output",
         "fingerprint_conflict",
         "binding_conflict",
         "idempotency_conflict",

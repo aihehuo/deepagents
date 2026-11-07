@@ -129,6 +129,7 @@ class DlqAdmin:
             idempotency_key=record.idempotency_key,
             request_fingerprint=record.request_fingerprint,
             delivery_id=rid,
+            queue_lane=record.queue_lane,
         )
         self._enqueue(delivery)
         self._store.mark_queued(

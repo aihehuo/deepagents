@@ -24,11 +24,12 @@ def enqueue_delivery(config: DurableQueueConfig, delivery: BrokerDeliveryRef) ->
 
     app = get_celery_app(config)
     # send_task returns AsyncResult; failure to connect raises.
+    queue = config.match_celery_queue if delivery.queue_lane == "match" and config.match_celery_queue else config.celery_queue
     result = app.send_task(
         _TASK_NAME,
         args=[],
         kwargs={"delivery": delivery.to_dict()},
-        queue=config.celery_queue,
+        queue=queue,
         ignore_result=True,
     )
     # Touch .id to ensure broker handoff completed for Redis transport.

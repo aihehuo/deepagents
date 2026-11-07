@@ -69,6 +69,7 @@ def _publish_then_queued(
         idempotency_key=idempotency_key,
         request_fingerprint=request_fingerprint,
         delivery_id=delivery_id,
+        queue_lane=record.queue_lane if record is not None else "",
     )
     try:
         enqueue(delivery)
@@ -145,7 +146,8 @@ def run_recovery_once(
                 report.lease_expired += 1
                 if backpressure is not None and hasattr(backpressure, "on_lease_expired"):
                     try:
-                        backpressure.on_lease_expired(  # type: ignore[attr-defined]
+                        lane_bp = backpressure.for_lane(record.queue_lane) if config.match_celery_queue else backpressure  # type: ignore[attr-defined]
+                        lane_bp.on_lease_expired(  # type: ignore[attr-defined]
                             conversation_id=record.conversation_id or record.run_id,
                             provider=(record.provider or "default"),
                             user_id_digest=record.user_id_digest or "",
@@ -206,6 +208,8 @@ def run_recovery_once(
     if backpressure is not None and hasattr(backpressure, "reconcile_from_ledger"):
         try:
             backpressure.reconcile_from_ledger(store)  # type: ignore[attr-defined]
+            if config.match_celery_queue:
+                backpressure.for_lane("match").reconcile_from_ledger(store)  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001
             report.errors += 1
 

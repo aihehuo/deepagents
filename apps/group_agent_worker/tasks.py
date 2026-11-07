@@ -15,6 +15,7 @@ from celery import shared_task
 from celery.exceptions import Reject
 from fastapi import HTTPException
 
+from apps.group_agent_api.app.assistant_usage import EmptyMatchOutput
 from apps.group_agent_api.agent_factory.capability import (
     CapabilityTier,
     SessionCapabilities,
@@ -156,6 +157,7 @@ _CALLBACK_ERROR_CODES = frozenset(
         "intent_classifier_invalid",
         "cancelled",
         "agent_error",
+        "matching_model_empty_output",
     }
 )
 
@@ -313,6 +315,7 @@ async def _run_attempt(
     req: AsyncCallRequest,
     session: TrustedSession,
     tid: str,
+    queue_lane: str = "",
 ) -> str:
     """Execute one attempt; returns terminal status value or retry/lost_lease."""
     rt = get_worker_runtime()
@@ -320,6 +323,8 @@ async def _run_attempt(
     state = rt["state"]
     cfg = rt["config"]
     bp = rt["backpressure"]
+    if queue_lane and cfg.match_celery_queue:
+        bp = bp.for_lane(queue_lane)
     provider = (os.environ.get("GROUP_AGENT_PROVIDER") or "default").strip() or "default"
     operational_scope = lease_scope(req)
 
@@ -527,6 +532,8 @@ async def _run_attempt(
         outcome = terminal_status.value
     except CallbackProtocolError as exc:
         error_code = exc.code
+    except EmptyMatchOutput:
+        error_code = "matching_model_empty_output"
     except (TimeoutError, SoftTimeLimitExceeded):
         error_code = error_code or "provider_timeout"
     except VenueEventExecutorUnavailable:
@@ -796,6 +803,7 @@ def process_run(self, delivery: dict[str, Any]) -> dict[str, str]:
                 req=req,
                 session=session,
                 tid=tid,
+                queue_lane=record.queue_lane,
             )
         )
     return {"status": result, "run_id": ref.run_id, "attempt_id": claim.attempt_id}

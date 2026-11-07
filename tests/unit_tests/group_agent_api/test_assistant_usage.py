@@ -111,3 +111,26 @@ async def test_overflow_receipt_is_incomplete_instead_of_partially_chargeable():
     for n in range(17):
         await receipt.emit('progress', {'supplier_usage': {'call_id': str(n), 'status': 'completed'}})
     assert receipt.manifest() == []
+
+async def test_empty_matching_primary_uses_standby_once_and_terminal_empty_is_not_retried(monkeypatch):
+    from unittest.mock import AsyncMock
+    from apps.group_agent_api.app import assistant_model_fallback
+    from apps.group_agent_api.app.assistant_usage import EmptyMatchOutput
+    from apps.group_agent_api.execution.retry import classify_error
+    from apps.group_agent_api.execution.models import RetryClass
+
+    primary = AsyncMock()
+    standby = AsyncMock()
+    primary.ainvoke.return_value = SimpleNamespace(content='  ')
+    standby.ainvoke.return_value = SimpleNamespace(content='{"candidates":[]}')
+    monkeypatch.setattr(assistant_model_fallback, "primary_client", lambda _: primary)
+
+    result = await invoke(standby, [], operation="match", timeout=2)
+    assert result.content == '{"candidates":[]}'
+    assert primary.ainvoke.await_count == standby.ainvoke.await_count == 1
+
+    standby.ainvoke.return_value = SimpleNamespace(content='')
+    with pytest.raises(EmptyMatchOutput, match="matching_model_empty_output"):
+        await invoke(standby, [], operation="match", timeout=2)
+    assert primary.ainvoke.await_count == standby.ainvoke.await_count == 2
+    assert classify_error("matching_model_empty_output") == RetryClass.PERMANENT
